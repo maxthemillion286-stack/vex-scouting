@@ -522,8 +522,15 @@
 
       <div class="input-wrap select-wrap" style="min-width:200px;" id="stateWrap" hidden>
         <span class="input-label">STATE</span>
-        <select id="stateSelect">
+        <select id="stateSelect" onchange="loadSubregions()">
           <option value="">All US states</option>
+        </select>
+      </div>
+
+      <div class="input-wrap select-wrap" style="min-width:200px;" id="subregionWrap" hidden>
+        <span class="input-label">VEX REGION</span>
+        <select id="subregionSelect">
+          <option value="">All</option>
         </select>
       </div>
 
@@ -709,6 +716,11 @@ async function loadSeasonsFromAPI() {
 function onRegionChange() {
   const region = document.getElementById('regionSelect').value;
   document.getElementById('stateWrap').hidden = (region !== 'USA');
+  // Reset state and subregion selectors when region changes
+  if (region !== 'USA') {
+    document.getElementById('subregionWrap').hidden = true;
+    document.getElementById('stateSelect').value = '';
+  }
 }
 
 // ── SKILLS RANKINGS ───────────────────────────
@@ -727,6 +739,7 @@ async function loadSkillsRankings() {
   const seasonId = document.getElementById('skillsSeasonSelect').value;
   const region = document.getElementById('regionSelect').value;
   const state = document.getElementById('stateSelect').value;
+  const subregion = document.getElementById('subregionSelect')?.value || '';
 
   if (!seasonId) {
     showError('⚠ Please select a season first.');
@@ -748,106 +761,115 @@ async function loadSkillsRankings() {
   const loadingEl = document.getElementById('skillsLoading');
   const loadingText = document.getElementById('skillsLoadingText');
   loadingEl.classList.add('active');
-  loadingText.textContent = 'LOADING SKILLS RANKINGS...';
+  loadingText.textContent = 'FETCHING EVENTS...';
 
   try {
-    // Use the legacy /api/seasons/{id}/skills endpoint
-    // This endpoint is pre-ranked and supports a `region` query param for state filtering
-    const allItems = [];
-    let page = 1;
-    const maxPages = 30; // cap at 30 pages = 750 teams max for performance
+    // Step 1: Get all events for the season, filtered by region/country
+    // The API uses "region" to mean state-level (e.g. "California") OR sub-region (e.g. "California - Region 3")
+    const eventParams = { 'season[]': [seasonId] };
+    if (region === 'USA') eventParams['country[]'] = ['United States'];
 
-    while (page <= maxPages) {
-      const params = new URLSearchParams();
-      params.set('page', String(page));
-      params.set('per_page', '50');
-      if (state) params.set('region', state);
+    const events = await apiGet('/events', eventParams);
 
-      const path = `legacy:/seasons/${seasonId}/skills?${params.toString()}`;
-      loadingText.textContent = `LOADING PAGE ${page}...`;
-
-      const res = await fetch(`${BASE}?path=${encodeURIComponent(path)}`);
-      if (!res.ok) {
-        if (page === 1) throw new Error(`API error ${res.status}`);
-        break; // we got at least one page, stop on later page errors
-      }
-
-      const data = await res.json();
-      const items = data.data || [];
-      if (!items.length) break;
-
-      allItems.push(...items);
-
-      // Check if there are more pages
-      const meta = data.meta || {};
-      if (!meta.next_page_url) break;
-      if (meta.last_page && page >= meta.last_page) break;
-
-      page++;
-    }
-
-    if (!allItems.length) {
-      wrap.innerHTML = '<div style="text-align:center;padding:40px;font-family:var(--mono);color:var(--text-muted);">No skills rankings found for this filter.</div>';
+    if (!events.length) {
+      wrap.innerHTML = '<div style="text-align:center;padding:40px;font-family:var(--mono);color:var(--text-muted);">No events found.</div>';
       loadingEl.classList.remove('active');
       return;
     }
 
-    loadingText.textContent = 'PROCESSING DATA...';
-
-    // The legacy endpoint returns objects with shape:
-    // { rank, type, season, division_id, event, team: {id, team, team_name, ...}, scores: {driver, programming, score} }
-    // Aggregate by team_id since each team can have multiple skills entries (driver and programming separately)
-    const teamMap = {};
-    for (const item of allItems) {
-      const team = item.team || {};
-      const id = team.id;
-      if (!id) continue;
-
-      if (!teamMap[id]) {
-        teamMap[id] = {
-          id: id,
-          number: team.team || team.number || '?',
-          team_name: team.team_name || '',
-          location: {
-            city: team.city || '',
-            region: team.region || '',
-            country: team.country || ''
-          },
-          driver: 0,
-          programming: 0,
-          combined: 0
-        };
-      }
-
-      const scores = item.scores || {};
-      if (typeof scores.driver === 'number') {
-        teamMap[id].driver = Math.max(teamMap[id].driver, scores.driver);
-      }
-      if (typeof scores.programming === 'number') {
-        teamMap[id].programming = Math.max(teamMap[id].programming, scores.programming);
-      }
-      // The "score" field is usually the combined score
-      if (typeof scores.score === 'number') {
-        teamMap[id].combined = Math.max(teamMap[id].combined, scores.score);
-      }
-    }
-
-    // Recalculate combined as max(combined_from_api, driver+programming)
-    let teamArr = Object.values(teamMap).map(t => ({
-      ...t,
-      combined: Math.max(t.combined, t.driver + t.programming)
-    })).filter(t => t.combined > 0);
-
-    // Apply USA filter (legacy endpoint doesn't support country directly)
-    if (region === 'USA' && !state) {
-      teamArr = teamArr.filter(t => {
-        const country = (t.location.country || '').toLowerCase();
-        return country === 'united states' || country === 'usa' || country === 'us';
+    // Step 2: Filter events by state/subregion client-side
+    let filteredEvents = events;
+    if (subregion) {
+      // Exact match for "California - Region 3" style
+      filteredEvents = events.filter(ev => {
+        const r = (ev.location?.region || '').trim();
+        return r === subregion;
+      });
+    } else if (state) {
+      // Match any region that starts with the state name (e.g. "California" or "California - Region 3")
+      filteredEvents = events.filter(ev => {
+        const r = (ev.location?.region || '').trim();
+        return r === state || r.startsWith(state + ' ') || r.startsWith(state + ',') || r.startsWith(state + '-');
       });
     }
 
-    // Sort highest to lowest by combined
-    teamArr.sort((a, b) => b.combined - a.combined);
+    if (!filteredEvents.length) {
+      wrap.innerHTML = '<div style="text-align:center;padding:40px;font-family:var(--mono);color:var(--text-muted);">No events found for this filter.</div>';
+      loadingEl.classList.remove('active');
+      return;
+    }
+
+    loadingText.textContent = `PROCESSING ${filteredEvents.length} EVENTS...`;
+
+    // Step 3: Fetch skills from each event in parallel batches
+    const teamScores = {};
+    const BATCH_SIZE = 6;
+
+    for (let i = 0; i < filteredEvents.length; i += BATCH_SIZE) {
+      const batch = filteredEvents.slice(i, i + BATCH_SIZE);
+      loadingText.textContent = `EVENTS ${i + 1}-${Math.min(i + BATCH_SIZE, filteredEvents.length)} OF ${filteredEvents.length}...`;
+
+      const eventSkillsArrays = await Promise.all(
+        batch.map(ev => apiGet(`/events/${ev.id}/skills`).catch(() => []))
+      );
+
+      for (const skillsArr of eventSkillsArrays) {
+        for (const s of skillsArr) {
+          const t = s.team;
+          if (!t || !t.id) continue;
+          const id = t.id;
+
+          if (!teamScores[id]) {
+            teamScores[id] = {
+              id: id,
+              number: t.name || '?',
+              team_name: '',
+              location: {},
+              driver: 0,
+              programming: 0
+            };
+          }
+          if (s.type === 'driver') {
+            teamScores[id].driver = Math.max(teamScores[id].driver, s.score || 0);
+          } else if (s.type === 'programming') {
+            teamScores[id].programming = Math.max(teamScores[id].programming, s.score || 0);
+          }
+        }
+      }
+    }
+
+    // Step 4: Build sorted team array
+    const teamArr = Object.values(teamScores)
+      .map(t => ({ ...t, combined: t.driver + t.programming }))
+      .filter(t => t.combined > 0)
+      .sort((a, b) => b.combined - a.combined);
+
+    if (teamArr.length === 0) {
+      wrap.innerHTML = '<div style="text-align:center;padding:40px;font-family:var(--mono);color:var(--text-muted);">No skills scores recorded yet for this filter.</div>';
+      loadingEl.classList.remove('active');
+      return;
+    }
+
+    // Step 5: Fetch team details for top 90 (3 pages worth) for names and locations
+    loadingText.textContent = 'LOADING TEAM DETAILS...';
+    const top = teamArr.slice(0, 90);
+    const detailBatchSize = 8;
+    for (let i = 0; i < top.length; i += detailBatchSize) {
+      const slice = top.slice(i, i + detailBatchSize);
+      await Promise.all(slice.map(async t => {
+        try {
+          // /teams/{id} returns single team object (not wrapped in data array via apiGet)
+          const path = `/teams/${t.id}`;
+          const res = await fetch(`${BASE}?path=${encodeURIComponent(path)}`);
+          if (!res.ok) return;
+          const td = await res.json();
+          if (td) {
+            t.team_name = td.team_name || '';
+            t.location = td.location || {};
+          }
+        } catch(e) {}
+      }));
+    }
 
     skillsState.teams = teamArr;
     skillsState.currentPage = 0;
@@ -862,6 +884,63 @@ async function loadSkillsRankings() {
 }
 
 async function loadMoreSkills() { /* no-op — all data loaded upfront */ }
+
+// ── SUB-REGIONS ──────────────────────────────
+// When a state is selected, fetch all events in that state to discover sub-regions
+async function loadSubregions() {
+  const state = document.getElementById('stateSelect').value;
+  const seasonId = document.getElementById('skillsSeasonSelect').value;
+  const subWrap = document.getElementById('subregionWrap');
+  const subSel = document.getElementById('subregionSelect');
+
+  if (!state || !seasonId) {
+    subWrap.hidden = true;
+    return;
+  }
+
+  subSel.innerHTML = '<option value="">Loading regions...</option>';
+  subWrap.hidden = false;
+
+  try {
+    // Fetch all events in this state and season to discover sub-regions
+    const events = await apiGet('/events', {
+      'season[]': [seasonId],
+      'country[]': ['United States']
+    });
+
+    // Extract unique region values that match this state
+    const subregionSet = new Set();
+    let hasStateLevel = false;
+    for (const ev of events) {
+      const r = (ev.location?.region || '').trim();
+      if (!r) continue;
+      if (r === state) {
+        hasStateLevel = true;
+      } else if (r.startsWith(state + ' ') || r.startsWith(state + ',') || r.startsWith(state + '-')) {
+        subregionSet.add(r);
+      }
+    }
+
+    const subregions = Array.from(subregionSet).sort();
+
+    subSel.innerHTML = '<option value="">All ' + state + '</option>';
+    if (subregions.length === 0) {
+      subWrap.hidden = true;
+      return;
+    }
+
+    subregions.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s;
+      opt.textContent = s;
+      subSel.appendChild(opt);
+    });
+
+  } catch(e) {
+    subWrap.hidden = true;
+    console.error('Failed to load subregions:', e);
+  }
+}
 
 function renderSkillsPage() {
   const wrap = document.getElementById('skillsTableWrap');
