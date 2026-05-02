@@ -316,8 +316,8 @@ window.onload = () => {
   const savedTheme = localStorage.getItem('vex_theme') || 'red';
   setTheme(savedTheme, false);
 
-  // Close theme dropdown on outside click
-  document.addEventListener('click', e => {
+  // Close theme dropdown on outside click — use mousedown so it fires before blur
+  document.addEventListener('mousedown', e => {
     if (!e.target.closest('.theme-switcher')) {
       document.getElementById('themeDropdown').classList.remove('open');
     }
@@ -336,7 +336,7 @@ function setTheme(name, save = true) {
   document.querySelectorAll('.theme-option').forEach(o => o.classList.remove('active'));
   const el = document.getElementById(`opt-${name}`);
   if (el) el.classList.add('active');
-  document.getElementById('themeDropdown').classList.remove('open');
+  setTimeout(() => document.getElementById('themeDropdown').classList.remove('open'), 50);
   if (save) localStorage.setItem('vex_theme', name);
 }
 
@@ -559,11 +559,20 @@ async function buildTeamCard(teamNumber, seasonId) {
     // AWP — try multiple field names
     if (myA.autonomous_win_point === true || myA.awp === true) awpCount++;
 
-    // Auton winner
+    // Auton winner — autonomous_winner field or fallback to wp difference
     const aw = match.autonomous_winner;
     if (aw && aw !== 'none' && aw !== '' && aw !== null && aw !== undefined) {
       autonPlayed++;
       if (aw.toLowerCase() === myColor) autonWins++;
+    } else {
+      // Fallback: if wp fields exist, 6wp usually means auton bonus was earned
+      const myWp  = myA.wp  ?? 0;
+      const oppWp = oppA.wp ?? 0;
+      if (myWp > 0 || oppWp > 0) {
+        autonPlayed++;
+        // Winning alliance typically gets more WP; if tied on score but different wp, auton was a factor
+        if (myWp >= oppWp && myScore >= oppScore) autonWins++;
+      }
     }
   }
 
