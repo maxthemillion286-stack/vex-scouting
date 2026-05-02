@@ -513,6 +513,13 @@ async function buildTeamCard(teamNumber, seasonId) {
   const matches = allMatches.filter(m => m.round !== 1);
   let wins = 0, losses = 0, ties = 0, awpCount = 0, autonWins = 0, autonPlayed = 0, scores = [];
 
+  // DEBUG - log first match to see structure
+  if (matches.length > 0) {
+    console.log('FIRST MATCH:', JSON.stringify(matches[0], null, 2));
+    console.log('ALLIANCES TYPE:', Array.isArray(matches[0].alliances) ? 'ARRAY' : typeof matches[0].alliances);
+    console.log('ALLIANCES VALUE:', matches[0].alliances);
+  }
+
   for (const match of matches) {
     const al = match.alliances;
     let redA = null, blueA = null;
