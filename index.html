@@ -330,9 +330,12 @@ function toggleThemeMenu() {
 }
 
 function setTheme(name, save = true) {
-  document.body.className = name === 'red' ? '' : `theme-${name}`;
+  document.body.classList.remove('theme-blue', 'theme-redblue');
+  if (name === 'blue') document.body.classList.add('theme-blue');
+  if (name === 'redblue') document.body.classList.add('theme-redblue');
   document.querySelectorAll('.theme-option').forEach(o => o.classList.remove('active'));
-  document.getElementById(`opt-${name}`)?.classList.add('active');
+  const el = document.getElementById(`opt-${name}`);
+  if (el) el.classList.add('active');
   document.getElementById('themeDropdown').classList.remove('open');
   if (save) localStorage.setItem('vex_theme', name);
 }
@@ -511,25 +514,32 @@ async function buildTeamCard(teamNumber, seasonId) {
   let wins = 0, losses = 0, ties = 0, awpCount = 0, autonWins = 0, autonPlayed = 0, scores = [];
 
   for (const match of matches) {
-    const alliances = match.alliances || [];
-    let myAlliance = null;
-    for (const a of alliances) {
-      if ((a.teams || []).some(t => t?.team?.id == teamId)) { myAlliance = a; break; }
+    const al = match.alliances;
+    let redA = null, blueA = null;
+    if (Array.isArray(al)) {
+      redA  = al.find(a => a.color === 'red')  || al[0];
+      blueA = al.find(a => a.color === 'blue') || al[1];
+    } else if (al && typeof al === 'object') {
+      redA = al.red || null; blueA = al.blue || null;
     }
-    if (!myAlliance) continue;
-    const oppAlliance = alliances.find(a => a !== myAlliance);
-    const myScore = myAlliance.score || 0;
-    const oppScore = oppAlliance?.score || 0;
+    if (!redA || !blueA) continue;
+    const inRed  = (redA.teams  || []).some(t => (t?.team?.id ?? t?.id) == teamId);
+    const inBlue = (blueA.teams || []).some(t => (t?.team?.id ?? t?.id) == teamId);
+    if (!inRed && !inBlue) continue;
+    const myA = inRed ? redA : blueA;
+    const oppA = inRed ? blueA : redA;
+    const myColor = inRed ? 'red' : 'blue';
+    const myScore = myA.score || 0;
+    const oppScore = oppA.score || 0;
     scores.push(myScore);
-    if (myAlliance.won === true) wins++;
-    else if (myScore === oppScore) ties++;
-    else losses++;
-    if (myAlliance.autonomous_win_point === true) awpCount++;
+    if (myScore > oppScore) wins++;
+    else if (myScore < oppScore) losses++;
+    else ties++;
+    if (myA.autonomous_win_point === true) awpCount++;
     const aw = match.autonomous_winner;
-    if (aw && aw !== 'none' && aw !== '') {
+    if (aw && aw !== 'none' && aw !== '' && aw !== null) {
       autonPlayed++;
-      if ((aw.toLowerCase() === 'red' && myAlliance.color === 'red') ||
-          (aw.toLowerCase() === 'blue' && myAlliance.color === 'blue')) autonWins++;
+      if (aw.toLowerCase() === myColor) autonWins++;
     }
   }
 
