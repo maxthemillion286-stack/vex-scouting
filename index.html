@@ -103,7 +103,7 @@
     --accent-glow: rgba(204,0,0,0.5);
     --bg: #fff5f5; --card: #ffe0e0; --card2: #ffc8c8; --border: #cc4444;
     --text: #220000; --text-dim: #770000; --text-muted: #aa3333;
-    --grad1: rgba(220,0,0,0.40); --grad2: rgba(180,0,0,0.20);
+    --grad1: rgba(220,0,0,0.65); --grad2: rgba(180,0,0,0.30);
   }
 
   /* LIGHT BLUE */
@@ -112,7 +112,7 @@
     --accent-glow: rgba(0,85,204,0.5);
     --bg: #f0f6ff; --card: #d8e6ff; --card2: #c0d4ff; --border: #4477cc;
     --text: #00102a; --text-dim: #003388; --text-muted: #335588;
-    --grad1: rgba(0,90,220,0.40); --grad2: rgba(0,60,180,0.20);
+    --grad1: rgba(0,90,220,0.65); --grad2: rgba(0,60,180,0.30);
   }
 
   /* LIGHT GREEN */
@@ -121,7 +121,7 @@
     --accent-glow: rgba(0,136,51,0.5);
     --bg: #f0faf0; --card: #d8f0d8; --card2: #b8e8c0; --border: #44aa66;
     --text: #002a10; --text-dim: #006622; --text-muted: #336644;
-    --grad1: rgba(0,150,50,0.40); --grad2: rgba(0,120,40,0.20);
+    --grad1: rgba(0,150,50,0.65); --grad2: rgba(0,120,40,0.30);
   }
 
   /* LIGHT PURPLE */
@@ -130,7 +130,7 @@
     --accent-glow: rgba(119,0,187,0.5);
     --bg: #f8f0ff; --card: #ecd8ff; --card2: #ddc0ff; --border: #8844cc;
     --text: #150028; --text-dim: #550088; --text-muted: #663388;
-    --grad1: rgba(130,0,200,0.40); --grad2: rgba(100,0,160,0.20);
+    --grad1: rgba(130,0,200,0.65); --grad2: rgba(100,0,160,0.30);
   }
 
   /* LIGHT ORANGE */
@@ -139,7 +139,7 @@
     --accent-glow: rgba(204,85,0,0.5);
     --bg: #fff5ee; --card: #ffe0c8; --card2: #ffd0a8; --border: #cc6622;
     --text: #281200; --text-dim: #aa4400; --text-muted: #885533;
-    --grad1: rgba(220,90,0,0.40); --grad2: rgba(180,75,0,0.20);
+    --grad1: rgba(220,90,0,0.65); --grad2: rgba(180,75,0,0.30);
   }
 
   /* LIGHT YELLOW */
@@ -148,7 +148,7 @@
     --accent-glow: rgba(170,119,0,0.5);
     --bg: #fffaeb; --card: #fff0c0; --card2: #ffe890; --border: #ccaa22;
     --text: #1a1400; --text-dim: #886600; --text-muted: #776633;
-    --grad1: rgba(220,170,0,0.40); --grad2: rgba(180,140,0,0.20);
+    --grad1: rgba(220,170,0,0.65); --grad2: rgba(180,140,0,0.30);
   }
 
   /* LIGHT PINK */
@@ -157,7 +157,7 @@
     --accent-glow: rgba(204,0,119,0.5);
     --bg: #fff0f7; --card: #ffd8eb; --card2: #ffc0dd; --border: #cc4488;
     --text: #28001a; --text-dim: #aa0055; --text-muted: #883366;
-    --grad1: rgba(220,0,120,0.40); --grad2: rgba(180,0,90,0.20);
+    --grad1: rgba(220,0,120,0.65); --grad2: rgba(180,0,90,0.30);
   }
 
   /* LIGHT GREY */
@@ -189,9 +189,9 @@
     pointer-events: none; z-index: 1;
   }
 
-  /* Light mode: subtle fade on left side only */
+  /* Light mode: bold fade on left side only */
   body[class*="theme-light"]::before {
-    background: radial-gradient(ellipse 60% 70% at 0% 50%, var(--grad1) 0%, transparent 65%);
+    background: radial-gradient(ellipse 75% 100% at 0% 50%, var(--grad1) 0%, transparent 70%);
   }
 
   /* Light grey gets no fade at all — clean look */
