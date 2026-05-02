@@ -7,19 +7,70 @@
 <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&family=Oswald:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    --red: #aa0000; --red-bright: #cc0000; --red-dim: #660000;
-    --red-glow: rgba(170,0,0,0.4); --black: #000000;
-    --card: #110000; --card2: #1a0000; --border: #3a0000;
-    --text: #f0e0e0; --text-dim: #a08080; --text-muted: #604040;
+    --accent: #aa0000;
+    --accent-bright: #cc0000;
+    --accent-dim: #660000;
+    --accent-glow: rgba(170,0,0,0.4);
+    --bg: #000000;
+    --card: #110000;
+    --card2: #1a0000;
+    --border: #3a0000;
+    --text: #f0e0e0;
+    --text-dim: #a08080;
+    --text-muted: #604040;
+    --grad1: rgba(140,0,0,0.18);
+    --grad2: rgba(100,0,0,0.12);
     --mono: 'Share Tech Mono', monospace;
-    --display: 'Oswald', sans-serif; --body: 'Rajdhani', sans-serif;
+    --display: 'Oswald', sans-serif;
+    --body: 'Rajdhani', sans-serif;
   }
+
+  /* ── BLUE/BLACK THEME ── */
+  body.theme-blue {
+    --accent: #0055cc;
+    --accent-bright: #0077ff;
+    --accent-dim: #003388;
+    --accent-glow: rgba(0,85,204,0.4);
+    --bg: #000008;
+    --card: #000818;
+    --card2: #001030;
+    --border: #001a4a;
+    --text: #d0e4ff;
+    --text-dim: #7090b0;
+    --text-muted: #304060;
+    --grad1: rgba(0,60,160,0.18);
+    --grad2: rgba(0,40,120,0.12);
+  }
+
+  /* ── RED/BLUE THEME ── */
+  body.theme-redblue {
+    --accent: #cc0000;
+    --accent-bright: #ff2222;
+    --accent-dim: #880000;
+    --accent-glow: rgba(200,0,0,0.4);
+    --bg: #00000a;
+    --card: #0a0010;
+    --card2: #100018;
+    --border: #2a0030;
+    --text: #ffe0e0;
+    --text-dim: #b080a0;
+    --text-muted: #604050;
+    --grad1: rgba(140,0,0,0.15);
+    --grad2: rgba(0,0,140,0.12);
+  }
+
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: var(--black); color: var(--text); font-family: var(--body); font-size: 16px; min-height: 100vh; overflow-x: hidden; }
+
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: var(--body); font-size: 16px; min-height: 100vh; overflow-x: hidden;
+    transition: background 0.3s, color 0.3s;
+  }
+
   body::before {
     content: ''; position: fixed; inset: 0;
-    background: radial-gradient(ellipse 80% 60% at 0% 50%, rgba(140,0,0,0.18) 0%, transparent 70%),
-                radial-gradient(ellipse 40% 40% at 100% 20%, rgba(100,0,0,0.12) 0%, transparent 60%);
+    background: radial-gradient(ellipse 80% 60% at 0% 50%, var(--grad1) 0%, transparent 70%),
+                radial-gradient(ellipse 40% 40% at 100% 20%, var(--grad2) 0%, transparent 60%);
     pointer-events: none; z-index: 0;
   }
   body::after {
@@ -27,58 +78,118 @@
     background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.07) 2px, rgba(0,0,0,0.07) 4px);
     pointer-events: none; z-index: 1;
   }
+
+  /* Red/blue gets a split gradient bg */
+  body.theme-redblue::before {
+    background: radial-gradient(ellipse 60% 80% at 0% 50%, rgba(140,0,0,0.2) 0%, transparent 60%),
+                radial-gradient(ellipse 60% 80% at 100% 50%, rgba(0,0,140,0.2) 0%, transparent 60%);
+  }
+
   .container { max-width: 1100px; margin: 0 auto; padding: 0 24px; position: relative; z-index: 2; }
-  header { border-bottom: 1px solid var(--border); padding: 28px 0 24px; position: relative; z-index: 2; }
-  .header-inner { display: flex; align-items: center; gap: 20px; }
-  .logo-mark { width: 44px; height: 44px; border: 2px solid var(--red); display: flex; align-items: center; justify-content: center; position: relative; flex-shrink: 0; }
-  .logo-mark::before { content: ''; position: absolute; inset: 3px; border: 1px solid var(--red-dim); }
-  .logo-mark svg { width: 22px; height: 22px; fill: var(--red-bright); }
+
+  /* ── HEADER ── */
+  header { border-bottom: 1px solid var(--border); padding: 24px 0 20px; position: relative; z-index: 2; }
+  .header-inner { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .logo-mark { width: 40px; height: 40px; border: 2px solid var(--accent); display: flex; align-items: center; justify-content: center; position: relative; flex-shrink: 0; }
+  .logo-mark::before { content: ''; position: absolute; inset: 3px; border: 1px solid var(--accent-dim); }
+  .logo-mark svg { width: 20px; height: 20px; fill: var(--accent-bright); }
   .logo-text { display: flex; flex-direction: column; gap: 1px; }
-  .logo-title { font-family: var(--display); font-size: 26px; font-weight: 700; letter-spacing: 4px; color: #fff; line-height: 1; text-transform: uppercase; }
-  .logo-title span { color: var(--red-bright); }
-  .logo-sub { font-family: var(--mono); font-size: 10px; color: var(--text-muted); letter-spacing: 3px; text-transform: uppercase; }
-  .status-badge { margin-left: auto; font-family: var(--mono); font-size: 10px; padding: 4px 10px; letter-spacing: 1px; border: 1px solid var(--border); color: var(--text-muted); transition: all 0.3s; }
-  .status-badge.connected { color: #44aa44; border-color: #224422; }
-  .search-section { padding: 40px 0 28px; position: relative; z-index: 2; }
-  .section-label { font-family: var(--mono); font-size: 11px; color: var(--red); letter-spacing: 3px; text-transform: uppercase; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; }
+  .logo-title { font-family: var(--display); font-size: 24px; font-weight: 700; letter-spacing: 4px; color: #fff; line-height: 1; text-transform: uppercase; }
+  .logo-title span { color: var(--accent-bright); }
+  .logo-sub { font-family: var(--mono); font-size: 9px; color: var(--text-muted); letter-spacing: 3px; text-transform: uppercase; }
+
+  .header-right { margin-left: auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+  .status-badge { font-family: var(--mono); font-size: 10px; padding: 4px 10px; letter-spacing: 1px; border: 1px solid var(--border); color: var(--text-muted); transition: all 0.3s; white-space: nowrap; }
+  .status-badge.connected { color: #44cc44; border-color: #224422; }
+
+  /* ── THEME SWITCHER ── */
+  .theme-switcher { position: relative; }
+  .theme-btn {
+    font-family: var(--mono); font-size: 10px; color: var(--text-dim);
+    border: 1px solid var(--border); background: transparent; cursor: pointer;
+    padding: 4px 10px; letter-spacing: 1px; transition: all 0.2s;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .theme-btn:hover { border-color: var(--accent); color: var(--text); }
+  .theme-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-bright); }
+  .theme-dropdown {
+    display: none; position: absolute; top: calc(100% + 6px); right: 0;
+    background: var(--card); border: 1px solid var(--border); min-width: 150px; z-index: 100;
+  }
+  .theme-dropdown.open { display: block; }
+  .theme-option {
+    font-family: var(--mono); font-size: 11px; color: var(--text-dim);
+    padding: 10px 14px; cursor: pointer; display: flex; align-items: center; gap: 8px;
+    transition: background 0.1s; letter-spacing: 1px; border: none; background: none; width: 100%; text-align: left;
+  }
+  .theme-option:hover { background: var(--card2); color: var(--text); }
+  .theme-option.active { color: var(--accent-bright); }
+  .dot-rb { width: 8px; height: 8px; border-radius: 50%; background: linear-gradient(135deg, #cc0000 50%, #0055cc 50%); }
+  .dot-red { width: 8px; height: 8px; border-radius: 50%; background: #cc0000; }
+  .dot-blue { width: 8px; height: 8px; border-radius: 50%; background: #0077ff; }
+
+  /* ── SEARCH SECTION ── */
+  .search-section { padding: 36px 0 24px; position: relative; z-index: 2; }
+  .section-label { font-family: var(--mono); font-size: 11px; color: var(--accent); letter-spacing: 3px; text-transform: uppercase; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; }
   .section-label::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, var(--border), transparent); }
-  .token-row { display: flex; gap: 10px; margin-bottom: 32px; }
-  .search-row { display: flex; gap: 10px; align-items: stretch; }
-  .input-wrap { position: relative; flex: 1; }
-  .input-label { font-family: var(--mono); font-size: 10px; color: var(--text-muted); letter-spacing: 2px; position: absolute; top: -18px; left: 0; }
-  input[type="text"], input[type="password"] {
+
+  .token-row { display: flex; gap: 10px; margin-bottom: 28px; }
+  .controls-row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+  .input-wrap { position: relative; flex: 1; min-width: 200px; }
+  .input-label { font-family: var(--mono); font-size: 10px; color: var(--text-muted); letter-spacing: 2px; position: absolute; top: -18px; left: 0; white-space: nowrap; }
+
+  input[type="text"], input[type="password"], select {
     width: 100%; background: var(--card); border: 1px solid var(--border); color: var(--text);
     font-family: var(--mono); font-size: 14px; padding: 12px 16px; outline: none;
-    transition: border-color 0.2s, box-shadow 0.2s; letter-spacing: 1px;
+    transition: border-color 0.2s, box-shadow 0.2s; letter-spacing: 1px; appearance: none;
   }
-  input:focus { border-color: var(--red); box-shadow: 0 0 0 1px var(--red-dim), inset 0 0 20px rgba(170,0,0,0.05); }
+  input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-dim), inset 0 0 20px rgba(0,0,0,0.1); }
   input::placeholder { color: var(--text-muted); }
-  .btn { font-family: var(--display); font-size: 15px; font-weight: 600; letter-spacing: 3px; text-transform: uppercase; padding: 12px 28px; border: none; cursor: pointer; transition: all 0.15s; }
-  .btn-primary { background: var(--red); color: #fff; }
-  .btn-primary:hover { background: var(--red-bright); box-shadow: 0 0 20px var(--red-glow); }
+  select option { background: #111; color: var(--text); }
+
+  .select-wrap { position: relative; }
+  .select-wrap::after {
+    content: '▾'; position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+    color: var(--accent); pointer-events: none; font-size: 12px;
+  }
+
+  .btn { font-family: var(--display); font-size: 14px; font-weight: 600; letter-spacing: 3px; text-transform: uppercase; padding: 12px 24px; border: none; cursor: pointer; transition: all 0.15s; white-space: nowrap; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: var(--accent-bright); box-shadow: 0 0 20px var(--accent-glow); }
   .btn-primary:active { transform: scale(0.98); }
-  .btn-secondary { background: transparent; color: var(--text-dim); border: 1px solid var(--border); font-size: 13px; padding: 12px 18px; }
-  .btn-secondary:hover { border-color: var(--red-dim); color: var(--text); }
+  .btn-secondary { background: transparent; color: var(--text-dim); border: 1px solid var(--border); font-size: 12px; padding: 12px 16px; }
+  .btn-secondary:hover { border-color: var(--accent-dim); color: var(--text); }
   .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
   .hint { font-family: var(--mono); font-size: 11px; color: var(--text-muted); margin-top: 10px; }
-  .hint a { color: var(--red); text-decoration: none; }
+  .hint a { color: var(--accent); text-decoration: none; }
+
+  /* ── LOADING ── */
   .loading { display: none; padding: 60px 0; text-align: center; }
   .loading.active { display: block; }
-  .loading-spinner { width: 48px; height: 48px; border: 2px solid var(--border); border-top-color: var(--red); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 20px; }
+  .loading-spinner { width: 48px; height: 48px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 20px; }
   @keyframes spin { to { transform: rotate(360deg); } }
   .loading-text { font-family: var(--mono); font-size: 13px; color: var(--text-muted); letter-spacing: 2px; }
-  .error-box { display: none; background: rgba(170,0,0,0.1); border: 1px solid var(--red-dim); padding: 14px 18px; font-family: var(--mono); font-size: 13px; color: #ff6666; margin-bottom: 24px; }
+
+  /* ── ERROR ── */
+  .error-box { display: none; background: rgba(170,0,0,0.1); border: 1px solid var(--accent-dim); padding: 14px 18px; font-family: var(--mono); font-size: 13px; color: #ff6666; margin-bottom: 24px; }
   .error-box.active { display: block; }
+
+  /* ── RESULTS ── */
   .results-section { position: relative; z-index: 2; padding-bottom: 60px; }
   .results-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 2px; }
+
   .team-card { background: var(--card); border: 1px solid var(--border); animation: fadeUp 0.4s ease both; position: relative; overflow: hidden; }
-  .team-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, var(--red), transparent); }
+  .team-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, var(--accent), transparent); }
   @keyframes fadeUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
-  .card-header { padding: 20px 20px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-  .team-number { font-family: var(--display); font-size: 32px; font-weight: 700; color: #fff; letter-spacing: 2px; line-height: 1; }
+
+  .card-header { padding: 18px 20px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+  .team-number { font-family: var(--display); font-size: 30px; font-weight: 700; color: #fff; letter-spacing: 2px; line-height: 1; }
   .team-name { font-family: var(--body); font-size: 13px; color: var(--text-dim); margin-top: 4px; font-weight: 500; }
   .team-location { font-family: var(--mono); font-size: 11px; color: var(--text-muted); margin-top: 3px; }
-  .robot-name { font-family: var(--mono); font-size: 11px; color: var(--red); text-align: right; letter-spacing: 1px; flex-shrink: 0; }
+  .robot-name { font-family: var(--mono); font-size: 11px; color: var(--accent); text-align: right; letter-spacing: 1px; flex-shrink: 0; }
+
   .stats-body { padding: 0; }
   .stat-group { border-bottom: 1px solid var(--border); }
   .stat-group:last-child { border-bottom: none; }
@@ -87,23 +198,26 @@
   .stat-row:hover { background: var(--card2); }
   .stat-name { font-family: var(--body); font-size: 14px; font-weight: 600; color: var(--text-dim); flex: 1; }
   .stat-value { font-family: var(--mono); font-size: 16px; color: #fff; letter-spacing: 1px; text-align: right; min-width: 70px; }
-  .stat-value.highlight { color: var(--red-bright); font-size: 18px; }
+  .stat-value.highlight { color: var(--accent-bright); font-size: 18px; }
   .stat-bar-wrap { flex: 1; height: 3px; background: var(--border); max-width: 80px; }
-  .stat-bar { height: 100%; background: linear-gradient(90deg, var(--red-dim), var(--red-bright)); transition: width 0.6s cubic-bezier(0.4,0,0.2,1); }
+  .stat-bar { height: 100%; background: linear-gradient(90deg, var(--accent-dim), var(--accent-bright)); transition: width 0.6s cubic-bezier(0.4,0,0.2,1); }
   .wl-display { font-family: var(--mono); font-size: 12px; color: var(--text-muted); text-align: right; min-width: 70px; }
   .awards-list { padding: 10px 20px 14px; display: flex; flex-wrap: wrap; gap: 6px; }
-  .award-tag { font-family: var(--mono); font-size: 10px; color: var(--red); border: 1px solid var(--red-dim); padding: 3px 8px; }
+  .award-tag { font-family: var(--mono); font-size: 10px; color: var(--accent); border: 1px solid var(--accent-dim); padding: 3px 8px; }
   .no-awards { font-family: var(--mono); font-size: 11px; color: var(--text-muted); padding: 10px 20px 14px; }
   .na { color: var(--text-muted) !important; font-size: 13px !important; }
   .compare-notice { font-family: var(--mono); font-size: 11px; color: var(--text-muted); text-align: center; padding: 20px 0 0; }
+
   @media (max-width: 600px) {
-    .token-row, .search-row { flex-direction: column; }
+    .token-row, .controls-row { flex-direction: column; }
     .btn { width: 100%; }
     .results-grid { grid-template-columns: 1fr; }
+    .header-right { width: 100%; justify-content: flex-start; }
   }
 </style>
 </head>
 <body>
+
 <header>
   <div class="container">
     <div class="header-inner">
@@ -112,9 +226,30 @@
       </div>
       <div class="logo-text">
         <div class="logo-title">VEX <span>SCOUT</span></div>
-        <div class="logo-sub">Competition Intelligence</div>
+        <div class="logo-sub">Competition Intelligence &nbsp;·&nbsp; BY MAX WANG</div>
       </div>
-      <div class="status-badge" id="statusBadge">● NOT CONNECTED</div>
+      <div class="header-right">
+        <div class="status-badge" id="statusBadge">● NOT CONNECTED</div>
+
+        <!-- Theme Switcher -->
+        <div class="theme-switcher">
+          <button class="theme-btn" onclick="toggleThemeMenu()">
+            <div class="theme-dot" id="themeDot"></div>
+            THEME
+          </button>
+          <div class="theme-dropdown" id="themeDropdown">
+            <button class="theme-option active" onclick="setTheme('red')" id="opt-red">
+              <div class="dot-red"></div> RED / BLACK
+            </button>
+            <button class="theme-option" onclick="setTheme('blue')" id="opt-blue">
+              <div class="dot-blue"></div> BLUE / BLACK
+            </button>
+            <button class="theme-option" onclick="setTheme('redblue')" id="opt-redblue">
+              <div class="dot-rb"></div> RED / BLUE
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </header>
@@ -132,10 +267,16 @@
     </div>
 
     <div class="section-label">Scout Teams</div>
-    <div class="search-row">
-      <div class="input-wrap">
+    <div class="controls-row">
+      <div class="input-wrap" style="flex:2;">
         <span class="input-label">TEAM NUMBERS</span>
         <input type="text" id="teamInput" placeholder="e.g. 7700S  or  7700S, 1234A, 9999Z" autocomplete="off">
+      </div>
+      <div class="input-wrap select-wrap" style="flex:1; min-width:180px;">
+        <span class="input-label">SEASON</span>
+        <select id="seasonSelect">
+          <option value="">Loading seasons...</option>
+        </select>
       </div>
       <button class="btn btn-primary" id="scoutBtn" onclick="scoutTeams()">SCOUT</button>
     </div>
@@ -158,25 +299,50 @@
 <script>
 const BASE = 'https://www.robotevents.com/api/v2';
 let TOKEN = localStorage.getItem('re_token') || '';
+let seasonsLoaded = false;
 
+// ── INIT ──────────────────────────────────────
 window.onload = () => {
   if (TOKEN) {
     document.getElementById('apiToken').value = TOKEN;
     setBadge(true);
+    loadSeasons();
   }
   document.getElementById('teamInput').addEventListener('keydown', e => {
     if (e.key === 'Enter') scoutTeams();
   });
+  // Load saved theme
+  const savedTheme = localStorage.getItem('vex_theme') || 'red';
+  setTheme(savedTheme, false);
+
+  // Close theme dropdown on outside click
+  document.addEventListener('click', e => {
+    if (!e.target.closest('.theme-switcher')) {
+      document.getElementById('themeDropdown').classList.remove('open');
+    }
+  });
 };
 
-function onTokenInput() {
-  setBadge(false);
+// ── THEME ─────────────────────────────────────
+function toggleThemeMenu() {
+  document.getElementById('themeDropdown').classList.toggle('open');
 }
 
+function setTheme(name, save = true) {
+  document.body.className = name === 'red' ? '' : `theme-${name}`;
+  document.querySelectorAll('.theme-option').forEach(o => o.classList.remove('active'));
+  document.getElementById(`opt-${name}`)?.classList.add('active');
+  document.getElementById('themeDropdown').classList.remove('open');
+  if (save) localStorage.setItem('vex_theme', name);
+}
+
+// ── TOKEN ─────────────────────────────────────
+function onTokenInput() { setBadge(false); }
+
 function setBadge(connected) {
-  const badge = document.getElementById('statusBadge');
-  badge.textContent = connected ? '● CONNECTED' : '● NOT CONNECTED';
-  badge.classList.toggle('connected', connected);
+  const b = document.getElementById('statusBadge');
+  b.textContent = connected ? '● CONNECTED' : '● NOT CONNECTED';
+  b.classList.toggle('connected', connected);
 }
 
 function saveToken() {
@@ -186,26 +352,15 @@ function saveToken() {
   setBadge(true);
   showError('');
   const btn = document.querySelector('.btn-secondary');
-  const orig = btn.textContent;
   btn.textContent = 'SAVED ✓';
-  setTimeout(() => btn.textContent = orig, 1500);
+  setTimeout(() => btn.textContent = 'SAVE', 1500);
+  if (!seasonsLoaded) loadSeasons();
 }
 
-function showError(msg) {
-  const box = document.getElementById('errorBox');
-  box.textContent = msg;
-  box.classList.toggle('active', !!msg);
-}
-
-function setLoading(active, text = 'FETCHING TEAM DATA...') {
-  document.getElementById('loading').classList.toggle('active', active);
-  document.getElementById('loadingText').textContent = text;
-  document.getElementById('scoutBtn').disabled = active;
-}
-
+// ── API ───────────────────────────────────────
 async function apiGet(endpoint, params = {}) {
   TOKEN = document.getElementById('apiToken').value.trim() || TOKEN;
-  if (!TOKEN) throw new Error('No API token. Paste your token above and click SAVE.');
+  if (!TOKEN) throw new Error('No API token. Paste your token and click SAVE first.');
   const url = new URL(BASE + endpoint);
   params.per_page = 250;
   Object.entries(params).forEach(([k, v]) => {
@@ -216,7 +371,7 @@ async function apiGet(endpoint, params = {}) {
     headers: { 'Authorization': `Bearer ${TOKEN}`, 'Accept': 'application/json' }
   });
   if (!res.ok) {
-    if (res.status === 401) throw new Error('Invalid API token. Double-check and try again.');
+    if (res.status === 401) throw new Error('Invalid API token. Check it and try again.');
     throw new Error(`API error ${res.status}`);
   }
   const data = await res.json();
@@ -232,18 +387,49 @@ async function apiGet(endpoint, params = {}) {
   return results;
 }
 
-async function getCurrentSeason() {
-  const seasons = await apiGet('/seasons', { 'program[]': [1] });
-  seasons.sort((a, b) => (b.start || '').localeCompare(a.start || ''));
-  return seasons[0]?.id || null;
+// ── SEASONS ───────────────────────────────────
+async function loadSeasons() {
+  const sel = document.getElementById('seasonSelect');
+  sel.innerHTML = '<option value="">Loading...</option>';
+  try {
+    const seasons = await apiGet('/seasons', { 'program[]': [1] });
+    seasons.sort((a, b) => (b.start || '').localeCompare(a.start || ''));
+    sel.innerHTML = '';
+    seasons.forEach((s, i) => {
+      const opt = document.createElement('option');
+      opt.value = s.id;
+      opt.textContent = s.name;
+      if (i === 0) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    seasonsLoaded = true;
+  } catch(e) {
+    sel.innerHTML = '<option value="">Could not load seasons</option>';
+  }
 }
 
+// ── ERROR / LOADING ───────────────────────────
+function showError(msg) {
+  const box = document.getElementById('errorBox');
+  box.textContent = msg;
+  box.classList.toggle('active', !!msg);
+}
+
+function setLoading(active, text = 'FETCHING TEAM DATA...') {
+  document.getElementById('loading').classList.toggle('active', active);
+  document.getElementById('loadingText').textContent = text;
+  document.getElementById('scoutBtn').disabled = active;
+}
+
+// ── SCOUT ─────────────────────────────────────
 async function scoutTeams() {
   TOKEN = document.getElementById('apiToken').value.trim() || TOKEN;
-  if (!TOKEN) { showError('⚠ Paste your RobotEvents API token above and click SAVE first.'); return; }
+  if (!TOKEN) { showError('⚠ Paste your RobotEvents API token and click SAVE first.'); return; }
 
   const input = document.getElementById('teamInput').value.trim();
   if (!input) return;
+
+  const seasonId = document.getElementById('seasonSelect').value || null;
 
   showError('');
   const teamNumbers = input.split(/[\s,]+/).map(t => t.toUpperCase().trim()).filter(Boolean);
@@ -251,41 +437,35 @@ async function scoutTeams() {
   grid.innerHTML = '';
   document.getElementById('resultsLabel').style.display = 'none';
   document.getElementById('compareNotice').style.display = 'none';
-  setLoading(true, 'DETECTING SEASON...');
+  setLoading(true);
 
-  try {
-    const seasonId = await getCurrentSeason();
-
-    for (let i = 0; i < teamNumbers.length; i++) {
-      const num = teamNumbers[i];
-      setLoading(true, `SCOUTING ${num}... (${i+1}/${teamNumbers.length})`);
-      try {
-        const card = await buildTeamCard(num, seasonId);
-        grid.appendChild(card);
-      } catch(e) {
-        const errCard = document.createElement('div');
-        errCard.className = 'team-card';
-        errCard.innerHTML = `<div class="card-header"><div>
-          <div class="team-number">${num}</div>
-          <div class="team-name" style="color:#ff4444;">Team not found</div>
-          <div class="team-location" style="color:#884444;">${e.message}</div>
-        </div></div>`;
-        grid.appendChild(errCard);
-      }
+  for (let i = 0; i < teamNumbers.length; i++) {
+    const num = teamNumbers[i];
+    setLoading(true, `SCOUTING ${num}... (${i+1}/${teamNumbers.length})`);
+    try {
+      const card = await buildTeamCard(num, seasonId);
+      grid.appendChild(card);
+    } catch(e) {
+      const errCard = document.createElement('div');
+      errCard.className = 'team-card';
+      errCard.innerHTML = `<div class="card-header"><div>
+        <div class="team-number">${num}</div>
+        <div class="team-name" style="color:#ff4444;">Team not found</div>
+        <div class="team-location" style="color:#884444;">${e.message}</div>
+      </div></div>`;
+      grid.appendChild(errCard);
     }
-
-    document.getElementById('resultsLabel').style.display = 'flex';
-    if (teamNumbers.length > 1) {
-      document.getElementById('compareNotice').style.display = 'block';
-      document.getElementById('compareNotice').textContent = `${teamNumbers.length} teams scouted · scroll to compare`;
-    }
-  } catch(e) {
-    showError('⚠ ' + e.message);
   }
 
+  document.getElementById('resultsLabel').style.display = 'flex';
+  if (teamNumbers.length > 1) {
+    document.getElementById('compareNotice').style.display = 'block';
+    document.getElementById('compareNotice').textContent = `${teamNumbers.length} teams scouted · scroll to compare`;
+  }
   setLoading(false);
 }
 
+// ── BUILD CARD ────────────────────────────────
 async function buildTeamCard(teamNumber, seasonId) {
   const teams = await apiGet('/teams', { 'number[]': [teamNumber], 'program[]': [1] });
   if (!teams.length) throw new Error('Team not found in V5RC.');
@@ -306,12 +486,12 @@ async function buildTeamCard(teamNumber, seasonId) {
 
   for (const match of matches) {
     const alliances = match.alliances || [];
-    let myAlliance = null, oppAlliance = null;
+    let myAlliance = null;
     for (const a of alliances) {
       if ((a.teams || []).some(t => t?.team?.id == teamId)) { myAlliance = a; break; }
     }
     if (!myAlliance) continue;
-    oppAlliance = alliances.find(a => a !== myAlliance);
+    const oppAlliance = alliances.find(a => a !== myAlliance);
     const myScore = myAlliance.score || 0;
     const oppScore = oppAlliance?.score || 0;
     scores.push(myScore);
