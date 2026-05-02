@@ -725,20 +725,18 @@ function onRegionChange() {
 
 // ── SKILLS RANKINGS ───────────────────────────
 let skillsState = {
-  // Pre-ranked skills items from the legacy API (already sorted by combined score)
   rankedItems: [],
-  // The page index we are showing (0 = items 1-30)
   currentPage: 0,
   pageSize: 30,
   seasonId: null,
   region: '',
   state: '',
   subregion: '',
-  // Pages are loaded lazily — each page = 30 items from the API
-  loadedItemsCount: 0,    // how many items we've fetched so far
-  totalItems: null,       // null until we know
-  apiPage: 1,             // next API page to fetch (legacy endpoint default = 25 per page, we use 30)
-  loading: false
+  loading: false,
+  // For lazy loading: events queue and progress
+  pendingEvents: [],     // events not yet processed
+  processedEvents: 0,
+  totalEvents: 0
 };
 
 async function loadSkillsRankings() {
@@ -763,10 +761,10 @@ async function loadSkillsRankings() {
     region: region,
     state: state,
     subregion: subregion,
-    loadedItemsCount: 0,
-    totalItems: null,
-    apiPage: 1,
-    loading: false
+    loading: false,
+    pendingEvents: [],
+    processedEvents: 0,
+    totalEvents: 0
   };
 
   const wrap = document.getElementById('skillsTableWrap');
@@ -775,14 +773,46 @@ async function loadSkillsRankings() {
   const loadingEl = document.getElementById('skillsLoading');
   const loadingText = document.getElementById('skillsLoadingText');
   loadingEl.classList.add('active');
-  loadingText.textContent = 'LOADING TOP 30...';
+  loadingText.textContent = 'FETCHING V5RC EVENTS...';
 
   try {
-    // Load just the first page of 30 (fast)
-    await loadSkillsPage();
+    // Step 1: Get all V5RC events for this season filtered by location
+    const eventParams = {
+      'season[]': [seasonId],
+      'program[]': [1]  // V5RC ONLY
+    };
+    if (region === 'USA') eventParams['country[]'] = ['United States'];
+
+    let events = await apiGet('/events', eventParams);
+
+    // Client-side filter by state and sub-region
+    if (subregion) {
+      events = events.filter(ev => {
+        const r = (ev.location?.region || '').trim();
+        return r === subregion;
+      });
+    } else if (state) {
+      events = events.filter(ev => {
+        const r = (ev.location?.region || '').trim();
+        return r === state || r.startsWith(state + ' ') || r.startsWith(state + '-');
+      });
+    }
+
+    if (!events.length) {
+      wrap.innerHTML = '<div style="text-align:center;padding:40px;font-family:var(--mono);color:var(--text-muted);">No V5RC events found for this filter.</div>';
+      loadingEl.classList.remove('active');
+      return;
+    }
+
+    skillsState.pendingEvents = events;
+    skillsState.totalEvents = events.length;
+
+    // Step 2: Load events until we have enough teams for first page (30)
+    loadingText.textContent = `LOADING TOP 30 (0/${events.length} EVENTS)...`;
+    await loadSkillsBatch(true); // initial load
 
     if (skillsState.rankedItems.length === 0) {
-      wrap.innerHTML = '<div style="text-align:center;padding:40px;font-family:var(--mono);color:var(--text-muted);">No skills rankings found for this filter.</div>';
+      wrap.innerHTML = '<div style="text-align:center;padding:40px;font-family:var(--mono);color:var(--text-muted);">No skills scores recorded for this filter yet.</div>';
       loadingEl.classList.remove('active');
       return;
     }
@@ -796,136 +826,96 @@ async function loadSkillsRankings() {
   loadingEl.classList.remove('active');
 }
 
-// Fetches one page (30 items) from the API and appends to rankedItems
-async function loadSkillsPage() {
-  // The legacy /api/seasons/{id}/skills endpoint returns pre-ranked, sorted skills entries
-  // It uses per_page (default 25, max 250) and page params
-  // It returns separate driver and programming entries per team — we need to merge them
-  // For lazy loading, we fetch enough underlying data to fill 30 ranked teams
+// Process events in batches, accumulating team scores
+// If `initial` is true, processes enough events to fill the first page (30 teams)
+// Otherwise processes one batch (~10 events) for the next page
+async function loadSkillsBatch(initial = false) {
+  const teamMap = {};
+  // Re-import already-known teams so we keep accumulating their best scores
+  for (const t of skillsState.rankedItems) {
+    teamMap[t.id] = { ...t };
+  }
 
-  // Determine the region filter for the legacy API
-  // The legacy API only supports "region" as a state name like "California"
-  // It does NOT support sub-region like "California - Region 3" — that's a v2-only concept
-  // So if subregion is selected, we still use state and filter client-side
-  const apiRegion = skillsState.subregion ? skillsState.state : skillsState.state;
+  const BATCH_SIZE = initial ? 20 : 10; // initial loads more events for solid top-30
+  const targetTeams = (skillsState.currentPage + 1) * skillsState.pageSize;
 
-  // Each team has 2 entries (driver + programming) so to get 30 unique teams we fetch ~60 raw items.
-  // We'll fetch in batches of 100 (max efficient)
-  const seenTeamIds = new Set(skillsState.rankedItems.map(t => t.id));
   let safety = 0;
-
-  while (skillsState.rankedItems.length < (skillsState.currentPage + 1) * skillsState.pageSize && safety < 10) {
+  while (skillsState.pendingEvents.length > 0 && safety < 50) {
     safety++;
-    const params = new URLSearchParams();
-    params.set('post_season', '1');
-    params.set('page', String(skillsState.apiPage));
-    params.set('per_page', '100');
-    if (apiRegion) params.set('region', apiRegion);
 
-    const path = `legacy:/seasons/${skillsState.seasonId}/skills?${params.toString()}`;
-    const res = await fetch(`${BASE}?path=${encodeURIComponent(path)}`);
+    // If we already have enough ranked teams and this isn't the first call, stop
+    if (!initial && skillsState.rankedItems.length >= targetTeams) break;
+    // For initial load, keep going until we have enough OR run out of events
+    if (initial && Object.keys(teamMap).length >= 30 && skillsState.processedEvents >= 30) break;
 
-    if (!res.ok) {
-      if (skillsState.apiPage === 1) {
-        throw new Error(`API error ${res.status}`);
-      }
-      break;
+    const batch = skillsState.pendingEvents.splice(0, BATCH_SIZE);
+    skillsState.processedEvents += batch.length;
+
+    const loadingText = document.getElementById('skillsLoadingText');
+    if (loadingText) {
+      loadingText.textContent = `PROCESSING EVENTS (${skillsState.processedEvents}/${skillsState.totalEvents})...`;
     }
 
-    const data = await res.json();
-    const items = data.data || [];
-    if (!items.length) {
-      skillsState.totalItems = skillsState.loadedItemsCount;
-      break;
-    }
+    // Fetch skills from each event in parallel
+    const eventSkillsArrays = await Promise.all(
+      batch.map(ev => apiGet(`/events/${ev.id}/skills`).catch(() => []))
+    );
 
-    skillsState.loadedItemsCount += items.length;
+    for (const skillsArr of eventSkillsArrays) {
+      for (const s of skillsArr) {
+        const t = s.team;
+        if (!t || !t.id) continue;
+        const id = t.id;
 
-    // Group by team — each team has separate driver and programming entries
-    const teamMap = {};
-    // Re-add already-loaded teams so we keep their best scores
-    for (const t of skillsState.rankedItems) {
-      teamMap[t.id] = { ...t };
-    }
-
-    for (const item of items) {
-      const team = item.team || {};
-      const id = team.id;
-      if (!id) continue;
-
-      // V5RC ONLY — filter out VEX U, IQ, etc.
-      // The legacy endpoint's team object has a "program" field
-      const prog = (team.program || '').toUpperCase();
-      if (prog && prog !== 'V5RC' && prog !== 'VRC') continue;
-
-      // Sub-region filter (client-side since the API doesn't support it)
-      if (skillsState.subregion) {
-        // The team's "region" field is just the state — it doesn't have sub-region info
-        // Sub-region info is only on events. So sub-region filtering at this stage is impossible
-        // without fetching events. We accept that limitation here.
-      }
-
-      if (!teamMap[id]) {
-        teamMap[id] = {
-          id: id,
-          number: team.team || team.number || '?',
-          team_name: team.team_name || '',
-          location: {
-            city: team.city || '',
-            region: team.region || '',
-            country: team.country || ''
-          },
-          driver: 0,
-          programming: 0,
-          combined: 0
-        };
-      }
-
-      const scores = item.scores || {};
-      // The legacy endpoint's "type" field is 0 = driver, 1 = programming OR string "driver"/"programming"
-      const type = item.type;
-      const isDriver = type === 0 || type === 'driver';
-      const isProg = type === 1 || type === 'programming';
-
-      // Take whichever score field is available
-      const score = scores.score ?? scores.driver ?? scores.programming ?? 0;
-
-      // Some legacy responses split per-type, others give combined
-      if (typeof scores.driver === 'number') {
-        teamMap[id].driver = Math.max(teamMap[id].driver, scores.driver);
-      }
-      if (typeof scores.programming === 'number') {
-        teamMap[id].programming = Math.max(teamMap[id].programming, scores.programming);
-      }
-      if (typeof scores.score === 'number' && !scores.driver && !scores.programming) {
-        // If only "score" is given, use type to assign
-        if (isDriver) teamMap[id].driver = Math.max(teamMap[id].driver, score);
-        else if (isProg) teamMap[id].programming = Math.max(teamMap[id].programming, score);
+        if (!teamMap[id]) {
+          teamMap[id] = {
+            id: id,
+            number: t.name || '?',
+            team_name: '',
+            location: {},
+            driver: 0,
+            programming: 0
+          };
+        }
+        const score = s.score || 0;
+        if (s.type === 'driver') {
+          teamMap[id].driver = Math.max(teamMap[id].driver, score);
+        } else if (s.type === 'programming') {
+          teamMap[id].programming = Math.max(teamMap[id].programming, score);
+        }
       }
     }
 
-    // Recalculate combined and rebuild sorted array
+    // Update ranked items
     const arr = Object.values(teamMap)
       .map(t => ({ ...t, combined: t.driver + t.programming }))
       .filter(t => t.combined > 0);
     arr.sort((a, b) => b.combined - a.combined);
     skillsState.rankedItems = arr;
+  }
 
-    skillsState.apiPage++;
+  // Optional: fetch team details (names, locations) for top of current view
+  // Only for newly-shown teams (skip if already has team_name)
+  const start = skillsState.currentPage * skillsState.pageSize;
+  const visibleTeams = skillsState.rankedItems.slice(start, start + skillsState.pageSize);
+  const needsDetails = visibleTeams.filter(t => !t.team_name);
 
-    // If response says we're done
-    const meta = data.meta || {};
-    if (meta.last_page && skillsState.apiPage > meta.last_page) {
-      skillsState.totalItems = skillsState.loadedItemsCount;
-      break;
-    }
-    if (!meta.next_page_url && !meta.last_page) {
-      // Some endpoints don't return meta — stop if we got less than per_page
-      if (items.length < 100) {
-        skillsState.totalItems = skillsState.loadedItemsCount;
-        break;
-      }
-    }
+  if (needsDetails.length > 0) {
+    const loadingText = document.getElementById('skillsLoadingText');
+    if (loadingText) loadingText.textContent = 'LOADING TEAM DETAILS...';
+
+    await Promise.all(needsDetails.map(async t => {
+      try {
+        const path = `/teams/${t.id}`;
+        const res = await fetch(`${BASE}?path=${encodeURIComponent(path)}`);
+        if (!res.ok) return;
+        const td = await res.json();
+        if (td) {
+          t.team_name = td.team_name || '';
+          t.location = td.location || {};
+        }
+      } catch(e) {}
+    }));
   }
 }
 
@@ -940,7 +930,7 @@ async function loadSubregions() {
     return;
   }
 
-  subSel.innerHTML = '<option value="">Loading regions...</option>';
+  subSel.innerHTML = '<option value="">All ' + state + '</option>';
   subWrap.hidden = false;
 
   try {
@@ -954,16 +944,17 @@ async function loadSubregions() {
     for (const ev of events) {
       const r = (ev.location?.region || '').trim();
       if (!r) continue;
-      if (r.startsWith(state + ' - ') || r.startsWith(state + ' Region')) {
+      // Match subregion patterns: "California - Region 3", "California Region 1", etc.
+      if (r !== state && (r.startsWith(state + ' - ') || r.startsWith(state + ' Region') || r.startsWith(state + '-'))) {
         subregionSet.add(r);
       }
     }
 
     const subregions = Array.from(subregionSet).sort();
 
-    subSel.innerHTML = '<option value="">All ' + state + '</option>';
     if (subregions.length === 0) {
-      subWrap.hidden = true;
+      // No sub-regions found — keep dropdown visible but only with "All"
+      // (Don't hide it because user might want to see this state has no sub-regions)
       return;
     }
 
@@ -975,8 +966,8 @@ async function loadSubregions() {
     });
 
   } catch(e) {
-    subWrap.hidden = true;
     console.error('Failed to load subregions:', e);
+    // Don't hide on error — keep "All <state>" option visible
   }
 }
 
@@ -1013,7 +1004,7 @@ function renderSkillsPage() {
   // Determine if there's likely a next page
   // We can show NEXT if either we have more loaded teams OR we haven't hit the API end
   const hasMoreLoaded = end < skillsState.rankedItems.length;
-  const hasMoreToLoad = skillsState.totalItems === null; // unknown means probably more
+  const hasMoreToLoad = skillsState.pendingEvents && skillsState.pendingEvents.length > 0;
   const hasMore = hasMoreLoaded || hasMoreToLoad;
   const isFirstPage = skillsState.currentPage === 0;
 
@@ -1042,18 +1033,28 @@ async function nextSkillsPage() {
   const start = skillsState.currentPage * skillsState.pageSize;
   const end = start + skillsState.pageSize;
 
-  // Need to load more from API?
-  if (end > skillsState.rankedItems.length && skillsState.totalItems === null) {
+  // Need to load more events?
+  if (end > skillsState.rankedItems.length && skillsState.pendingEvents.length > 0) {
     skillsState.loading = true;
     const loadingEl = document.getElementById('skillsLoading');
     const loadingText = document.getElementById('skillsLoadingText');
     loadingEl.classList.add('active');
     loadingText.textContent = 'LOADING NEXT 30...';
     try {
-      await loadSkillsPage();
+      await loadSkillsBatch(false);
     } catch(e) {
       showError('⚠ ' + e.message);
     }
+    loadingEl.classList.remove('active');
+    skillsState.loading = false;
+  } else {
+    // We have the data already, but still might want to load team details
+    skillsState.loading = true;
+    const loadingEl = document.getElementById('skillsLoading');
+    loadingEl.classList.add('active');
+    try {
+      await loadSkillsBatch(false); // will only fetch team details for visible page
+    } catch(e) {}
     loadingEl.classList.remove('active');
     skillsState.loading = false;
   }
