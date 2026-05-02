@@ -88,7 +88,7 @@
   .container { max-width: 1100px; margin: 0 auto; padding: 0 24px; position: relative; z-index: 2; }
 
   /* ── HEADER ── */
-  header { border-bottom: 1px solid var(--border); padding: 24px 0 20px; position: relative; z-index: 2; }
+  header { border-bottom: 1px solid var(--border); padding: 24px 0 20px; position: relative; z-index: 99999; }
   .header-inner { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
   .logo-mark { width: 40px; height: 40px; border: 2px solid var(--accent); display: flex; align-items: center; justify-content: center; position: relative; flex-shrink: 0; }
   .logo-mark::before { content: ''; position: absolute; inset: 3px; border: 1px solid var(--accent-dim); }
@@ -98,7 +98,7 @@
   .logo-title span { color: var(--accent-bright); }
   .logo-sub { font-family: var(--mono); font-size: 9px; color: var(--text-muted); letter-spacing: 3px; text-transform: uppercase; }
 
-  .header-right { margin-left: auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .header-right { margin-left: auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; position: relative; z-index: 999999; }
 
   .status-badge { font-family: var(--mono); font-size: 10px; padding: 4px 10px; letter-spacing: 1px; border: 1px solid var(--border); color: var(--text-muted); transition: all 0.3s; white-space: nowrap; }
   .status-badge.connected { color: #44cc44; border-color: #224422; }
