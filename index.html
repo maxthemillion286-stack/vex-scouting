@@ -321,13 +321,6 @@ window.onload = () => {
   document.getElementById('opt-red').addEventListener('click', () => applyTheme('red'));
   document.getElementById('opt-blue').addEventListener('click', () => applyTheme('blue'));
   document.getElementById('opt-redblue').addEventListener('click', () => applyTheme('redblue'));
-
-  // Close dropdown when clicking outside
-  document.addEventListener('click', e => {
-    if (!e.target.closest('.theme-switcher')) {
-      document.getElementById('themeDropdown').classList.remove('open');
-    }
-  });
 };
 
 // ── THEME ─────────────────────────────────────
@@ -562,22 +555,22 @@ async function buildTeamCard(teamNumber, seasonId) {
     else if (myScore < oppScore) losses++;
     else ties++;
 
-    // AWP — try multiple field names
-    if (myA.autonomous_win_point === true || myA.awp === true) awpCount++;
+    // AWP — autonomous_win_point field
+    if (myA.autonomous_win_point === true) awpCount++;
 
-    // Auton winner — autonomous_winner field or fallback to wp difference
-    const aw = match.autonomous_winner;
-    if (aw && aw !== 'none' && aw !== '' && aw !== null && aw !== undefined) {
+    // Auton win % — use wp (win points) field
+    // In VRC, winning auton gives +1 WP. So if myA.wp > oppA.wp by 1, they won auton.
+    const myWp  = typeof myA.wp  === 'number' ? myA.wp  : -1;
+    const oppWp = typeof oppA.wp === 'number' ? oppA.wp : -1;
+    if (myWp >= 0 && oppWp >= 0) {
       autonPlayed++;
-      if (aw.toLowerCase() === myColor) autonWins++;
+      if (myWp > oppWp) autonWins++;
     } else {
-      // Fallback: if wp fields exist, 6wp usually means auton bonus was earned
-      const myWp  = myA.wp  ?? 0;
-      const oppWp = oppA.wp ?? 0;
-      if (myWp > 0 || oppWp > 0) {
+      // fallback: use autonomous_winner field
+      const aw = match.autonomous_winner;
+      if (aw && aw !== 'none' && aw !== '') {
         autonPlayed++;
-        // Winning alliance typically gets more WP; if tied on score but different wp, auton was a factor
-        if (myWp >= oppWp && myScore >= oppScore) autonWins++;
+        if (aw.toLowerCase() === myColor) autonWins++;
       }
     }
   }
