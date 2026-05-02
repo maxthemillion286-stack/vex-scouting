@@ -1274,8 +1274,9 @@ async function buildTeamCard(teamNumber, seasonId) {
     else if (myScore < oppScore) losses++;
     else ties++;
 
-    // AWP — autonomous_win_point field on match
-    if (myA.autonomous_win_point === true) awpCount++;
+    // AWP — autonomous_win_point field on match (handle multiple formats)
+    const awp = myA.autonomous_win_point;
+    if (awp === true || awp === 1 || awp === '1' || awp === 'true') awpCount++;
 
     // Auton winner from match data
     const aw = match.autonomous_winner;
@@ -1285,16 +1286,28 @@ async function buildTeamCard(teamNumber, seasonId) {
     }
   }
 
-  // Get high score from rankings if available (more reliable than match data)
+  // Get high score and AWP totals from rankings if available (more reliable than match data)
   let rankingHighScore = 0;
+  let rankingAwpCount = 0;
+  let rankingTotalMatches = 0;
   for (const r of rankings) {
     if (typeof r.high_score === 'number') rankingHighScore = Math.max(rankingHighScore, r.high_score);
+    // Many rankings endpoints expose `awp` field directly = number of AWPs earned at that event
+    if (typeof r.ap === 'number') rankingAwpCount += r.ap;
+    if (typeof r.wins === 'number' && typeof r.losses === 'number' && typeof r.ties === 'number') {
+      rankingTotalMatches += (r.wins + r.losses + r.ties);
+    }
   }
 
-  // Use rankings data if it gives us better numbers
+  // Calculate stats
   const total = wins + losses + ties;
-  const winRate   = total > 0 ? wins / total * 100 : null;
-  const awpRate   = total > 0 ? awpCount / total * 100 : null;
+  const winRate = total > 0 ? wins / total * 100 : null;
+
+  // Use rankings AWP count if match data didn't pick it up (more reliable)
+  // The "ap" field in rankings = autonomous bonus points (each AWP = 1)
+  const finalAwpCount = Math.max(awpCount, Math.min(rankingAwpCount, total));
+  const awpRate = total > 0 ? Math.min(100, finalAwpCount / total * 100) : null;
+
   const autonRate = autonPlayed > 0 ? autonWins / autonPlayed * 100 : null;
   const avgScore  = scores.length > 0 ? scores.reduce((a,b)=>a+b,0)/scores.length : null;
   const highScore = scores.length > 0 ? Math.max(...scores) : (rankingHighScore || null);
@@ -1360,7 +1373,7 @@ async function buildTeamCard(teamNumber, seasonId) {
       <div class="stat-group">
         <div class="stat-group-label">Autonomous</div>
         <div class="stat-row"><div class="stat-name">AWP %</div>${bar(awpRate)}<div class="stat-value">${fmt(awpRate)}</div></div>
-        <div class="stat-row"><div class="stat-name">AWP Earned</div><div class="stat-value">${total>0?awpCount+' / '+total:'<span class="na">N/A</span>'}</div></div>
+        <div class="stat-row"><div class="stat-name">AWP Earned</div><div class="stat-value">${total>0?finalAwpCount+' / '+total:'<span class="na">N/A</span>'}</div></div>
         <div class="stat-row"><div class="stat-name">Auton Win %</div>${bar(autonRate)}<div class="stat-value">${fmt(autonRate)}</div></div>
       </div>
       <div class="stat-group">
