@@ -2,20 +2,25 @@
 // The token is read from Vercel environment variables, never exposed to the browser
 
 export default async function handler(req, res) {
-  // Get the path the user wants (e.g. "/teams?number[]=7700S")
   const path = req.query.path;
   if (!path) {
     return res.status(400).json({ error: 'Missing path parameter' });
   }
 
-  // Get token from environment variable
   const token = process.env.ROBOTEVENTS_TOKEN;
   if (!token) {
     return res.status(500).json({ error: 'API token not configured' });
   }
 
-  // Build the full RobotEvents URL
-  const url = `https://www.robotevents.com/api/v2${path}`;
+  // Determine which API base to use
+  // Paths starting with "legacy:" use the older /api/ endpoint (used for global skills)
+  // Otherwise default to /api/v2
+  let url;
+  if (path.startsWith('legacy:')) {
+    url = `https://www.robotevents.com/api${path.slice(7)}`;
+  } else {
+    url = `https://www.robotevents.com/api/v2${path}`;
+  }
 
   try {
     const response = await fetch(url, {
