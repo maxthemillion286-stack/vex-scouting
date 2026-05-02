@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VEX Scout</title>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&family=Oswald:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --red: #aa0000; --red-bright: #cc0000; --red-dim: #660000;
+    --red-glow: rgba(170,0,0,0.4); --black: #000000;
+    --card: #110000; --card2: #1a0000; --border: #3a0000;
+    --text: #f0e0e0; --text-dim: #a08080; --text-muted: #604040;
+    --mono: 'Share Tech Mono', monospace;
+    --display: 'Oswald', sans-serif; --body: 'Rajdhani', sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--black); color: var(--text); font-family: var(--body); font-size: 16px; min-height: 100vh; overflow-x: hidden; }
+  body::before {
+    content: ''; position: fixed; inset: 0;
+    background: radial-gradient(ellipse 80% 60% at 0% 50%, rgba(140,0,0,0.18) 0%, transparent 70%),
+                radial-gradient(ellipse 40% 40% at 100% 20%, rgba(100,0,0,0.12) 0%, transparent 60%);
+    pointer-events: none; z-index: 0;
+  }
+  body::after {
+    content: ''; position: fixed; inset: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.07) 2px, rgba(0,0,0,0.07) 4px);
+    pointer-events: none; z-index: 1;
+  }
+  .container { max-width: 1100px; margin: 0 auto; padding: 0 24px; position: relative; z-index: 2; }
+  header { border-bottom: 1px solid var(--border); padding: 28px 0 24px; position: relative; z-index: 2; }
+  .header-inner { display: flex; align-items: center; gap: 20px; }
+  .logo-mark { width: 44px; height: 44px; border: 2px solid var(--red); display: flex; align-items: center; justify-content: center; position: relative; flex-shrink: 0; }
+  .logo-mark::before { content: ''; position: absolute; inset: 3px; border: 1px solid var(--red-dim); }
+  .logo-mark svg { width: 22px; height: 22px; fill: var(--red-bright); }
+  .logo-text { display: flex; flex-direction: column; gap: 1px; }
+  .logo-title { font-family: var(--display); font-size: 26px; font-weight: 700; letter-spacing: 4px; color: #fff; line-height: 1; text-transform: uppercase; }
+  .logo-title span { color: var(--red-bright); }
+  .logo-sub { font-family: var(--mono); font-size: 10px; color: var(--text-muted); letter-spacing: 3px; text-transform: uppercase; }
+  .status-badge { margin-left: auto; font-family: var(--mono); font-size: 10px; padding: 4px 10px; letter-spacing: 1px; border: 1px solid var(--border); color: var(--text-muted); transition: all 0.3s; }
+  .status-badge.connected { color: #44aa44; border-color: #224422; }
+  .search-section { padding: 40px 0 28px; position: relative; z-index: 2; }
+  .section-label { font-family: var(--mono); font-size: 11px; color: var(--red); letter-spacing: 3px; text-transform: uppercase; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; }
+  .section-label::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, var(--border), transparent); }
+  .token-row { display: flex; gap: 10px; margin-bottom: 32px; }
+  .search-row { display: flex; gap: 10px; align-items: stretch; }
+  .input-wrap { position: relative; flex: 1; }
+  .input-label { font-family: var(--mono); font-size: 10px; color: var(--text-muted); letter-spacing: 2px; position: absolute; top: -18px; left: 0; }
+  input[type="text"], input[type="password"] {
+    width: 100%; background: var(--card); border: 1px solid var(--border); color: var(--text);
+    font-family: var(--mono); font-size: 14px; padding: 12px 16px; outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s; letter-spacing: 1px;
+  }
+  input:focus { border-color: var(--red); box-shadow: 0 0 0 1px var(--red-dim), inset 0 0 20px rgba(170,0,0,0.05); }
+  input::placeholder { color: var(--text-muted); }
+  .btn { font-family: var(--display); font-size: 15px; font-weight: 600; letter-spacing: 3px; text-transform: uppercase; padding: 12px 28px; border: none; cursor: pointer; transition: all 0.15s; }
+  .btn-primary { background: var(--red); color: #fff; }
+  .btn-primary:hover { background: var(--red-bright); box-shadow: 0 0 20px var(--red-glow); }
+  .btn-primary:active { transform: scale(0.98); }
+  .btn-secondary { background: transparent; color: var(--text-dim); border: 1px solid var(--border); font-size: 13px; padding: 12px 18px; }
+  .btn-secondary:hover { border-color: var(--red-dim); color: var(--text); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .hint { font-family: var(--mono); font-size: 11px; color: var(--text-muted); margin-top: 10px; }
+  .hint a { color: var(--red); text-decoration: none; }
+  .loading { display: none; padding: 60px 0; text-align: center; }
+  .loading.active { display: block; }
+  .loading-spinner { width: 48px; height: 48px; border: 2px solid var(--border); border-top-color: var(--red); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 20px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-text { font-family: var(--mono); font-size: 13px; color: var(--text-muted); letter-spacing: 2px; }
+  .error-box { display: none; background: rgba(170,0,0,0.1); border: 1px solid var(--red-dim); padding: 14px 18px; font-family: var(--mono); font-size: 13px; color: #ff6666; margin-bottom: 24px; }
+  .error-box.active { display: block; }
+  .results-section { position: relative; z-index: 2; padding-bottom: 60px; }
+  .results-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 2px; }
+  .team-card { background: var(--card); border: 1px solid var(--border); animation: fadeUp 0.4s ease both; position: relative; overflow: hidden; }
+  .team-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, var(--red), transparent); }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+  .card-header { padding: 20px 20px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+  .team-number { font-family: var(--display); font-size: 32px; font-weight: 700; color: #fff; letter-spacing: 2px; line-height: 1; }
+  .team-name { font-family: var(--body); font-size: 13px; color: var(--text-dim); margin-top: 4px; font-weight: 500; }
+  .team-location { font-family: var(--mono); font-size: 11px; color: var(--text-muted); margin-top: 3px; }
+  .robot-name { font-family: var(--mono); font-size: 11px; color: var(--red); text-align: right; letter-spacing: 1px; flex-shrink: 0; }
+  .stats-body { padding: 0; }
+  .stat-group { border-bottom: 1px solid var(--border); }
+  .stat-group:last-child { border-bottom: none; }
+  .stat-group-label { font-family: var(--mono); font-size: 9px; color: var(--text-muted); letter-spacing: 3px; text-transform: uppercase; padding: 10px 20px 4px; }
+  .stat-row { display: flex; align-items: center; padding: 8px 20px; gap: 12px; transition: background 0.1s; }
+  .stat-row:hover { background: var(--card2); }
+  .stat-name { font-family: var(--body); font-size: 14px; font-weight: 600; color: var(--text-dim); flex: 1; }
+  .stat-value { font-family: var(--mono); font-size: 16px; color: #fff; letter-spacing: 1px; text-align: right; min-width: 70px; }
+  .stat-value.highlight { color: var(--red-bright); font-size: 18px; }
+  .stat-bar-wrap { flex: 1; height: 3px; background: var(--border); max-width: 80px; }
+  .stat-bar { height: 100%; background: linear-gradient(90deg, var(--red-dim), var(--red-bright)); transition: width 0.6s cubic-bezier(0.4,0,0.2,1); }
+  .wl-display { font-family: var(--mono); font-size: 12px; color: var(--text-muted); text-align: right; min-width: 70px; }
+  .awards-list { padding: 10px 20px 14px; display: flex; flex-wrap: wrap; gap: 6px; }
+  .award-tag { font-family: var(--mono); font-size: 10px; color: var(--red); border: 1px solid var(--red-dim); padding: 3px 8px; }
+  .no-awards { font-family: var(--mono); font-size: 11px; color: var(--text-muted); padding: 10px 20px 14px; }
+  .na { color: var(--text-muted) !important; font-size: 13px !important; }
+  .compare-notice { font-family: var(--mono); font-size: 11px; color: var(--text-muted); text-align: center; padding: 20px 0 0; }
+  @media (max-width: 600px) {
+    .token-row, .search-row { flex-direction: column; }
+    .btn { width: 100%; }
+    .results-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="container">
+    <div class="header-inner">
+      <div class="logo-mark">
+        <svg viewBox="0 0 24 24"><path d="M12 2L2 7v10l10 5 10-5V7L12 2zm0 2.18L20 8.5v7L12 19.82 4 15.5v-7L12 4.18z"/></svg>
+      </div>
+      <div class="logo-text">
+        <div class="logo-title">VEX <span>SCOUT</span></div>
+        <div class="logo-sub">Competition Intelligence</div>
+      </div>
+      <div class="status-badge" id="statusBadge">● NOT CONNECTED</div>
+    </div>
+  </div>
+</header>
+
+<div class="container">
+  <section class="search-section">
+
+    <div class="section-label">API Token</div>
+    <div class="token-row">
+      <div class="input-wrap">
+        <span class="input-label">ROBOTEVENTS API TOKEN</span>
+        <input type="password" id="apiToken" placeholder="Paste your RobotEvents API token here" autocomplete="off" oninput="onTokenInput()">
+      </div>
+      <button class="btn btn-secondary" onclick="saveToken()">SAVE</button>
+    </div>
+
+    <div class="section-label">Scout Teams</div>
+    <div class="search-row">
+      <div class="input-wrap">
+        <span class="input-label">TEAM NUMBERS</span>
+        <input type="text" id="teamInput" placeholder="e.g. 7700S  or  7700S, 1234A, 9999Z" autocomplete="off">
+      </div>
+      <button class="btn btn-primary" id="scoutBtn" onclick="scoutTeams()">SCOUT</button>
+    </div>
+    <div class="hint">Separate multiple teams with commas or spaces &nbsp;·&nbsp; Get a free token at <a href="https://www.robotevents.com/api/v2" target="_blank">robotevents.com/api/v2</a></div>
+  </section>
+
+  <div class="error-box" id="errorBox"></div>
+  <div class="loading" id="loading">
+    <div class="loading-spinner"></div>
+    <div class="loading-text" id="loadingText">FETCHING TEAM DATA...</div>
+  </div>
+
+  <section class="results-section">
+    <div id="resultsLabel" style="display:none;" class="section-label">Results</div>
+    <div class="results-grid" id="resultsGrid"></div>
+    <div class="compare-notice" id="compareNotice" style="display:none;"></div>
+  </section>
+</div>
+
+<script>
+const BASE = 'https://www.robotevents.com/api/v2';
+let TOKEN = localStorage.getItem('re_token') || '';
+
+window.onload = () => {
+  if (TOKEN) {
+    document.getElementById('apiToken').value = TOKEN;
+    setBadge(true);
+  }
+  document.getElementById('teamInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') scoutTeams();
+  });
+};
+
+function onTokenInput() {
+  setBadge(false);
+}
+
+function setBadge(connected) {
+  const badge = document.getElementById('statusBadge');
+  badge.textContent = connected ? '● CONNECTED' : '● NOT CONNECTED';
+  badge.classList.toggle('connected', connected);
+}
+
+function saveToken() {
+  TOKEN = document.getElementById('apiToken').value.trim();
+  if (!TOKEN) { showError('Please paste your API token first.'); return; }
+  localStorage.setItem('re_token', TOKEN);
+  setBadge(true);
+  showError('');
+  const btn = document.querySelector('.btn-secondary');
+  const orig = btn.textContent;
+  btn.textContent = 'SAVED ✓';
+  setTimeout(() => btn.textContent = orig, 1500);
+}
+
+function showError(msg) {
+  const box = document.getElementById('errorBox');
+  box.textContent = msg;
+  box.classList.toggle('active', !!msg);
+}
+
+function setLoading(active, text = 'FETCHING TEAM DATA...') {
+  document.getElementById('loading').classList.toggle('active', active);
+  document.getElementById('loadingText').textContent = text;
+  document.getElementById('scoutBtn').disabled = active;
+}
+
+async function apiGet(endpoint, params = {}) {
+  TOKEN = document.getElementById('apiToken').value.trim() || TOKEN;
+  if (!TOKEN) throw new Error('No API token. Paste your token above and click SAVE.');
+  const url = new URL(BASE + endpoint);
+  params.per_page = 250;
+  Object.entries(params).forEach(([k, v]) => {
+    if (Array.isArray(v)) v.forEach(val => url.searchParams.append(k, val));
+    else url.searchParams.set(k, v);
+  });
+  const res = await fetch(url.toString(), {
+    headers: { 'Authorization': `Bearer ${TOKEN}`, 'Accept': 'application/json' }
+  });
+  if (!res.ok) {
+    if (res.status === 401) throw new Error('Invalid API token. Double-check and try again.');
+    throw new Error(`API error ${res.status}`);
+  }
+  const data = await res.json();
+  let results = data.data || [];
+  if (data.meta && data.meta.last_page > 1) {
+    for (let p = 2; p <= Math.min(data.meta.last_page, 10); p++) {
+      url.searchParams.set('page', p);
+      const r2 = await fetch(url.toString(), { headers: { 'Authorization': `Bearer ${TOKEN}`, 'Accept': 'application/json' } });
+      const d2 = await r2.json();
+      results = results.concat(d2.data || []);
+    }
+  }
+  return results;
+}
+
+async function getCurrentSeason() {
+  const seasons = await apiGet('/seasons', { 'program[]': [1] });
+  seasons.sort((a, b) => (b.start || '').localeCompare(a.start || ''));
+  return seasons[0]?.id || null;
+}
+
+async function scoutTeams() {
+  TOKEN = document.getElementById('apiToken').value.trim() || TOKEN;
+  if (!TOKEN) { showError('⚠ Paste your RobotEvents API token above and click SAVE first.'); return; }
+
+  const input = document.getElementById('teamInput').value.trim();
+  if (!input) return;
+
+  showError('');
+  const teamNumbers = input.split(/[\s,]+/).map(t => t.toUpperCase().trim()).filter(Boolean);
+  const grid = document.getElementById('resultsGrid');
+  grid.innerHTML = '';
+  document.getElementById('resultsLabel').style.display = 'none';
+  document.getElementById('compareNotice').style.display = 'none';
+  setLoading(true, 'DETECTING SEASON...');
+
+  try {
+    const seasonId = await getCurrentSeason();
+
+    for (let i = 0; i < teamNumbers.length; i++) {
+      const num = teamNumbers[i];
+      setLoading(true, `SCOUTING ${num}... (${i+1}/${teamNumbers.length})`);
+      try {
+        const card = await buildTeamCard(num, seasonId);
+        grid.appendChild(card);
+      } catch(e) {
+        const errCard = document.createElement('div');
+        errCard.className = 'team-card';
+        errCard.innerHTML = `<div class="card-header"><div>
+          <div class="team-number">${num}</div>
+          <div class="team-name" style="color:#ff4444;">Team not found</div>
+          <div class="team-location" style="color:#884444;">${e.message}</div>
+        </div></div>`;
+        grid.appendChild(errCard);
+      }
+    }
+
+    document.getElementById('resultsLabel').style.display = 'flex';
+    if (teamNumbers.length > 1) {
+      document.getElementById('compareNotice').style.display = 'block';
+      document.getElementById('compareNotice').textContent = `${teamNumbers.length} teams scouted · scroll to compare`;
+    }
+  } catch(e) {
+    showError('⚠ ' + e.message);
+  }
+
+  setLoading(false);
+}
+
+async function buildTeamCard(teamNumber, seasonId) {
+  const teams = await apiGet('/teams', { 'number[]': [teamNumber], 'program[]': [1] });
+  if (!teams.length) throw new Error('Team not found in V5RC.');
+  const team = teams[0];
+  const teamId = team.id;
+  const params = { 'team[]': [teamId] };
+  if (seasonId) params['season[]'] = [seasonId];
+
+  const [allMatches, skills, rankings, awards] = await Promise.all([
+    apiGet(`/teams/${teamId}/matches`, params),
+    apiGet(`/teams/${teamId}/skills`, params),
+    apiGet(`/teams/${teamId}/rankings`, params),
+    apiGet(`/teams/${teamId}/awards`, params)
+  ]);
+
+  const matches = allMatches.filter(m => m.round !== 1);
+  let wins = 0, losses = 0, ties = 0, awpCount = 0, autonWins = 0, autonPlayed = 0, scores = [];
+
+  for (const match of matches) {
+    const alliances = match.alliances || [];
+    let myAlliance = null, oppAlliance = null;
+    for (const a of alliances) {
+      if ((a.teams || []).some(t => t?.team?.id == teamId)) { myAlliance = a; break; }
+    }
+    if (!myAlliance) continue;
+    oppAlliance = alliances.find(a => a !== myAlliance);
+    const myScore = myAlliance.score || 0;
+    const oppScore = oppAlliance?.score || 0;
+    scores.push(myScore);
+    if (myAlliance.won === true) wins++;
+    else if (myScore === oppScore) ties++;
+    else losses++;
+    if (myAlliance.autonomous_win_point === true) awpCount++;
+    const aw = match.autonomous_winner;
+    if (aw && aw !== 'none' && aw !== '') {
+      autonPlayed++;
+      if ((aw.toLowerCase() === 'red' && myAlliance.color === 'red') ||
+          (aw.toLowerCase() === 'blue' && myAlliance.color === 'blue')) autonWins++;
+    }
+  }
+
+  const total = wins + losses + ties;
+  const winRate   = total > 0 ? wins / total * 100 : null;
+  const awpRate   = total > 0 ? awpCount / total * 100 : null;
+  const autonRate = autonPlayed > 0 ? autonWins / autonPlayed * 100 : null;
+  const avgScore  = scores.length > 0 ? scores.reduce((a,b)=>a+b,0)/scores.length : null;
+  const highScore = scores.length > 0 ? Math.max(...scores) : null;
+
+  let progSkill = 0, driverSkill = 0;
+  for (const s of skills) {
+    if (s.type === 'programming') progSkill = Math.max(progSkill, s.score || 0);
+    if (s.type === 'driver') driverSkill = Math.max(driverSkill, s.score || 0);
+  }
+
+  let avgRank = null;
+  if (rankings.length) {
+    const ranks = rankings.map(r => r.rank).filter(Boolean);
+    if (ranks.length) avgRank = (ranks.reduce((a,b)=>a+b,0)/ranks.length).toFixed(1);
+  }
+
+  const awardNames = awards.map(a => a.title).filter(Boolean);
+  const loc = team.location || {};
+  const locationStr = [loc.city, loc.region, loc.country].filter(Boolean).join(', ');
+
+  const fmt = (val, suffix='%', dec=1) =>
+    val !== null && val !== undefined ? `${Number(val).toFixed(dec)}${suffix}` : '<span class="na">N/A</span>';
+  const bar = (val) => val !== null && val !== undefined
+    ? `<div class="stat-bar-wrap"><div class="stat-bar" style="width:${Math.min(val,100)}%"></div></div>` : '';
+
+  const card = document.createElement('div');
+  card.className = 'team-card';
+  card.innerHTML = `
+    <div class="card-header">
+      <div>
+        <div class="team-number">${team.number}</div>
+        <div class="team-name">${team.team_name || '—'}</div>
+        <div class="team-location">${locationStr || '—'}</div>
+      </div>
+      <div class="robot-name">${team.robot_name ? '⬡ ' + team.robot_name : ''}</div>
+    </div>
+    <div class="stats-body">
+      <div class="stat-group">
+        <div class="stat-group-label">Match Record</div>
+        <div class="stat-row"><div class="stat-name">Win Rate</div>${bar(winRate)}<div class="stat-value highlight">${fmt(winRate)}</div></div>
+        <div class="stat-row"><div class="stat-name">W / L / T</div><div class="wl-display">${total>0?`${wins}W · ${losses}L${ties?' · '+ties+'T':''}` : '<span class="na">N/A</span>'}</div></div>
+        <div class="stat-row"><div class="stat-name">Total Matches</div><div class="stat-value">${total}</div></div>
+      </div>
+      <div class="stat-group">
+        <div class="stat-group-label">Autonomous</div>
+        <div class="stat-row"><div class="stat-name">AWP %</div>${bar(awpRate)}<div class="stat-value">${fmt(awpRate)}</div></div>
+        <div class="stat-row"><div class="stat-name">AWP Earned</div><div class="stat-value">${total>0?awpCount+' / '+total:'<span class="na">N/A</span>'}</div></div>
+        <div class="stat-row"><div class="stat-name">Auton Win %</div>${bar(autonRate)}<div class="stat-value">${fmt(autonRate)}</div></div>
+      </div>
+      <div class="stat-group">
+        <div class="stat-group-label">Skills</div>
+        <div class="stat-row"><div class="stat-name">Autonomous</div><div class="stat-value">${progSkill||'<span class="na">—</span>'}</div></div>
+        <div class="stat-row"><div class="stat-name">Driver</div><div class="stat-value">${driverSkill||'<span class="na">—</span>'}</div></div>
+        <div class="stat-row"><div class="stat-name">Combined</div><div class="stat-value">${(progSkill+driverSkill)||'<span class="na">—</span>'}</div></div>
+      </div>
+      <div class="stat-group">
+        <div class="stat-group-label">Scoring</div>
+        <div class="stat-row"><div class="stat-name">Avg Score</div><div class="stat-value">${fmt(avgScore,'',1)}</div></div>
+        <div class="stat-row"><div class="stat-name">High Score</div><div class="stat-value">${highScore!==null?highScore:'<span class="na">—</span>'}</div></div>
+      </div>
+      <div class="stat-group">
+        <div class="stat-group-label">Rankings</div>
+        <div class="stat-row"><div class="stat-name">Avg Event Rank</div><div class="stat-value">${avgRank?'#'+avgRank:'<span class="na">N/A</span>'}</div></div>
+        <div class="stat-row"><div class="stat-name">Events Played</div><div class="stat-value">${rankings.length}</div></div>
+      </div>
+      <div class="stat-group">
+        <div class="stat-group-label">Awards (${awardNames.length})</div>
+        ${awardNames.length
+          ? `<div class="awards-list">${awardNames.map(a=>`<span class="award-tag">${a}</span>`).join('')}</div>`
+          : `<div class="no-awards">No awards found</div>`}
+      </div>
+    </div>`;
+  return card;
+}
+</script>
+</body>
+</html>
