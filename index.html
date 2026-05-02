@@ -478,6 +478,15 @@
 <div class="container">
   <section class="search-section">
 
+    <div class="section-label">API Token</div>
+    <div class="token-row">
+      <div class="input-wrap">
+        <span class="input-label">ROBOTEVENTS API TOKEN</span>
+        <input type="password" id="apiToken" placeholder="Paste your RobotEvents API token here" autocomplete="off" oninput="onTokenInput()">
+      </div>
+      <button class="btn btn-secondary" onclick="saveToken()">SAVE</button>
+    </div>
+
     <div class="section-label">Scout Teams</div>
     <div class="controls-row">
       <div class="input-wrap" style="flex:2;">
@@ -546,9 +555,7 @@
 
 <script>
 const BASE = 'https://www.robotevents.com/api/v2';
-// Built-in API token — replace with your own if rate-limited
-const DEFAULT_TOKEN = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJhdWQiOiIzIiwianRpIjoiMDQ5NWVjZWEzYmQ1YTk2NmVkNjcwOGJkMGUwYTE3ZjJmZmI3MThlNDZhYjZlMmIzZTY1NmU5YzVmYzA1ZDU5YmU0YTMzNzVjODI5NTgyN2YiLCJpYXQiOjE3Nzc2ODkxMzMuNjYxOTAyOSwibmJmIjoxNzc3Njg5MTMzLjY2MTkwNTEsImV4cCI6MjcyNDQ2MDMzMy42NDc2OTMyLCJzdWIiOiIxNTk4MzYiLCJzY29wZXMiOltdfQ.NGy2xZfTwE6O3RRK_Espyv_Yn_z8zJZIfuoKpq8DqnjRm_qAm3Nt6Ywfswl-iVYIqIQdq7fdXfnKiwBeEiwSltM-iq3jvCQ3jQdIVYfhqSCFz2qGM_hDU7R8SaI5ongTRQfxT4JTiSVgm_SRuVE57ridhkzIY7zVyn3ap4nATASdwZMq6Qj9BaomEnABrnqOvsIiZj7BFxijNlg5vYV8wWFCvts5F3bA3JRHcmT0lAD8Py-78gNW314THzjHnAClfjuhbco97IGx5_z59LkbDQKq3OdojZIDWDZPN1Vaamu_h5RwpUditnSm6Euxg3Yqaf1VUTBY1sHq9tHjHsxIv5YgEOkxaHyIDvqJXrBQFTY_awY2-O2_TPa0nbVcU114yIgIVFOKlUbJHZmwlFrt8zm_0n1GusDGRoEMVHBa6asXwlc-9LUFtHIEMm2kJkfYOSuB3WsNV7g9uobsZQYfJ0v37XezZ3uJtgygzy5WXux2ZOlwgHHRmqw-gqdMcNlrsSI9ptVxB3MrGfvWE4QPGg9Eeh5kM1lgEYmg4Avhw0SF3UwR82PFa7l0cjfaQaGzfxelLR_Pdan3Xz6qZcFQdrARXsEhQsikhreDm3FI8wj0YgnfU9spBMlW5_qYsRtkZFi5UJOcm1aSOsk20qjVR01INQklU-v__Rj8soq3Qsw';
-let TOKEN = localStorage.getItem('re_token') || DEFAULT_TOKEN;
+let TOKEN = localStorage.getItem('re_token') || '';
 let seasonsLoaded = false;
 
 // US states list
@@ -564,7 +571,10 @@ const US_STATES = [
 
 // ── INIT ──────────────────────────────────────
 window.onload = () => {
-  setBadge(true);
+  if (TOKEN) {
+    document.getElementById('apiToken').value = TOKEN;
+    setBadge(true);
+  }
   loadSeasons(); // always load — uses hardcoded list instantly
   document.getElementById('teamInput').addEventListener('keydown', e => {
     if (e.key === 'Enter') scoutTeams();
@@ -601,15 +611,31 @@ function applyTheme(name) {
   localStorage.setItem('vex_theme', name);
 }
 
-// ── STATUS BADGE ──────────────────────────────
+// ── TOKEN ─────────────────────────────────────
+function onTokenInput() { setBadge(false); }
+
 function setBadge(connected) {
   const b = document.getElementById('statusBadge');
-  b.textContent = connected ? '● CONNECTED' : '● OFFLINE';
+  b.textContent = connected ? '● CONNECTED' : '● NOT CONNECTED';
   b.classList.toggle('connected', connected);
+}
+
+function saveToken() {
+  TOKEN = document.getElementById('apiToken').value.trim();
+  if (!TOKEN) { showError('Please paste your API token first.'); return; }
+  localStorage.setItem('re_token', TOKEN);
+  setBadge(true);
+  showError('');
+  const btn = document.querySelector('.btn-secondary');
+  btn.textContent = 'SAVED ✓';
+  setTimeout(() => btn.textContent = 'SAVE', 1500);
+  if (!seasonsLoaded) loadSeasons();
 }
 
 // ── API ───────────────────────────────────────
 async function apiGet(endpoint, params = {}) {
+  TOKEN = document.getElementById('apiToken').value.trim() || TOKEN;
+  if (!TOKEN) throw new Error('No API token. Paste your token and click SAVE first.');
   const url = new URL(BASE + endpoint);
   params.per_page = 250;
   Object.entries(params).forEach(([k, v]) => {
@@ -620,7 +646,7 @@ async function apiGet(endpoint, params = {}) {
     headers: { 'Authorization': `Bearer ${TOKEN}`, 'Accept': 'application/json' }
   });
   if (!res.ok) {
-    if (res.status === 401) throw new Error('API token expired or invalid. Contact site owner.');
+    if (res.status === 401) throw new Error('Invalid API token. Check it and try again.');
     throw new Error(`API error ${res.status}`);
   }
   const data = await res.json();
@@ -719,6 +745,8 @@ let skillsState = {
 };
 
 async function loadSkillsRankings() {
+  TOKEN = document.getElementById('apiToken').value.trim() || TOKEN;
+  if (!TOKEN) { showError('⚠ Paste your RobotEvents API token and click SAVE first.'); return; }
   showError('');
 
   const seasonId = document.getElementById('skillsSeasonSelect').value;
@@ -744,21 +772,12 @@ async function loadSkillsRankings() {
   loadingText.textContent = 'FETCHING TEAMS...';
 
   try {
-    // Get all teams matching country filter (state filtering is client-side)
+    // Get all teams matching filter (paginated)
     const teamParams = { 'program[]': [1] };
     if (region === 'USA') teamParams['country[]'] = ['United States'];
+    if (state) teamParams['region'] = state;
 
-    loadingText.textContent = 'FETCHING TEAMS...';
-    let teams = await apiGet('/teams', teamParams);
-
-    // Client-side filter by state
-    if (state) {
-      teams = teams.filter(t => {
-        const r = (t.location?.region || '').toLowerCase();
-        return r === state.toLowerCase();
-      });
-    }
-
+    const teams = await apiGet('/teams', teamParams);
     if (!teams.length) {
       wrap.innerHTML = '<div style="text-align:center;padding:40px;font-family:var(--mono);color:var(--text-muted);">No teams found for this filter.</div>';
       loadingEl.classList.remove('active');
@@ -912,6 +931,9 @@ function setLoading(active, text = 'FETCHING TEAM DATA...') {
 
 // ── SCOUT ─────────────────────────────────────
 async function scoutTeams() {
+  TOKEN = document.getElementById('apiToken').value.trim() || TOKEN;
+  if (!TOKEN) { showError('⚠ Paste your RobotEvents API token and click SAVE first.'); return; }
+
   const input = document.getElementById('teamInput').value.trim();
   if (!input) return;
 
