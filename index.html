@@ -806,14 +806,10 @@ async function loadSkillsApiPage() {
   }
 
   const path = `legacy:/seasons/${skillsState.seasonId}/skills?${params.toString()}`;
-  console.log('[Skills] Fetching:', path);
   const res = await fetch(`${BASE}?path=${encodeURIComponent(path)}`);
-
-  console.log('[Skills] Response status:', res.status);
 
   if (!res.ok) {
     const text = await res.text();
-    console.log('[Skills] Error body:', text.slice(0, 500));
     if (skillsState.apiPage === 1) {
       throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
     }
@@ -822,11 +818,8 @@ async function loadSkillsApiPage() {
   }
 
   const data = await res.json();
-  console.log('[Skills] Got data, type:', typeof data, 'keys:', Object.keys(data));
-  console.log('[Skills] Sample:', JSON.stringify(data).slice(0, 500));
 
-  if (data.error) {
-    console.log('[Skills] API error:', data);
+  if (data.error && !Array.isArray(data)) {
     if (skillsState.apiPage === 1) {
       throw new Error(data.error + (data.preview ? ': ' + data.preview.slice(0, 100) : ''));
     }
@@ -834,17 +827,17 @@ async function loadSkillsApiPage() {
     return;
   }
 
-  const items = data.data || [];
-  console.log('[Skills] Items count:', items.length);
-  if (items.length > 0) console.log('[Skills] First item:', items[0]);
+  // The legacy V1 endpoint returns the FULL season skills as a top-level array
+  // ranked from #1 to #6000+. We slice the page we want from this array.
+  // It already does pagination too, but with per_page=50 and page param.
+  const items = Array.isArray(data) ? data : (data.data || []);
+
   if (!items.length) {
     skillsState.doneLoading = true;
     return;
   }
 
-  // The legacy endpoint returns each skills run separately (1 driver entry + 1 prog entry per team).
-  // We need to merge them per team and use the OFFICIAL "score" field which is from the same event.
-  // Build/update teamMap by id
+  // Build team map - each item is already a fully-resolved team rank entry
   const teamMap = {};
   for (const t of skillsState.rankedItems) {
     teamMap[t.id] = { ...t };
@@ -855,56 +848,56 @@ async function loadSkillsApiPage() {
     const id = team.id;
     if (!id) continue;
 
-    // V5RC ONLY filter
+    // V5RC ONLY filter (program field is "V5RC" directly)
     const prog = (team.program || '').toUpperCase();
     if (prog && prog !== 'V5RC' && prog !== 'VRC') continue;
 
-    // Sub-region client-side filter
+    // Sub-region filter — the legacy endpoint provides eventRegion which IS the official VEX sub-region
     if (skillsState.subregion) {
-      // The "event" field tells us which event this score came from
-      // We can't reliably filter by sub-region here without event location data
-      // Skip if the team's region doesn't match the parent state at all
+      const evRegion = (team.eventRegion || '').trim();
+      if (evRegion !== skillsState.subregion) continue;
     }
 
     if (!teamMap[id]) {
       teamMap[id] = {
         id: id,
-        number: team.team || team.number || '?',
-        team_name: team.team_name || '',
+        number: team.team || '?',
+        team_name: team.teamName || team.team_name || '',
         location: {
           city: team.city || '',
           region: team.region || '',
-          country: team.country || ''
+          country: team.country || '',
+          eventRegion: team.eventRegion || ''
         },
         driver: 0,
         programming: 0,
-        combined: 0
+        combined: 0,
+        rank: item.rank || 999999
       };
     }
 
-    const scores = item.scores || {};
-    // The "score" field IS the official combined skills score (driver+prog from same event)
-    if (typeof scores.score === 'number') {
-      teamMap[id].combined = Math.max(teamMap[id].combined, scores.score);
-    }
-    if (typeof scores.driver === 'number') {
-      teamMap[id].driver = Math.max(teamMap[id].driver, scores.driver);
-    }
-    if (typeof scores.programming === 'number') {
-      teamMap[id].programming = Math.max(teamMap[id].programming, scores.programming);
+    // The legacy endpoint structure has scores possibly directly on item
+    // Most common: item has scoreDriver, scoreProg, score (combined)
+    // OR: item.scores = { driver, programming, score }
+    const driverScore = item.scoreDriver ?? item.scores?.driver ?? 0;
+    const progScore = item.scoreProg ?? item.scores?.programming ?? 0;
+    const combinedScore = item.score ?? item.scores?.score ?? (driverScore + progScore);
+
+    teamMap[id].driver = Math.max(teamMap[id].driver, driverScore);
+    teamMap[id].programming = Math.max(teamMap[id].programming, progScore);
+    teamMap[id].combined = Math.max(teamMap[id].combined, combinedScore);
+    if (item.rank && item.rank < teamMap[id].rank) {
+      teamMap[id].rank = item.rank;
     }
   }
 
-  // Rebuild sorted array
-  // Use the official "combined" score directly (don't add driver+programming since those might be from different events)
+  // Sort by official rank if available, otherwise by combined score
   const arr = Object.values(teamMap)
-    .filter(t => t.combined > 0 || t.driver > 0 || t.programming > 0)
-    .map(t => ({
-      ...t,
-      // Use official combined if available, otherwise fall back to sum
-      combined: t.combined > 0 ? t.combined : (t.driver + t.programming)
-    }));
-  arr.sort((a, b) => b.combined - a.combined);
+    .filter(t => t.combined > 0 || t.driver > 0 || t.programming > 0);
+  arr.sort((a, b) => {
+    if (a.rank !== 999999 && b.rank !== 999999) return a.rank - b.rank;
+    return b.combined - a.combined;
+  });
   skillsState.rankedItems = arr;
 
   skillsState.apiPage++;
@@ -915,6 +908,10 @@ async function loadSkillsApiPage() {
     skillsState.doneLoading = true;
   }
   if (!meta.last_page && items.length < 50) {
+    skillsState.doneLoading = true;
+  }
+  // If we got way more than per_page (endpoint returned full data), we're done
+  if (items.length >= 100) {
     skillsState.doneLoading = true;
   }
 }
@@ -975,13 +972,15 @@ function renderSkillsPage() {
   }
 
   const rows = pageTeams.map((t, i) => {
-    const rank = start + i + 1;
+    const positionalRank = start + i + 1;
+    // Use the team's actual official rank if we have it
+    const displayRank = (t.rank && t.rank !== 999999) ? t.rank : positionalRank;
     const loc = t.location || {};
-    const locStr = [loc.region, loc.country].filter(Boolean).join(', ');
-    const rankClass = rank <= 3 ? 'rank-top' : '';
+    const locStr = [loc.eventRegion || loc.region, loc.country].filter(Boolean).join(', ');
+    const rankClass = displayRank <= 3 ? 'rank-top' : '';
     return `
       <div class="skill-row ${rankClass}">
-        <div class="skill-rank">#${rank}</div>
+        <div class="skill-rank">#${displayRank}</div>
         <div class="skill-team">
           <div class="skill-num">${t.number}</div>
           <div class="skill-name">${t.team_name || '—'}</div>
