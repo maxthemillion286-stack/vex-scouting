@@ -115,7 +115,8 @@
   .theme-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-bright); }
   .theme-dropdown {
     display: none; position: absolute; top: calc(100% + 6px); right: 0;
-    background: var(--card); border: 1px solid var(--border); min-width: 150px; z-index: 100;
+    background: #1a0000; border: 1px solid var(--border); min-width: 160px; z-index: 99999;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.8);
   }
   .theme-dropdown.open { display: block; }
   .theme-option {
@@ -306,8 +307,8 @@ window.onload = () => {
   if (TOKEN) {
     document.getElementById('apiToken').value = TOKEN;
     setBadge(true);
-    loadSeasons();
   }
+  loadSeasons(); // always load — uses hardcoded list instantly
   document.getElementById('teamInput').addEventListener('keydown', e => {
     if (e.key === 'Enter') scoutTeams();
   });
@@ -388,24 +389,49 @@ async function apiGet(endpoint, params = {}) {
 }
 
 // ── SEASONS ───────────────────────────────────
-async function loadSeasons() {
+// Hardcoded V5RC seasons (id, name) — newest first
+const SEASONS = [
+  { id: 190, name: 'V5RC 2025-2026: Push Back' },
+  { id: 182, name: 'V5RC 2024-2025: High Stakes' },
+  { id: 173, name: 'V5RC 2023-2024: Over Under' },
+  { id: 154, name: 'V5RC 2022-2023: Spin Up' },
+  { id: 139, name: 'V5RC 2021-2022: Tipping Point' },
+  { id: 130, name: 'V5RC 2020-2021: Change Up' },
+  { id: 125, name: 'V5RC 2019-2020: Tower Takeover' },
+];
+
+function loadSeasons() {
   const sel = document.getElementById('seasonSelect');
-  sel.innerHTML = '<option value="">Loading...</option>';
+  sel.innerHTML = '';
+  SEASONS.forEach((s, i) => {
+    const opt = document.createElement('option');
+    opt.value = s.id;
+    opt.textContent = s.name;
+    if (i === 0) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  seasonsLoaded = true;
+  // Also try to load from API to get any newer seasons
+  loadSeasonsFromAPI();
+}
+
+async function loadSeasonsFromAPI() {
+  if (!TOKEN) return;
   try {
     const seasons = await apiGet('/seasons', { 'program[]': [1] });
+    if (!seasons.length) return;
     seasons.sort((a, b) => (b.start || '').localeCompare(a.start || ''));
+    const sel = document.getElementById('seasonSelect');
+    const currentVal = sel.value;
     sel.innerHTML = '';
     seasons.forEach((s, i) => {
       const opt = document.createElement('option');
       opt.value = s.id;
       opt.textContent = s.name;
-      if (i === 0) opt.selected = true;
+      if (String(s.id) === String(currentVal) || i === 0) opt.selected = true;
       sel.appendChild(opt);
     });
-    seasonsLoaded = true;
-  } catch(e) {
-    sel.innerHTML = '<option value="">Could not load seasons</option>';
-  }
+  } catch(e) { /* keep hardcoded list */ }
 }
 
 // ── ERROR / LOADING ───────────────────────────
