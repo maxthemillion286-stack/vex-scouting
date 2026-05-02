@@ -513,38 +513,55 @@ async function buildTeamCard(teamNumber, seasonId) {
   const matches = allMatches.filter(m => m.round !== 1);
   let wins = 0, losses = 0, ties = 0, awpCount = 0, autonWins = 0, autonPlayed = 0, scores = [];
 
-  // DEBUG - log first match to see structure
-  if (matches.length > 0) {
-    console.log('FIRST MATCH:', JSON.stringify(matches[0], null, 2));
-    console.log('ALLIANCES TYPE:', Array.isArray(matches[0].alliances) ? 'ARRAY' : typeof matches[0].alliances);
-    console.log('ALLIANCES VALUE:', matches[0].alliances);
-  }
-
   for (const match of matches) {
     const al = match.alliances;
-    let redA = null, blueA = null;
+    if (!al) continue;
+
+    // Normalize to {red, blue} regardless of array or object format
+    let redA, blueA;
     if (Array.isArray(al)) {
-      redA  = al.find(a => a.color === 'red')  || al[0];
-      blueA = al.find(a => a.color === 'blue') || al[1];
-    } else if (al && typeof al === 'object') {
-      redA = al.red || null; blueA = al.blue || null;
+      redA  = al.find(a => (a.color||'').toLowerCase() === 'red');
+      blueA = al.find(a => (a.color||'').toLowerCase() === 'blue');
+      if (!redA && al.length >= 2) { redA = al[0]; blueA = al[1]; }
+    } else {
+      redA  = al.red  || al.Red  || null;
+      blueA = al.blue || al.Blue || null;
     }
     if (!redA || !blueA) continue;
-    const inRed  = (redA.teams  || []).some(t => (t?.team?.id ?? t?.id) == teamId);
-    const inBlue = (blueA.teams || []).some(t => (t?.team?.id ?? t?.id) == teamId);
+
+    // Check all possible ways a team ID could be stored
+    function hasTeam(alliance, id) {
+      return (alliance.teams || []).some(t => {
+        const tid = t?.team?.id ?? t?.id ?? t;
+        return String(tid) === String(id);
+      });
+    }
+
+    const inRed  = hasTeam(redA,  teamId);
+    const inBlue = hasTeam(blueA, teamId);
     if (!inRed && !inBlue) continue;
-    const myA = inRed ? redA : blueA;
-    const oppA = inRed ? blueA : redA;
+
+    const myA     = inRed ? redA  : blueA;
+    const oppA    = inRed ? blueA : redA;
     const myColor = inRed ? 'red' : 'blue';
-    const myScore = myA.score || 0;
-    const oppScore = oppA.score || 0;
+
+    const myScore  = myA.score  ?? 0;
+    const oppScore = oppA.score ?? 0;
+
+    // Only count scored matches (both scores exist and at least one is nonzero)
+    if (myA.score === null || myA.score === undefined) continue;
     scores.push(myScore);
+
     if (myScore > oppScore) wins++;
     else if (myScore < oppScore) losses++;
     else ties++;
-    if (myA.autonomous_win_point === true) awpCount++;
+
+    // AWP — try multiple field names
+    if (myA.autonomous_win_point === true || myA.awp === true) awpCount++;
+
+    // Auton winner
     const aw = match.autonomous_winner;
-    if (aw && aw !== 'none' && aw !== '' && aw !== null) {
+    if (aw && aw !== 'none' && aw !== '' && aw !== null && aw !== undefined) {
       autonPlayed++;
       if (aw.toLowerCase() === myColor) autonWins++;
     }
