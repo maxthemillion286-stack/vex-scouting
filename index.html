@@ -731,7 +731,6 @@ async function loadSkillsRankings() {
   // Reset state
   skillsState = {
     teams: [],
-    allTeamIds: [],
     currentPage: 0,
     pageSize: 30,
     seasonId: seasonId,
@@ -744,78 +743,109 @@ async function loadSkillsRankings() {
   const loadingEl = document.getElementById('skillsLoading');
   const loadingText = document.getElementById('skillsLoadingText');
   loadingEl.classList.add('active');
-  loadingText.textContent = 'FETCHING TEAMS...';
+  loadingText.textContent = 'FETCHING EVENTS...';
 
   try {
-    // Get all teams matching country filter (state filtering is client-side)
-    const teamParams = { 'program[]': [1] };
-    if (region === 'USA') teamParams['country[]'] = ['United States'];
+    // Step 1: Get all events for this season with the location filter
+    const eventParams = { 'season[]': [seasonId] };
+    if (region === 'USA') eventParams['country[]'] = ['United States'];
+    if (state) eventParams['region[]'] = [state];
 
-    loadingText.textContent = 'FETCHING TEAMS...';
-    let teams = await apiGet('/teams', teamParams);
+    const events = await apiGet('/events', eventParams);
 
-    // Client-side filter by state
-    if (state) {
-      teams = teams.filter(t => {
-        const r = (t.location?.region || '').toLowerCase();
-        return r === state.toLowerCase();
-      });
-    }
-
-    if (!teams.length) {
-      wrap.innerHTML = '<div style="text-align:center;padding:40px;font-family:var(--mono);color:var(--text-muted);">No teams found for this filter.</div>';
+    if (!events.length) {
+      wrap.innerHTML = '<div style="text-align:center;padding:40px;font-family:var(--mono);color:var(--text-muted);">No events found for this filter.</div>';
       loadingEl.classList.remove('active');
       return;
     }
 
-    // Save info — we'll fetch skills on demand for each page
-    skillsState.allTeamIds = teams.map(t => ({
-      id: t.id,
-      number: t.number,
-      team_name: t.team_name || '',
-      location: t.location || {}
-    }));
+    loadingText.textContent = `FETCHING SKILLS FROM ${events.length} EVENTS...`;
 
-    loadingText.textContent = `LOADING SKILLS FOR ${skillsState.allTeamIds.length} TEAMS...`;
+    // Step 2: Get skills from each event in parallel batches
+    const teamScores = {}; // teamId -> { id, number, team_name, location, driver, programming }
 
-    // Load first batch (3 pages worth = 90 teams) so the first page has good rankings
-    await loadMoreSkills(skillsState.pageSize * 3);
+    const BATCH_SIZE = 8; // process 8 events at a time
+    for (let i = 0; i < events.length; i += BATCH_SIZE) {
+      const batch = events.slice(i, i + BATCH_SIZE);
+      loadingText.textContent = `PROCESSING EVENTS ${i + 1}-${Math.min(i + BATCH_SIZE, events.length)} OF ${events.length}...`;
 
+      const eventSkillsArrays = await Promise.all(
+        batch.map(ev => apiGet(`/events/${ev.id}/skills`).catch(() => []))
+      );
+
+      // Aggregate scores
+      for (const skillsArr of eventSkillsArrays) {
+        for (const s of skillsArr) {
+          const t = s.team;
+          if (!t || !t.id) continue;
+          if (!teamScores[t.id]) {
+            teamScores[t.id] = {
+              id: t.id,
+              number: t.name || '?',
+              team_name: '',
+              location: {},
+              driver: 0,
+              programming: 0
+            };
+          }
+          if (s.type === 'driver') {
+            teamScores[t.id].driver = Math.max(teamScores[t.id].driver, s.score || 0);
+          }
+          if (s.type === 'programming') {
+            teamScores[t.id].programming = Math.max(teamScores[t.id].programming, s.score || 0);
+          }
+        }
+      }
+    }
+
+    // Convert to array and sort
+    const teamArr = Object.values(teamScores)
+      .map(t => ({ ...t, combined: t.driver + t.programming }))
+      .filter(t => t.combined > 0)
+      .sort((a, b) => b.combined - a.combined);
+
+    if (teamArr.length === 0) {
+      wrap.innerHTML = '<div style="text-align:center;padding:40px;font-family:var(--mono);color:var(--text-muted);">No skills data found.</div>';
+      loadingEl.classList.remove('active');
+      return;
+    }
+
+    loadingText.textContent = `LOADING TEAM DETAILS...`;
+
+    // Step 3: Fetch team details for top 100 to get team names and locations
+    const top100 = teamArr.slice(0, 100);
+    const detailPromises = [];
+    for (let i = 0; i < top100.length; i += 10) {
+      const slice = top100.slice(i, i + 10);
+      detailPromises.push(Promise.all(slice.map(async t => {
+        try {
+          const teamData = await apiGet(`/teams/${t.id}`).catch(() => null);
+          // apiGet might wrap or unwrap — handle both
+          const td = Array.isArray(teamData) ? teamData[0] : teamData;
+          if (td) {
+            t.team_name = td.team_name || '';
+            t.location = td.location || {};
+          }
+        } catch(e) {}
+        return t;
+      })));
+    }
+    await Promise.all(detailPromises);
+
+    skillsState.teams = teamArr;
     skillsState.currentPage = 0;
     renderSkillsPage();
 
   } catch(e) {
     showError('⚠ ' + e.message);
+    console.error(e);
   }
 
   loadingEl.classList.remove('active');
 }
 
-async function loadMoreSkills(count) {
-  // Load skills for the next `count` teams in the queue
-  const batch = skillsState.allTeamIds.splice(0, count);
-
-  // Fetch skills in parallel for this batch (with limit to avoid rate-limit)
-  const promises = batch.map(async (t) => {
-    try {
-      const skills = await apiGet(`/teams/${t.id}/skills`, { 'season[]': [skillsState.seasonId] });
-      let driver = 0, programming = 0;
-      for (const s of skills) {
-        if (s.type === 'driver') driver = Math.max(driver, s.score || 0);
-        if (s.type === 'programming') programming = Math.max(programming, s.score || 0);
-      }
-      return { ...t, driver, programming, combined: driver + programming };
-    } catch(e) {
-      return { ...t, driver: 0, programming: 0, combined: 0 };
-    }
-  });
-
-  const results = await Promise.all(promises);
-  // Only include teams with at least some skills score
-  skillsState.teams.push(...results.filter(t => t.combined > 0));
-  // Sort all loaded teams by combined score descending
-  skillsState.teams.sort((a, b) => b.combined - a.combined);
-}
+// loadMoreSkills no longer needed — all data loaded upfront
+async function loadMoreSkills() { /* no-op */ }
 
 function renderSkillsPage() {
   const wrap = document.getElementById('skillsTableWrap');
@@ -848,8 +878,8 @@ function renderSkillsPage() {
   }).join('');
 
   const totalLoaded = skillsState.teams.length;
-  const remaining = skillsState.allTeamIds.length;
-  const hasMore = end < totalLoaded || remaining > 0;
+  const totalPages = Math.ceil(totalLoaded / skillsState.pageSize);
+  const hasMore = skillsState.currentPage < totalPages - 1;
   const isFirstPage = skillsState.currentPage === 0;
 
   wrap.innerHTML = `
@@ -865,31 +895,18 @@ function renderSkillsPage() {
     </div>
     <div class="page-controls">
       <button class="btn btn-secondary" ${isFirstPage ? 'disabled' : ''} onclick="prevSkillsPage()">◂ PREV</button>
-      <div class="page-info">Page ${skillsState.currentPage + 1} · ${remaining > 0 ? remaining + ' teams left to load' : totalLoaded + ' total'}</div>
+      <div class="page-info">Page ${skillsState.currentPage + 1} of ${totalPages} · ${totalLoaded} teams</div>
       <button class="btn btn-secondary" ${!hasMore ? 'disabled' : ''} onclick="nextSkillsPage()">NEXT ▸</button>
     </div>`;
 }
 
-async function nextSkillsPage() {
-  if (skillsState.loading) return;
-  const start = (skillsState.currentPage + 1) * skillsState.pageSize;
-  const end = start + skillsState.pageSize;
-
-  // If we don't have enough loaded teams for the next page, load more
-  if (end > skillsState.teams.length && skillsState.allTeamIds.length > 0) {
-    skillsState.loading = true;
-    const loadingEl = document.getElementById('skillsLoading');
-    const loadingText = document.getElementById('skillsLoadingText');
-    loadingEl.classList.add('active');
-    loadingText.textContent = `LOADING NEXT BATCH... (${skillsState.allTeamIds.length} teams left)`;
-    await loadMoreSkills(skillsState.pageSize * 2);
-    loadingEl.classList.remove('active');
-    skillsState.loading = false;
+function nextSkillsPage() {
+  const totalPages = Math.ceil(skillsState.teams.length / skillsState.pageSize);
+  if (skillsState.currentPage < totalPages - 1) {
+    skillsState.currentPage++;
+    renderSkillsPage();
+    document.getElementById('skillsTableWrap').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
-
-  skillsState.currentPage++;
-  renderSkillsPage();
-  document.getElementById('skillsTableWrap').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function prevSkillsPage() {
