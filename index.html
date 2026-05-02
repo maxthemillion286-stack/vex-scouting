@@ -104,7 +104,7 @@
   .status-badge.connected { color: #44cc44; border-color: #224422; }
 
   /* ── THEME SWITCHER ── */
-  .theme-switcher { position: relative; }
+  .theme-switcher { position: relative; z-index: 999999; }
   .theme-btn {
     font-family: var(--mono); font-size: 10px; color: var(--text-dim);
     border: 1px solid var(--border); background: transparent; cursor: pointer;
@@ -112,23 +112,24 @@
     display: flex; align-items: center; gap: 6px;
   }
   .theme-btn:hover { border-color: var(--accent); color: var(--text); }
-  .theme-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-bright); }
+  .theme-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-bright); pointer-events: none; }
   .theme-dropdown {
     display: none; position: absolute; top: calc(100% + 6px); right: 0;
-    background: #1a0000; border: 1px solid var(--border); min-width: 160px; z-index: 99999;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.8);
+    background: #1a0000; border: 1px solid #660000; min-width: 160px; z-index: 999999;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.9);
   }
   .theme-dropdown.open { display: block; }
   .theme-option {
-    font-family: var(--mono); font-size: 11px; color: var(--text-dim);
+    font-family: var(--mono); font-size: 11px; color: #a08080;
     padding: 10px 14px; cursor: pointer; display: flex; align-items: center; gap: 8px;
-    transition: background 0.1s; letter-spacing: 1px; border: none; background: none; width: 100%; text-align: left;
+    transition: background 0.1s; letter-spacing: 1px; border: none; background: none;
+    width: 100%; text-align: left; pointer-events: all;
   }
-  .theme-option:hover { background: var(--card2); color: var(--text); }
-  .theme-option.active { color: var(--accent-bright); }
-  .dot-rb { width: 8px; height: 8px; border-radius: 50%; background: linear-gradient(135deg, #cc0000 50%, #0055cc 50%); }
-  .dot-red { width: 8px; height: 8px; border-radius: 50%; background: #cc0000; }
-  .dot-blue { width: 8px; height: 8px; border-radius: 50%; background: #0077ff; }
+  .theme-option:hover { background: #2a0000; color: #fff; }
+  .theme-option.active { color: #cc0000; }
+  .dot-rb { width: 8px; height: 8px; border-radius: 50%; background: linear-gradient(135deg, #cc0000 50%, #0055cc 50%); pointer-events: none; }
+  .dot-red { width: 8px; height: 8px; border-radius: 50%; background: #cc0000; pointer-events: none; }
+  .dot-blue { width: 8px; height: 8px; border-radius: 50%; background: #0077ff; pointer-events: none; }
 
   /* ── SEARCH SECTION ── */
   .search-section { padding: 36px 0 24px; position: relative; z-index: 2; }
@@ -239,13 +240,13 @@
             THEME
           </button>
           <div class="theme-dropdown" id="themeDropdown">
-            <button class="theme-option active" onclick="setTheme('red')" id="opt-red">
+            <button class="theme-option active" id="opt-red">
               <div class="dot-red"></div> RED / BLACK
             </button>
-            <button class="theme-option" onclick="setTheme('blue')" id="opt-blue">
+            <button class="theme-option" id="opt-blue">
               <div class="dot-blue"></div> BLUE / BLACK
             </button>
-            <button class="theme-option" onclick="setTheme('redblue')" id="opt-redblue">
+            <button class="theme-option" id="opt-redblue">
               <div class="dot-rb"></div> RED / BLUE
             </button>
           </div>
@@ -314,10 +315,15 @@ window.onload = () => {
   });
   // Load saved theme
   const savedTheme = localStorage.getItem('vex_theme') || 'red';
-  setTheme(savedTheme, false);
+  applyTheme(savedTheme);
 
-  // Close theme dropdown on outside click — use mousedown so it fires before blur
-  document.addEventListener('mousedown', e => {
+  // Wire up theme buttons directly
+  document.getElementById('opt-red').addEventListener('click', () => applyTheme('red'));
+  document.getElementById('opt-blue').addEventListener('click', () => applyTheme('blue'));
+  document.getElementById('opt-redblue').addEventListener('click', () => applyTheme('redblue'));
+
+  // Close dropdown when clicking outside
+  document.addEventListener('click', e => {
     if (!e.target.closest('.theme-switcher')) {
       document.getElementById('themeDropdown').classList.remove('open');
     }
@@ -329,15 +335,15 @@ function toggleThemeMenu() {
   document.getElementById('themeDropdown').classList.toggle('open');
 }
 
-function setTheme(name, save = true) {
+function applyTheme(name) {
   document.body.classList.remove('theme-blue', 'theme-redblue');
   if (name === 'blue') document.body.classList.add('theme-blue');
   if (name === 'redblue') document.body.classList.add('theme-redblue');
   document.querySelectorAll('.theme-option').forEach(o => o.classList.remove('active'));
   const el = document.getElementById(`opt-${name}`);
   if (el) el.classList.add('active');
-  setTimeout(() => document.getElementById('themeDropdown').classList.remove('open'), 50);
-  if (save) localStorage.setItem('vex_theme', name);
+  document.getElementById('themeDropdown').classList.remove('open');
+  localStorage.setItem('vex_theme', name);
 }
 
 // ── TOKEN ─────────────────────────────────────
