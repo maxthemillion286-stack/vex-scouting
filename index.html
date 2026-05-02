@@ -1326,7 +1326,13 @@ async function buildTeamCard(teamNumber, seasonId) {
 
   const awpRate = total > 0 ? Math.min(100, finalAwpCount / total * 100) : null;
 
-  const autonRate = autonPlayed > 0 ? autonWins / autonPlayed * 100 : null;
+  // Auton Win % — fall back to AWP count as a minimum estimate
+  // (You can't earn an AWP without winning auton, so AWPs ≥ auton wins minimum)
+  let autonRate = autonPlayed > 0 ? autonWins / autonPlayed * 100 : null;
+  if (autonRate === null && total > 0 && finalAwpCount > 0) {
+    // Estimate: at minimum the team won auton in every match they earned AWP
+    autonRate = Math.min(100, finalAwpCount / total * 100);
+  }
   const avgScore  = scores.length > 0 ? scores.reduce((a,b)=>a+b,0)/scores.length : null;
   const highScore = scores.length > 0 ? Math.max(...scores) : (rankingHighScore || null);
 
