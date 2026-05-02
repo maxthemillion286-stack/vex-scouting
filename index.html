@@ -728,6 +728,11 @@ async function loadSkillsRankings() {
   const region = document.getElementById('regionSelect').value;
   const state = document.getElementById('stateSelect').value;
 
+  if (!seasonId) {
+    showError('⚠ Please select a season first.');
+    return;
+  }
+
   // Reset state
   skillsState = {
     teams: [],
@@ -743,94 +748,106 @@ async function loadSkillsRankings() {
   const loadingEl = document.getElementById('skillsLoading');
   const loadingText = document.getElementById('skillsLoadingText');
   loadingEl.classList.add('active');
-  loadingText.textContent = 'FETCHING EVENTS...';
+  loadingText.textContent = 'LOADING SKILLS RANKINGS...';
 
   try {
-    // Step 1: Get all events for this season with the location filter
-    const eventParams = { 'season[]': [seasonId] };
-    if (region === 'USA') eventParams['country[]'] = ['United States'];
-    if (state) eventParams['region[]'] = [state];
+    // Use the legacy /api/seasons/{id}/skills endpoint
+    // This endpoint is pre-ranked and supports a `region` query param for state filtering
+    const allItems = [];
+    let page = 1;
+    const maxPages = 30; // cap at 30 pages = 750 teams max for performance
 
-    const events = await apiGet('/events', eventParams);
+    while (page <= maxPages) {
+      const params = new URLSearchParams();
+      params.set('page', String(page));
+      params.set('per_page', '50');
+      if (state) params.set('region', state);
 
-    if (!events.length) {
-      wrap.innerHTML = '<div style="text-align:center;padding:40px;font-family:var(--mono);color:var(--text-muted);">No events found for this filter.</div>';
+      const path = `legacy:/seasons/${seasonId}/skills?${params.toString()}`;
+      loadingText.textContent = `LOADING PAGE ${page}...`;
+
+      const res = await fetch(`${BASE}?path=${encodeURIComponent(path)}`);
+      if (!res.ok) {
+        if (page === 1) throw new Error(`API error ${res.status}`);
+        break; // we got at least one page, stop on later page errors
+      }
+
+      const data = await res.json();
+      const items = data.data || [];
+      if (!items.length) break;
+
+      allItems.push(...items);
+
+      // Check if there are more pages
+      const meta = data.meta || {};
+      if (!meta.next_page_url) break;
+      if (meta.last_page && page >= meta.last_page) break;
+
+      page++;
+    }
+
+    if (!allItems.length) {
+      wrap.innerHTML = '<div style="text-align:center;padding:40px;font-family:var(--mono);color:var(--text-muted);">No skills rankings found for this filter.</div>';
       loadingEl.classList.remove('active');
       return;
     }
 
-    loadingText.textContent = `FETCHING SKILLS FROM ${events.length} EVENTS...`;
+    loadingText.textContent = 'PROCESSING DATA...';
 
-    // Step 2: Get skills from each event in parallel batches
-    const teamScores = {}; // teamId -> { id, number, team_name, location, driver, programming }
+    // The legacy endpoint returns objects with shape:
+    // { rank, type, season, division_id, event, team: {id, team, team_name, ...}, scores: {driver, programming, score} }
+    // Aggregate by team_id since each team can have multiple skills entries (driver and programming separately)
+    const teamMap = {};
+    for (const item of allItems) {
+      const team = item.team || {};
+      const id = team.id;
+      if (!id) continue;
 
-    const BATCH_SIZE = 8; // process 8 events at a time
-    for (let i = 0; i < events.length; i += BATCH_SIZE) {
-      const batch = events.slice(i, i + BATCH_SIZE);
-      loadingText.textContent = `PROCESSING EVENTS ${i + 1}-${Math.min(i + BATCH_SIZE, events.length)} OF ${events.length}...`;
+      if (!teamMap[id]) {
+        teamMap[id] = {
+          id: id,
+          number: team.team || team.number || '?',
+          team_name: team.team_name || '',
+          location: {
+            city: team.city || '',
+            region: team.region || '',
+            country: team.country || ''
+          },
+          driver: 0,
+          programming: 0,
+          combined: 0
+        };
+      }
 
-      const eventSkillsArrays = await Promise.all(
-        batch.map(ev => apiGet(`/events/${ev.id}/skills`).catch(() => []))
-      );
-
-      // Aggregate scores
-      for (const skillsArr of eventSkillsArrays) {
-        for (const s of skillsArr) {
-          const t = s.team;
-          if (!t || !t.id) continue;
-          if (!teamScores[t.id]) {
-            teamScores[t.id] = {
-              id: t.id,
-              number: t.name || '?',
-              team_name: '',
-              location: {},
-              driver: 0,
-              programming: 0
-            };
-          }
-          if (s.type === 'driver') {
-            teamScores[t.id].driver = Math.max(teamScores[t.id].driver, s.score || 0);
-          }
-          if (s.type === 'programming') {
-            teamScores[t.id].programming = Math.max(teamScores[t.id].programming, s.score || 0);
-          }
-        }
+      const scores = item.scores || {};
+      if (typeof scores.driver === 'number') {
+        teamMap[id].driver = Math.max(teamMap[id].driver, scores.driver);
+      }
+      if (typeof scores.programming === 'number') {
+        teamMap[id].programming = Math.max(teamMap[id].programming, scores.programming);
+      }
+      // The "score" field is usually the combined score
+      if (typeof scores.score === 'number') {
+        teamMap[id].combined = Math.max(teamMap[id].combined, scores.score);
       }
     }
 
-    // Convert to array and sort
-    const teamArr = Object.values(teamScores)
-      .map(t => ({ ...t, combined: t.driver + t.programming }))
-      .filter(t => t.combined > 0)
-      .sort((a, b) => b.combined - a.combined);
+    // Recalculate combined as max(combined_from_api, driver+programming)
+    let teamArr = Object.values(teamMap).map(t => ({
+      ...t,
+      combined: Math.max(t.combined, t.driver + t.programming)
+    })).filter(t => t.combined > 0);
 
-    if (teamArr.length === 0) {
-      wrap.innerHTML = '<div style="text-align:center;padding:40px;font-family:var(--mono);color:var(--text-muted);">No skills data found.</div>';
-      loadingEl.classList.remove('active');
-      return;
+    // Apply USA filter (legacy endpoint doesn't support country directly)
+    if (region === 'USA' && !state) {
+      teamArr = teamArr.filter(t => {
+        const country = (t.location.country || '').toLowerCase();
+        return country === 'united states' || country === 'usa' || country === 'us';
+      });
     }
 
-    loadingText.textContent = `LOADING TEAM DETAILS...`;
-
-    // Step 3: Fetch team details for top 100 to get team names and locations
-    const top100 = teamArr.slice(0, 100);
-    const detailPromises = [];
-    for (let i = 0; i < top100.length; i += 10) {
-      const slice = top100.slice(i, i + 10);
-      detailPromises.push(Promise.all(slice.map(async t => {
-        try {
-          const teamData = await apiGet(`/teams/${t.id}`).catch(() => null);
-          // apiGet might wrap or unwrap — handle both
-          const td = Array.isArray(teamData) ? teamData[0] : teamData;
-          if (td) {
-            t.team_name = td.team_name || '';
-            t.location = td.location || {};
-          }
-        } catch(e) {}
-        return t;
-      })));
-    }
-    await Promise.all(detailPromises);
+    // Sort highest to lowest by combined
+    teamArr.sort((a, b) => b.combined - a.combined);
 
     skillsState.teams = teamArr;
     skillsState.currentPage = 0;
@@ -838,14 +855,13 @@ async function loadSkillsRankings() {
 
   } catch(e) {
     showError('⚠ ' + e.message);
-    console.error(e);
+    console.error('Skills rankings error:', e);
   }
 
   loadingEl.classList.remove('active');
 }
 
-// loadMoreSkills no longer needed — all data loaded upfront
-async function loadMoreSkills() { /* no-op */ }
+async function loadMoreSkills() { /* no-op — all data loaded upfront */ }
 
 function renderSkillsPage() {
   const wrap = document.getElementById('skillsTableWrap');
