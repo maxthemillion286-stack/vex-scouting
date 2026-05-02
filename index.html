@@ -806,18 +806,27 @@ async function loadSkillsApiPage() {
   }
 
   const path = `legacy:/seasons/${skillsState.seasonId}/skills?${params.toString()}`;
+  console.log('[Skills] Fetching:', path);
   const res = await fetch(`${BASE}?path=${encodeURIComponent(path)}`);
 
+  console.log('[Skills] Response status:', res.status);
+
   if (!res.ok) {
+    const text = await res.text();
+    console.log('[Skills] Error body:', text.slice(0, 500));
     if (skillsState.apiPage === 1) {
-      throw new Error(`Failed to load rankings (${res.status})`);
+      throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
     }
     skillsState.doneLoading = true;
     return;
   }
 
   const data = await res.json();
+  console.log('[Skills] Got data, type:', typeof data, 'keys:', Object.keys(data));
+  console.log('[Skills] Sample:', JSON.stringify(data).slice(0, 500));
+
   if (data.error) {
+    console.log('[Skills] API error:', data);
     if (skillsState.apiPage === 1) {
       throw new Error(data.error + (data.preview ? ': ' + data.preview.slice(0, 100) : ''));
     }
@@ -826,6 +835,8 @@ async function loadSkillsApiPage() {
   }
 
   const items = data.data || [];
+  console.log('[Skills] Items count:', items.length);
+  if (items.length > 0) console.log('[Skills] First item:', items[0]);
   if (!items.length) {
     skillsState.doneLoading = true;
     return;
