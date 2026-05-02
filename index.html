@@ -189,12 +189,10 @@
     pointer-events: none; z-index: 1;
   }
 
-  /* Light mode: spread the gradient evenly across the page instead of concentrated in one corner */
+  /* Light mode: same gradient style as dark mode but slightly more spread out */
   body[class*="theme-light"]::before {
-    background: radial-gradient(ellipse 120% 100% at 50% 0%, var(--grad1) 0%, transparent 80%),
-                radial-gradient(ellipse 100% 80% at 50% 100%, var(--grad2) 0%, transparent 75%),
-                radial-gradient(ellipse 80% 60% at 0% 50%, var(--grad2) 0%, transparent 70%),
-                radial-gradient(ellipse 80% 60% at 100% 50%, var(--grad2) 0%, transparent 70%);
+    background: radial-gradient(ellipse 110% 90% at 0% 50%, var(--grad1) 0%, transparent 75%),
+                radial-gradient(ellipse 70% 70% at 100% 20%, var(--grad2) 0%, transparent 70%);
   }
 
   /* Disable scanlines on light themes */
