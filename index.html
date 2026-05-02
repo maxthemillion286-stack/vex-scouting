@@ -1016,22 +1016,32 @@ async function loadSubregions() {
   subWrap.hidden = false;
 
   try {
-    const events = await apiGet('/events', {
-      'season[]': [seasonId],
-      'country[]': ['United States'],
-      'program[]': [1]
-    });
+    // Use the cached full-season skills data which includes eventRegion for every team
+    // This is the OFFICIAL VEX competitive sub-region (like "California - Region 1")
+    const seasonData = await getFullSeasonSkills(seasonId);
+    if (!seasonData) return;
 
     const subregionSet = new Set();
-    for (const ev of events) {
-      const r = (ev.location?.region || '').trim();
-      if (!r) continue;
-      if (r !== state && (r.startsWith(state + ' - ') || r.startsWith(state + ' Region') || r.startsWith(state + '-'))) {
-        subregionSet.add(r);
+    for (const t of seasonData.teams) {
+      // We want teams whose state is `state` and grab their eventRegion
+      if ((t.region || '').trim() !== state) continue;
+      const er = (t.eventRegion || '').trim();
+      if (!er) continue;
+      // Only include if it's actually a sub-region (contains the state name OR doesn't equal the state)
+      // Sometimes eventRegion is just the state name with no number
+      if (er !== state) {
+        subregionSet.add(er);
       }
     }
 
-    const subregions = Array.from(subregionSet).sort();
+    const subregions = Array.from(subregionSet).sort((a, b) => {
+      // Try natural sort for "Region 1", "Region 2", "Region 10" etc.
+      const numA = parseInt(a.match(/\d+/)?.[0] || '999');
+      const numB = parseInt(b.match(/\d+/)?.[0] || '999');
+      if (numA !== numB) return numA - numB;
+      return a.localeCompare(b);
+    });
+
     if (subregions.length === 0) return;
 
     subregions.forEach(s => {
