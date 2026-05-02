@@ -31,15 +31,15 @@
     --accent-bright: #0077ff;
     --accent-dim: #003388;
     --accent-glow: rgba(0,85,204,0.4);
-    --bg: #000008;
-    --card: #000818;
+    --bg: #000000;
+    --card: #00081a;
     --card2: #001030;
-    --border: #001a4a;
-    --text: #d0e4ff;
-    --text-dim: #7090b0;
+    --border: #002255;
+    --text: #e0eeff;
+    --text-dim: #7090c0;
     --text-muted: #304060;
-    --grad1: rgba(0,60,160,0.18);
-    --grad2: rgba(0,40,120,0.12);
+    --grad1: rgba(0,80,200,0.35);
+    --grad2: rgba(0,60,160,0.18);
   }
 
   /* ── RED/BLUE THEME ── */
@@ -123,13 +123,14 @@
     font-family: var(--mono); font-size: 11px; color: #a08080;
     padding: 10px 14px; cursor: pointer; display: flex; align-items: center; gap: 8px;
     transition: background 0.1s; letter-spacing: 1px; border: none; background: none;
-    width: 100%; text-align: left; pointer-events: all;
+    width: 100%; text-align: left;
   }
+  .theme-option * { pointer-events: none; }
   .theme-option:hover { background: #2a0000; color: #fff; }
   .theme-option.active { color: #cc0000; }
-  .dot-rb { width: 8px; height: 8px; border-radius: 50%; background: linear-gradient(135deg, #cc0000 50%, #0055cc 50%); pointer-events: none; }
-  .dot-red { width: 8px; height: 8px; border-radius: 50%; background: #cc0000; pointer-events: none; }
-  .dot-blue { width: 8px; height: 8px; border-radius: 50%; background: #0077ff; pointer-events: none; }
+  .dot-rb { width: 8px; height: 8px; border-radius: 50%; background: linear-gradient(135deg, #cc0000 50%, #0055cc 50%); display: inline-block; flex-shrink: 0; }
+  .dot-red { width: 8px; height: 8px; border-radius: 50%; background: #cc0000; display: inline-block; flex-shrink: 0; }
+  .dot-blue { width: 8px; height: 8px; border-radius: 50%; background: #0077ff; display: inline-block; flex-shrink: 0; }
 
   /* ── SEARCH SECTION ── */
   .search-section { padding: 36px 0 24px; position: relative; z-index: 2; }
@@ -561,27 +562,16 @@ async function buildTeamCard(teamNumber, seasonId) {
     }
   }
 
-  // Pull AWP and auton totals from ranking data — more reliable than match parsing
-  // Each ranking object represents a team's performance at one event and includes:
-  //   ap (autonomous points), sp (strength points), wp (win points)
-  //   wins, losses, ties — and total matches played
-  let rankingAwp = 0, rankingTotal = 0;
+  // Get high score from rankings if available (more reliable than match data)
   let rankingHighScore = 0;
   for (const r of rankings) {
-    // Rankings have ap = autonomous bonus points won (counts AWP earned)
-    if (typeof r.ap === 'number') rankingAwp += r.ap;
-    if (typeof r.wins === 'number' && typeof r.losses === 'number' && typeof r.ties === 'number') {
-      rankingTotal += (r.wins + r.losses + r.ties);
-    }
     if (typeof r.high_score === 'number') rankingHighScore = Math.max(rankingHighScore, r.high_score);
   }
 
   // Use rankings data if it gives us better numbers
-  const finalAwpCount = Math.max(awpCount, rankingAwp);
-
   const total = wins + losses + ties;
   const winRate   = total > 0 ? wins / total * 100 : null;
-  const awpRate   = total > 0 ? finalAwpCount / total * 100 : null;
+  const awpRate   = total > 0 ? awpCount / total * 100 : null;
   const autonRate = autonPlayed > 0 ? autonWins / autonPlayed * 100 : null;
   const avgScore  = scores.length > 0 ? scores.reduce((a,b)=>a+b,0)/scores.length : null;
   const highScore = scores.length > 0 ? Math.max(...scores) : (rankingHighScore || null);
@@ -628,7 +618,7 @@ async function buildTeamCard(teamNumber, seasonId) {
       <div class="stat-group">
         <div class="stat-group-label">Autonomous</div>
         <div class="stat-row"><div class="stat-name">AWP %</div>${bar(awpRate)}<div class="stat-value">${fmt(awpRate)}</div></div>
-        <div class="stat-row"><div class="stat-name">AWP Earned</div><div class="stat-value">${total>0?finalAwpCount+' / '+total:'<span class="na">N/A</span>'}</div></div>
+        <div class="stat-row"><div class="stat-name">AWP Earned</div><div class="stat-value">${total>0?awpCount+' / '+total:'<span class="na">N/A</span>'}</div></div>
         <div class="stat-row"><div class="stat-name">Auton Win %</div>${bar(autonRate)}<div class="stat-value">${fmt(autonRate)}</div></div>
       </div>
       <div class="stat-group">
