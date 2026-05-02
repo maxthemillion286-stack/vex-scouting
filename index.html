@@ -330,6 +330,10 @@
   .wl-display { font-family: var(--mono); font-size: 12px; color: var(--text-muted); text-align: right; min-width: 70px; }
   .awards-list { padding: 10px 20px 14px; display: flex; flex-wrap: wrap; gap: 6px; }
   .award-tag { font-family: var(--mono); font-size: 10px; color: var(--accent); border: 1px solid var(--accent-dim); padding: 3px 8px; }
+  .award-tag.award-clickable { cursor: pointer; transition: background 0.1s; }
+  .award-tag.award-clickable:hover { background: var(--card2); }
+  .award-event { display: none; color: var(--text-muted); font-weight: normal; }
+  .award-event.show { display: inline; }
   .no-awards { font-family: var(--mono); font-size: 11px; color: var(--text-muted); padding: 10px 20px 14px; }
   .na { color: var(--text-muted) !important; font-size: 13px !important; }
   .compare-notice { font-family: var(--mono); font-size: 11px; color: var(--text-muted); text-align: center; padding: 20px 0 0; }
@@ -355,7 +359,7 @@
   .skill-header-row > div { text-align: right; }
   .skill-header-row > div:first-child, .skill-header-row > div:nth-child(2) { text-align: left; }
 
-  .skill-row { transition: background 0.15s; position: relative; }
+  .skill-row { transition: background 0.15s; position: relative; cursor: pointer; }
   .skill-row:hover { background: var(--card2); }
   .skill-row.rank-top { border-left: 3px solid var(--accent); }
   .skill-row.rank-top:nth-child(2) { border-left-color: #ffd700; }
@@ -1082,7 +1086,7 @@ function renderSkillsPage() {
     const locStr = [loc.eventRegion || loc.region, loc.country].filter(Boolean).join(', ');
     const rankClass = displayRank <= 3 ? 'rank-top' : '';
     return `
-      <div class="skill-row ${rankClass}">
+      <div class="skill-row ${rankClass}" onclick="scoutFromSkillsRow('${t.number}')" title="Click to scout ${t.number}">
         <div class="skill-rank">#${displayRank}</div>
         <div class="skill-team">
           <div class="skill-num">${t.number}</div>
@@ -1156,6 +1160,22 @@ function prevSkillsPage() {
     renderSkillsPage();
     document.getElementById('skillsTableWrap').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
+}
+
+// Click handler for skills rows — fills team input and runs scout
+function scoutFromSkillsRow(teamNumber) {
+  const input = document.getElementById('teamInput');
+  input.value = teamNumber;
+  // Sync season selector — use the same season as skills
+  const skillsSeason = document.getElementById('skillsSeasonSelect').value;
+  const scoutSeason = document.getElementById('seasonSelect');
+  if (skillsSeason && scoutSeason) {
+    scoutSeason.value = skillsSeason;
+  }
+  // Scroll to top first so user sees the loading state
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  // Run scout
+  scoutTeams();
 }
 
 // ── ERROR / LOADING ───────────────────────────
@@ -1296,6 +1316,7 @@ async function buildTeamCard(teamNumber, seasonId) {
   let rankingHighScore = 0;
   let rankingAwpCount = 0;       // explicit AWP count from rankings.ap if available
   let rankingTotalWp = 0;        // total win points across all events
+  let rankingTotalSp = 0;        // total strength points (SP)
   let rankingWins = 0;
   let rankingLosses = 0;
   let rankingTies = 0;
@@ -1303,10 +1324,13 @@ async function buildTeamCard(teamNumber, seasonId) {
     if (typeof r.high_score === 'number') rankingHighScore = Math.max(rankingHighScore, r.high_score);
     if (typeof r.ap === 'number') rankingAwpCount += r.ap;
     if (typeof r.wp === 'number') rankingTotalWp += r.wp;
+    if (typeof r.sp === 'number') rankingTotalSp += r.sp;
     if (typeof r.wins === 'number') rankingWins += r.wins;
     if (typeof r.losses === 'number') rankingLosses += r.losses;
     if (typeof r.ties === 'number') rankingTies += r.ties;
   }
+  const totalRankedMatches = rankingWins + rankingLosses + rankingTies;
+  const avgSp = totalRankedMatches > 0 ? (rankingTotalSp / totalRankedMatches).toFixed(1) : null;
 
   // Calculate stats
   const total = wins + losses + ties;
@@ -1367,7 +1391,11 @@ async function buildTeamCard(teamNumber, seasonId) {
     if (ranks.length) avgRank = (ranks.reduce((a,b)=>a+b,0)/ranks.length).toFixed(1);
   }
 
-  const awardNames = awards.map(a => a.title).filter(Boolean);
+  // Build awards with event info (event is included in the award object as event.name)
+  const awardsList = awards.map(a => ({
+    title: a.title || '',
+    event: a.event?.name || a.event?.code || a.event_name || ''
+  })).filter(a => a.title);
   const loc = team.location || {};
   const locationStr = [loc.city, loc.region, loc.country].filter(Boolean).join(', ');
 
@@ -1416,6 +1444,7 @@ async function buildTeamCard(teamNumber, seasonId) {
         <div class="stat-group-label">Scoring</div>
         <div class="stat-row"><div class="stat-name">Avg Score</div><div class="stat-value">${fmt(avgScore,'',1)}</div></div>
         <div class="stat-row"><div class="stat-name">High Score</div><div class="stat-value">${highScore!==null?highScore:'<span class="na">—</span>'}</div></div>
+        <div class="stat-row"><div class="stat-name">Avg SP</div><div class="stat-value">${avgSp !== null ? avgSp : '<span class="na">N/A</span>'}</div></div>
       </div>
       <div class="stat-group">
         <div class="stat-group-label">Rankings</div>
@@ -1423,9 +1452,16 @@ async function buildTeamCard(teamNumber, seasonId) {
         <div class="stat-row"><div class="stat-name">Events Played</div><div class="stat-value">${rankings.length}</div></div>
       </div>
       <div class="stat-group">
-        <div class="stat-group-label">Awards (${awardNames.length})</div>
-        ${awardNames.length
-          ? `<div class="awards-list">${awardNames.map(a=>`<span class="award-tag">${a}</span>`).join('')}</div>`
+        <div class="stat-group-label">Awards (${awardsList.length})</div>
+        ${awardsList.length
+          ? `<div class="awards-list">${awardsList.map((a, idx) => {
+              const eventStr = (a.event || '').replace(/"/g, '&quot;');
+              const id = 'aw_' + teamId + '_' + idx;
+              return `<span class="award-tag${eventStr ? ' award-clickable' : ''}" ${eventStr ? `onclick="document.getElementById('${id}').classList.toggle('show')"` : ''}>
+                ${a.title}
+                ${eventStr ? `<span class="award-event" id="${id}"> · ${eventStr}</span>` : ''}
+              </span>`;
+            }).join('')}</div>`
           : `<div class="no-awards">No awards found</div>`}
       </div>
     </div>`;
