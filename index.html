@@ -1292,26 +1292,38 @@ async function buildTeamCard(teamNumber, seasonId) {
     }
   }
 
-  // Get high score and AWP totals from rankings if available (more reliable than match data)
+  // Get high score and stats from rankings (the rankings endpoint is the source of truth)
   let rankingHighScore = 0;
-  let rankingAwpCount = 0;
-  let rankingTotalMatches = 0;
+  let rankingAwpCount = 0;       // explicit AWP count from rankings.ap if available
+  let rankingTotalWp = 0;        // total win points across all events
+  let rankingWins = 0;
+  let rankingLosses = 0;
+  let rankingTies = 0;
   for (const r of rankings) {
     if (typeof r.high_score === 'number') rankingHighScore = Math.max(rankingHighScore, r.high_score);
-    // Many rankings endpoints expose `awp` field directly = number of AWPs earned at that event
     if (typeof r.ap === 'number') rankingAwpCount += r.ap;
-    if (typeof r.wins === 'number' && typeof r.losses === 'number' && typeof r.ties === 'number') {
-      rankingTotalMatches += (r.wins + r.losses + r.ties);
-    }
+    if (typeof r.wp === 'number') rankingTotalWp += r.wp;
+    if (typeof r.wins === 'number') rankingWins += r.wins;
+    if (typeof r.losses === 'number') rankingLosses += r.losses;
+    if (typeof r.ties === 'number') rankingTies += r.ties;
   }
 
   // Calculate stats
   const total = wins + losses + ties;
   const winRate = total > 0 ? wins / total * 100 : null;
 
-  // Use rankings AWP count if match data didn't pick it up (more reliable)
-  // The "ap" field in rankings = autonomous bonus points (each AWP = 1)
-  const finalAwpCount = Math.max(awpCount, Math.min(rankingAwpCount, total));
+  // AWP calculation:
+  // In V5RC, Win Points = (wins × 2) + (ties × 1) + (AWPs earned × 1)
+  // So: AWPs = total_WP − (wins × 2) − (ties × 1)
+  // Use rankings totals because they're the source of truth
+  let finalAwpCount = 0;
+  if (rankingTotalWp > 0 && (rankingWins + rankingLosses + rankingTies) > 0) {
+    const calculatedAwp = rankingTotalWp - (rankingWins * 2) - rankingTies;
+    finalAwpCount = Math.max(0, Math.min(calculatedAwp, rankingWins + rankingLosses + rankingTies));
+  } else if (rankingAwpCount > 0) {
+    finalAwpCount = rankingAwpCount;
+  }
+
   const awpRate = total > 0 ? Math.min(100, finalAwpCount / total * 100) : null;
 
   const autonRate = autonPlayed > 0 ? autonWins / autonPlayed * 100 : null;
