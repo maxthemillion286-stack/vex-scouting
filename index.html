@@ -7,56 +7,166 @@
 <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&family=Oswald:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    --accent: #aa0000;
-    --accent-bright: #cc0000;
-    --accent-dim: #660000;
-    --accent-glow: rgba(170,0,0,0.4);
-    --bg: #000000;
-    --card: #110000;
-    --card2: #1a0000;
-    --border: #3a0000;
-    --text: #f0e0e0;
-    --text-dim: #a08080;
-    --text-muted: #604040;
-    --grad1: rgba(140,0,0,0.18);
-    --grad2: rgba(100,0,0,0.12);
+    /* DARK MODE — RED / BLACK (default) */
+    --accent: #cc0000;
+    --accent-bright: #ee2222;
+    --accent-dim: #770000;
+    --accent-glow: rgba(204,0,0,0.4);
+    --bg: #0a0000;
+    --card: #1a0606;
+    --card2: #220a0a;
+    --border: #4a1010;
+    --text: #ffffff;
+    --text-dim: #d0a8a8;
+    --text-muted: #806060;
+    --grad1: rgba(160,0,0,0.22);
+    --grad2: rgba(120,0,0,0.14);
     --mono: 'Share Tech Mono', monospace;
     --display: 'Oswald', sans-serif;
     --body: 'Rajdhani', sans-serif;
   }
 
-  /* ── BLUE/BLACK THEME ── */
-  body.theme-blue {
-    --accent: #0055cc;
-    --accent-bright: #0077ff;
-    --accent-dim: #003388;
-    --accent-glow: rgba(0,85,204,0.4);
-    --bg: #000000;
-    --card: #00081a;
-    --card2: #001030;
-    --border: #002255;
-    --text: #e0eeff;
-    --text-dim: #7090c0;
-    --text-muted: #304060;
-    --grad1: rgba(0,80,200,0.35);
-    --grad2: rgba(0,60,160,0.18);
+  /* ════════════════════════════════════════════════ */
+  /* DARK MODE THEMES                                 */
+  /* ════════════════════════════════════════════════ */
+
+  /* DARK BLUE */
+  body.theme-dark-blue {
+    --accent: #0066dd; --accent-bright: #2288ff; --accent-dim: #003388;
+    --accent-glow: rgba(0,102,221,0.4);
+    --bg: #00050a; --card: #061018; --card2: #0a1a2a; --border: #103055;
+    --text: #ffffff; --text-dim: #a8c8e0; --text-muted: #506880;
+    --grad1: rgba(0,80,200,0.30); --grad2: rgba(0,60,160,0.16);
   }
 
-  /* ── RED/BLUE THEME ── */
-  body.theme-redblue {
-    --accent: #cc0000;
-    --accent-bright: #ff2222;
-    --accent-dim: #880000;
-    --accent-glow: rgba(200,0,0,0.4);
-    --bg: #00000a;
-    --card: #0a0010;
-    --card2: #100018;
-    --border: #2a0030;
-    --text: #ffe0e0;
-    --text-dim: #b080a0;
-    --text-muted: #604050;
-    --grad1: rgba(140,0,0,0.15);
-    --grad2: rgba(0,0,140,0.12);
+  /* DARK GREEN */
+  body.theme-dark-green {
+    --accent: #00aa44; --accent-bright: #22dd66; --accent-dim: #006622;
+    --accent-glow: rgba(0,170,68,0.4);
+    --bg: #000a05; --card: #06180c; --card2: #0a2a14; --border: #105530;
+    --text: #ffffff; --text-dim: #a8e0c0; --text-muted: #508070;
+    --grad1: rgba(0,160,60,0.25); --grad2: rgba(0,120,50,0.14);
+  }
+
+  /* DARK PURPLE */
+  body.theme-dark-purple {
+    --accent: #8800cc; --accent-bright: #aa22ee; --accent-dim: #550088;
+    --accent-glow: rgba(136,0,204,0.4);
+    --bg: #08000a; --card: #160620; --card2: #240a30; --border: #401055;
+    --text: #ffffff; --text-dim: #d0a8e8; --text-muted: #705088;
+    --grad1: rgba(120,0,180,0.25); --grad2: rgba(80,0,140,0.14);
+  }
+
+  /* DARK ORANGE */
+  body.theme-dark-orange {
+    --accent: #dd6600; --accent-bright: #ff8822; --accent-dim: #883300;
+    --accent-glow: rgba(221,102,0,0.4);
+    --bg: #0a0500; --card: #1a0c04; --card2: #2a1608; --border: #553010;
+    --text: #ffffff; --text-dim: #e8c8a8; --text-muted: #806850;
+    --grad1: rgba(200,90,0,0.26); --grad2: rgba(160,70,0,0.14);
+  }
+
+  /* DARK YELLOW */
+  body.theme-dark-yellow {
+    --accent: #ccaa00; --accent-bright: #eecc22; --accent-dim: #886600;
+    --accent-glow: rgba(204,170,0,0.4);
+    --bg: #0a0800; --card: #181408; --card2: #28220a; --border: #554410;
+    --text: #ffffff; --text-dim: #e8d8a8; --text-muted: #807050;
+    --grad1: rgba(180,150,0,0.24); --grad2: rgba(140,110,0,0.14);
+  }
+
+  /* DARK PINK */
+  body.theme-dark-pink {
+    --accent: #ee0088; --accent-bright: #ff44aa; --accent-dim: #aa0055;
+    --accent-glow: rgba(238,0,136,0.4);
+    --bg: #0a0006; --card: #1a0612; --card2: #2a0a20; --border: #551040;
+    --text: #ffffff; --text-dim: #e8a8c8; --text-muted: #805070;
+    --grad1: rgba(220,0,120,0.24); --grad2: rgba(180,0,90,0.14);
+  }
+
+  /* DARK GREY */
+  body.theme-dark-grey {
+    --accent: #888888; --accent-bright: #bbbbbb; --accent-dim: #555555;
+    --accent-glow: rgba(136,136,136,0.4);
+    --bg: #0a0a0a; --card: #1a1a1a; --card2: #242424; --border: #404040;
+    --text: #ffffff; --text-dim: #bbbbbb; --text-muted: #707070;
+    --grad1: rgba(140,140,140,0.18); --grad2: rgba(100,100,100,0.12);
+  }
+
+  /* ════════════════════════════════════════════════ */
+  /* LIGHT MODE THEMES — TINTED, NOT WHITE            */
+  /* ════════════════════════════════════════════════ */
+
+  /* LIGHT RED */
+  body.theme-light-red {
+    --accent: #cc0000; --accent-bright: #ee0000; --accent-dim: #aa0000;
+    --accent-glow: rgba(204,0,0,0.5);
+    --bg: #ffe0e0; --card: #ffc8c8; --card2: #ffb0b0; --border: #cc4444;
+    --text: #220000; --text-dim: #770000; --text-muted: #aa3333;
+    --grad1: rgba(220,0,0,0.30); --grad2: rgba(180,0,0,0.18);
+  }
+
+  /* LIGHT BLUE */
+  body.theme-light-blue {
+    --accent: #0055cc; --accent-bright: #0066ee; --accent-dim: #003388;
+    --accent-glow: rgba(0,85,204,0.5);
+    --bg: #d8e6ff; --card: #c0d4ff; --card2: #a8c4ff; --border: #4477cc;
+    --text: #00102a; --text-dim: #003388; --text-muted: #335588;
+    --grad1: rgba(0,90,220,0.30); --grad2: rgba(0,60,180,0.18);
+  }
+
+  /* LIGHT GREEN */
+  body.theme-light-green {
+    --accent: #008833; --accent-bright: #00aa44; --accent-dim: #006622;
+    --accent-glow: rgba(0,136,51,0.5);
+    --bg: #d8f0d8; --card: #b8e8c0; --card2: #a0dcaa; --border: #44aa66;
+    --text: #002a10; --text-dim: #006622; --text-muted: #336644;
+    --grad1: rgba(0,150,50,0.30); --grad2: rgba(0,120,40,0.18);
+  }
+
+  /* LIGHT PURPLE */
+  body.theme-light-purple {
+    --accent: #7700bb; --accent-bright: #9933dd; --accent-dim: #550088;
+    --accent-glow: rgba(119,0,187,0.5);
+    --bg: #ecd8ff; --card: #ddc0ff; --card2: #cca8ff; --border: #8844cc;
+    --text: #150028; --text-dim: #550088; --text-muted: #663388;
+    --grad1: rgba(130,0,200,0.30); --grad2: rgba(100,0,160,0.18);
+  }
+
+  /* LIGHT ORANGE */
+  body.theme-light-orange {
+    --accent: #cc5500; --accent-bright: #ee6600; --accent-dim: #aa4400;
+    --accent-glow: rgba(204,85,0,0.5);
+    --bg: #ffe0c8; --card: #ffd0a8; --card2: #ffc088; --border: #cc6622;
+    --text: #281200; --text-dim: #aa4400; --text-muted: #885533;
+    --grad1: rgba(220,90,0,0.30); --grad2: rgba(180,75,0,0.18);
+  }
+
+  /* LIGHT YELLOW */
+  body.theme-light-yellow {
+    --accent: #aa7700; --accent-bright: #cc9900; --accent-dim: #886600;
+    --accent-glow: rgba(170,119,0,0.5);
+    --bg: #fff0c0; --card: #ffe890; --card2: #ffdc70; --border: #ccaa22;
+    --text: #1a1400; --text-dim: #886600; --text-muted: #776633;
+    --grad1: rgba(220,170,0,0.30); --grad2: rgba(180,140,0,0.18);
+  }
+
+  /* LIGHT PINK */
+  body.theme-light-pink {
+    --accent: #cc0077; --accent-bright: #ee0099; --accent-dim: #aa0055;
+    --accent-glow: rgba(204,0,119,0.5);
+    --bg: #ffd8eb; --card: #ffc0dd; --card2: #ffa8cc; --border: #cc4488;
+    --text: #28001a; --text-dim: #aa0055; --text-muted: #883366;
+    --grad1: rgba(220,0,120,0.30); --grad2: rgba(180,0,90,0.18);
+  }
+
+  /* LIGHT GREY */
+  body.theme-light-grey {
+    --accent: #222222; --accent-bright: #000000; --accent-dim: #444444;
+    --accent-glow: rgba(34,34,34,0.5);
+    --bg: #d8d8d8; --card: #c4c4c4; --card2: #b0b0b0; --border: #555555;
+    --text: #000000; --text-dim: #1a1a1a; --text-muted: #444444;
+    --grad1: rgba(60,60,60,0.25); --grad2: rgba(40,40,40,0.15);
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -75,15 +185,20 @@
   }
   body::after {
     content: ''; position: fixed; inset: 0;
-    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.07) 2px, rgba(0,0,0,0.07) 4px);
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.05) 2px, rgba(0,0,0,0.05) 4px);
     pointer-events: none; z-index: 1;
   }
 
-  /* Red/blue gets a split gradient bg */
-  body.theme-redblue::before {
-    background: radial-gradient(ellipse 60% 80% at 0% 50%, rgba(140,0,0,0.2) 0%, transparent 60%),
-                radial-gradient(ellipse 60% 80% at 100% 50%, rgba(0,0,140,0.2) 0%, transparent 60%);
+  /* Light mode: spread the gradient evenly across the page instead of concentrated in one corner */
+  body[class*="theme-light"]::before {
+    background: radial-gradient(ellipse 120% 100% at 50% 0%, var(--grad1) 0%, transparent 80%),
+                radial-gradient(ellipse 100% 80% at 50% 100%, var(--grad2) 0%, transparent 75%),
+                radial-gradient(ellipse 80% 60% at 0% 50%, var(--grad2) 0%, transparent 70%),
+                radial-gradient(ellipse 80% 60% at 100% 50%, var(--grad2) 0%, transparent 70%);
   }
+
+  /* Disable scanlines on light themes */
+  body[class*="theme-light"]::after { display: none; }
 
   .container { max-width: 1100px; margin: 0 auto; padding: 0 24px; position: relative; z-index: 2; }
 
@@ -94,14 +209,14 @@
   .logo-mark::before { content: ''; position: absolute; inset: 3px; border: 1px solid var(--accent-dim); }
   .logo-mark svg { width: 20px; height: 20px; fill: var(--accent-bright); }
   .logo-text { display: flex; flex-direction: column; gap: 1px; }
-  .logo-title { font-family: var(--display); font-size: 24px; font-weight: 700; letter-spacing: 4px; color: #fff; line-height: 1; text-transform: uppercase; }
+  .logo-title { font-family: var(--display); font-size: 24px; font-weight: 700; letter-spacing: 4px; color: var(--text); line-height: 1; text-transform: uppercase; }
   .logo-title span { color: var(--accent-bright); }
   .logo-sub { font-family: var(--mono); font-size: 9px; color: var(--text-muted); letter-spacing: 3px; text-transform: uppercase; }
 
   .header-right { margin-left: auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; position: relative; z-index: 999999; }
 
   .status-badge { font-family: var(--mono); font-size: 10px; padding: 4px 10px; letter-spacing: 1px; border: 1px solid var(--border); color: var(--text-muted); transition: all 0.3s; white-space: nowrap; }
-  .status-badge.connected { color: #44cc44; border-color: #224422; }
+  .status-badge.connected { color: #22aa44; border-color: #228844; }
 
   /* ── THEME SWITCHER ── */
   .theme-switcher { position: relative; z-index: 999999; }
@@ -115,22 +230,28 @@
   .theme-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-bright); pointer-events: none; }
   .theme-dropdown {
     display: none; position: absolute; top: calc(100% + 6px); right: 0;
-    background: #1a0000; border: 1px solid #660000; min-width: 160px; z-index: 999999;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.9);
+    background: var(--card); border: 1px solid var(--border); min-width: 200px; z-index: 999999;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.6);
+    max-height: 70vh; overflow-y: auto;
   }
   .theme-dropdown.open { display: block; }
+  .theme-section-label {
+    font-family: var(--mono); font-size: 9px; color: var(--text-muted);
+    letter-spacing: 3px; text-transform: uppercase; padding: 10px 14px 6px;
+    border-top: 1px solid var(--border);
+  }
+  .theme-section-label:first-child { border-top: none; }
   .theme-option {
-    font-family: var(--mono); font-size: 11px; color: #a08080;
-    padding: 10px 14px; cursor: pointer; display: flex; align-items: center; gap: 8px;
+    font-family: var(--mono); font-size: 11px; color: var(--text-dim);
+    padding: 8px 14px; cursor: pointer; display: flex; align-items: center; gap: 10px;
     transition: background 0.1s; letter-spacing: 1px; border: none; background: none;
     width: 100%; text-align: left;
   }
   .theme-option * { pointer-events: none; }
-  .theme-option:hover { background: #2a0000; color: #fff; }
-  .theme-option.active { color: #cc0000; }
-  .dot-rb { width: 8px; height: 8px; border-radius: 50%; background: linear-gradient(135deg, #cc0000 50%, #0055cc 50%); display: inline-block; flex-shrink: 0; }
-  .dot-red { width: 8px; height: 8px; border-radius: 50%; background: #cc0000; display: inline-block; flex-shrink: 0; }
-  .dot-blue { width: 8px; height: 8px; border-radius: 50%; background: #0077ff; display: inline-block; flex-shrink: 0; }
+  .theme-option:hover { background: var(--card2); color: var(--text); }
+  .theme-option.active { color: var(--accent-bright); }
+  .theme-option.active::before { content: '▸'; margin-right: -4px; }
+  .tdot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex-shrink: 0; border: 1px solid rgba(0,0,0,0.2); }
 
   /* ── SEARCH SECTION ── */
   .search-section { padding: 36px 0 24px; position: relative; z-index: 2; }
@@ -149,7 +270,7 @@
   }
   input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-dim), inset 0 0 20px rgba(0,0,0,0.1); }
   input::placeholder { color: var(--text-muted); }
-  select option { background: #111; color: var(--text); }
+  select option { background: var(--card); color: var(--text); }
 
   .select-wrap { position: relative; }
   .select-wrap::after {
@@ -188,7 +309,7 @@
   @keyframes fadeUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
 
   .card-header { padding: 18px 20px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-  .team-number { font-family: var(--display); font-size: 30px; font-weight: 700; color: #fff; letter-spacing: 2px; line-height: 1; }
+  .team-number { font-family: var(--display); font-size: 30px; font-weight: 700; color: var(--text); letter-spacing: 2px; line-height: 1; }
   .team-name { font-family: var(--body); font-size: 13px; color: var(--text-dim); margin-top: 4px; font-weight: 500; }
   .team-location { font-family: var(--mono); font-size: 11px; color: var(--text-muted); margin-top: 3px; }
   .robot-name { font-family: var(--mono); font-size: 11px; color: var(--accent); text-align: right; letter-spacing: 1px; flex-shrink: 0; }
@@ -200,7 +321,7 @@
   .stat-row { display: flex; align-items: center; padding: 8px 20px; gap: 12px; transition: background 0.1s; }
   .stat-row:hover { background: var(--card2); }
   .stat-name { font-family: var(--body); font-size: 14px; font-weight: 600; color: var(--text-dim); flex: 1; }
-  .stat-value { font-family: var(--mono); font-size: 16px; color: #fff; letter-spacing: 1px; text-align: right; min-width: 70px; }
+  .stat-value { font-family: var(--mono); font-size: 16px; color: var(--text); letter-spacing: 1px; text-align: right; min-width: 70px; }
   .stat-value.highlight { color: var(--accent-bright); font-size: 18px; }
   .stat-bar-wrap { flex: 1; height: 3px; background: var(--border); max-width: 80px; }
   .stat-bar { height: 100%; background: linear-gradient(90deg, var(--accent-dim), var(--accent-bright)); transition: width 0.6s cubic-bezier(0.4,0,0.2,1); }
@@ -241,15 +362,59 @@
             THEME
           </button>
           <div class="theme-dropdown" id="themeDropdown">
+
+            <div class="theme-section-label">● Dark Mode</div>
             <button class="theme-option active" id="opt-red" onclick="applyTheme('red')">
-              <span class="dot-red"></span><span>RED / BLACK</span>
+              <span class="tdot" style="background:#cc0000"></span><span>RED / BLACK</span>
             </button>
-            <button class="theme-option" id="opt-blue" onclick="applyTheme('blue')">
-              <span class="dot-blue"></span><span>BLUE / BLACK</span>
+            <button class="theme-option" id="opt-dark-blue" onclick="applyTheme('dark-blue')">
+              <span class="tdot" style="background:#2288ff"></span><span>BLUE / BLACK</span>
             </button>
-            <button class="theme-option" id="opt-redblue" onclick="applyTheme('redblue')">
-              <span class="dot-rb"></span><span>RED / BLUE</span>
+            <button class="theme-option" id="opt-dark-green" onclick="applyTheme('dark-green')">
+              <span class="tdot" style="background:#22dd66"></span><span>GREEN / BLACK</span>
             </button>
+            <button class="theme-option" id="opt-dark-purple" onclick="applyTheme('dark-purple')">
+              <span class="tdot" style="background:#aa22ee"></span><span>PURPLE / BLACK</span>
+            </button>
+            <button class="theme-option" id="opt-dark-orange" onclick="applyTheme('dark-orange')">
+              <span class="tdot" style="background:#ff8822"></span><span>ORANGE / BLACK</span>
+            </button>
+            <button class="theme-option" id="opt-dark-yellow" onclick="applyTheme('dark-yellow')">
+              <span class="tdot" style="background:#eecc22"></span><span>YELLOW / BLACK</span>
+            </button>
+            <button class="theme-option" id="opt-dark-pink" onclick="applyTheme('dark-pink')">
+              <span class="tdot" style="background:#ff44aa"></span><span>PINK / BLACK</span>
+            </button>
+            <button class="theme-option" id="opt-dark-grey" onclick="applyTheme('dark-grey')">
+              <span class="tdot" style="background:#888888"></span><span>GREY / BLACK</span>
+            </button>
+
+            <div class="theme-section-label">○ Light Mode</div>
+            <button class="theme-option" id="opt-light-red" onclick="applyTheme('light-red')">
+              <span class="tdot" style="background:#cc0000"></span><span>RED / WHITE</span>
+            </button>
+            <button class="theme-option" id="opt-light-blue" onclick="applyTheme('light-blue')">
+              <span class="tdot" style="background:#0066dd"></span><span>BLUE / WHITE</span>
+            </button>
+            <button class="theme-option" id="opt-light-green" onclick="applyTheme('light-green')">
+              <span class="tdot" style="background:#008833"></span><span>GREEN / WHITE</span>
+            </button>
+            <button class="theme-option" id="opt-light-purple" onclick="applyTheme('light-purple')">
+              <span class="tdot" style="background:#7700bb"></span><span>PURPLE / WHITE</span>
+            </button>
+            <button class="theme-option" id="opt-light-orange" onclick="applyTheme('light-orange')">
+              <span class="tdot" style="background:#cc5500"></span><span>ORANGE / WHITE</span>
+            </button>
+            <button class="theme-option" id="opt-light-yellow" onclick="applyTheme('light-yellow')">
+              <span class="tdot" style="background:#aa8800"></span><span>YELLOW / WHITE</span>
+            </button>
+            <button class="theme-option" id="opt-light-pink" onclick="applyTheme('light-pink')">
+              <span class="tdot" style="background:#cc0077"></span><span>PINK / WHITE</span>
+            </button>
+            <button class="theme-option" id="opt-light-grey" onclick="applyTheme('light-grey')">
+              <span class="tdot" style="background:#555555"></span><span>GREY / WHITE</span>
+            </button>
+
           </div>
         </div>
       </div>
@@ -325,12 +490,23 @@ function toggleThemeMenu() {
 }
 
 function applyTheme(name) {
-  document.body.classList.remove('theme-blue', 'theme-redblue');
-  if (name === 'blue') document.body.classList.add('theme-blue');
-  if (name === 'redblue') document.body.classList.add('theme-redblue');
+  // Remove all possible theme classes
+  const allThemes = [
+    'theme-dark-blue','theme-dark-green','theme-dark-purple','theme-dark-orange',
+    'theme-dark-yellow','theme-dark-pink','theme-dark-grey',
+    'theme-light-red','theme-light-blue','theme-light-green','theme-light-purple',
+    'theme-light-orange','theme-light-yellow','theme-light-pink','theme-light-grey'
+  ];
+  allThemes.forEach(t => document.body.classList.remove(t));
+
+  // Add the new theme class (default 'red' uses :root values, no class needed)
+  if (name !== 'red') document.body.classList.add(`theme-${name}`);
+
+  // Update active option marker
   document.querySelectorAll('.theme-option').forEach(o => o.classList.remove('active'));
   const el = document.getElementById(`opt-${name}`);
   if (el) el.classList.add('active');
+
   document.getElementById('themeDropdown').classList.remove('open');
   localStorage.setItem('vex_theme', name);
 }
