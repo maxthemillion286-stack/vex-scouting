@@ -381,6 +381,10 @@
     .skill-score.skill-combined { font-size: 18px; }
   }
 
+  /* Pagination controls */
+  .page-controls { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; gap: 12px; }
+  .page-info { font-family: var(--mono); font-size: 11px; color: var(--text-muted); letter-spacing: 1px; text-align: center; flex: 1; }
+
   @media (max-width: 600px) {
     .token-row, .controls-row { flex-direction: column; }
     .btn { width: 100%; }
@@ -731,6 +735,15 @@ function onRegionChange() {
 }
 
 // ── SKILLS RANKINGS ───────────────────────────
+let skillsState = {
+  teams: [],          // all teams with skills loaded so far
+  allTeamIds: [],     // queue of team IDs still to process
+  currentPage: 0,
+  pageSize: 30,
+  seasonId: null,
+  loading: false
+};
+
 async function loadSkillsRankings() {
   TOKEN = document.getElementById('apiToken').value.trim() || TOKEN;
   if (!TOKEN) { showError('⚠ Paste your RobotEvents API token and click SAVE first.'); return; }
@@ -740,58 +753,52 @@ async function loadSkillsRankings() {
   const region = document.getElementById('regionSelect').value;
   const state = document.getElementById('stateSelect').value;
 
+  // Reset state
+  skillsState = {
+    teams: [],
+    allTeamIds: [],
+    currentPage: 0,
+    pageSize: 30,
+    seasonId: seasonId,
+    loading: false
+  };
+
   const wrap = document.getElementById('skillsTableWrap');
   wrap.innerHTML = '';
 
   const loadingEl = document.getElementById('skillsLoading');
   const loadingText = document.getElementById('skillsLoadingText');
   loadingEl.classList.add('active');
-  loadingText.textContent = 'FETCHING SKILLS DATA...';
+  loadingText.textContent = 'FETCHING TEAMS...';
 
   try {
-    // Fetch skills runs for the season — paginated
-    const skills = await apiGet(`/seasons/${seasonId}/skills`, { 'type[]': ['driver', 'programming'] });
+    // Get all teams matching filter (paginated)
+    const teamParams = { 'program[]': [1] };
+    if (region === 'USA') teamParams['country[]'] = ['United States'];
+    if (state) teamParams['region'] = state;
 
-    loadingText.textContent = 'PROCESSING TEAMS...';
-
-    // Aggregate best score per team per type
-    const teams = {}; // teamId -> { number, name, location, driver, programming }
-    for (const s of skills) {
-      const t = s.team;
-      if (!t || !t.id) continue;
-
-      // Filter by region/state
-      const loc = t.location || {};
-      if (region === 'USA' && (loc.country || '').toLowerCase() !== 'united states') continue;
-      if (state && (loc.region || '').toLowerCase() !== state.toLowerCase()) continue;
-
-      if (!teams[t.id]) {
-        teams[t.id] = {
-          id: t.id,
-          number: t.name || t.number || '?',
-          team_name: t.team_name || '',
-          location: loc,
-          driver: 0,
-          programming: 0
-        };
-      }
-      if (s.type === 'driver') teams[t.id].driver = Math.max(teams[t.id].driver, s.score || 0);
-      if (s.type === 'programming') teams[t.id].programming = Math.max(teams[t.id].programming, s.score || 0);
-    }
-
-    // Convert to array, calculate combined, sort
-    const teamArr = Object.values(teams).map(t => ({
-      ...t,
-      combined: t.driver + t.programming
-    }));
-    teamArr.sort((a, b) => b.combined - a.combined);
-
-    // Build table
-    if (teamArr.length === 0) {
+    const teams = await apiGet('/teams', teamParams);
+    if (!teams.length) {
       wrap.innerHTML = '<div style="text-align:center;padding:40px;font-family:var(--mono);color:var(--text-muted);">No teams found for this filter.</div>';
-    } else {
-      wrap.innerHTML = renderSkillsTable(teamArr);
+      loadingEl.classList.remove('active');
+      return;
     }
+
+    // Save info — we'll fetch skills on demand for each page
+    skillsState.allTeamIds = teams.map(t => ({
+      id: t.id,
+      number: t.number,
+      team_name: t.team_name || '',
+      location: t.location || {}
+    }));
+
+    loadingText.textContent = `LOADING SKILLS FOR ${skillsState.allTeamIds.length} TEAMS...`;
+
+    // Load first batch (3 pages worth = 90 teams) so the first page has good rankings
+    await loadMoreSkills(skillsState.pageSize * 3);
+
+    skillsState.currentPage = 0;
+    renderSkillsPage();
 
   } catch(e) {
     showError('⚠ ' + e.message);
@@ -800,15 +807,51 @@ async function loadSkillsRankings() {
   loadingEl.classList.remove('active');
 }
 
-function renderSkillsTable(teams) {
-  const top = teams.slice(0, 100); // Cap at top 100 for performance
-  const rows = top.map((t, i) => {
+async function loadMoreSkills(count) {
+  // Load skills for the next `count` teams in the queue
+  const batch = skillsState.allTeamIds.splice(0, count);
+
+  // Fetch skills in parallel for this batch (with limit to avoid rate-limit)
+  const promises = batch.map(async (t) => {
+    try {
+      const skills = await apiGet(`/teams/${t.id}/skills`, { 'season[]': [skillsState.seasonId] });
+      let driver = 0, programming = 0;
+      for (const s of skills) {
+        if (s.type === 'driver') driver = Math.max(driver, s.score || 0);
+        if (s.type === 'programming') programming = Math.max(programming, s.score || 0);
+      }
+      return { ...t, driver, programming, combined: driver + programming };
+    } catch(e) {
+      return { ...t, driver: 0, programming: 0, combined: 0 };
+    }
+  });
+
+  const results = await Promise.all(promises);
+  // Only include teams with at least some skills score
+  skillsState.teams.push(...results.filter(t => t.combined > 0));
+  // Sort all loaded teams by combined score descending
+  skillsState.teams.sort((a, b) => b.combined - a.combined);
+}
+
+function renderSkillsPage() {
+  const wrap = document.getElementById('skillsTableWrap');
+  const start = skillsState.currentPage * skillsState.pageSize;
+  const end = start + skillsState.pageSize;
+  const pageTeams = skillsState.teams.slice(start, end);
+
+  if (pageTeams.length === 0) {
+    wrap.innerHTML = '<div style="text-align:center;padding:40px;font-family:var(--mono);color:var(--text-muted);">No teams with skills scores found.</div>';
+    return;
+  }
+
+  const rows = pageTeams.map((t, i) => {
+    const rank = start + i + 1;
     const loc = t.location || {};
     const locStr = [loc.region, loc.country].filter(Boolean).join(', ');
-    const rankClass = i < 3 ? 'rank-top' : '';
+    const rankClass = rank <= 3 ? 'rank-top' : '';
     return `
       <div class="skill-row ${rankClass}">
-        <div class="skill-rank">#${i + 1}</div>
+        <div class="skill-rank">#${rank}</div>
         <div class="skill-team">
           <div class="skill-num">${t.number}</div>
           <div class="skill-name">${t.team_name || '—'}</div>
@@ -820,7 +863,12 @@ function renderSkillsTable(teams) {
       </div>`;
   }).join('');
 
-  return `
+  const totalLoaded = skillsState.teams.length;
+  const remaining = skillsState.allTeamIds.length;
+  const hasMore = end < totalLoaded || remaining > 0;
+  const isFirstPage = skillsState.currentPage === 0;
+
+  wrap.innerHTML = `
     <div class="skill-table">
       <div class="skill-header-row">
         <div class="skill-rank">RANK</div>
@@ -831,7 +879,41 @@ function renderSkillsTable(teams) {
       </div>
       ${rows}
     </div>
-    <div class="compare-notice" style="margin-top:16px;">Showing top ${top.length} teams</div>`;
+    <div class="page-controls">
+      <button class="btn btn-secondary" ${isFirstPage ? 'disabled' : ''} onclick="prevSkillsPage()">◂ PREV</button>
+      <div class="page-info">Page ${skillsState.currentPage + 1} · ${remaining > 0 ? remaining + ' teams left to load' : totalLoaded + ' total'}</div>
+      <button class="btn btn-secondary" ${!hasMore ? 'disabled' : ''} onclick="nextSkillsPage()">NEXT ▸</button>
+    </div>`;
+}
+
+async function nextSkillsPage() {
+  if (skillsState.loading) return;
+  const start = (skillsState.currentPage + 1) * skillsState.pageSize;
+  const end = start + skillsState.pageSize;
+
+  // If we don't have enough loaded teams for the next page, load more
+  if (end > skillsState.teams.length && skillsState.allTeamIds.length > 0) {
+    skillsState.loading = true;
+    const loadingEl = document.getElementById('skillsLoading');
+    const loadingText = document.getElementById('skillsLoadingText');
+    loadingEl.classList.add('active');
+    loadingText.textContent = `LOADING NEXT BATCH... (${skillsState.allTeamIds.length} teams left)`;
+    await loadMoreSkills(skillsState.pageSize * 2);
+    loadingEl.classList.remove('active');
+    skillsState.loading = false;
+  }
+
+  skillsState.currentPage++;
+  renderSkillsPage();
+  document.getElementById('skillsTableWrap').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function prevSkillsPage() {
+  if (skillsState.currentPage > 0) {
+    skillsState.currentPage--;
+    renderSkillsPage();
+    document.getElementById('skillsTableWrap').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
 }
 
 // ── ERROR / LOADING ───────────────────────────
