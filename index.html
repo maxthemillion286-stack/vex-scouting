@@ -189,6 +189,11 @@
     pointer-events: none; z-index: 1;
   }
 
+  /* Light mode: heavy fade on left side only */
+  body[class*="theme-light"]::before {
+    background: radial-gradient(ellipse 90% 80% at 0% 50%, var(--grad1) 0%, transparent 75%);
+  }
+
   /* Disable scanlines on light themes */
   body[class*="theme-light"]::after { display: none; }
 
