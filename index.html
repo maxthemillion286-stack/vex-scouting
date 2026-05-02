@@ -324,6 +324,7 @@
   .stat-name { font-family: var(--body); font-size: 14px; font-weight: 600; color: var(--text-dim); flex: 1; }
   .stat-value { font-family: var(--mono); font-size: 16px; color: var(--text); letter-spacing: 1px; text-align: right; min-width: 70px; }
   .stat-value.highlight { color: var(--accent-bright); font-size: 18px; }
+  .stat-value .highlight { color: var(--accent-bright); font-weight: 600; }
   .stat-bar-wrap { flex: 1; height: 3px; background: var(--border); max-width: 80px; }
   .stat-bar { height: 100%; background: linear-gradient(90deg, var(--accent-dim), var(--accent-bright)); transition: width 0.6s cubic-bezier(0.4,0,0.2,1); }
   .wl-display { font-family: var(--mono); font-size: 12px; color: var(--text-muted); text-align: right; min-width: 70px; }
@@ -737,6 +738,90 @@ let skillsState = {
   doneLoading: false    // true when we've fetched everything
 };
 
+// Cache of full season skills rankings — used for team scout card rank lookups
+// Key: seasonId, Value: { teams: [...], loadedAt: timestamp }
+const skillsCache = {};
+
+async function getFullSeasonSkills(seasonId) {
+  if (skillsCache[seasonId]) return skillsCache[seasonId];
+
+  const path = `legacy:/seasons/${seasonId}/skills?per_page=10000`;
+  const res = await fetch(`${BASE}?path=${encodeURIComponent(path)}`);
+  if (!res.ok) return null;
+  const data = await res.json();
+  const items = Array.isArray(data) ? data : (data.data || []);
+
+  // Build per-team aggregated data
+  const teamMap = {};
+  for (const item of items) {
+    const team = item.team || {};
+    const id = team.id;
+    if (!id) continue;
+    const prog = (team.program || '').toUpperCase();
+    if (prog && prog !== 'V5RC' && prog !== 'VRC') continue;
+
+    if (!teamMap[id]) {
+      teamMap[id] = {
+        id,
+        number: team.team || '?',
+        eventRegion: team.eventRegion || '',
+        region: team.region || '',
+        country: team.country || '',
+        driver: 0,
+        programming: 0,
+        combined: 0,
+        rank: item.rank || 999999
+      };
+    }
+    const driverScore = item.scoreDriver ?? item.scores?.driver ?? 0;
+    const progScore = item.scoreProg ?? item.scores?.programming ?? 0;
+    const combinedScore = item.score ?? item.scores?.score ?? (driverScore + progScore);
+    teamMap[id].driver = Math.max(teamMap[id].driver, driverScore);
+    teamMap[id].programming = Math.max(teamMap[id].programming, progScore);
+    teamMap[id].combined = Math.max(teamMap[id].combined, combinedScore);
+    if (item.rank && item.rank < teamMap[id].rank) {
+      teamMap[id].rank = item.rank;
+    }
+  }
+
+  // Sort globally
+  const allTeams = Object.values(teamMap)
+    .filter(t => t.combined > 0 || t.driver > 0 || t.programming > 0);
+  allTeams.sort((a, b) => {
+    if (a.rank !== 999999 && b.rank !== 999999) return a.rank - b.rank;
+    return b.combined - a.combined;
+  });
+
+  // Compute global rank, state rank, and region rank
+  // Group by state (region field) for state rank
+  const stateRankMap = {}; // state -> running counter
+  const regionRankMap = {}; // eventRegion -> running counter
+  for (let i = 0; i < allTeams.length; i++) {
+    const t = allTeams[i];
+    t.globalRank = i + 1;
+    if (t.region) {
+      stateRankMap[t.region] = (stateRankMap[t.region] || 0) + 1;
+      t.stateRank = stateRankMap[t.region];
+    }
+    if (t.eventRegion) {
+      regionRankMap[t.eventRegion] = (regionRankMap[t.eventRegion] || 0) + 1;
+      t.eventRegionRank = regionRankMap[t.eventRegion];
+    }
+  }
+
+  // Index by team ID for quick lookup
+  const byId = {};
+  for (const t of allTeams) byId[t.id] = t;
+
+  skillsCache[seasonId] = {
+    teams: allTeams,
+    byId: byId,
+    totalCount: allTeams.length,
+    loadedAt: Date.now()
+  };
+  return skillsCache[seasonId];
+}
+
 async function loadSkillsRankings() {
   showError('');
 
@@ -1122,11 +1207,13 @@ async function buildTeamCard(teamNumber, seasonId) {
   const params = { 'team[]': [teamId] };
   if (seasonId) params['season[]'] = [seasonId];
 
-  const [allMatches, skills, rankings, awards] = await Promise.all([
+  // Fetch all team data + global skills rankings in parallel
+  const [allMatches, skills, rankings, awards, seasonSkills] = await Promise.all([
     apiGet(`/teams/${teamId}/matches`, params),
     apiGet(`/teams/${teamId}/skills`, params),
     apiGet(`/teams/${teamId}/rankings`, params),
-    apiGet(`/teams/${teamId}/awards`, params)
+    apiGet(`/teams/${teamId}/awards`, params),
+    seasonId ? getFullSeasonSkills(seasonId).catch(() => null) : Promise.resolve(null)
   ]);
 
   const matches = allMatches.filter(m => m.round !== 1);
@@ -1206,6 +1293,25 @@ async function buildTeamCard(teamNumber, seasonId) {
     if (s.type === 'driver') driverSkill = Math.max(driverSkill, s.score || 0);
   }
 
+  // Look up world / state / region skills ranks for this team
+  let worldSkillsRank = null, stateSkillsRank = null, regionSkillsRank = null;
+  let totalWorldTeams = null, totalStateTeams = null, totalRegionTeams = null;
+  let officialCombined = null;
+  if (seasonSkills && seasonSkills.byId[teamId]) {
+    const t = seasonSkills.byId[teamId];
+    worldSkillsRank = t.globalRank;
+    stateSkillsRank = t.stateRank;
+    regionSkillsRank = t.eventRegionRank;
+    officialCombined = t.combined;
+    totalWorldTeams = seasonSkills.totalCount;
+    if (t.region) {
+      totalStateTeams = seasonSkills.teams.filter(x => x.region === t.region).length;
+    }
+    if (t.eventRegion) {
+      totalRegionTeams = seasonSkills.teams.filter(x => x.eventRegion === t.eventRegion).length;
+    }
+  }
+
   let avgRank = null;
   if (rankings.length) {
     const ranks = rankings.map(r => r.rank).filter(Boolean);
@@ -1249,7 +1355,13 @@ async function buildTeamCard(teamNumber, seasonId) {
         <div class="stat-group-label">Skills</div>
         <div class="stat-row"><div class="stat-name">Autonomous</div><div class="stat-value">${progSkill||'<span class="na">—</span>'}</div></div>
         <div class="stat-row"><div class="stat-name">Driver</div><div class="stat-value">${driverSkill||'<span class="na">—</span>'}</div></div>
-        <div class="stat-row"><div class="stat-name">Combined</div><div class="stat-value">${(progSkill+driverSkill)||'<span class="na">—</span>'}</div></div>
+        <div class="stat-row"><div class="stat-name">Combined</div><div class="stat-value">${officialCombined || (progSkill+driverSkill) || '<span class="na">—</span>'}</div></div>
+      </div>
+      <div class="stat-group">
+        <div class="stat-group-label">Skills Rankings</div>
+        <div class="stat-row"><div class="stat-name">World</div><div class="stat-value">${worldSkillsRank ? '<span class="highlight">#' + worldSkillsRank + '</span><span style="color:var(--text-muted);font-size:11px;"> / ' + totalWorldTeams + '</span>' : '<span class="na">N/A</span>'}</div></div>
+        <div class="stat-row"><div class="stat-name">State</div><div class="stat-value">${stateSkillsRank ? '#' + stateSkillsRank + '<span style="color:var(--text-muted);font-size:11px;"> / ' + totalStateTeams + '</span>' : '<span class="na">N/A</span>'}</div></div>
+        <div class="stat-row"><div class="stat-name">VEX Region</div><div class="stat-value">${regionSkillsRank ? '#' + regionSkillsRank + '<span style="color:var(--text-muted);font-size:11px;"> / ' + totalRegionTeams + '</span>' : '<span class="na">N/A</span>'}</div></div>
       </div>
       <div class="stat-group">
         <div class="stat-group-label">Scoring</div>
