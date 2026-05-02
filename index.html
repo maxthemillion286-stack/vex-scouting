@@ -478,15 +478,6 @@
 <div class="container">
   <section class="search-section">
 
-    <div class="section-label">API Token</div>
-    <div class="token-row">
-      <div class="input-wrap">
-        <span class="input-label">ROBOTEVENTS API TOKEN</span>
-        <input type="password" id="apiToken" placeholder="Paste your RobotEvents API token here" autocomplete="off" oninput="onTokenInput()">
-      </div>
-      <button class="btn btn-secondary" onclick="saveToken()">SAVE</button>
-    </div>
-
     <div class="section-label">Scout Teams</div>
     <div class="controls-row">
       <div class="input-wrap" style="flex:2;">
@@ -518,7 +509,7 @@
 
   <!-- ═══════════ SKILLS RANKINGS SECTION ═══════════ -->
   <section class="search-section" style="margin-top: 40px;">
-    <div class="section-label">Skills Rankings (Work In Progress)</div>
+    <div class="section-label">Skills Rankings</div>
 
     <div class="controls-row">
       <div class="input-wrap select-wrap" style="min-width:160px;">
@@ -555,7 +546,9 @@
 
 <script>
 const BASE = 'https://www.robotevents.com/api/v2';
-let TOKEN = localStorage.getItem('re_token') || '';
+const BASE = '/api/proxy';
+// Token is now handled server-side via Vercel environment variables
+let TOKEN = 'server-side';
 let seasonsLoaded = false;
 
 // US states list
@@ -571,10 +564,7 @@ const US_STATES = [
 
 // ── INIT ──────────────────────────────────────
 window.onload = () => {
-  if (TOKEN) {
-    document.getElementById('apiToken').value = TOKEN;
-    setBadge(true);
-  }
+  setBadge(true);
   loadSeasons(); // always load — uses hardcoded list instantly
   document.getElementById('teamInput').addEventListener('keydown', e => {
     if (e.key === 'Enter') scoutTeams();
@@ -611,51 +601,39 @@ function applyTheme(name) {
   localStorage.setItem('vex_theme', name);
 }
 
-// ── TOKEN ─────────────────────────────────────
-function onTokenInput() { setBadge(false); }
-
+// ── STATUS BADGE ──────────────────────────────
 function setBadge(connected) {
   const b = document.getElementById('statusBadge');
-  b.textContent = connected ? '● CONNECTED' : '● NOT CONNECTED';
+  b.textContent = connected ? '● CONNECTED' : '● OFFLINE';
   b.classList.toggle('connected', connected);
-}
-
-function saveToken() {
-  TOKEN = document.getElementById('apiToken').value.trim();
-  if (!TOKEN) { showError('Please paste your API token first.'); return; }
-  localStorage.setItem('re_token', TOKEN);
-  setBadge(true);
-  showError('');
-  const btn = document.querySelector('.btn-secondary');
-  btn.textContent = 'SAVED ✓';
-  setTimeout(() => btn.textContent = 'SAVE', 1500);
-  if (!seasonsLoaded) loadSeasons();
 }
 
 // ── API ───────────────────────────────────────
 async function apiGet(endpoint, params = {}) {
-  TOKEN = document.getElementById('apiToken').value.trim() || TOKEN;
-  if (!TOKEN) throw new Error('No API token. Paste your token and click SAVE first.');
-  const url = new URL(BASE + endpoint);
+  // Build path with query string
+  const qs = new URLSearchParams();
   params.per_page = 250;
   Object.entries(params).forEach(([k, v]) => {
-    if (Array.isArray(v)) v.forEach(val => url.searchParams.append(k, val));
-    else url.searchParams.set(k, v);
+    if (Array.isArray(v)) v.forEach(val => qs.append(k, val));
+    else qs.set(k, v);
   });
-  const res = await fetch(url.toString(), {
-    headers: { 'Authorization': `Bearer ${TOKEN}`, 'Accept': 'application/json' }
-  });
-  if (!res.ok) {
-    if (res.status === 401) throw new Error('Invalid API token. Check it and try again.');
-    throw new Error(`API error ${res.status}`);
+
+  async function fetchPage(page) {
+    qs.set('page', page);
+    const path = endpoint + '?' + qs.toString();
+    const res = await fetch(`${BASE}?path=${encodeURIComponent(path)}`);
+    if (!res.ok) {
+      if (res.status === 401) throw new Error('API token expired. Contact site owner.');
+      throw new Error(`API error ${res.status}`);
+    }
+    return res.json();
   }
-  const data = await res.json();
+
+  const data = await fetchPage(1);
   let results = data.data || [];
   if (data.meta && data.meta.last_page > 1) {
     for (let p = 2; p <= Math.min(data.meta.last_page, 10); p++) {
-      url.searchParams.set('page', p);
-      const r2 = await fetch(url.toString(), { headers: { 'Authorization': `Bearer ${TOKEN}`, 'Accept': 'application/json' } });
-      const d2 = await r2.json();
+      const d2 = await fetchPage(p);
       results = results.concat(d2.data || []);
     }
   }
@@ -745,8 +723,6 @@ let skillsState = {
 };
 
 async function loadSkillsRankings() {
-  TOKEN = document.getElementById('apiToken').value.trim() || TOKEN;
-  if (!TOKEN) { showError('⚠ Paste your RobotEvents API token and click SAVE first.'); return; }
   showError('');
 
   const seasonId = document.getElementById('skillsSeasonSelect').value;
@@ -772,12 +748,21 @@ async function loadSkillsRankings() {
   loadingText.textContent = 'FETCHING TEAMS...';
 
   try {
-    // Get all teams matching filter (paginated)
+    // Get all teams matching country filter (state filtering is client-side)
     const teamParams = { 'program[]': [1] };
     if (region === 'USA') teamParams['country[]'] = ['United States'];
-    if (state) teamParams['region'] = state;
 
-    const teams = await apiGet('/teams', teamParams);
+    loadingText.textContent = 'FETCHING TEAMS...';
+    let teams = await apiGet('/teams', teamParams);
+
+    // Client-side filter by state
+    if (state) {
+      teams = teams.filter(t => {
+        const r = (t.location?.region || '').toLowerCase();
+        return r === state.toLowerCase();
+      });
+    }
+
     if (!teams.length) {
       wrap.innerHTML = '<div style="text-align:center;padding:40px;font-family:var(--mono);color:var(--text-muted);">No teams found for this filter.</div>';
       loadingEl.classList.remove('active');
@@ -931,9 +916,6 @@ function setLoading(active, text = 'FETCHING TEAM DATA...') {
 
 // ── SCOUT ─────────────────────────────────────
 async function scoutTeams() {
-  TOKEN = document.getElementById('apiToken').value.trim() || TOKEN;
-  if (!TOKEN) { showError('⚠ Paste your RobotEvents API token and click SAVE first.'); return; }
-
   const input = document.getElementById('teamInput').value.trim();
   if (!input) return;
 
