@@ -1068,8 +1068,10 @@ function renderSkillsPage() {
 
   const rows = pageTeams.map((t, i) => {
     const positionalRank = start + i + 1;
-    // Use the team's actual official rank if we have it
-    const displayRank = (t.rank && t.rank !== 999999) ? t.rank : positionalRank;
+    // When filtering by state or sub-region, show rank within the filter
+    // Otherwise show the global rank from the API
+    const isFiltered = !!(skillsState.state || skillsState.subregion);
+    const displayRank = isFiltered ? positionalRank : ((t.rank && t.rank !== 999999) ? t.rank : positionalRank);
     const loc = t.location || {};
     const locStr = [loc.eventRegion || loc.region, loc.country].filter(Boolean).join(', ');
     const rankClass = displayRank <= 3 ? 'rank-top' : '';
@@ -1371,7 +1373,7 @@ async function buildTeamCard(teamNumber, seasonId) {
         <div class="stat-group-label">Skills Rankings</div>
         <div class="stat-row"><div class="stat-name">World</div><div class="stat-value">${worldSkillsRank ? '<span class="highlight">#' + worldSkillsRank + '</span><span style="color:var(--text-muted);font-size:11px;"> / ' + totalWorldTeams + '</span>' : '<span class="na">N/A</span>'}</div></div>
         <div class="stat-row"><div class="stat-name">State</div><div class="stat-value">${stateSkillsRank ? '#' + stateSkillsRank + '<span style="color:var(--text-muted);font-size:11px;"> / ' + totalStateTeams + '</span>' : '<span class="na">N/A</span>'}</div></div>
-        <div class="stat-row"><div class="stat-name">VEX Region</div><div class="stat-value">${regionSkillsRank ? '#' + regionSkillsRank + '<span style="color:var(--text-muted);font-size:11px;"> / ' + totalRegionTeams + '</span>' : '<span class="na">N/A</span>'}</div></div>
+        <div class="stat-row"><div class="stat-name">State Region</div><div class="stat-value">${regionSkillsRank ? '#' + regionSkillsRank + '<span style="color:var(--text-muted);font-size:11px;"> / ' + totalRegionTeams + '</span>' : '<span class="na">N/A</span>'}</div></div>
       </div>
       <div class="stat-group">
         <div class="stat-group-label">Scoring</div>
