@@ -617,7 +617,7 @@
     <div class="controls-row">
       <div class="input-wrap" style="flex:2;">
         <span class="input-label">EVENT SKU OR SEARCH</span>
-        <input type="text" id="tournamentInput" placeholder="e.g. RE-V5RC-24-5636 or 'Speedway Signature'" autocomplete="off">
+        <input type="text" id="tournamentInput" placeholder="Event SKU, team number (e.g. 7700S), or event name" autocomplete="off">
       </div>
       <div class="input-wrap select-wrap" style="min-width:140px;">
         <span class="input-label">GRADE</span>
@@ -1403,7 +1403,7 @@ function scoutSelectedSkills() {
 // ── TOURNAMENT SCOUTING ──────────────────────
 async function findTournament() {
   const input = document.getElementById('tournamentInput').value.trim();
-  if (!input) { showError('⚠ Enter an event SKU or search term.'); return; }
+  if (!input) { showError('⚠ Enter an event SKU, team number, or search term.'); return; }
   showError('');
 
   const resultsEl = document.getElementById('tournamentResults');
@@ -1411,24 +1411,74 @@ async function findTournament() {
   const loadingEl = document.getElementById('tournamentLoading');
   const loadingText = document.getElementById('tournamentLoadingText');
   loadingEl.classList.add('active');
-  loadingText.textContent = 'SEARCHING FOR EVENTS...';
 
   try {
     const selectedSeason = document.getElementById('tournamentSeasonSelect')?.value;
-    let events = [];
-    // If input looks like a SKU (contains dashes and letters/numbers), search by SKU directly
-    if (/^RE-/i.test(input) || /^[A-Z0-9-]+$/i.test(input)) {
-      events = await apiGet('/events', { 'sku[]': [input] });
+    const grade = document.getElementById('tournamentGradeSelect')?.value || 'High School';
+
+    // 1) SKU pattern (starts with RE-): exact event lookup
+    if (/^RE-/i.test(input)) {
+      loadingText.textContent = 'LOOKING UP SKU...';
+      const events = await apiGet('/events', { 'sku[]': [input.toUpperCase()] });
+      if (events.length) {
+        await loadTournamentTeams(events[0].id, events[0].name);
+        loadingEl.classList.remove('active');
+        return;
+      }
+      // fall through if not found
     }
-    // If no SKU match, search by name within the selected season
-    if (!events.length) {
-      events = await apiGet('/events', {
-        'season[]': [selectedSeason],
-        'program[]': [1]
-      });
-      const lower = input.toLowerCase();
-      events = events.filter(e => (e.name || '').toLowerCase().includes(lower));
+
+    // 2) Team number pattern (digits + 0-2 letters): show events for that team
+    if (/^[0-9]{1,5}[A-Z]{0,2}$/i.test(input)) {
+      loadingText.textContent = `FINDING EVENTS FOR ${input.toUpperCase()}...`;
+      // Look up the team across V5RC then VEX U
+      let teams = await apiGet('/teams', { 'number[]': [input.toUpperCase()], 'program[]': [1] });
+      if (!teams.length) {
+        teams = await apiGet('/teams', { 'number[]': [input.toUpperCase()], 'program[]': [4] });
+      }
+      if (!teams.length) {
+        resultsEl.innerHTML = `<div style="text-align:center;padding:40px;font-family:var(--mono);color:var(--text-muted);">Team ${input.toUpperCase()} not found.</div>`;
+        loadingEl.classList.remove('active');
+        return;
+      }
+      const team = teams[0];
+
+      loadingText.textContent = `LOADING ${input.toUpperCase()}'S EVENTS...`;
+      const params = { 'team[]': [team.id] };
+      if (selectedSeason) params['season[]'] = [selectedSeason];
+      let events = await apiGet('/events', params);
+
+      // Sort by date descending (most recent first)
+      events.sort((a, b) => (b.start || '').localeCompare(a.start || ''));
+
+      if (!events.length) {
+        resultsEl.innerHTML = `<div style="text-align:center;padding:40px;font-family:var(--mono);color:var(--text-muted);">No events found for ${input.toUpperCase()} in this season.</div>`;
+        loadingEl.classList.remove('active');
+        return;
+      }
+
+      resultsEl.innerHTML = `
+        <div class="tournament-list">
+          <div class="tournament-list-label">${events.length} EVENT${events.length === 1 ? '' : 'S'} FOR ${input.toUpperCase()} — CLICK TO SCOUT</div>
+          ${events.slice(0, 50).map(ev => `
+            <div class="tournament-item" onclick="loadTournamentTeams(${ev.id}, ${JSON.stringify(ev.name || 'Unnamed').replace(/"/g, '&quot;')})">
+              <div class="tournament-name">${ev.name || 'Unnamed'}</div>
+              <div class="tournament-meta">${ev.sku || ''} · ${ev.start ? new Date(ev.start).toLocaleDateString() : ''} · ${ev.location?.region || ''}</div>
+            </div>
+          `).join('')}
+        </div>`;
+      loadingEl.classList.remove('active');
+      return;
     }
+
+    // 3) Free-text event name search within the selected season
+    loadingText.textContent = 'SEARCHING EVENT NAMES...';
+    let events = await apiGet('/events', {
+      'season[]': [selectedSeason],
+      'program[]': [1]
+    });
+    const lower = input.toLowerCase();
+    events = events.filter(e => (e.name || '').toLowerCase().includes(lower));
 
     if (!events.length) {
       resultsEl.innerHTML = '<div style="text-align:center;padding:40px;font-family:var(--mono);color:var(--text-muted);">No events found matching that search.</div>';
@@ -1436,13 +1486,13 @@ async function findTournament() {
       return;
     }
 
-    // If multiple matches, let user pick
+    // Multiple results — let user pick
     if (events.length > 1) {
       resultsEl.innerHTML = `
         <div class="tournament-list">
-          <div class="tournament-list-label">Found ${events.length} events — pick one:</div>
-          ${events.slice(0, 20).map(ev => `
-            <div class="tournament-item" onclick="loadTournamentTeams(${ev.id}, '${(ev.name || '').replace(/'/g, "\\'")}')">
+          <div class="tournament-list-label">FOUND ${events.length} EVENTS — PICK ONE</div>
+          ${events.slice(0, 30).map(ev => `
+            <div class="tournament-item" onclick="loadTournamentTeams(${ev.id}, ${JSON.stringify(ev.name || 'Unnamed').replace(/"/g, '&quot;')})">
               <div class="tournament-name">${ev.name || 'Unnamed'}</div>
               <div class="tournament-meta">${ev.sku || ''} · ${ev.start ? new Date(ev.start).toLocaleDateString() : ''} · ${ev.location?.region || ''}</div>
             </div>
@@ -1475,15 +1525,22 @@ async function loadTournamentTeams(eventId, eventName) {
     // Get teams registered at this event
     const teams = await apiGet(`/events/${eventId}/teams`);
 
-    // Filter by grade level
+    // Debug: log the first team to verify field names
+    if (teams.length > 0) {
+      console.log('[Tournament] Sample team object:', teams[0]);
+    }
+
+    // Filter by grade level — try multiple possible field paths
     const grade = document.getElementById('tournamentGradeSelect').value;
     let filtered = teams;
     if (grade && grade !== 'All') {
       filtered = teams.filter(t => {
-        const g = (t.grade || t.grade_level || '').trim();
-        // grade may be "High School", "Middle School", or empty
-        return !g || g === grade;
+        // Try every possible field that might hold grade
+        const g = (t.grade || t.grade_level || t.gradeLevel || '').trim();
+        // Only include if grade matches exactly. Don't include unknown grades.
+        return g === grade;
       });
+      console.log(`[Tournament] Filtered ${teams.length} teams to ${filtered.length} for grade "${grade}"`);
     }
 
     if (!filtered.length) {
