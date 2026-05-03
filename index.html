@@ -2085,17 +2085,24 @@ async function renderBracketView() {
       const elims = elimsByDivision[divName];
 
       // Extract series number from match name to group best-of-3 matches together
-      // Names look like: "QF #1-1" (series 1, game 1), "QF #1-2" (series 1, game 2), "F #1-1", etc.
+      // Match name patterns:
+      //   "R16 #5"    → series 5, game 1 (single match in series)
+      //   "R16 #5-2"  → series 5, game 2
+      //   "QF #1-1"   → series 1, game 1
+      //   "F #1-3"    → series 1, game 3
+      // CRITICAL: must require # before the series number to avoid grabbing "16" from "R16"
       function getSeriesNum(m) {
         const name = (m.name || '').trim();
-        // Match patterns like "QF #1-2", "R16 #3-1", "F #1-2" — extract first number
-        const match = name.match(/#?\s*(\d+)[-\s]/);
-        return match ? parseInt(match[1], 10) : (m.matchnum || 1);
+        // Series number always comes after a # symbol
+        const match = name.match(/#\s*(\d+)/);
+        if (match) return parseInt(match[1], 10);
+        // Fallback for names without #: try matchnum
+        return m.matchnum || 1;
       }
       function getGameNum(m) {
         const name = (m.name || '').trim();
-        // Get the game number after the dash, e.g. "QF #1-2" → 2
-        const match = name.match(/#?\s*\d+\s*[-]\s*(\d+)/);
+        // Match the number AFTER a dash, e.g. "QF #1-2" → 2
+        const match = name.match(/#\s*\d+\s*-\s*(\d+)/);
         return match ? parseInt(match[1], 10) : 1;
       }
 
