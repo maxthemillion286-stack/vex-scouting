@@ -805,15 +805,23 @@ async function loadSeasonsFromAPI() {
 
     ['seasonSelect','skillsSeasonSelect','tournamentSeasonSelect'].forEach(id => {
       const sel = document.getElementById(id);
-      const currentVal = sel.value;
+      if (!sel) return;
       sel.innerHTML = '';
       seasons.forEach((s, i) => {
         const opt = document.createElement('option');
         opt.value = s.id;
         opt.textContent = s.name;
-        if (String(s.id) === String(currentVal) || (!currentVal && i === 0)) opt.selected = true;
+        // Always honor DEFAULT_SEASON_ID; fall back to most recent if not in list
+        const isDefault = DEFAULT_SEASON_ID
+          ? String(s.id) === String(DEFAULT_SEASON_ID)
+          : (i === 0);
+        if (isDefault) opt.selected = true;
         sel.appendChild(opt);
       });
+      // If DEFAULT_SEASON_ID wasn't found (rare), select the first option
+      if (DEFAULT_SEASON_ID && !sel.value) {
+        sel.selectedIndex = 0;
+      }
     });
   } catch(e) { /* keep hardcoded list */ }
 }
