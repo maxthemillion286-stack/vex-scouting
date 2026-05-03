@@ -1192,10 +1192,14 @@ function setLoading(active, text = 'FETCHING TEAM DATA...') {
 }
 
 // ── SCOUT ─────────────────────────────────────
+let scoutInProgress = false;
+
 async function scoutTeams() {
+  if (scoutInProgress) return; // prevent overlapping/spammed scouts
   const input = document.getElementById('teamInput').value.trim();
   if (!input) return;
 
+  scoutInProgress = true;
   const seasonId = document.getElementById('seasonSelect').value || null;
 
   showError('');
@@ -1206,30 +1210,34 @@ async function scoutTeams() {
   document.getElementById('compareNotice').style.display = 'none';
   setLoading(true);
 
-  for (let i = 0; i < teamNumbers.length; i++) {
-    const num = teamNumbers[i];
-    setLoading(true, `SCOUTING ${num}... (${i+1}/${teamNumbers.length})`);
-    try {
-      const card = await buildTeamCard(num, seasonId);
-      grid.appendChild(card);
-    } catch(e) {
-      const errCard = document.createElement('div');
-      errCard.className = 'team-card';
-      errCard.innerHTML = `<div class="card-header"><div>
-        <div class="team-number">${num}</div>
-        <div class="team-name" style="color:#ff4444;">Team not found</div>
-        <div class="team-location" style="color:#884444;">${e.message}</div>
-      </div></div>`;
-      grid.appendChild(errCard);
+  try {
+    for (let i = 0; i < teamNumbers.length; i++) {
+      const num = teamNumbers[i];
+      setLoading(true, `SCOUTING ${num}... (${i+1}/${teamNumbers.length})`);
+      try {
+        const card = await buildTeamCard(num, seasonId);
+        grid.appendChild(card);
+      } catch(e) {
+        const errCard = document.createElement('div');
+        errCard.className = 'team-card';
+        errCard.innerHTML = `<div class="card-header"><div>
+          <div class="team-number">${num}</div>
+          <div class="team-name" style="color:#ff4444;">Team not found</div>
+          <div class="team-location" style="color:#884444;">${e.message}</div>
+        </div></div>`;
+        grid.appendChild(errCard);
+      }
     }
-  }
 
-  document.getElementById('resultsLabel').style.display = 'flex';
-  if (teamNumbers.length > 1) {
-    document.getElementById('compareNotice').style.display = 'block';
-    document.getElementById('compareNotice').textContent = `${teamNumbers.length} teams scouted · scroll to compare`;
+    document.getElementById('resultsLabel').style.display = 'flex';
+    if (teamNumbers.length > 1) {
+      document.getElementById('compareNotice').style.display = 'block';
+      document.getElementById('compareNotice').textContent = `${teamNumbers.length} teams scouted · scroll to compare`;
+    }
+  } finally {
+    setLoading(false);
+    scoutInProgress = false;
   }
-  setLoading(false);
 }
 
 // ── BUILD CARD ────────────────────────────────
@@ -1256,6 +1264,8 @@ async function buildTeamCard(teamNumber, seasonId) {
 
   const matches = allMatches.filter(m => m.round !== 1);
   let wins = 0, losses = 0, ties = 0, awpCount = 0, autonWins = 0, autonPlayed = 0, scores = [];
+  // Signature event stats
+  let sigWins = 0, sigLosses = 0, sigTies = 0;
 
   for (const match of matches) {
     const al = match.alliances;
@@ -1296,9 +1306,20 @@ async function buildTeamCard(teamNumber, seasonId) {
     if (myA.score === null || myA.score === undefined) continue;
     scores.push(myScore);
 
-    if (myScore > oppScore) wins++;
-    else if (myScore < oppScore) losses++;
-    else ties++;
+    // Detect signature event by checking if event name contains "Signature" (case-insensitive)
+    const eventName = (match.event?.name || '').toLowerCase();
+    const isSignature = eventName.includes('signature');
+
+    if (myScore > oppScore) {
+      wins++;
+      if (isSignature) sigWins++;
+    } else if (myScore < oppScore) {
+      losses++;
+      if (isSignature) sigLosses++;
+    } else {
+      ties++;
+      if (isSignature) sigTies++;
+    }
 
     // AWP — autonomous_win_point field on match (handle multiple formats)
     const awp = myA.autonomous_win_point;
@@ -1311,6 +1332,9 @@ async function buildTeamCard(teamNumber, seasonId) {
       if (aw.toLowerCase() === myColor) autonWins++;
     }
   }
+
+  const sigTotal = sigWins + sigLosses + sigTies;
+  const sigWinRate = sigTotal > 0 ? sigWins / sigTotal * 100 : null;
 
   // Get high score and stats from rankings (the rankings endpoint is the source of truth)
   let rankingHighScore = 0;
@@ -1421,6 +1445,12 @@ async function buildTeamCard(teamNumber, seasonId) {
         <div class="stat-row"><div class="stat-name">Win Rate</div>${bar(winRate)}<div class="stat-value highlight">${fmt(winRate)}</div></div>
         <div class="stat-row"><div class="stat-name">W / L / T</div><div class="wl-display">${total>0?`${wins}W · ${losses}L${ties?' · '+ties+'T':''}` : '<span class="na">N/A</span>'}</div></div>
         <div class="stat-row"><div class="stat-name">Total Matches</div><div class="stat-value">${total}</div></div>
+      </div>
+      <div class="stat-group">
+        <div class="stat-group-label">Signature Events</div>
+        <div class="stat-row"><div class="stat-name">Sig Win Rate</div>${bar(sigWinRate)}<div class="stat-value highlight">${fmt(sigWinRate)}</div></div>
+        <div class="stat-row"><div class="stat-name">Sig W / L / T</div><div class="wl-display">${sigTotal>0?`${sigWins}W · ${sigLosses}L${sigTies?' · '+sigTies+'T':''}` : '<span class="na">No sig matches</span>'}</div></div>
+        <div class="stat-row"><div class="stat-name">Sig Matches</div><div class="stat-value">${sigTotal || '<span class="na">0</span>'}</div></div>
       </div>
       <div class="stat-group">
         <div class="stat-group-label">Autonomous</div>
