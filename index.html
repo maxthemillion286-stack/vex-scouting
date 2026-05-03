@@ -431,6 +431,94 @@
     cursor: help; margin-left: 6px; vertical-align: middle;
   }
   .section-info:hover { background: var(--accent-dim); color: var(--text); }
+
+  /* ── MATCH LIST (event team matches view) ── */
+  .match-round-label {
+    font-family: var(--mono); font-size: 11px; color: var(--text-muted); letter-spacing: 2px;
+    margin-top: 18px; margin-bottom: 8px; padding-bottom: 4px;
+    border-bottom: 1px solid var(--border);
+  }
+  .match-list { display: flex; flex-direction: column; gap: 4px; }
+  .match-row {
+    display: grid; grid-template-columns: 90px 1fr 40px 1fr 70px;
+    align-items: center; gap: 8px;
+    background: var(--card); border: 1px solid var(--border); padding: 10px 14px;
+  }
+  .match-row.win { border-left: 4px solid #44dd44; }
+  .match-row.loss { border-left: 4px solid #ee4444; }
+  .match-row.tie { border-left: 4px solid #ddaa44; }
+  .match-num { font-family: var(--mono); font-size: 11px; color: var(--text-muted); letter-spacing: 1px; }
+
+  .match-alliance {
+    display: grid; grid-template-columns: 40px 1fr 50px;
+    align-items: center; gap: 8px;
+    padding: 8px 10px;
+  }
+  .match-alliance.alliance-red { background: rgba(220, 50, 50, 0.12); border: 1px solid rgba(220, 50, 50, 0.4); }
+  .match-alliance.alliance-blue { background: rgba(50, 80, 220, 0.12); border: 1px solid rgba(50, 80, 220, 0.4); }
+  .match-alliance-label {
+    font-family: var(--mono); font-size: 9px; letter-spacing: 1px;
+    color: var(--text-muted); font-weight: 700;
+  }
+  .match-alliance.alliance-red .match-alliance-label { color: #ff7777; }
+  .match-alliance.alliance-blue .match-alliance-label { color: #88aaff; }
+  .match-teams {
+    font-family: var(--display); font-size: 13px; color: var(--text); font-weight: 600;
+  }
+  .match-teams .match-team-self {
+    color: var(--accent-bright); text-decoration: underline; text-underline-offset: 2px;
+  }
+  .match-score {
+    font-family: var(--mono); font-size: 16px; color: var(--text); text-align: right; font-weight: 700;
+  }
+  .match-vs { font-family: var(--mono); font-size: 10px; color: var(--text-muted); text-align: center; }
+
+  .match-outcome {
+    font-family: var(--display); font-size: 13px; font-weight: 700; text-align: center;
+    letter-spacing: 1px; padding: 6px 8px;
+  }
+  .match-outcome.win { color: #44dd44; }
+  .match-outcome.loss { color: #ee4444; }
+  .match-outcome.tie { color: #ddaa44; }
+  .match-outcome.pending { color: var(--text-muted); }
+
+  @media (max-width: 720px) {
+    .match-row { grid-template-columns: 1fr; gap: 6px; }
+    .match-vs { display: none; }
+  }
+
+  /* ── ELIMINATION BRACKET ── */
+  .bracket-container {
+    display: flex; gap: 24px; overflow-x: auto;
+    padding: 16px 0 16px 0; margin-top: 12px;
+  }
+  .bracket-column {
+    display: flex; flex-direction: column;
+    min-width: 200px; gap: 12px;
+    justify-content: space-around;
+  }
+  .bracket-round-label {
+    font-family: var(--mono); font-size: 11px; color: var(--text-muted);
+    letter-spacing: 2px; text-align: center; margin-bottom: 4px;
+    padding-bottom: 4px; border-bottom: 1px solid var(--border);
+  }
+  .bracket-match {
+    display: flex; flex-direction: column;
+    border: 1px solid var(--border); background: var(--card);
+  }
+  .bracket-side {
+    display: grid; grid-template-columns: 1fr 50px;
+    padding: 8px 12px; align-items: center;
+    border-bottom: 1px solid var(--border);
+  }
+  .bracket-side:last-child { border-bottom: none; }
+  .bracket-side.bracket-red { background: rgba(220, 50, 50, 0.15); }
+  .bracket-side.bracket-blue { background: rgba(50, 80, 220, 0.15); }
+  .bracket-side.winner.bracket-red { background: rgba(220, 50, 50, 0.4); }
+  .bracket-side.winner.bracket-blue { background: rgba(50, 80, 220, 0.4); }
+  .bracket-side.winner { font-weight: 700; }
+  .bracket-teams { font-family: var(--display); font-size: 12px; color: var(--text); }
+  .bracket-score { font-family: var(--mono); font-size: 14px; text-align: right; font-weight: 700; color: var(--text); }
   .skill-row.rank-top { border-left: 3px solid var(--accent); }
   .skill-row.rank-top:nth-child(2) { border-left-color: #ffd700; }
   .skill-row.rank-top:nth-child(3) { border-left-color: #c0c0c0; }
@@ -574,6 +662,7 @@
         </select>
       </div>
       <button class="btn btn-primary" id="scoutBtn" onclick="scoutTeams()">SCOUT</button>
+      <button class="btn btn-secondary" id="clearBtn" onclick="clearScoutResults()">CLEAR</button>
     </div>
   </section>
 
@@ -1490,9 +1579,9 @@ async function findTournament() {
 
       resultsEl.innerHTML = `
         <div class="tournament-list">
-          <div class="tournament-list-label">${events.length} EVENT${events.length === 1 ? '' : 'S'} FOR ${input.toUpperCase()} — CLICK TO SCOUT</div>
+          <div class="tournament-list-label">${events.length} EVENT${events.length === 1 ? '' : 'S'} FOR ${input.toUpperCase()} — CLICK TO VIEW MATCHES</div>
           ${events.slice(0, 50).map(ev => `
-            <div class="tournament-item" onclick="loadTournamentTeams(${ev.id}, ${JSON.stringify(ev.name || 'Unnamed').replace(/"/g, '&quot;')})">
+            <div class="tournament-item" onclick="loadTournamentTeams(${ev.id}, ${JSON.stringify(ev.name || 'Unnamed').replace(/"/g, '&quot;')}, ${team.id}, '${input.toUpperCase()}')">
               <div class="tournament-name">${ev.name || 'Unnamed'}</div>
               <div class="tournament-meta">${ev.sku || ''} · ${ev.start ? new Date(ev.start).toLocaleDateString() : ''} · ${ev.location?.region || ''}</div>
             </div>
@@ -1550,9 +1639,298 @@ let tournamentTeamCache = []; // last-loaded teams (for re-sorting)
 let tournamentEventName = '';
 let tournamentGrade = 'High School';
 
-async function loadTournamentTeams(eventId, eventName) {
+// Tournament view state
+let tournamentEventId = null;
+let tournamentFocusTeamId = null;
+let tournamentFocusTeamNumber = '';
+
+async function loadTournamentTeams(eventId, eventName, focusTeamId, focusTeamNumber) {
   selectedTournamentTeams.clear();
+  tournamentEventId = eventId;
   tournamentEventName = eventName;
+  tournamentFocusTeamId = focusTeamId || null;
+  tournamentFocusTeamNumber = focusTeamNumber || '';
+
+  const resultsEl = document.getElementById('tournamentResults');
+  resultsEl.innerHTML = '';
+  const loadingEl = document.getElementById('tournamentLoading');
+  const loadingText = document.getElementById('tournamentLoadingText');
+  loadingEl.classList.add('active');
+  loadingText.textContent = `LOADING ${eventName}...`;
+
+  try {
+    // If we have a focus team, default view = matches for that team
+    if (tournamentFocusTeamId) {
+      await renderEventTeamMatchesView();
+    } else {
+      await loadAndRenderTeamList();
+    }
+  } catch(e) {
+    showError('⚠ ' + e.message);
+    console.error('Tournament teams error:', e);
+  }
+  loadingEl.classList.remove('active');
+}
+
+// Renders match list for the focused team at the focused event
+async function renderEventTeamMatchesView() {
+  const loadingText = document.getElementById('skillsLoadingText') || document.getElementById('tournamentLoadingText');
+  if (loadingText) loadingText.textContent = `LOADING ${tournamentFocusTeamNumber}'S MATCHES...`;
+
+  const eventId = tournamentEventId;
+  const teamId = tournamentFocusTeamId;
+
+  // Fetch matches for this team at this event
+  const matches = await apiGet(`/teams/${teamId}/matches`, { 'event[]': [eventId] });
+
+  // Filter out practice matches (round 1)
+  const realMatches = matches.filter(m => m.round !== 1);
+
+  // Sort by round then matchnum
+  realMatches.sort((a, b) => {
+    if (a.round !== b.round) return a.round - b.round;
+    return (a.matchnum || 0) - (b.matchnum || 0);
+  });
+
+  // Get round name
+  const roundName = (round) => ({
+    2: 'Qualification',
+    3: 'Round of 16',
+    4: 'Quarterfinal',
+    5: 'Semifinal',
+    6: 'Final',
+    7: 'Final',
+    9: 'Round of 64',
+    10: 'Round of 32',
+    15: 'Practice'
+  })[round] || `Round ${round}`;
+
+  const resultsEl = document.getElementById('tournamentResults');
+
+  // Header with view-switch buttons
+  let html = `
+    <div class="tournament-summary">
+      <div class="tournament-summary-name">${tournamentEventName}</div>
+      <div class="tournament-summary-count">Matches for <span style="color:var(--accent-bright);font-weight:700;">${tournamentFocusTeamNumber}</span></div>
+      <div class="tournament-summary-actions">
+        <button class="btn btn-secondary" onclick="loadAndRenderTeamList()">SHOW ALL TEAMS</button>
+        <button class="btn btn-secondary" onclick="renderBracketView()">ELIMINATION BRACKET</button>
+      </div>
+    </div>
+  `;
+
+  if (!realMatches.length) {
+    html += `<div style="text-align:center;padding:40px;font-family:var(--mono);color:var(--text-muted);">No matches found for ${tournamentFocusTeamNumber} at this event.</div>`;
+    resultsEl.innerHTML = html;
+    return;
+  }
+
+  // Group by round
+  const byRound = {};
+  for (const m of realMatches) {
+    const r = m.round;
+    if (!byRound[r]) byRound[r] = [];
+    byRound[r].push(m);
+  }
+
+  for (const round of Object.keys(byRound).sort((a,b)=>+a-+b)) {
+    html += `<div class="match-round-label">${roundName(+round)}</div>`;
+    html += `<div class="match-list">`;
+    for (const match of byRound[round]) {
+      html += renderMatchRow(match, teamId);
+    }
+    html += `</div>`;
+  }
+
+  resultsEl.innerHTML = html;
+}
+
+// Renders one match row showing alliance colors, opponents, partner, win/loss
+function renderMatchRow(match, focusTeamId) {
+  const al = match.alliances;
+  if (!al) return '';
+
+  let redA, blueA;
+  if (Array.isArray(al)) {
+    redA  = al.find(a => (a.color||'').toLowerCase() === 'red');
+    blueA = al.find(a => (a.color||'').toLowerCase() === 'blue');
+    if (!redA && al.length >= 2) { redA = al[0]; blueA = al[1]; }
+  } else {
+    redA = al.red; blueA = al.blue;
+  }
+  if (!redA || !blueA) return '';
+
+  function teamsOf(alliance) {
+    return (alliance.teams || []).map(t => ({
+      id: t?.team?.id ?? t?.id ?? t,
+      number: t?.team?.name ?? t?.name ?? '?'
+    }));
+  }
+  const redTeams = teamsOf(redA);
+  const blueTeams = teamsOf(blueA);
+
+  const inRed = redTeams.some(t => String(t.id) === String(focusTeamId));
+  const inBlue = blueTeams.some(t => String(t.id) === String(focusTeamId));
+
+  const myColor = inRed ? 'red' : (inBlue ? 'blue' : '');
+  if (!myColor) return '';
+
+  const myA = inRed ? redA : blueA;
+  const oppA = inRed ? blueA : redA;
+  const myTeams = inRed ? redTeams : blueTeams;
+  const oppTeams = inRed ? blueTeams : redTeams;
+
+  const myScore = myA.score ?? 0;
+  const oppScore = oppA.score ?? 0;
+  const partner = myTeams.find(t => String(t.id) !== String(focusTeamId));
+
+  let outcome = 'pending';
+  let outcomeClass = 'pending';
+  if (myA.score !== null && myA.score !== undefined) {
+    if (myScore > oppScore) { outcome = 'WIN'; outcomeClass = 'win'; }
+    else if (myScore < oppScore) { outcome = 'LOSS'; outcomeClass = 'loss'; }
+    else { outcome = 'TIE'; outcomeClass = 'tie'; }
+  } else {
+    outcome = '—';
+  }
+
+  const matchLabel = `Match ${match.matchnum || ''}`;
+  const myColorClass = myColor === 'red' ? 'alliance-red' : 'alliance-blue';
+  const oppColorClass = myColor === 'red' ? 'alliance-blue' : 'alliance-red';
+
+  return `
+    <div class="match-row ${outcomeClass}">
+      <div class="match-num">${matchLabel}</div>
+      <div class="match-alliance ${myColorClass}">
+        <div class="match-alliance-label">YOU</div>
+        <div class="match-teams">${myTeams.map(t => `<span class="${String(t.id) === String(focusTeamId) ? 'match-team-self' : ''}">${t.number}</span>`).join(' · ')}</div>
+        <div class="match-score">${myScore}</div>
+      </div>
+      <div class="match-vs">VS</div>
+      <div class="match-alliance ${oppColorClass}">
+        <div class="match-alliance-label">OPP</div>
+        <div class="match-teams">${oppTeams.map(t => `<span>${t.number}</span>`).join(' · ')}</div>
+        <div class="match-score">${oppScore}</div>
+      </div>
+      <div class="match-outcome ${outcomeClass}">${outcome}</div>
+    </div>`;
+}
+
+// ──── Elimination bracket view ────
+async function renderBracketView() {
+  const resultsEl = document.getElementById('tournamentResults');
+  const loadingEl = document.getElementById('tournamentLoading');
+  const loadingText = document.getElementById('tournamentLoadingText');
+  loadingEl.classList.add('active');
+  loadingText.textContent = 'LOADING ELIMINATION MATCHES...';
+
+  try {
+    // Fetch all matches at this event (no team filter)
+    const allMatches = await apiGet(`/events/${tournamentEventId}/matches`);
+
+    // Filter to elimination rounds only (round != 1 practice, != 2 quals)
+    const elims = allMatches.filter(m => m.round && m.round > 2 && m.round < 15);
+
+    if (!elims.length) {
+      resultsEl.innerHTML = `
+        <div class="tournament-summary">
+          <div class="tournament-summary-name">${tournamentEventName}</div>
+          <div class="tournament-summary-count">No elimination matches yet</div>
+          <div class="tournament-summary-actions">
+            ${tournamentFocusTeamId ? `<button class="btn btn-secondary" onclick="renderEventTeamMatchesView()">BACK TO ${tournamentFocusTeamNumber}'S MATCHES</button>` : ''}
+            <button class="btn btn-secondary" onclick="loadAndRenderTeamList()">SHOW ALL TEAMS</button>
+          </div>
+        </div>
+        <div style="text-align:center;padding:40px;font-family:var(--mono);color:var(--text-muted);">Elimination bracket not available — eliminations may not have started yet.</div>`;
+      loadingEl.classList.remove('active');
+      return;
+    }
+
+    // Group by round, sort within round
+    const byRound = {};
+    for (const m of elims) {
+      if (!byRound[m.round]) byRound[m.round] = [];
+      byRound[m.round].push(m);
+    }
+    for (const r of Object.keys(byRound)) {
+      byRound[r].sort((a, b) => (a.matchnum || 0) - (b.matchnum || 0));
+    }
+
+    const roundLabels = {
+      3: 'Round of 16', 4: 'Quarterfinals', 5: 'Semifinals', 6: 'Finals', 7: 'Finals',
+      9: 'Round of 64', 10: 'Round of 32'
+    };
+
+    let html = `
+      <div class="tournament-summary">
+        <div class="tournament-summary-name">${tournamentEventName} — Elimination Bracket</div>
+        <div class="tournament-summary-actions">
+          ${tournamentFocusTeamId ? `<button class="btn btn-secondary" onclick="renderEventTeamMatchesView()">BACK TO ${tournamentFocusTeamNumber}'S MATCHES</button>` : ''}
+          <button class="btn btn-secondary" onclick="loadAndRenderTeamList()">SHOW ALL TEAMS</button>
+        </div>
+      </div>
+
+      <div class="bracket-container">`;
+
+    const sortedRounds = Object.keys(byRound).sort((a, b) => +a - +b);
+    for (const r of sortedRounds) {
+      html += `
+        <div class="bracket-column">
+          <div class="bracket-round-label">${roundLabels[+r] || 'Round ' + r}</div>
+          ${byRound[r].map(m => renderBracketMatch(m)).join('')}
+        </div>`;
+    }
+    html += `</div>`;
+
+    resultsEl.innerHTML = html;
+
+  } catch(e) {
+    showError('⚠ ' + e.message);
+  }
+  loadingEl.classList.remove('active');
+}
+
+function renderBracketMatch(match) {
+  const al = match.alliances;
+  if (!al) return '';
+  let redA, blueA;
+  if (Array.isArray(al)) {
+    redA = al.find(a => (a.color||'').toLowerCase() === 'red');
+    blueA = al.find(a => (a.color||'').toLowerCase() === 'blue');
+    if (!redA && al.length >= 2) { redA = al[0]; blueA = al[1]; }
+  } else {
+    redA = al.red; blueA = al.blue;
+  }
+  if (!redA || !blueA) return '';
+
+  function teamsOf(alliance) {
+    return (alliance.teams || []).map(t => t?.team?.name ?? t?.name ?? '?');
+  }
+  const redTeams = teamsOf(redA);
+  const blueTeams = teamsOf(blueA);
+  const redScore = redA.score ?? '';
+  const blueScore = blueA.score ?? '';
+  const redWon = (redA.score ?? 0) > (blueA.score ?? 0);
+  const blueWon = (blueA.score ?? 0) > (redA.score ?? 0);
+
+  return `
+    <div class="bracket-match">
+      <div class="bracket-side bracket-red ${redWon ? 'winner' : ''}">
+        <div class="bracket-teams">${redTeams.join(' ')}</div>
+        <div class="bracket-score">${redScore}</div>
+      </div>
+      <div class="bracket-side bracket-blue ${blueWon ? 'winner' : ''}">
+        <div class="bracket-teams">${blueTeams.join(' ')}</div>
+        <div class="bracket-score">${blueScore}</div>
+      </div>
+    </div>`;
+}
+
+// Renders the full team list view (the existing "all teams" view)
+async function loadAndRenderTeamList() {
+  const eventId = tournamentEventId;
+  const eventName = tournamentEventName;
+
   const resultsEl = document.getElementById('tournamentResults');
   resultsEl.innerHTML = '';
   const loadingEl = document.getElementById('tournamentLoading');
@@ -1561,12 +1939,8 @@ async function loadTournamentTeams(eventId, eventName) {
   loadingText.textContent = `LOADING TEAMS FROM ${eventName}...`;
 
   try {
-    // Get teams registered at this event
     const teams = await apiGet(`/events/${eventId}/teams`);
 
-    if (teams.length > 0) console.log('[Tournament] Sample team:', teams[0]);
-
-    // Filter by grade level
     const grade = document.getElementById('tournamentGradeSelect').value;
     tournamentGrade = grade;
     let filtered = teams;
@@ -1583,14 +1957,10 @@ async function loadTournamentTeams(eventId, eventName) {
       return;
     }
 
-    // Get the season ID from the dropdown so we can fetch per-team stats
     const seasonId = document.getElementById('tournamentSeasonSelect')?.value;
-
-    // Get global skills rankings (cached)
     loadingText.textContent = 'LOADING WORLD SKILLS RANKINGS...';
     const seasonSkills = seasonId ? await getFullSeasonSkills(seasonId, grade).catch(() => null) : null;
 
-    // For each team, fetch their ranking at THIS event + their per-event win record
     loadingText.textContent = `LOADING STATS FOR ${filtered.length} TEAMS...`;
     const enriched = [];
     const BATCH = 8;
@@ -1613,13 +1983,8 @@ async function loadTournamentTeams(eventId, eventName) {
         const winRate = total > 0 ? wins / total * 100 : null;
         const worldSkills = seasonSkills?.byId[t.id]?.globalRank || null;
         return {
-          id: t.id,
-          number: t.number,
-          team_name: t.team_name || '',
-          eventRank,
-          wins, losses, ties,
-          winRate,
-          worldSkills
+          id: t.id, number: t.number, team_name: t.team_name || '',
+          eventRank, wins, losses, ties, winRate, worldSkills
         };
       }));
       enriched.push(...results);
@@ -1627,10 +1992,8 @@ async function loadTournamentTeams(eventId, eventName) {
 
     tournamentTeamCache = enriched;
     renderTournamentTeams();
-
   } catch(e) {
     showError('⚠ ' + e.message);
-    console.error('Tournament teams error:', e);
   }
   loadingEl.classList.remove('active');
 }
@@ -1671,11 +2034,13 @@ function renderTournamentTeams() {
         <div class="input-wrap select-wrap" style="min-width:180px;">
           <span class="input-label">SORT BY</span>
           <select id="tournamentSortSelect" onchange="renderTournamentTeams()">
-            <option value="winrate" ${sortMode==='winrate'?'selected':''}>Win Rate (high → low)</option>
+            <option value="winrate" ${sortMode==='winrate'?'selected':''}>Win Rate</option>
             <option value="world" ${sortMode==='world'?'selected':''}>World Skills Rank</option>
             <option value="eventrank" ${sortMode==='eventrank'?'selected':''}>Event Rank</option>
           </select>
         </div>
+        ${tournamentFocusTeamId ? `<button class="btn btn-secondary" onclick="renderEventTeamMatchesView()">${tournamentFocusTeamNumber}'S MATCHES</button>` : ''}
+        <button class="btn btn-secondary" onclick="renderBracketView()">BRACKET</button>
         <button class="btn btn-secondary" onclick="copyTournamentTeams('${teamNumbers.join(',')}')">COPY ALL</button>
         <button class="btn btn-primary" onclick="scoutTournamentTeams('${teamNumbers.join(',')}', '${tournamentGrade}')">SCOUT ALL ${teams.length}</button>
       </div>
@@ -1815,6 +2180,14 @@ function setLoading(active, text = 'FETCHING TEAM DATA...') {
 
 // ── SCOUT ─────────────────────────────────────
 let scoutInProgress = false;
+
+function clearScoutResults() {
+  document.getElementById('teamInput').value = '';
+  document.getElementById('resultsGrid').innerHTML = '';
+  document.getElementById('resultsLabel').style.display = 'none';
+  document.getElementById('compareNotice').style.display = 'none';
+  showError('');
+}
 
 async function scoutTeams() {
   if (scoutInProgress) return; // prevent overlapping/spammed scouts
