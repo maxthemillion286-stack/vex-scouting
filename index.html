@@ -1,11 +1,11 @@
-// vercel Serverless Function — proxies requests to robotevents API
+// Vercel Serverless Function — proxies requests to RobotEvents API
 //
 // Supports MULTIPLE TOKENS for higher rate limits:
 //   - Set ROBOTEVENTS_TOKEN, ROBOTEVENTS_TOKEN_2, ROBOTEVENTS_TOKEN_3, etc.
-//   - Tokens are rotated round-robin
+//   - Tokens are rotated round-robin per request
 //   - On 429 (rate limit), automatically falls over to the next token
 //
-
+// Add new tokens later by setting ROBOTEVENTS_TOKEN_4, _5, etc. in Vercel.
 
 const cache = new Map(); // path -> { data, status, expires }
 const CACHE_TTL_MS = 30 * 1000;
