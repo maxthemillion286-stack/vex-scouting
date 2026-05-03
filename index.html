@@ -494,22 +494,49 @@
     padding-bottom: 6px; border-bottom: 2px solid var(--accent);
   }
   .bracket-container {
-    display: flex; gap: 24px; overflow-x: auto;
-    padding: 16px 0 16px 0; margin-top: 12px;
+    display: flex; gap: 32px; overflow-x: auto;
+    padding: 8px 8px 16px 8px; margin-top: 8px;
+    align-items: stretch;
   }
   .bracket-column {
     display: flex; flex-direction: column;
-    min-width: 200px; gap: 12px;
+    min-width: 220px;
     justify-content: space-around;
+    position: relative;
   }
   .bracket-round-label {
-    font-family: var(--mono); font-size: 11px; color: var(--text-muted);
-    letter-spacing: 2px; text-align: center; margin-bottom: 4px;
-    padding-bottom: 4px; border-bottom: 1px solid var(--border);
+    font-family: var(--mono); font-size: 11px; color: var(--accent-bright);
+    letter-spacing: 2px; text-align: center;
+    margin-bottom: 4px; padding-bottom: 4px;
+    border-bottom: 1px solid var(--accent-dim);
+    font-weight: 700;
+  }
+  .bracket-column-inner {
+    display: flex; flex-direction: column;
+    flex: 1;
+    justify-content: space-around;
+    gap: 12px;
+    padding: 8px 0;
   }
   .bracket-match {
     display: flex; flex-direction: column;
     border: 1px solid var(--border); background: var(--card);
+    position: relative;
+  }
+  /* Connector line going right from each match — except for last column */
+  .bracket-column:not(:last-child) .bracket-column-inner .bracket-match::after {
+    content: ''; position: absolute;
+    right: -16px; top: 50%;
+    width: 16px; height: 1px;
+    background: var(--border);
+  }
+  /* Vertical line connecting pairs of matches in each round (except final round) */
+  .bracket-column:not(:last-child) .bracket-column-inner .bracket-match:nth-child(odd)::before {
+    content: ''; position: absolute;
+    right: -16px; top: 50%;
+    width: 1px;
+    height: calc(100% + 12px);
+    background: var(--border);
   }
   .bracket-match-label {
     font-family: var(--mono); font-size: 9px; color: var(--text-muted);
@@ -2041,7 +2068,9 @@ async function renderBracketView() {
         html += `
           <div class="bracket-column">
             <div class="bracket-round-label">${r}</div>
-            ${byRound[r].map(m => renderBracketMatch(m)).join('')}
+            <div class="bracket-column-inner">
+              ${byRound[r].map(m => renderBracketMatch(m)).join('')}
+            </div>
           </div>`;
       }
       html += `</div>`;
