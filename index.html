@@ -361,6 +361,45 @@
 
   .skill-row { transition: background 0.15s; position: relative; cursor: pointer; }
   .skill-row:hover { background: var(--card2); }
+  .skill-row.selected { background: var(--card2); box-shadow: inset 4px 0 0 var(--accent-bright); }
+  .skill-row.selected .skill-rank { color: var(--accent-bright); }
+
+  /* Selection bar */
+  .skills-selection-bar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 16px; margin-top: 16px;
+    background: var(--card); border: 1px solid var(--accent);
+    font-family: var(--mono); font-size: 12px; color: var(--text);
+    flex-wrap: wrap;
+  }
+  .skills-selection-bar .sel-count { color: var(--accent-bright); font-weight: 700; letter-spacing: 1px; }
+  .skills-selection-bar .sel-list { flex: 1; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 200px; }
+
+  /* Tournament scouting */
+  .tournament-list { display: flex; flex-direction: column; gap: 1px; background: var(--border); border: 1px solid var(--border); margin-top: 16px; }
+  .tournament-list-label { background: var(--card2); padding: 10px 16px; font-family: var(--mono); font-size: 10px; color: var(--text-muted); letter-spacing: 2px; }
+  .tournament-item { background: var(--card); padding: 12px 16px; cursor: pointer; transition: background 0.15s; }
+  .tournament-item:hover { background: var(--card2); }
+  .tournament-name { font-family: var(--display); font-size: 14px; color: var(--text); font-weight: 600; }
+  .tournament-meta { font-family: var(--mono); font-size: 11px; color: var(--text-muted); margin-top: 3px; }
+
+  .tournament-summary {
+    background: var(--card); border: 1px solid var(--border); padding: 16px 20px; margin-top: 16px;
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  }
+  .tournament-summary-name { font-family: var(--display); font-size: 16px; color: var(--text); font-weight: 700; flex: 1; min-width: 200px; }
+  .tournament-summary-count { font-family: var(--mono); font-size: 11px; color: var(--text-muted); letter-spacing: 1px; }
+  .tournament-summary-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  .tournament-teams { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  .tournament-team-tag {
+    display: flex; align-items: center; gap: 6px;
+    background: var(--card); border: 1px solid var(--border); padding: 6px 10px;
+    cursor: pointer; transition: all 0.15s;
+  }
+  .tournament-team-tag:hover { background: var(--card2); border-color: var(--accent); }
+  .tournament-team-tag .tt-num { font-family: var(--display); font-size: 13px; color: var(--accent-bright); font-weight: 700; }
+  .tournament-team-tag .tt-name { font-family: var(--body); font-size: 12px; color: var(--text-dim); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .skill-row.rank-top { border-left: 3px solid var(--accent); }
   .skill-row.rank-top:nth-child(2) { border-left-color: #ffd700; }
   .skill-row.rank-top:nth-child(3) { border-left-color: #c0c0c0; }
@@ -490,13 +529,13 @@
         <input type="text" id="teamInput" placeholder="e.g. 7700R  or  7700R, 7700S, 7700B" autocomplete="off">
       </div>
       <div class="input-wrap select-wrap" style="min-width:140px;">
-  <span class="input-label">GRADE</span>
-  <select id="scoutGradeSelect">
-    <option value="High School" selected>High School</option>
-    <option value="Middle School">Middle School</option>
-    <option value="All">All Grades</option>
-  </select>
-</div>
+        <span class="input-label">GRADE</span>
+        <select id="scoutGradeSelect">
+          <option value="High School" selected>High School</option>
+          <option value="Middle School">Middle School</option>
+
+        </select>
+      </div>
       <div class="input-wrap select-wrap" style="flex:1; min-width:180px;">
         <span class="input-label">SEASON</span>
         <select id="seasonSelect">
@@ -505,7 +544,6 @@
       </div>
       <button class="btn btn-primary" id="scoutBtn" onclick="scoutTeams()">SCOUT</button>
     </div>
-    <div class="hint">Separate multiple teams with commas or spaces &nbsp;    &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;      Switch between grade levels</div>
   </section>
 
   <div class="error-box" id="errorBox"></div>
@@ -552,7 +590,7 @@
         <select id="skillsGradeSelect">
           <option value="High School" selected>High School</option>
           <option value="Middle School">Middle School</option>
-          <option value="All">All Grades</option>
+
         </select>
       </div>
 
@@ -570,6 +608,33 @@
     </div>
 
     <div id="skillsTableWrap" style="margin-top:24px;"></div>
+  </section>
+
+  <!-- ═══════════ TOURNAMENT SCOUTING ═══════════ -->
+  <section class="search-section" style="margin-top: 40px;">
+    <div class="section-label">Tournament Scout</div>
+
+    <div class="controls-row">
+      <div class="input-wrap" style="flex:2;">
+        <span class="input-label">EVENT SKU OR SEARCH</span>
+        <input type="text" id="tournamentInput" placeholder="e.g. RE-V5RC-24-5636 or 'Speedway Signature'" autocomplete="off">
+      </div>
+      <div class="input-wrap select-wrap" style="min-width:140px;">
+        <span class="input-label">GRADE</span>
+        <select id="tournamentGradeSelect">
+          <option value="High School" selected>High School</option>
+          <option value="Middle School">Middle School</option>
+        </select>
+      </div>
+      <button class="btn btn-primary" onclick="findTournament()">FIND EVENT</button>
+    </div>
+
+    <div class="loading" id="tournamentLoading">
+      <div class="loading-spinner"></div>
+      <div class="loading-text" id="tournamentLoadingText">SEARCHING...</div>
+    </div>
+
+    <div id="tournamentResults"></div>
   </section>
 </div>
 
@@ -670,6 +735,12 @@ async function apiGet(endpoint, params = {}) {
 
 // ── SEASONS ───────────────────────────────────
 // Hardcoded V5RC seasons (id, name) — newest first
+// ── DEFAULT SEASON OVERRIDE ──
+// To change the default selected season, set DEFAULT_SEASON_ID to one of the IDs in SEASONS below.
+// Push Back (current 2025-2026 season) = 190. High Stakes = 182. etc.
+// Set to null to use whichever is first in the SEASONS list.
+const DEFAULT_SEASON_ID = 190;
+
 const SEASONS = [
   { id: 190, name: 'V5RC 2025-2026: Push Back' },
   { id: 182, name: 'V5RC 2024-2025: High Stakes' },
@@ -686,14 +757,15 @@ function loadSeasons() {
   sel.innerHTML = '';
   skillsSel.innerHTML = '';
   SEASONS.forEach((s, i) => {
+    const isDefault = DEFAULT_SEASON_ID ? (s.id === DEFAULT_SEASON_ID) : (i === 0);
     const opt = document.createElement('option');
     opt.value = s.id;
     opt.textContent = s.name;
-    if (i === 0) opt.selected = true;
+    if (isDefault) opt.selected = true;
     sel.appendChild(opt);
 
     const opt2 = opt.cloneNode(true);
-    if (i === 0) opt2.selected = true;
+    if (isDefault) opt2.selected = true;
     skillsSel.appendChild(opt2);
   });
 
@@ -1127,7 +1199,7 @@ function renderSkillsPage() {
     const locStr = [loc.eventRegion || loc.region, loc.country].filter(Boolean).join(', ');
     const rankClass = displayRank <= 3 ? 'rank-top' : '';
     return `
-      <div class="skill-row ${rankClass}" onclick="scoutFromSkillsRow('${t.number}')" title="Click to scout ${t.number}">
+      <div class="skill-row ${rankClass}" data-team="${t.number}" onclick="scoutFromSkillsRow('${t.number}', event)" title="Click to scout · Shift+click to multi-select">
         <div class="skill-rank">#${displayRank}</div>
         <div class="skill-team">
           <div class="skill-num">${t.number}</div>
@@ -1163,6 +1235,9 @@ function renderSkillsPage() {
       <div class="page-info">Page ${skillsState.currentPage + 1} · Showing rank ${start + 1}–${start + pageTeams.length}</div>
       <button class="btn btn-secondary" ${!hasMore ? 'disabled' : ''} onclick="nextSkillsPage()" id="nextSkillsBtn">NEXT ▸</button>
     </div>`;
+
+  // Reapply selection visual after re-render
+  updateSkillsSelectionUI();
 }
 
 async function nextSkillsPage() {
@@ -1204,22 +1279,244 @@ function prevSkillsPage() {
 }
 
 // Click handler for skills rows — fills team input and runs scout
-function scoutFromSkillsRow(teamNumber) {
+// Set of team numbers selected via shift+click in skills list
+const selectedSkillsTeams = new Set();
+
+function scoutFromSkillsRow(teamNumber, evt) {
+  // If shift held, toggle multi-select
+  if (evt && evt.shiftKey) {
+    if (selectedSkillsTeams.has(teamNumber)) {
+      selectedSkillsTeams.delete(teamNumber);
+    } else {
+      selectedSkillsTeams.add(teamNumber);
+    }
+    updateSkillsSelectionUI();
+    return;
+  }
+
+  // Regular click — scout just this one team
+  selectedSkillsTeams.clear();
+  updateSkillsSelectionUI();
+
   const input = document.getElementById('teamInput');
   input.value = teamNumber;
-  // Sync season selector — use the same season as skills
   const skillsSeason = document.getElementById('skillsSeasonSelect').value;
   const scoutSeason = document.getElementById('seasonSelect');
   if (skillsSeason && scoutSeason) {
     scoutSeason.value = skillsSeason;
   }
-  // Scroll to top first so user sees the loading state
+  // Sync grade level too
+  const skillsGrade = document.getElementById('skillsGradeSelect').value;
+  const scoutGrade = document.getElementById('scoutGradeSelect');
+  if (skillsGrade && scoutGrade) {
+    scoutGrade.value = skillsGrade;
+  }
   window.scrollTo({ top: 0, behavior: 'smooth' });
-  // Run scout
   scoutTeams();
 }
 
-// ── ERROR / LOADING ───────────────────────────
+function updateSkillsSelectionUI() {
+  // Mark selected rows visually
+  document.querySelectorAll('.skill-row').forEach(row => {
+    const num = row.dataset.team;
+    if (num && selectedSkillsTeams.has(num)) {
+      row.classList.add('selected');
+    } else {
+      row.classList.remove('selected');
+    }
+  });
+
+  // Show/hide selection bar
+  let bar = document.getElementById('skillsSelectionBar');
+  if (selectedSkillsTeams.size > 0) {
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'skillsSelectionBar';
+      bar.className = 'skills-selection-bar';
+      const wrap = document.getElementById('skillsTableWrap');
+      wrap.parentNode.insertBefore(bar, wrap);
+    }
+    const list = Array.from(selectedSkillsTeams).join(', ');
+    bar.innerHTML = `
+      <span class="sel-count">${selectedSkillsTeams.size} team${selectedSkillsTeams.size === 1 ? '' : 's'} selected:</span>
+      <span class="sel-list">${list}</span>
+      <button class="btn btn-secondary" onclick="clearSkillsSelection()">CLEAR</button>
+      <button class="btn btn-primary" onclick="scoutSelectedSkills()">COMPARE SELECTED</button>
+    `;
+  } else if (bar) {
+    bar.remove();
+  }
+}
+
+function clearSkillsSelection() {
+  selectedSkillsTeams.clear();
+  updateSkillsSelectionUI();
+}
+
+function scoutSelectedSkills() {
+  if (selectedSkillsTeams.size === 0) return;
+  const teamList = Array.from(selectedSkillsTeams).join(', ');
+  document.getElementById('teamInput').value = teamList;
+  const skillsSeason = document.getElementById('skillsSeasonSelect').value;
+  const scoutSeason = document.getElementById('seasonSelect');
+  if (skillsSeason && scoutSeason) scoutSeason.value = skillsSeason;
+  const skillsGrade = document.getElementById('skillsGradeSelect').value;
+  const scoutGrade = document.getElementById('scoutGradeSelect');
+  if (skillsGrade && scoutGrade) scoutGrade.value = skillsGrade;
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  scoutTeams();
+  // Clear selection after scouting starts
+  selectedSkillsTeams.clear();
+  updateSkillsSelectionUI();
+}
+
+// ── TOURNAMENT SCOUTING ──────────────────────
+async function findTournament() {
+  const input = document.getElementById('tournamentInput').value.trim();
+  if (!input) { showError('⚠ Enter an event SKU or search term.'); return; }
+  showError('');
+
+  const resultsEl = document.getElementById('tournamentResults');
+  resultsEl.innerHTML = '';
+  const loadingEl = document.getElementById('tournamentLoading');
+  const loadingText = document.getElementById('tournamentLoadingText');
+  loadingEl.classList.add('active');
+  loadingText.textContent = 'SEARCHING FOR EVENTS...';
+
+  try {
+    let events = [];
+    // If input looks like a SKU (contains dashes and letters/numbers), search by SKU
+    if (/^RE-/i.test(input) || /^[A-Z0-9-]+$/i.test(input)) {
+      events = await apiGet('/events', { 'sku[]': [input] });
+    }
+    // If no SKU match, search by name across all V5RC events for current+last season
+    if (!events.length) {
+      const recentSeasons = SEASONS.slice(0, 2).map(s => s.id);
+      events = await apiGet('/events', {
+        'season[]': recentSeasons,
+        'program[]': [1]
+      });
+      const lower = input.toLowerCase();
+      events = events.filter(e => (e.name || '').toLowerCase().includes(lower));
+    }
+
+    if (!events.length) {
+      resultsEl.innerHTML = '<div style="text-align:center;padding:40px;font-family:var(--mono);color:var(--text-muted);">No events found matching that search.</div>';
+      loadingEl.classList.remove('active');
+      return;
+    }
+
+    // If multiple matches, let user pick
+    if (events.length > 1) {
+      resultsEl.innerHTML = `
+        <div class="tournament-list">
+          <div class="tournament-list-label">Found ${events.length} events — pick one:</div>
+          ${events.slice(0, 20).map(ev => `
+            <div class="tournament-item" onclick="loadTournamentTeams(${ev.id}, '${(ev.name || '').replace(/'/g, "\\'")}')">
+              <div class="tournament-name">${ev.name || 'Unnamed'}</div>
+              <div class="tournament-meta">${ev.sku || ''} · ${ev.start ? new Date(ev.start).toLocaleDateString() : ''} · ${ev.location?.region || ''}</div>
+            </div>
+          `).join('')}
+        </div>`;
+      loadingEl.classList.remove('active');
+      return;
+    }
+
+    // Single match — load it directly
+    const ev = events[0];
+    await loadTournamentTeams(ev.id, ev.name);
+
+  } catch(e) {
+    showError('⚠ ' + e.message);
+    console.error('Tournament search error:', e);
+  }
+  loadingEl.classList.remove('active');
+}
+
+async function loadTournamentTeams(eventId, eventName) {
+  const resultsEl = document.getElementById('tournamentResults');
+  resultsEl.innerHTML = '';
+  const loadingEl = document.getElementById('tournamentLoading');
+  const loadingText = document.getElementById('tournamentLoadingText');
+  loadingEl.classList.add('active');
+  loadingText.textContent = `LOADING TEAMS FROM ${eventName}...`;
+
+  try {
+    // Get teams registered at this event
+    const teams = await apiGet(`/events/${eventId}/teams`);
+
+    // Filter by grade level
+    const grade = document.getElementById('tournamentGradeSelect').value;
+    let filtered = teams;
+    if (grade && grade !== 'All') {
+      filtered = teams.filter(t => {
+        const g = (t.grade || t.grade_level || '').trim();
+        // grade may be "High School", "Middle School", or empty
+        return !g || g === grade;
+      });
+    }
+
+    if (!filtered.length) {
+      resultsEl.innerHTML = `<div style="text-align:center;padding:40px;font-family:var(--mono);color:var(--text-muted);">No ${grade} teams found at this event.</div>`;
+      loadingEl.classList.remove('active');
+      return;
+    }
+
+    // Show team list with "Scout All" button
+    const teamNumbers = filtered.map(t => t.number).filter(Boolean);
+
+    resultsEl.innerHTML = `
+      <div class="tournament-summary">
+        <div class="tournament-summary-name">${eventName}</div>
+        <div class="tournament-summary-count">${filtered.length} ${grade} team${filtered.length === 1 ? '' : 's'} registered</div>
+        <div class="tournament-summary-actions">
+          <button class="btn btn-secondary" onclick="copyTournamentTeams('${teamNumbers.join(',')}')">COPY TEAM LIST</button>
+          <button class="btn btn-primary" onclick="scoutTournamentTeams('${teamNumbers.join(',')}', '${grade}')">SCOUT ALL ${filtered.length}</button>
+        </div>
+      </div>
+      <div class="tournament-teams">
+        ${filtered.map(t => `
+          <div class="tournament-team-tag" onclick="scoutFromTournament('${t.number}', '${grade}')">
+            <span class="tt-num">${t.number}</span>
+            <span class="tt-name">${t.team_name || ''}</span>
+          </div>
+        `).join('')}
+      </div>`;
+
+  } catch(e) {
+    showError('⚠ ' + e.message);
+    console.error('Tournament teams error:', e);
+  }
+  loadingEl.classList.remove('active');
+}
+
+function copyTournamentTeams(commaList) {
+  navigator.clipboard.writeText(commaList).then(() => {
+    showError('');
+    const original = event.target.textContent;
+    event.target.textContent = 'COPIED ✓';
+    setTimeout(() => event.target.textContent = original, 1500);
+  }).catch(() => {
+    showError('Could not copy to clipboard.');
+  });
+}
+
+function scoutFromTournament(teamNumber, grade) {
+  document.getElementById('teamInput').value = teamNumber;
+  document.getElementById('scoutGradeSelect').value = grade;
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  scoutTeams();
+}
+
+function scoutTournamentTeams(commaList, grade) {
+  if (!commaList) return;
+  document.getElementById('teamInput').value = commaList.replace(/,/g, ', ');
+  document.getElementById('scoutGradeSelect').value = grade;
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  scoutTeams();
+}
+
+
 function showError(msg) {
   const box = document.getElementById('errorBox');
   box.textContent = msg;
@@ -1414,7 +1711,7 @@ async function buildTeamCard(teamNumber, seasonId, gradeLevel = 'High School') {
     finalAwpCount = rankingAwpCount;
   }
 
-  const awpRate = total > 0 ? Math.min(100, finalAwpCount / total * 100) : null;
+  const awpRate = totalRankedMatches > 0 ? Math.min(100, finalAwpCount / totalRankedMatches * 100) : null;
 
   // Auton Win % — fall back to AWP count as a minimum estimate
   // (You can't earn an AWP without winning auton, so AWPs ≥ auton wins minimum)
@@ -1502,8 +1799,7 @@ async function buildTeamCard(teamNumber, seasonId, gradeLevel = 'High School') {
       <div class="stat-group">
         <div class="stat-group-label">Autonomous</div>
         <div class="stat-row"><div class="stat-name">AWP %</div>${bar(awpRate)}<div class="stat-value">${fmt(awpRate)}</div></div>
-        <div class="stat-row"><div class="stat-name">AWP Earned</div><div class="stat-value">${total>0?finalAwpCount+' / '+total:'<span class="na">N/A</span>'}</div></div>
-        <div class="stat-row"><div class="stat-name">Auton Win %</div>${bar(autonRate)}<div class="stat-value">${fmt(autonRate)}</div></div>
+        <div class="stat-row"><div class="stat-name">AWP Earned</div><div class="stat-value">${totalRankedMatches>0?finalAwpCount+' / '+totalRankedMatches:'<span class="na">N/A</span>'}</div></div>
       </div>
       <div class="stat-group">
         <div class="stat-group-label">Skills</div>
