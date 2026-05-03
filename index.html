@@ -1692,18 +1692,32 @@ async function renderEventTeamMatchesView() {
     return (a.matchnum || 0) - (b.matchnum || 0);
   });
 
-  // Get round name
-  const roundName = (round) => ({
-    2: 'Qualification',
-    3: 'Round of 16',
-    4: 'Quarterfinal',
-    5: 'Semifinal',
-    6: 'Final',
-    7: 'Final',
-    9: 'Round of 64',
-    10: 'Round of 32',
-    15: 'Practice'
-  })[round] || `Round ${round}`;
+  // Detect round name — prefer match.name field, fall back to round number mapping
+  // V5RC match name patterns: "Q1", "Q23" (qual); "R16 #1", "QF #1", "SF #1", "F #1"
+  function detectRoundFromMatch(match) {
+    const name = (match.name || '').trim().toUpperCase();
+    if (name.startsWith('Q ') || /^Q\d/.test(name)) return 'Qualification';
+    if (name.startsWith('R128')) return 'Round of 128';
+    if (name.startsWith('R64')) return 'Round of 64';
+    if (name.startsWith('R32')) return 'Round of 32';
+    if (name.startsWith('R16') || name.startsWith('ROUND OF 16')) return 'Round of 16';
+    if (name.startsWith('QF') || name.startsWith('QUARTER')) return 'Quarterfinals';
+    if (name.startsWith('SF') || name.startsWith('SEMI')) return 'Semifinals';
+    if (name.startsWith('F ') || /^F\d/.test(name) || name.startsWith('FINAL')) return 'Finals';
+    if (name.startsWith('P') || /^P\d/.test(name)) return 'Practice';
+    // Fallback to round number — V5RC uses these mappings most commonly
+    return ({
+      1: 'Practice',
+      2: 'Qualification',
+      3: 'Quarterfinals',
+      4: 'Semifinals',
+      5: 'Finals',
+      6: 'Round of 16',
+      9: 'Round of 64',
+      10: 'Round of 32',
+      15: 'Practice'
+    })[match.round] || `Round ${match.round}`;
+  }
 
   const resultsEl = document.getElementById('tournamentResults');
 
@@ -1725,16 +1739,28 @@ async function renderEventTeamMatchesView() {
     return;
   }
 
-  // Group by round
+  // Group by detected round name
   const byRound = {};
+  const roundOrder = []; // preserve discovery order
   for (const m of realMatches) {
-    const r = m.round;
-    if (!byRound[r]) byRound[r] = [];
+    const r = detectRoundFromMatch(m);
+    if (!byRound[r]) {
+      byRound[r] = [];
+      roundOrder.push(r);
+    }
     byRound[r].push(m);
   }
 
-  for (const round of Object.keys(byRound).sort((a,b)=>+a-+b)) {
-    html += `<div class="match-round-label">${roundName(+round)}</div>`;
+  // Custom sort to put rounds in logical order
+  const roundPriority = ['Practice','Qualification','Round of 128','Round of 64','Round of 32','Round of 16','Quarterfinals','Semifinals','Finals'];
+  roundOrder.sort((a, b) => {
+    const ai = roundPriority.indexOf(a);
+    const bi = roundPriority.indexOf(b);
+    return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+  });
+
+  for (const round of roundOrder) {
+    html += `<div class="match-round-label">${round}</div>`;
     html += `<div class="match-list">`;
     for (const match of byRound[round]) {
       html += renderMatchRow(match, teamId);
@@ -1825,11 +1851,31 @@ async function renderBracketView() {
   loadingText.textContent = 'LOADING ELIMINATION MATCHES...';
 
   try {
-    // Fetch all matches at this event (no team filter)
-    const allMatches = await apiGet(`/events/${tournamentEventId}/matches`);
+    // Fetch event details to get division IDs
+    const eventDetailRes = await fetch(`${BASE}?path=${encodeURIComponent('/events?id[]=' + tournamentEventId)}`);
+    if (!eventDetailRes.ok) throw new Error(`HTTP ${eventDetailRes.status}`);
+    const eventData = await eventDetailRes.json();
+    const event = (eventData.data || [])[0];
+    const divisions = event?.divisions || [{ id: 1 }];
 
-    // Filter to elimination rounds only (round != 1 practice, != 2 quals)
-    const elims = allMatches.filter(m => m.round && m.round > 2 && m.round < 15);
+    // Fetch all matches across all divisions
+    let allMatches = [];
+    for (const div of divisions) {
+      try {
+        const divMatches = await apiGet(`/events/${tournamentEventId}/divisions/${div.id}/matches`);
+        allMatches = allMatches.concat(divMatches);
+      } catch(e) { /* continue with others */ }
+    }
+
+    // Filter to elimination matches — use match.name patterns to detect elims
+    const isElim = (m) => {
+      const name = (m.name || '').toUpperCase().trim();
+      if (name.startsWith('Q') || name.startsWith('P')) return false;
+      return name.startsWith('R') || name.startsWith('QF') || name.startsWith('SF') ||
+             name.startsWith('F') || name.includes('FINAL') || name.includes('SEMI') ||
+             name.includes('QUARTER') || (m.round && m.round !== 1 && m.round !== 2);
+    };
+    const elims = allMatches.filter(isElim);
 
     if (!elims.length) {
       resultsEl.innerHTML = `
@@ -1846,20 +1892,38 @@ async function renderBracketView() {
       return;
     }
 
-    // Group by round, sort within round
+    // Group by detected round name (same logic as match list)
+    function detectRound(m) {
+      const name = (m.name || '').trim().toUpperCase();
+      if (name.startsWith('R128')) return 'Round of 128';
+      if (name.startsWith('R64')) return 'Round of 64';
+      if (name.startsWith('R32')) return 'Round of 32';
+      if (name.startsWith('R16') || name.startsWith('ROUND OF 16')) return 'Round of 16';
+      if (name.startsWith('QF') || name.startsWith('QUARTER')) return 'Quarterfinals';
+      if (name.startsWith('SF') || name.startsWith('SEMI')) return 'Semifinals';
+      if (name.startsWith('F') || name.includes('FINAL')) return 'Finals';
+      return ({
+        3: 'Quarterfinals', 4: 'Semifinals', 5: 'Finals',
+        6: 'Round of 16', 9: 'Round of 64', 10: 'Round of 32'
+      })[m.round] || `Round ${m.round}`;
+    }
+
     const byRound = {};
     for (const m of elims) {
-      if (!byRound[m.round]) byRound[m.round] = [];
-      byRound[m.round].push(m);
+      const r = detectRound(m);
+      if (!byRound[r]) byRound[r] = [];
+      byRound[r].push(m);
     }
     for (const r of Object.keys(byRound)) {
       byRound[r].sort((a, b) => (a.matchnum || 0) - (b.matchnum || 0));
     }
 
-    const roundLabels = {
-      3: 'Round of 16', 4: 'Quarterfinals', 5: 'Semifinals', 6: 'Finals', 7: 'Finals',
-      9: 'Round of 64', 10: 'Round of 32'
-    };
+    const priority = ['Round of 128','Round of 64','Round of 32','Round of 16','Quarterfinals','Semifinals','Finals'];
+    const sortedRounds = Object.keys(byRound).sort((a, b) => {
+      const ai = priority.indexOf(a);
+      const bi = priority.indexOf(b);
+      return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+    });
 
     let html = `
       <div class="tournament-summary">
@@ -1872,11 +1936,10 @@ async function renderBracketView() {
 
       <div class="bracket-container">`;
 
-    const sortedRounds = Object.keys(byRound).sort((a, b) => +a - +b);
     for (const r of sortedRounds) {
       html += `
         <div class="bracket-column">
-          <div class="bracket-round-label">${roundLabels[+r] || 'Round ' + r}</div>
+          <div class="bracket-round-label">${r}</div>
           ${byRound[r].map(m => renderBracketMatch(m)).join('')}
         </div>`;
     }
@@ -1886,6 +1949,7 @@ async function renderBracketView() {
 
   } catch(e) {
     showError('⚠ ' + e.message);
+    console.error('Bracket error:', e);
   }
   loadingEl.classList.remove('active');
 }
