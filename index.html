@@ -489,6 +489,14 @@
         <span class="input-label">TEAM NUMBERS</span>
         <input type="text" id="teamInput" placeholder="e.g. 7700R  or  7700R, 7700S, 7700B" autocomplete="off">
       </div>
+      <div class="input-wrap select-wrap" style="min-width:140px;">
+        <span class="input-label">GRADE</span>
+        <select id="scoutGradeSelect">
+          <option value="High School" selected>High School</option>
+          <option value="Middle School">Middle School</option>
+          <option value="All">All Grades</option>
+        </select>
+      </div>
       <div class="input-wrap select-wrap" style="flex:1; min-width:180px;">
         <span class="input-label">SEASON</span>
         <select id="seasonSelect">
@@ -497,7 +505,7 @@
       </div>
       <button class="btn btn-primary" id="scoutBtn" onclick="scoutTeams()">SCOUT</button>
     </div>
-    <div class="hint">Separate multiple teams with commas or spaces &nbsp;·&nbsp; Get a free token at <a href="https://www.robotevents.com/api/v2" target="_blank">robotevents.com/api/v2</a></div>
+    <div class="hint">Separate multiple teams with commas or spaces &nbsp;·&nbsp; Default grade is High School &nbsp;·&nbsp; Switch to Middle School for MS teams</div>
   </section>
 
   <div class="error-box" id="errorBox"></div>
@@ -536,6 +544,15 @@
         <span class="input-label">VEX REGION</span>
         <select id="subregionSelect">
           <option value="">All</option>
+        </select>
+      </div>
+
+      <div class="input-wrap select-wrap" style="min-width:160px;">
+        <span class="input-label">GRADE</span>
+        <select id="skillsGradeSelect">
+          <option value="High School" selected>High School</option>
+          <option value="Middle School">Middle School</option>
+          <option value="All">All Grades</option>
         </select>
       </div>
 
@@ -746,10 +763,17 @@ let skillsState = {
 // Key: seasonId, Value: { teams: [...], loadedAt: timestamp }
 const skillsCache = {};
 
-async function getFullSeasonSkills(seasonId) {
-  if (skillsCache[seasonId]) return skillsCache[seasonId];
+async function getFullSeasonSkills(seasonId, gradeLevel = 'High School') {
+  const cacheKey = seasonId + ':' + gradeLevel;
+  if (skillsCache[cacheKey]) return skillsCache[cacheKey];
 
-  const path = `legacy:/seasons/${seasonId}/skills?per_page=10000`;
+  // Build URL with grade_level filter
+  const params = new URLSearchParams();
+  params.set('per_page', '10000');
+  if (gradeLevel && gradeLevel !== 'All') {
+    params.set('grade_level', gradeLevel);
+  }
+  const path = `legacy:/seasons/${seasonId}/skills?${params.toString()}`;
   const res = await fetch(`${BASE}?path=${encodeURIComponent(path)}`);
   if (!res.ok) return null;
   const data = await res.json();
@@ -764,6 +788,12 @@ async function getFullSeasonSkills(seasonId) {
     const prog = (team.program || '').toUpperCase();
     if (prog && prog !== 'V5RC' && prog !== 'VRC') continue;
 
+    // Optional client-side grade filter as backup (legacy API may not always honor server-side)
+    if (gradeLevel && gradeLevel !== 'All') {
+      const teamGrade = (team.gradeLevel || '').trim();
+      if (teamGrade && teamGrade !== gradeLevel) continue;
+    }
+
     if (!teamMap[id]) {
       teamMap[id] = {
         id,
@@ -771,6 +801,7 @@ async function getFullSeasonSkills(seasonId) {
         eventRegion: team.eventRegion || '',
         region: team.region || '',
         country: team.country || '',
+        gradeLevel: team.gradeLevel || '',
         driver: 0,
         programming: 0,
         combined: 0,
@@ -797,9 +828,8 @@ async function getFullSeasonSkills(seasonId) {
   });
 
   // Compute global rank, state rank, and region rank
-  // Group by state (region field) for state rank
-  const stateRankMap = {}; // state -> running counter
-  const regionRankMap = {}; // eventRegion -> running counter
+  const stateRankMap = {};
+  const regionRankMap = {};
   for (let i = 0; i < allTeams.length; i++) {
     const t = allTeams[i];
     t.globalRank = i + 1;
@@ -813,17 +843,17 @@ async function getFullSeasonSkills(seasonId) {
     }
   }
 
-  // Index by team ID for quick lookup
   const byId = {};
   for (const t of allTeams) byId[t.id] = t;
 
-  skillsCache[seasonId] = {
+  skillsCache[cacheKey] = {
     teams: allTeams,
     byId: byId,
     totalCount: allTeams.length,
+    gradeLevel: gradeLevel,
     loadedAt: Date.now()
   };
-  return skillsCache[seasonId];
+  return skillsCache[cacheKey];
 }
 
 async function loadSkillsRankings() {
@@ -833,6 +863,7 @@ async function loadSkillsRankings() {
   const region = document.getElementById('regionSelect').value;
   const state = document.getElementById('stateSelect').value;
   const subregion = document.getElementById('subregionSelect')?.value || '';
+  const gradeLevel = document.getElementById('skillsGradeSelect')?.value || 'High School';
 
   if (!seasonId) {
     showError('⚠ Please select a season first.');
@@ -847,6 +878,7 @@ async function loadSkillsRankings() {
     region: region,
     state: state,
     subregion: subregion,
+    gradeLevel: gradeLevel,
     loading: false,
     apiPage: 1,
     doneLoading: false
@@ -892,6 +924,9 @@ async function loadSkillsApiPage() {
   params.set('per_page', '50');
   if (skillsState.state) {
     params.set('region', skillsState.state);
+  }
+  if (skillsState.gradeLevel && skillsState.gradeLevel !== 'All') {
+    params.set('grade_level', skillsState.gradeLevel);
   }
 
   const path = `legacy:/seasons/${skillsState.seasonId}/skills?${params.toString()}`;
@@ -940,6 +975,12 @@ async function loadSkillsApiPage() {
     // V5RC ONLY filter (program field is "V5RC" directly)
     const prog = (team.program || '').toUpperCase();
     if (prog && prog !== 'V5RC' && prog !== 'VRC') continue;
+
+    // Grade level client-side filter (backup in case API param doesn't filter)
+    if (skillsState.gradeLevel && skillsState.gradeLevel !== 'All') {
+      const teamGrade = (team.gradeLevel || '').trim();
+      if (teamGrade && teamGrade !== skillsState.gradeLevel) continue;
+    }
 
     // State filter — strict client-side check since API param is unreliable
     if (skillsState.state) {
@@ -1201,6 +1242,7 @@ async function scoutTeams() {
 
   scoutInProgress = true;
   const seasonId = document.getElementById('seasonSelect').value || null;
+  const gradeLevel = document.getElementById('scoutGradeSelect').value || 'High School';
 
   showError('');
   const teamNumbers = input.split(/[\s,]+/).map(t => t.toUpperCase().trim()).filter(Boolean);
@@ -1215,7 +1257,7 @@ async function scoutTeams() {
       const num = teamNumbers[i];
       setLoading(true, `SCOUTING ${num}... (${i+1}/${teamNumbers.length})`);
       try {
-        const card = await buildTeamCard(num, seasonId);
+        const card = await buildTeamCard(num, seasonId, gradeLevel);
         grid.appendChild(card);
       } catch(e) {
         const errCard = document.createElement('div');
@@ -1241,7 +1283,7 @@ async function scoutTeams() {
 }
 
 // ── BUILD CARD ────────────────────────────────
-async function buildTeamCard(teamNumber, seasonId) {
+async function buildTeamCard(teamNumber, seasonId, gradeLevel = 'High School') {
   // Search V5RC first (program 1), then fall back to VEX U (program 4) for university teams
   let teams = await apiGet('/teams', { 'number[]': [teamNumber], 'program[]': [1] });
   if (!teams.length) {
@@ -1259,7 +1301,7 @@ async function buildTeamCard(teamNumber, seasonId) {
     apiGet(`/teams/${teamId}/skills`, params),
     apiGet(`/teams/${teamId}/rankings`, params),
     apiGet(`/teams/${teamId}/awards`, params),
-    seasonId ? getFullSeasonSkills(seasonId).catch(() => null) : Promise.resolve(null)
+    seasonId ? getFullSeasonSkills(seasonId, gradeLevel).catch(() => null) : Promise.resolve(null)
   ]);
 
   const matches = allMatches.filter(m => m.round !== 1);
@@ -1394,6 +1436,8 @@ async function buildTeamCard(teamNumber, seasonId) {
   let worldSkillsRank = null, stateSkillsRank = null, regionSkillsRank = null;
   let totalWorldTeams = null, totalStateTeams = null, totalRegionTeams = null;
   let officialCombined = null;
+  // Has this team recorded ANY skills run this season?
+  const hasSkills = (progSkill > 0 || driverSkill > 0);
   if (seasonSkills && seasonSkills.byId[teamId]) {
     const t = seasonSkills.byId[teamId];
     worldSkillsRank = t.globalRank;
@@ -1408,6 +1452,9 @@ async function buildTeamCard(teamNumber, seasonId) {
       totalRegionTeams = seasonSkills.teams.filter(x => x.eventRegion === t.eventRegion).length;
     }
   }
+
+  // If team has skills runs but isn't in the rankings cache, they're "unranked" (cache may be stale or partial)
+  const skillsRankPlaceholder = hasSkills ? 'Unranked' : 'No runs';
 
   let avgRank = null;
   if (rankings.length) {
@@ -1466,9 +1513,9 @@ async function buildTeamCard(teamNumber, seasonId) {
       </div>
       <div class="stat-group">
         <div class="stat-group-label">Skills Rankings</div>
-        <div class="stat-row"><div class="stat-name">World</div><div class="stat-value">${worldSkillsRank ? '<span class="highlight">#' + worldSkillsRank + '</span><span style="color:var(--text-muted);font-size:11px;"> / ' + totalWorldTeams + '</span>' : '<span class="na">N/A</span>'}</div></div>
-        <div class="stat-row"><div class="stat-name">State</div><div class="stat-value">${stateSkillsRank ? '#' + stateSkillsRank + '<span style="color:var(--text-muted);font-size:11px;"> / ' + totalStateTeams + '</span>' : '<span class="na">N/A</span>'}</div></div>
-        <div class="stat-row"><div class="stat-name">State Region</div><div class="stat-value">${regionSkillsRank ? '#' + regionSkillsRank + '<span style="color:var(--text-muted);font-size:11px;"> / ' + totalRegionTeams + '</span>' : '<span class="na">N/A</span>'}</div></div>
+        <div class="stat-row"><div class="stat-name">World</div><div class="stat-value">${worldSkillsRank ? '<span class="highlight">#' + worldSkillsRank + '</span><span style="color:var(--text-muted);font-size:11px;"> / ' + totalWorldTeams + '</span>' : '<span class="na">' + skillsRankPlaceholder + '</span>'}</div></div>
+        <div class="stat-row"><div class="stat-name">State</div><div class="stat-value">${stateSkillsRank ? '#' + stateSkillsRank + '<span style="color:var(--text-muted);font-size:11px;"> / ' + totalStateTeams + '</span>' : '<span class="na">' + skillsRankPlaceholder + '</span>'}</div></div>
+        <div class="stat-row"><div class="stat-name">State Region</div><div class="stat-value">${regionSkillsRank ? '#' + regionSkillsRank + '<span style="color:var(--text-muted);font-size:11px;"> / ' + totalRegionTeams + '</span>' : '<span class="na">' + skillsRankPlaceholder + '</span>'}</div></div>
       </div>
       <div class="stat-group">
         <div class="stat-group-label">Scoring</div>
