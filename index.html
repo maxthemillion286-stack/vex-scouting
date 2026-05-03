@@ -626,6 +626,10 @@
           <option value="Middle School">Middle School</option>
         </select>
       </div>
+      <div class="input-wrap select-wrap" style="min-width:180px;">
+        <span class="input-label">SEASON</span>
+        <select id="tournamentSeasonSelect"></select>
+      </div>
       <button class="btn btn-primary" onclick="findTournament()">FIND EVENT</button>
     </div>
 
@@ -754,8 +758,10 @@ const SEASONS = [
 function loadSeasons() {
   const sel = document.getElementById('seasonSelect');
   const skillsSel = document.getElementById('skillsSeasonSelect');
+  const tourSel = document.getElementById('tournamentSeasonSelect');
   sel.innerHTML = '';
   skillsSel.innerHTML = '';
+  if (tourSel) tourSel.innerHTML = '';
   SEASONS.forEach((s, i) => {
     const isDefault = DEFAULT_SEASON_ID ? (s.id === DEFAULT_SEASON_ID) : (i === 0);
     const opt = document.createElement('option');
@@ -767,6 +773,12 @@ function loadSeasons() {
     const opt2 = opt.cloneNode(true);
     if (isDefault) opt2.selected = true;
     skillsSel.appendChild(opt2);
+
+    if (tourSel) {
+      const opt3 = opt.cloneNode(true);
+      if (isDefault) opt3.selected = true;
+      tourSel.appendChild(opt3);
+    }
   });
 
   // Populate state dropdown
@@ -791,7 +803,7 @@ async function loadSeasonsFromAPI() {
     if (!seasons.length) return;
     seasons.sort((a, b) => (b.start || '').localeCompare(a.start || ''));
 
-    ['seasonSelect','skillsSeasonSelect'].forEach(id => {
+    ['seasonSelect','skillsSeasonSelect','tournamentSeasonSelect'].forEach(id => {
       const sel = document.getElementById(id);
       const currentVal = sel.value;
       sel.innerHTML = '';
@@ -1384,16 +1396,16 @@ async function findTournament() {
   loadingText.textContent = 'SEARCHING FOR EVENTS...';
 
   try {
+    const selectedSeason = document.getElementById('tournamentSeasonSelect')?.value || DEFAULT_SEASON_ID;
     let events = [];
-    // If input looks like a SKU (contains dashes and letters/numbers), search by SKU
+    // If input looks like a SKU (contains dashes and letters/numbers), search by SKU directly
     if (/^RE-/i.test(input) || /^[A-Z0-9-]+$/i.test(input)) {
       events = await apiGet('/events', { 'sku[]': [input] });
     }
-    // If no SKU match, search by name across all V5RC events for current+last season
+    // If no SKU match, search by name within the selected season
     if (!events.length) {
-      const recentSeasons = SEASONS.slice(0, 2).map(s => s.id);
       events = await apiGet('/events', {
-        'season[]': recentSeasons,
+        'season[]': [selectedSeason],
         'program[]': [1]
       });
       const lower = input.toLowerCase();
