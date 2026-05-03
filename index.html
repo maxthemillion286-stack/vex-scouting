@@ -739,11 +739,14 @@ async function apiGet(endpoint, params = {}) {
 
 // ── SEASONS ───────────────────────────────────
 // Hardcoded V5RC seasons (id, name) — newest first
-// ── DEFAULT SEASON OVERRIDE ──
-// To change the default selected season, set DEFAULT_SEASON_ID to one of the IDs in SEASONS below.
-// Push Back (current 2025-2026 season) = 190. High Stakes = 182. etc.
-// Set to null to use whichever is first in the SEASONS list.
-const DEFAULT_SEASON_ID = 190;
+// ───────────────────────────────────────────────
+// ── DEFAULT SEASON — CHANGE THIS ONE LINE ──
+// ───────────────────────────────────────────────
+// Set to the name of the current game. Match must be a piece of the season name.
+// Examples that work for the current season: "Push Back", "push back", "PUSH"
+// When a new game comes out (e.g. "Override"), just change this to: "Override"
+const DEFAULT_SEASON_NAME = "Push Back";
+// ───────────────────────────────────────────────
 
 const SEASONS = [
   { id: 190, name: 'V5RC 2025-2026: Push Back' },
@@ -755,6 +758,13 @@ const SEASONS = [
   { id: 125, name: 'V5RC 2019-2020: Tower Takeover' },
 ];
 
+// Returns true if a season matches the configured default name (case-insensitive substring)
+function isDefaultSeason(season) {
+  if (!DEFAULT_SEASON_NAME) return false;
+  const name = (season.name || '').toLowerCase();
+  return name.includes(DEFAULT_SEASON_NAME.toLowerCase());
+}
+
 function loadSeasons() {
   const sel = document.getElementById('seasonSelect');
   const skillsSel = document.getElementById('skillsSeasonSelect');
@@ -763,7 +773,7 @@ function loadSeasons() {
   skillsSel.innerHTML = '';
   if (tourSel) tourSel.innerHTML = '';
   SEASONS.forEach((s, i) => {
-    const isDefault = DEFAULT_SEASON_ID ? (s.id === DEFAULT_SEASON_ID) : (i === 0);
+    const isDefault = DEFAULT_SEASON_NAME ? isDefaultSeason(s) : (i === 0);
     const opt = document.createElement('option');
     opt.value = s.id;
     opt.textContent = s.name;
@@ -811,15 +821,15 @@ async function loadSeasonsFromAPI() {
         const opt = document.createElement('option');
         opt.value = s.id;
         opt.textContent = s.name;
-        // Always honor DEFAULT_SEASON_ID; fall back to most recent if not in list
-        const isDefault = DEFAULT_SEASON_ID
-          ? String(s.id) === String(DEFAULT_SEASON_ID)
+        // Always honor DEFAULT_SEASON_NAME; fall back to most recent if not in list
+        const isDefault = DEFAULT_SEASON_NAME
+          ? isDefaultSeason(s)
           : (i === 0);
         if (isDefault) opt.selected = true;
         sel.appendChild(opt);
       });
-      // If DEFAULT_SEASON_ID wasn't found (rare), select the first option
-      if (DEFAULT_SEASON_ID && !sel.value) {
+      // If DEFAULT_SEASON_NAME wasn't found (rare), select the first option
+      if (DEFAULT_SEASON_NAME && !sel.value) {
         sel.selectedIndex = 0;
       }
     });
@@ -1404,7 +1414,7 @@ async function findTournament() {
   loadingText.textContent = 'SEARCHING FOR EVENTS...';
 
   try {
-    const selectedSeason = document.getElementById('tournamentSeasonSelect')?.value || DEFAULT_SEASON_ID;
+    const selectedSeason = document.getElementById('tournamentSeasonSelect')?.value;
     let events = [];
     // If input looks like a SKU (contains dashes and letters/numbers), search by SKU directly
     if (/^RE-/i.test(input) || /^[A-Z0-9-]+$/i.test(input)) {
