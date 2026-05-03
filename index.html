@@ -488,6 +488,11 @@
   }
 
   /* ── ELIMINATION BRACKET ── */
+  .bracket-division-header {
+    font-family: var(--display); font-size: 18px; color: var(--accent-bright);
+    font-weight: 700; letter-spacing: 2px; margin-top: 24px; margin-bottom: 8px;
+    padding-bottom: 6px; border-bottom: 2px solid var(--accent);
+  }
   .bracket-container {
     display: flex; gap: 24px; overflow-x: auto;
     padding: 16px 0 16px 0; margin-top: 12px;
@@ -826,6 +831,32 @@ function setBadge(connected) {
 }
 
 // ── API ───────────────────────────────────────
+// Concurrency limiter — only N requests in flight at a time across the whole app
+const API_CONCURRENCY_LIMIT = 4;
+let apiInFlight = 0;
+const apiQueue = [];
+
+function apiSlot() {
+  return new Promise(resolve => {
+    if (apiInFlight < API_CONCURRENCY_LIMIT) {
+      apiInFlight++;
+      resolve();
+    } else {
+      apiQueue.push(resolve);
+    }
+  });
+}
+
+function apiRelease() {
+  apiInFlight--;
+  if (apiQueue.length > 0) {
+    apiInFlight++;
+    apiQueue.shift()();
+  }
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
 async function apiGet(endpoint, params = {}) {
   // Build path with query string
   const qs = new URLSearchParams();
@@ -835,15 +866,51 @@ async function apiGet(endpoint, params = {}) {
     else qs.set(k, v);
   });
 
+  // Fetch one page with retry logic for rate limits and transient errors
   async function fetchPage(page) {
     qs.set('page', page);
     const path = endpoint + '?' + qs.toString();
-    const res = await fetch(`${BASE}?path=${encodeURIComponent(path)}`);
-    if (!res.ok) {
+
+    // Try up to 5 times with exponential backoff on 429/5xx
+    let lastErr = null;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await apiSlot();
+      let res;
+      try {
+        res = await fetch(`${BASE}?path=${encodeURIComponent(path)}`);
+      } catch(e) {
+        apiRelease();
+        lastErr = e;
+        await sleep(500 * Math.pow(2, attempt));
+        continue;
+      }
+      apiRelease();
+
+      if (res.ok) return res.json();
+
       if (res.status === 401) throw new Error('API token expired. Contact site owner.');
+
+      // 429 = rate limited, 5xx = server error → retry with backoff
+      if (res.status === 429 || res.status >= 500) {
+        // Check Retry-After header if present
+        let waitMs = 1000 * Math.pow(2, attempt); // 1s, 2s, 4s, 8s, 16s
+        const retryAfter = res.headers.get('Retry-After');
+        if (retryAfter) {
+          const parsed = parseInt(retryAfter, 10);
+          if (!isNaN(parsed)) waitMs = parsed * 1000;
+        }
+        // Cap wait at 20s
+        waitMs = Math.min(waitMs, 20000);
+        console.log(`[API] ${res.status} on attempt ${attempt + 1}, waiting ${waitMs}ms before retry`);
+        await sleep(waitMs);
+        lastErr = new Error(`API error ${res.status}`);
+        continue;
+      }
+
+      // Other errors (404, 400, etc.) — don't retry, throw immediately
       throw new Error(`API error ${res.status}`);
     }
-    return res.json();
+    throw lastErr || new Error('Request failed after retries');
   }
 
   const data = await fetchPage(1);
@@ -1696,15 +1763,16 @@ async function renderEventTeamMatchesView() {
   // V5RC match name patterns: "Q1", "Q23" (qual); "R16 #1", "QF #1", "SF #1", "F #1"
   function detectRoundFromMatch(match) {
     const name = (match.name || '').trim().toUpperCase();
-    if (name.startsWith('Q ') || /^Q\d/.test(name)) return 'Qualification';
+    // Check QF/SF first since they start with Q/S which could be confused with quals
+    if (name.startsWith('QF') || name.includes('QUARTER')) return 'Quarterfinals';
+    if (name.startsWith('SF') || name.includes('SEMI')) return 'Semifinals';
+    if (/^Q\s*\d/.test(name) || name.startsWith('QUAL')) return 'Qualification';
     if (name.startsWith('R128')) return 'Round of 128';
     if (name.startsWith('R64')) return 'Round of 64';
     if (name.startsWith('R32')) return 'Round of 32';
     if (name.startsWith('R16') || name.startsWith('ROUND OF 16')) return 'Round of 16';
-    if (name.startsWith('QF') || name.startsWith('QUARTER')) return 'Quarterfinals';
-    if (name.startsWith('SF') || name.startsWith('SEMI')) return 'Semifinals';
-    if (name.startsWith('F ') || /^F\d/.test(name) || name.startsWith('FINAL')) return 'Finals';
-    if (name.startsWith('P') || /^P\d/.test(name)) return 'Practice';
+    if (name.startsWith('F') || /^F\d/.test(name) || name.includes('FINAL')) return 'Finals';
+    if (/^P\s*\d/.test(name) || name.startsWith('PRACT')) return 'Practice';
     // Fallback to round number — V5RC uses these mappings most commonly
     return ({
       1: 'Practice',
@@ -1858,26 +1926,43 @@ async function renderBracketView() {
     const event = (eventData.data || [])[0];
     const divisions = event?.divisions || [{ id: 1 }];
 
-    // Fetch all matches across all divisions
-    let allMatches = [];
+    // Fetch all matches across all divisions, tracking which division each match belongs to
+    const matchesByDivision = {};
     for (const div of divisions) {
       try {
         const divMatches = await apiGet(`/events/${tournamentEventId}/divisions/${div.id}/matches`);
-        allMatches = allMatches.concat(divMatches);
+        const divName = div.name || `Division ${div.id}`;
+        matchesByDivision[divName] = divMatches;
       } catch(e) { /* continue with others */ }
     }
 
     // Filter to elimination matches — use match.name patterns to detect elims
+    // Important: exclude Q1, Q2 etc (quals) but NOT QF (quarterfinals)
     const isElim = (m) => {
       const name = (m.name || '').toUpperCase().trim();
-      if (name.startsWith('Q') || name.startsWith('P')) return false;
-      return name.startsWith('R') || name.startsWith('QF') || name.startsWith('SF') ||
-             name.startsWith('F') || name.includes('FINAL') || name.includes('SEMI') ||
-             name.includes('QUARTER') || (m.round && m.round !== 1 && m.round !== 2);
+      // Exclude quals: "Q1", "Q 1", "Q23", "Qual..." but NOT "QF" anything
+      if (/^Q\s*\d/.test(name) || name.startsWith('QUAL')) return false;
+      // Exclude practice: "P1", "P 1", "Pract..."
+      if (/^P\s*\d/.test(name) || name.startsWith('PRACT')) return false;
+      // Now check for elim patterns
+      if (name.startsWith('QF') || name.startsWith('SF') || name.includes('QUARTER') || name.includes('SEMI')) return true;
+      if (name.startsWith('R') && /\d/.test(name)) return true;
+      if (name.startsWith('F') || name.includes('FINAL')) return true;
+      return m.round && m.round !== 1 && m.round !== 2;
     };
-    const elims = allMatches.filter(isElim);
 
-    if (!elims.length) {
+    // Filter elim matches per division
+    const elimsByDivision = {};
+    let totalElims = 0;
+    for (const [divName, matches] of Object.entries(matchesByDivision)) {
+      const elims = matches.filter(isElim);
+      if (elims.length) {
+        elimsByDivision[divName] = elims;
+        totalElims += elims.length;
+      }
+    }
+
+    if (totalElims === 0) {
       resultsEl.innerHTML = `
         <div class="tournament-summary">
           <div class="tournament-summary-name">${tournamentEventName}</div>
@@ -1895,12 +1980,13 @@ async function renderBracketView() {
     // Group by detected round name (same logic as match list)
     function detectRound(m) {
       const name = (m.name || '').trim().toUpperCase();
+      // Order matters: check most specific first
+      if (name.startsWith('QF') || name.includes('QUARTER')) return 'Quarterfinals';
+      if (name.startsWith('SF') || name.includes('SEMI')) return 'Semifinals';
       if (name.startsWith('R128')) return 'Round of 128';
       if (name.startsWith('R64')) return 'Round of 64';
       if (name.startsWith('R32')) return 'Round of 32';
       if (name.startsWith('R16') || name.startsWith('ROUND OF 16')) return 'Round of 16';
-      if (name.startsWith('QF') || name.startsWith('QUARTER')) return 'Quarterfinals';
-      if (name.startsWith('SF') || name.startsWith('SEMI')) return 'Semifinals';
       if (name.startsWith('F') || name.includes('FINAL')) return 'Finals';
       return ({
         3: 'Quarterfinals', 4: 'Semifinals', 5: 'Finals',
@@ -1908,22 +1994,7 @@ async function renderBracketView() {
       })[m.round] || `Round ${m.round}`;
     }
 
-    const byRound = {};
-    for (const m of elims) {
-      const r = detectRound(m);
-      if (!byRound[r]) byRound[r] = [];
-      byRound[r].push(m);
-    }
-    for (const r of Object.keys(byRound)) {
-      byRound[r].sort((a, b) => (a.matchnum || 0) - (b.matchnum || 0));
-    }
-
     const priority = ['Round of 128','Round of 64','Round of 32','Round of 16','Quarterfinals','Semifinals','Finals'];
-    const sortedRounds = Object.keys(byRound).sort((a, b) => {
-      const ai = priority.indexOf(a);
-      const bi = priority.indexOf(b);
-      return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
-    });
 
     let html = `
       <div class="tournament-summary">
@@ -1932,18 +2003,44 @@ async function renderBracketView() {
           ${tournamentFocusTeamId ? `<button class="btn btn-secondary" onclick="renderEventTeamMatchesView()">BACK TO ${tournamentFocusTeamNumber}'S MATCHES</button>` : ''}
           <button class="btn btn-secondary" onclick="loadAndRenderTeamList()">SHOW ALL TEAMS</button>
         </div>
-      </div>
+      </div>`;
 
-      <div class="bracket-container">`;
+    const divNames = Object.keys(elimsByDivision);
+    const showDivisionHeaders = divNames.length > 1;
 
-    for (const r of sortedRounds) {
-      html += `
-        <div class="bracket-column">
-          <div class="bracket-round-label">${r}</div>
-          ${byRound[r].map(m => renderBracketMatch(m)).join('')}
-        </div>`;
+    for (const divName of divNames) {
+      const elims = elimsByDivision[divName];
+
+      const byRound = {};
+      for (const m of elims) {
+        const r = detectRound(m);
+        if (!byRound[r]) byRound[r] = [];
+        byRound[r].push(m);
+      }
+      for (const r of Object.keys(byRound)) {
+        byRound[r].sort((a, b) => (a.matchnum || 0) - (b.matchnum || 0));
+      }
+
+      const sortedRounds = Object.keys(byRound).sort((a, b) => {
+        const ai = priority.indexOf(a);
+        const bi = priority.indexOf(b);
+        return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+      });
+
+      if (showDivisionHeaders) {
+        html += `<div class="bracket-division-header">${divName}</div>`;
+      }
+
+      html += `<div class="bracket-container">`;
+      for (const r of sortedRounds) {
+        html += `
+          <div class="bracket-column">
+            <div class="bracket-round-label">${r}</div>
+            ${byRound[r].map(m => renderBracketMatch(m)).join('')}
+          </div>`;
+      }
+      html += `</div>`;
     }
-    html += `</div>`;
 
     resultsEl.innerHTML = html;
 
@@ -2027,7 +2124,7 @@ async function loadAndRenderTeamList() {
 
     loadingText.textContent = `LOADING STATS FOR ${filtered.length} TEAMS...`;
     const enriched = [];
-    const BATCH = 8;
+    const BATCH = 4;
     for (let i = 0; i < filtered.length; i += BATCH) {
       const slice = filtered.slice(i, i + BATCH);
       loadingText.textContent = `LOADING STATS (${i + 1}-${Math.min(i + BATCH, filtered.length)} / ${filtered.length})...`;
