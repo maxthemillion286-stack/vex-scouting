@@ -511,6 +511,11 @@
     display: flex; flex-direction: column;
     border: 1px solid var(--border); background: var(--card);
   }
+  .bracket-match-label {
+    font-family: var(--mono); font-size: 9px; color: var(--text-muted);
+    letter-spacing: 1px; padding: 4px 12px;
+    background: var(--card2); border-bottom: 1px solid var(--border);
+  }
   .bracket-side {
     display: grid; grid-template-columns: 1fr 50px;
     padding: 8px 12px; align-items: center;
@@ -2074,8 +2079,12 @@ function renderBracketMatch(match) {
   const redWon = (redA.score ?? 0) > (blueA.score ?? 0);
   const blueWon = (blueA.score ?? 0) > (redA.score ?? 0);
 
+  // Get the match label — prefer match.name (e.g. "QF #2") then fall back to "Match N"
+  const matchLabel = (match.name || `Match ${match.matchnum || ''}`).trim();
+
   return `
     <div class="bracket-match">
+      <div class="bracket-match-label">${matchLabel}</div>
       <div class="bracket-side bracket-red ${redWon ? 'winner' : ''}">
         <div class="bracket-teams">${redTeams.join(' ')}</div>
         <div class="bracket-score">${redScore}</div>
