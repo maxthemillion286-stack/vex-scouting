@@ -234,8 +234,16 @@
     background: var(--card); border: 1px solid var(--border); min-width: 200px; z-index: 999999;
     box-shadow: 0 8px 28px rgba(0,0,0,0.6);
     max-height: 70vh; overflow-y: auto;
+    transform-origin: top right;
   }
-  .theme-dropdown.open { display: block; }
+  .theme-dropdown.open {
+    display: block;
+    animation: dropdownFlow 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  @keyframes dropdownFlow {
+    from { opacity: 0; transform: translateY(-8px) scale(0.96); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
   .theme-section-label {
     font-family: var(--mono); font-size: 9px; color: var(--text-muted);
     letter-spacing: 3px; text-transform: uppercase; padding: 10px 14px 6px;
@@ -267,9 +275,10 @@
   input[type="text"], input[type="password"], select {
     width: 100%; background: var(--card); border: 1px solid var(--border); color: var(--text);
     font-family: var(--mono); font-size: 14px; padding: 12px 16px; outline: none;
-    transition: border-color 0.2s, box-shadow 0.2s; letter-spacing: 1px; appearance: none;
+    transition: border-color 0.35s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.35s cubic-bezier(0.4, 0, 0.2, 1), background 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    letter-spacing: 1px; appearance: none;
   }
-  input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-dim), inset 0 0 20px rgba(0,0,0,0.1); }
+  input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-dim), 0 0 20px var(--accent-glow), inset 0 0 20px rgba(0,0,0,0.1); }
   input::placeholder { color: var(--text-muted); }
   select option { background: var(--card); color: var(--text); }
 
@@ -279,12 +288,12 @@
     color: var(--accent); pointer-events: none; font-size: 12px;
   }
 
-  .btn { font-family: var(--display); font-size: 14px; font-weight: 600; letter-spacing: 3px; text-transform: uppercase; padding: 12px 24px; border: none; cursor: pointer; transition: all 0.15s; white-space: nowrap; }
+  .btn { font-family: var(--display); font-size: 14px; font-weight: 600; letter-spacing: 3px; text-transform: uppercase; padding: 12px 24px; border: none; cursor: pointer; transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1); white-space: nowrap; }
   .btn-primary { background: var(--accent); color: #fff; }
-  .btn-primary:hover { background: var(--accent-bright); box-shadow: 0 0 20px var(--accent-glow); }
-  .btn-primary:active { transform: scale(0.98); }
+  .btn-primary:hover { background: var(--accent-bright); box-shadow: 0 0 24px var(--accent-glow); transform: translateY(-1px); }
+  .btn-primary:active { transform: scale(0.97) translateY(0); }
   .btn-secondary { background: transparent; color: var(--text-dim); border: 1px solid var(--border); font-size: 12px; padding: 12px 16px; }
-  .btn-secondary:hover { border-color: var(--accent-dim); color: var(--text); }
+  .btn-secondary:hover { border-color: var(--accent); color: var(--text); box-shadow: 0 0 12px var(--accent-glow); }
   .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
   .hint { font-family: var(--mono); font-size: 11px; color: var(--text-muted); margin-top: 10px; }
@@ -316,18 +325,34 @@
     padding: 14px 22px;
     font-family: var(--display); font-size: 13px; font-weight: 700;
     letter-spacing: 2px; color: var(--text-muted);
-    border-bottom: 2px solid transparent;
-    transition: all 0.15s;
-    margin-bottom: -1px;
+    transition: color 0.3s cubic-bezier(0.4, 0, 0.2, 1), background 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
   }
   .tab-btn:hover { color: var(--text); background: var(--card); }
-  .tab-btn.active {
-    color: var(--accent-bright);
-    border-bottom-color: var(--accent-bright);
+  .tab-btn.active { color: var(--accent-bright); }
+
+  /* Animated indicator that slides between active tabs */
+  .tab-indicator {
+    position: absolute;
+    bottom: -1px;
+    height: 2px;
+    background: var(--accent-bright);
+    box-shadow: 0 0 8px var(--accent-glow);
+    transition: left 0.45s cubic-bezier(0.4, 0, 0.2, 1), width 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+    pointer-events: none;
+    border-radius: 2px;
   }
 
   .tab-panel { display: none; }
-  .tab-panel.active { display: block; }
+  .tab-panel.active {
+    display: block;
+    animation: tabFadeIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  @keyframes tabFadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
 
   @media (max-width: 720px) {
     .tabs-nav { overflow-x: auto; }
@@ -335,9 +360,9 @@
   }
   .results-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 2px; }
 
-  .team-card { background: var(--card); border: 1px solid var(--border); animation: fadeUp 0.4s ease both; position: relative; overflow: hidden; }
+  .team-card { background: var(--card); border: 1px solid var(--border); animation: fadeUp 0.5s cubic-bezier(0.4, 0, 0.2, 1) both; position: relative; overflow: hidden; }
   .team-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, var(--accent), transparent); }
-  @keyframes fadeUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(20px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
 
   .card-header { padding: 18px 20px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
   .team-number { font-family: var(--display); font-size: 30px; font-weight: 700; color: var(--text); letter-spacing: 2px; line-height: 1; }
@@ -389,7 +414,7 @@
   .skill-header-row > div { text-align: right; }
   .skill-header-row > div:first-child, .skill-header-row > div:nth-child(2) { text-align: left; }
 
-  .skill-row { transition: background 0.15s; position: relative; cursor: pointer; }
+  .skill-row { transition: background 0.35s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.35s cubic-bezier(0.4, 0, 0.2, 1), transform 0.35s cubic-bezier(0.4, 0, 0.2, 1); position: relative; cursor: pointer; user-select: none; -webkit-user-select: none; }
   .skill-row:hover { background: var(--card2); }
   .skill-row.selected { background: var(--card2); box-shadow: inset 4px 0 0 var(--accent-bright); }
   .skill-row.selected .skill-rank { color: var(--accent-bright); }
@@ -425,9 +450,9 @@
   .tournament-team-tag {
     display: flex; flex-direction: column; gap: 4px;
     background: var(--card); border: 1px solid var(--border); padding: 8px 12px;
-    cursor: pointer; transition: all 0.15s; user-select: none;
+    cursor: pointer; transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1); user-select: none; -webkit-user-select: none;
   }
-  .tournament-team-tag:hover { background: var(--card2); border-color: var(--accent); }
+  .tournament-team-tag:hover { background: var(--card2); border-color: var(--accent); box-shadow: 0 0 12px var(--accent-glow); transform: translateY(-1px); }
   .tournament-team-tag.selected { background: var(--card2); border-color: var(--accent-bright); box-shadow: inset 4px 0 0 var(--accent-bright); }
   .tournament-team-tag .tt-row1 { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
   .tournament-team-tag .tt-num { font-family: var(--display); font-size: 14px; color: var(--accent-bright); font-weight: 700; }
@@ -710,6 +735,7 @@
     <button class="tab-btn active" data-tab="scout" onclick="switchTab('scout')">SCOUT</button>
     <button class="tab-btn" data-tab="skills" onclick="switchTab('skills')">SKILLS RANKINGS</button>
     <button class="tab-btn" data-tab="tournament" onclick="switchTab('tournament')">TOURNAMENT</button>
+    <div class="tab-indicator" id="tabIndicator"></div>
   </div>
 
   <section class="search-section tab-panel active" id="tab-scout">
@@ -867,6 +893,8 @@ window.onload = () => {
   if (savedTab && ['scout','skills','tournament'].includes(savedTab)) {
     switchTab(savedTab);
   }
+  // Position tab indicator after layout settles
+  setTimeout(positionTabIndicator, 100);
 };
 
 // ── THEME ─────────────────────────────────────
@@ -905,7 +933,9 @@ function setBadge(connected) {
 
 // ── API ───────────────────────────────────────
 // Concurrency limiter — only N requests in flight at a time across the whole app
-const API_CONCURRENCY_LIMIT = 4;
+// With 5 API tokens rotating, we can safely have more parallel requests.
+// Total simultaneous requests across all users will be moderated by the proxy + token rotation.
+const API_CONCURRENCY_LIMIT = 12;
 let apiInFlight = 0;
 const apiQueue = [];
 
@@ -2386,7 +2416,7 @@ async function loadAndRenderTeamList() {
 
     loadingText.textContent = `LOADING STATS FOR ${filtered.length} TEAMS...`;
     const enriched = [];
-    const BATCH = 4;
+    const BATCH = 12;
     for (let i = 0; i < filtered.length; i += BATCH) {
       const slice = filtered.slice(i, i + BATCH);
       loadingText.textContent = `LOADING STATS (${i + 1}-${Math.min(i + BATCH, filtered.length)} / ${filtered.length})...`;
@@ -2614,11 +2644,27 @@ function switchTab(tabName) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   const btn = document.querySelector('.tab-btn[data-tab="' + tabName + '"]');
   if (btn) btn.classList.add('active');
+  // Slide indicator under the active tab
+  positionTabIndicator();
   // Save preference
   localStorage.setItem('vex_active_tab', tabName);
   // Scroll to top of tab content
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
+
+function positionTabIndicator() {
+  const indicator = document.getElementById('tabIndicator');
+  const activeBtn = document.querySelector('.tab-btn.active');
+  if (!indicator || !activeBtn) return;
+  const nav = activeBtn.parentElement;
+  const navRect = nav.getBoundingClientRect();
+  const btnRect = activeBtn.getBoundingClientRect();
+  indicator.style.left = (btnRect.left - navRect.left) + 'px';
+  indicator.style.width = btnRect.width + 'px';
+}
+
+// Position indicator on page load and on resize
+window.addEventListener('resize', positionTabIndicator);
 
 function clearScoutResults() {
   document.getElementById('teamInput').value = '';
