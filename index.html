@@ -2,8 +2,24 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>VEX Scout</title>
+
+<!-- ──── PWA / Mobile App Setup ──── -->
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#cc0000">
+<meta name="description" content="VEX V5 Robotics Competition Scouting Tool by Max Wang">
+
+<!-- iOS Home Screen Support -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="VEX Scout">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="apple-touch-icon" sizes="192x192" href="/icon-192.png">
+<link rel="apple-touch-icon" sizes="512x512" href="/icon-512.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png">
+
 <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&family=Oswald:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -653,6 +669,137 @@
     .results-grid { grid-template-columns: 1fr; }
     .header-right { width: 100%; justify-content: flex-start; }
   }
+
+  /* ──────────────────────────────────────────────
+     COMPREHENSIVE MOBILE FIXES (under 768px)
+     ────────────────────────────────────────────── */
+  @media (max-width: 768px) {
+    /* Container & header */
+    .container { padding: 0 14px; }
+    header { padding: 14px 0; }
+    .header-inner { flex-wrap: wrap; gap: 10px; }
+    .logo-mark { width: 28px; height: 28px; }
+    .logo-title { font-size: 18px; letter-spacing: 2px; }
+    .logo-title span { font-size: 18px; }
+    .logo-sub { font-size: 8px; letter-spacing: 1px; }
+    .header-right { gap: 6px; flex-wrap: wrap; }
+    .badge, .theme-btn { font-size: 9px; padding: 6px 10px; }
+
+    /* Tabs — make sure they don't break on small screens */
+    .tabs-nav { padding: 0; margin-bottom: 18px; }
+    .tab-btn { padding: 10px 12px; font-size: 10px; letter-spacing: 1px; }
+
+    /* Section labels */
+    .section-label { font-size: 10px; letter-spacing: 2px; }
+
+    /* Form controls — stack vertically, full width */
+    .controls-row { flex-direction: column; gap: 14px; align-items: stretch; }
+    .input-wrap { width: 100%; min-width: 0; }
+    input[type="text"], select { font-size: 13px; padding: 10px 12px; }
+    .input-label { font-size: 9px; }
+    .btn { width: 100%; font-size: 12px; padding: 12px 16px; letter-spacing: 2px; }
+    .btn-secondary { font-size: 11px; padding: 10px 14px; }
+
+    /* Team cards — single column, more compact */
+    .results-grid { grid-template-columns: 1fr; gap: 14px; }
+    .team-card { padding: 14px; }
+    .card-header { flex-direction: column; align-items: flex-start; gap: 8px; }
+    .team-number { font-size: 22px; }
+    .team-name { font-size: 13px; }
+    .team-location { font-size: 10px; }
+
+    /* Stat groups */
+    .stat-group { padding: 10px; }
+    .stat-group-label { font-size: 9px; }
+    .stat-row { gap: 6px; padding: 5px 0; }
+    .stat-name { font-size: 11px; }
+    .stat-value { font-size: 13px; }
+    .wl-display { font-size: 11px; }
+
+    /* Skills table — horizontal scroll instead of squishing */
+    .skill-header-row, .skill-row {
+      grid-template-columns: 40px 1fr 60px 60px 65px;
+      padding: 8px 8px;
+      gap: 6px;
+      font-size: 11px;
+    }
+    .skill-num { font-size: 13px; }
+    .skill-name { font-size: 10px; }
+    .skill-loc { font-size: 9px; display: none; }
+    .skill-score { font-size: 12px; }
+    .skill-score.skill-combined { font-size: 14px; }
+    .skill-label { font-size: 7px; }
+
+    /* Skills selection bar */
+    .skills-selection-bar { flex-direction: column; align-items: stretch; gap: 8px; padding: 10px; }
+    .skills-selection-bar .sel-list { white-space: normal; }
+
+    /* Tournament list & summary */
+    .tournament-summary { flex-direction: column; align-items: stretch; gap: 10px; padding: 12px; }
+    .tournament-summary-name { font-size: 14px; }
+    .tournament-summary-actions { flex-direction: column; gap: 8px; }
+    .tournament-summary-actions .input-wrap { width: 100%; }
+    .tournament-item { padding: 10px; }
+    .tournament-name { font-size: 13px; }
+    .tournament-meta { font-size: 10px; }
+
+    /* Tournament team grid — single column */
+    .tournament-teams { grid-template-columns: 1fr; gap: 6px; }
+    .tournament-team-tag { padding: 8px 10px; }
+
+    /* Match list (event team matches) — stack vertically */
+    .match-row {
+      grid-template-columns: 1fr;
+      gap: 6px;
+      padding: 10px;
+    }
+    .match-vs { display: none; }
+    .match-num { font-size: 10px; }
+    .match-alliance { padding: 6px 8px; grid-template-columns: 32px 1fr 40px; gap: 6px; }
+    .match-alliance-label { font-size: 8px; }
+    .match-teams { font-size: 11px; }
+    .match-score { font-size: 13px; }
+    .match-outcome { padding: 4px 6px; font-size: 11px; }
+
+    /* Bracket — make horizontally scrollable with tighter columns */
+    .bracket-container { gap: 36px; padding: 4px; }
+    .bracket-column { min-width: 160px; }
+    .bracket-round-label { font-size: 9px; letter-spacing: 1px; }
+    .bracket-match-label { font-size: 8px; padding: 3px 8px; }
+    .bracket-side { padding: 6px 8px; }
+    .bracket-teams { font-size: 10px; }
+    .bracket-score { font-size: 12px; }
+    .bracket-division-header { font-size: 14px; padding-bottom: 4px; margin-top: 16px; }
+
+    /* Theme dropdown — full width */
+    .theme-dropdown { right: 0; left: 0; min-width: unset; }
+
+    /* Compare notice */
+    .compare-notice { font-size: 11px; padding: 10px; }
+
+    /* Page controls */
+    .page-controls { flex-wrap: wrap; gap: 8px; }
+    .page-info { font-size: 10px; min-width: 100%; order: -1; }
+  }
+
+  /* Even smaller phones (under 380px — older iPhones) */
+  @media (max-width: 380px) {
+    .container { padding: 0 10px; }
+    .tab-btn { padding: 8px 8px; font-size: 9px; letter-spacing: 0.5px; }
+    .logo-title { font-size: 16px; }
+    .logo-sub { display: none; }
+  }
+
+  /* iOS PWA standalone mode tweaks (when launched from home screen) */
+  @media (display-mode: standalone) {
+    body {
+      /* Account for iOS safe areas (notch, home indicator) */
+      padding-top: env(safe-area-inset-top);
+      padding-bottom: env(safe-area-inset-bottom);
+      padding-left: env(safe-area-inset-left);
+      padding-right: env(safe-area-inset-right);
+    }
+  }
 </style>
 </head>
 <body>
@@ -668,6 +815,10 @@
         <div class="logo-sub">Competition Intelligence &nbsp;·&nbsp; BY MAX WANG</div>
       </div>
       <div class="header-right">
+        <button id="installAppBtn" class="theme-btn" style="display:none;" onclick="showInstallPrompt()" title="Install as app">
+          <span style="font-size:14px;">📱</span>
+          INSTALL APP
+        </button>
         <div class="status-badge" id="statusBadge">● NOT CONNECTED</div>
 
         <!-- Theme Switcher -->
@@ -903,7 +1054,63 @@ window.onload = () => {
   }
   // Position tab indicator after layout settles
   setTimeout(positionTabIndicator, 100);
+
+  // ──── Register service worker for PWA ────
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(err => {
+      console.log('Service worker registration failed:', err);
+    });
+  }
 };
+
+// ──── PWA Install Prompt ────
+let pwaInstallEvent = null;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  pwaInstallEvent = e;
+  // Show our custom install button
+  const btn = document.getElementById('installAppBtn');
+  if (btn) btn.style.display = 'inline-flex';
+});
+
+function showInstallPrompt() {
+  // Detect iOS — iOS Safari doesn't fire beforeinstallprompt, so we show instructions instead
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+  if (isIOS) {
+    alert(
+      'To install VEX Scout on your iPhone:\n\n' +
+      '1. Tap the Share button (square with arrow up) at the bottom of Safari\n' +
+      '2. Scroll down and tap "Add to Home Screen"\n' +
+      '3. Tap "Add" in the top right\n\n' +
+      'The app icon will appear on your home screen!'
+    );
+    return;
+  }
+  // Android / desktop Chrome — use the deferred prompt
+  if (pwaInstallEvent) {
+    pwaInstallEvent.prompt();
+    pwaInstallEvent.userChoice.then(() => {
+      pwaInstallEvent = null;
+      const btn = document.getElementById('installAppBtn');
+      if (btn) btn.style.display = 'none';
+    });
+  } else {
+    alert(
+      'To install VEX Scout:\n\n' +
+      '• Chrome/Edge desktop: Click the install icon in the address bar\n' +
+      '• Android Chrome: Tap menu → "Install app" or "Add to Home Screen"\n' +
+      '• iPhone Safari: Tap Share → "Add to Home Screen"'
+    );
+  }
+}
+
+// On iOS, always show the install hint button (since beforeinstallprompt doesn't fire there)
+if (/iPad|iPhone|iPod/.test(navigator.userAgent) && !window.matchMedia('(display-mode: standalone)').matches && !navigator.standalone) {
+  window.addEventListener('load', () => {
+    const btn = document.getElementById('installAppBtn');
+    if (btn) btn.style.display = 'inline-flex';
+  });
+}
 
 // ── THEME ─────────────────────────────────────
 function toggleThemeMenu() {
@@ -2703,29 +2910,12 @@ async function scoutTeams() {
   setLoading(true);
 
   try {
-    // PARALLEL scouting with streaming results
-    // Build cards as data arrives instead of waiting for the whole batch
-    const SCOUT_CONCURRENCY = 12;
-    let completed = 0;
-    const total = teamNumbers.length;
-
-    // Pre-create slots in the grid in original order so cards appear in the right place
-    const slots = teamNumbers.map((num, idx) => {
-      const slot = document.createElement('div');
-      slot.className = 'team-card team-card-loading';
-      slot.dataset.idx = idx;
-      slot.innerHTML = `<div class="card-header"><div>
-        <div class="team-number" style="color:var(--text-muted);">${num}</div>
-        <div class="team-name" style="color:var(--text-muted);">loading...</div>
-      </div></div>`;
-      grid.appendChild(slot);
-      return slot;
-    });
-
-    async function scoutOne(num, idx) {
+    for (let i = 0; i < teamNumbers.length; i++) {
+      const num = teamNumbers[i];
+      setLoading(true, `SCOUTING ${num}... (${i+1}/${teamNumbers.length})`);
       try {
         const card = await buildTeamCard(num, seasonId, gradeLevel);
-        slots[idx].replaceWith(card);
+        grid.appendChild(card);
       } catch(e) {
         const errCard = document.createElement('div');
         errCard.className = 'team-card';
@@ -2734,25 +2924,9 @@ async function scoutTeams() {
           <div class="team-name" style="color:#ff4444;">Team not found</div>
           <div class="team-location" style="color:#884444;">${e.message}</div>
         </div></div>`;
-        slots[idx].replaceWith(errCard);
-      }
-      completed++;
-      setLoading(true, `SCOUTING... (${completed}/${total})`);
-    }
-
-    // Worker pool: pull next item off the queue and scout it, until queue is empty
-    const queue = teamNumbers.map((num, idx) => ({ num, idx }));
-    async function worker() {
-      while (queue.length > 0) {
-        const { num, idx } = queue.shift();
-        await scoutOne(num, idx);
+        grid.appendChild(errCard);
       }
     }
-    const workers = [];
-    for (let i = 0; i < SCOUT_CONCURRENCY; i++) {
-      workers.push(worker());
-    }
-    await Promise.all(workers);
 
     document.getElementById('resultsLabel').style.display = 'flex';
     if (teamNumbers.length > 1) {
