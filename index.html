@@ -361,6 +361,14 @@
   .results-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 2px; }
 
   .team-card { background: var(--card); border: 1px solid var(--border); animation: fadeUp 0.5s cubic-bezier(0.4, 0, 0.2, 1) both; position: relative; overflow: hidden; }
+  .team-card-loading {
+    opacity: 0.6;
+    animation: cardPulse 1.6s ease-in-out infinite;
+  }
+  @keyframes cardPulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 0.7; }
+  }
   .team-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, var(--accent), transparent); }
   @keyframes fadeUp { from { opacity: 0; transform: translateY(20px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
 
@@ -935,7 +943,7 @@ function setBadge(connected) {
 // Concurrency limiter — only N requests in flight at a time across the whole app
 // With 5 API tokens rotating, we can safely have more parallel requests.
 // Total simultaneous requests across all users will be moderated by the proxy + token rotation.
-const API_CONCURRENCY_LIMIT = 12;
+const API_CONCURRENCY_LIMIT = 16;
 let apiInFlight = 0;
 const apiQueue = [];
 
@@ -2416,7 +2424,7 @@ async function loadAndRenderTeamList() {
 
     loadingText.textContent = `LOADING STATS FOR ${filtered.length} TEAMS...`;
     const enriched = [];
-    const BATCH = 12;
+    const BATCH = 16;
     for (let i = 0; i < filtered.length; i += BATCH) {
       const slice = filtered.slice(i, i + BATCH);
       loadingText.textContent = `LOADING STATS (${i + 1}-${Math.min(i + BATCH, filtered.length)} / ${filtered.length})...`;
@@ -2695,12 +2703,29 @@ async function scoutTeams() {
   setLoading(true);
 
   try {
-    for (let i = 0; i < teamNumbers.length; i++) {
-      const num = teamNumbers[i];
-      setLoading(true, `SCOUTING ${num}... (${i+1}/${teamNumbers.length})`);
+    // PARALLEL scouting with streaming results
+    // Build cards as data arrives instead of waiting for the whole batch
+    const SCOUT_CONCURRENCY = 12;
+    let completed = 0;
+    const total = teamNumbers.length;
+
+    // Pre-create slots in the grid in original order so cards appear in the right place
+    const slots = teamNumbers.map((num, idx) => {
+      const slot = document.createElement('div');
+      slot.className = 'team-card team-card-loading';
+      slot.dataset.idx = idx;
+      slot.innerHTML = `<div class="card-header"><div>
+        <div class="team-number" style="color:var(--text-muted);">${num}</div>
+        <div class="team-name" style="color:var(--text-muted);">loading...</div>
+      </div></div>`;
+      grid.appendChild(slot);
+      return slot;
+    });
+
+    async function scoutOne(num, idx) {
       try {
         const card = await buildTeamCard(num, seasonId, gradeLevel);
-        grid.appendChild(card);
+        slots[idx].replaceWith(card);
       } catch(e) {
         const errCard = document.createElement('div');
         errCard.className = 'team-card';
@@ -2709,9 +2734,25 @@ async function scoutTeams() {
           <div class="team-name" style="color:#ff4444;">Team not found</div>
           <div class="team-location" style="color:#884444;">${e.message}</div>
         </div></div>`;
-        grid.appendChild(errCard);
+        slots[idx].replaceWith(errCard);
+      }
+      completed++;
+      setLoading(true, `SCOUTING... (${completed}/${total})`);
+    }
+
+    // Worker pool: pull next item off the queue and scout it, until queue is empty
+    const queue = teamNumbers.map((num, idx) => ({ num, idx }));
+    async function worker() {
+      while (queue.length > 0) {
+        const { num, idx } = queue.shift();
+        await scoutOne(num, idx);
       }
     }
+    const workers = [];
+    for (let i = 0; i < SCOUT_CONCURRENCY; i++) {
+      workers.push(worker());
+    }
+    await Promise.all(workers);
 
     document.getElementById('resultsLabel').style.display = 'flex';
     if (teamNumbers.length > 1) {
