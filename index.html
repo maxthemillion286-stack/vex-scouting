@@ -303,6 +303,36 @@
 
   /* ── RESULTS ── */
   .results-section { position: relative; z-index: 2; padding-bottom: 60px; }
+
+  /* ── TAB NAVIGATION ── */
+  .tabs-nav {
+    display: flex; gap: 0;
+    margin-bottom: 28px;
+    border-bottom: 1px solid var(--border);
+    position: relative; z-index: 2;
+  }
+  .tab-btn {
+    background: transparent; border: none; cursor: pointer;
+    padding: 14px 22px;
+    font-family: var(--display); font-size: 13px; font-weight: 700;
+    letter-spacing: 2px; color: var(--text-muted);
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s;
+    margin-bottom: -1px;
+  }
+  .tab-btn:hover { color: var(--text); background: var(--card); }
+  .tab-btn.active {
+    color: var(--accent-bright);
+    border-bottom-color: var(--accent-bright);
+  }
+
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  @media (max-width: 720px) {
+    .tabs-nav { overflow-x: auto; }
+    .tab-btn { padding: 12px 16px; font-size: 11px; letter-spacing: 1px; flex-shrink: 0; }
+  }
   .results-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 2px; }
 
   .team-card { background: var(--card); border: 1px solid var(--border); animation: fadeUp 0.4s ease both; position: relative; overflow: hidden; }
@@ -675,7 +705,14 @@
 </header>
 
 <div class="container">
-  <section class="search-section">
+  <!-- Tab navigation -->
+  <div class="tabs-nav">
+    <button class="tab-btn active" data-tab="scout" onclick="switchTab('scout')">SCOUT</button>
+    <button class="tab-btn" data-tab="skills" onclick="switchTab('skills')">SKILLS RANKINGS</button>
+    <button class="tab-btn" data-tab="tournament" onclick="switchTab('tournament')">TOURNAMENT</button>
+  </div>
+
+  <section class="search-section tab-panel active" id="tab-scout">
 
     <div class="section-label">Scout Teams</div>
     <div class="controls-row">
@@ -700,7 +737,13 @@
       <button class="btn btn-primary" id="scoutBtn" onclick="scoutTeams()">SCOUT</button>
       <button class="btn btn-secondary" id="clearBtn" onclick="clearScoutResults()">CLEAR</button>
     </div>
+
+  <section class="results-section">
+    <div id="resultsLabel" style="display:none;" class="section-label">Results</div>
+    <div class="results-grid" id="resultsGrid"></div>
+    <div class="compare-notice" id="compareNotice" style="display:none;"></div>
   </section>
+  </section><!-- end #tab-scout -->
 
   <div class="error-box" id="errorBox"></div>
   <div class="loading" id="loading">
@@ -708,14 +751,8 @@
     <div class="loading-text" id="loadingText">FETCHING TEAM DATA...</div>
   </div>
 
-  <section class="results-section">
-    <div id="resultsLabel" style="display:none;" class="section-label">Results</div>
-    <div class="results-grid" id="resultsGrid"></div>
-    <div class="compare-notice" id="compareNotice" style="display:none;"></div>
-  </section>
-
   <!-- ═══════════ SKILLS RANKINGS SECTION ═══════════ -->
-  <section class="search-section" style="margin-top: 40px;">
+  <section class="search-section tab-panel" id="tab-skills">
     <div class="section-label">Skills Rankings <span class="section-info" title="Click any team row to scout them. Hold Shift and click to select multiple teams, then use 'Compare Selected' to scout them all together.">i</span></div>
 
     <div class="controls-row">
@@ -767,7 +804,7 @@
   </section>
 
   <!-- ═══════════ TOURNAMENT SCOUTING ═══════════ -->
-  <section class="search-section" style="margin-top: 40px;">
+  <section class="search-section tab-panel" id="tab-tournament">
     <div class="section-label">Tournament Scout</div>
 
     <div class="controls-row">
@@ -825,6 +862,11 @@ window.onload = () => {
   // Load saved theme
   const savedTheme = localStorage.getItem('vex_theme') || 'red';
   applyTheme(savedTheme);
+  // Restore last viewed tab
+  const savedTab = localStorage.getItem('vex_active_tab');
+  if (savedTab && ['scout','skills','tournament'].includes(savedTab)) {
+    switchTab(savedTab);
+  }
 };
 
 // ── THEME ─────────────────────────────────────
@@ -2555,6 +2597,22 @@ function setLoading(active, text = 'FETCHING TEAM DATA...') {
 // ── SCOUT ─────────────────────────────────────
 let scoutInProgress = false;
 
+function switchTab(tabName) {
+  // Hide all panels
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  // Show the selected panel
+  const target = document.getElementById('tab-' + tabName);
+  if (target) target.classList.add('active');
+  // Update tab button styles
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  const btn = document.querySelector('.tab-btn[data-tab="' + tabName + '"]');
+  if (btn) btn.classList.add('active');
+  // Save preference
+  localStorage.setItem('vex_active_tab', tabName);
+  // Scroll to top of tab content
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
 function clearScoutResults() {
   document.getElementById('teamInput').value = '';
   document.getElementById('resultsGrid').innerHTML = '';
@@ -2567,6 +2625,9 @@ async function scoutTeams() {
   if (scoutInProgress) return; // prevent overlapping/spammed scouts
   const input = document.getElementById('teamInput').value.trim();
   if (!input) return;
+
+  // Auto-switch to scout tab so user sees the results
+  switchTab('scout');
 
   scoutInProgress = true;
   const seasonId = document.getElementById('seasonSelect').value || null;
