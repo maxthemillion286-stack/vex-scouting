@@ -541,9 +541,10 @@
     background: var(--card2); border-bottom: 1px solid var(--border);
   }
   .bracket-side {
-    display: grid; grid-template-columns: 1fr 50px;
+    display: grid; grid-template-columns: 1fr auto;
     padding: 8px 12px; align-items: center;
     border-bottom: 1px solid var(--border);
+    gap: 8px;
   }
   .bracket-side:last-child { border-bottom: none; }
   .bracket-side.bracket-red { background: rgba(220, 50, 50, 0.15); }
@@ -552,7 +553,8 @@
   .bracket-side.winner.bracket-blue { background: rgba(50, 80, 220, 0.4); }
   .bracket-side.winner { font-weight: 700; }
   .bracket-teams { font-family: var(--display); font-size: 12px; color: var(--text); }
-  .bracket-score { font-family: var(--mono); font-size: 14px; text-align: right; font-weight: 700; color: var(--text); }
+  .bracket-score { font-family: var(--mono); font-size: 14px; text-align: right; font-weight: 700; color: var(--text); white-space: nowrap; }
+  .bracket-series .bracket-score { font-size: 12px; }
   .skill-row.rank-top { border-left: 3px solid var(--accent); }
   .skill-row.rank-top:nth-child(2) { border-left-color: #ffd700; }
   .skill-row.rank-top:nth-child(3) { border-left-color: #c0c0c0; }
@@ -2040,17 +2042,43 @@ async function renderBracketView() {
     for (const divName of divNames) {
       const elims = elimsByDivision[divName];
 
+      // Extract series number from match name to group best-of-3 matches together
+      // Names look like: "QF #1-1" (series 1, game 1), "QF #1-2" (series 1, game 2), "F #1-1", etc.
+      function getSeriesNum(m) {
+        const name = (m.name || '').trim();
+        // Match patterns like "QF #1-2", "R16 #3-1", "F #1-2" — extract first number
+        const match = name.match(/#?\s*(\d+)[-\s]/);
+        return match ? parseInt(match[1], 10) : (m.matchnum || 1);
+      }
+      function getGameNum(m) {
+        const name = (m.name || '').trim();
+        // Get the game number after the dash, e.g. "QF #1-2" → 2
+        const match = name.match(/#?\s*\d+\s*[-]\s*(\d+)/);
+        return match ? parseInt(match[1], 10) : 1;
+      }
+
+      // First group by round, then within each round group by series number
       const byRound = {};
       for (const m of elims) {
         const r = detectRound(m);
-        if (!byRound[r]) byRound[r] = [];
-        byRound[r].push(m);
-      }
-      for (const r of Object.keys(byRound)) {
-        byRound[r].sort((a, b) => (a.matchnum || 0) - (b.matchnum || 0));
+        if (!byRound[r]) byRound[r] = {};
+        const series = getSeriesNum(m);
+        if (!byRound[r][series]) byRound[r][series] = [];
+        byRound[r][series].push(m);
       }
 
-      const sortedRounds = Object.keys(byRound).sort((a, b) => {
+      // Sort series and games within each
+      const seriesByRound = {};
+      for (const r of Object.keys(byRound)) {
+        const seriesMap = byRound[r];
+        const seriesNums = Object.keys(seriesMap).sort((a, b) => +a - +b);
+        seriesByRound[r] = seriesNums.map(s => {
+          const games = seriesMap[s].sort((a, b) => getGameNum(a) - getGameNum(b));
+          return { seriesNum: s, games };
+        });
+      }
+
+      const sortedRounds = Object.keys(seriesByRound).sort((a, b) => {
         const ai = priority.indexOf(a);
         const bi = priority.indexOf(b);
         return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
@@ -2062,11 +2090,12 @@ async function renderBracketView() {
 
       html += `<div class="bracket-wrapper"><div class="bracket-container">`;
       for (const r of sortedRounds) {
+        const seriesList = seriesByRound[r];
         html += `
           <div class="bracket-column">
             <div class="bracket-round-label">${r}</div>
             <div class="bracket-column-inner">
-              ${byRound[r].map(m => renderBracketMatch(m)).join('')}
+              ${seriesList.map(s => renderBracketSeries(s, r)).join('')}
             </div>
           </div>`;
       }
@@ -2149,6 +2178,86 @@ function drawBracketConnectors() {
       }
     }
   }
+}
+
+// Render a series of matches (1 game = single match, 2-3 games = best-of-3)
+// Determines series winner by counting game wins
+function renderBracketSeries(series, roundName) {
+  const games = series.games;
+  if (!games.length) return '';
+
+  // If only 1 game, render as a normal match
+  if (games.length === 1) {
+    return renderBracketMatch(games[0]);
+  }
+
+  // Multi-game series: tally wins and pick the alliance teams from the first game
+  let redWins = 0, blueWins = 0;
+
+  // Get team lists from the first game
+  const firstGame = games[0];
+  const al = firstGame.alliances;
+  if (!al) return games.map(renderBracketMatch).join('');
+
+  let firstRed, firstBlue;
+  if (Array.isArray(al)) {
+    firstRed = al.find(a => (a.color||'').toLowerCase() === 'red');
+    firstBlue = al.find(a => (a.color||'').toLowerCase() === 'blue');
+    if (!firstRed && al.length >= 2) { firstRed = al[0]; firstBlue = al[1]; }
+  } else {
+    firstRed = al.red; firstBlue = al.blue;
+  }
+
+  function teamsOf(alliance) {
+    if (!alliance) return [];
+    return (alliance.teams || []).map(t => t?.team?.name ?? t?.name ?? '?');
+  }
+  const redTeams = teamsOf(firstRed);
+  const blueTeams = teamsOf(firstBlue);
+
+  // Count wins across games
+  const gameRows = [];
+  for (const game of games) {
+    const ga = game.alliances;
+    let gRed, gBlue;
+    if (Array.isArray(ga)) {
+      gRed = ga.find(a => (a.color||'').toLowerCase() === 'red');
+      gBlue = ga.find(a => (a.color||'').toLowerCase() === 'blue');
+      if (!gRed && ga.length >= 2) { gRed = ga[0]; gBlue = ga[1]; }
+    } else {
+      gRed = ga.red; gBlue = ga.blue;
+    }
+    if (!gRed || !gBlue) continue;
+    const rs = gRed.score ?? 0;
+    const bs = gBlue.score ?? 0;
+    if (gRed.score !== null && gRed.score !== undefined) {
+      if (rs > bs) redWins++;
+      else if (bs > rs) blueWins++;
+    }
+    gameRows.push({ rs, bs, played: gRed.score !== null && gRed.score !== undefined });
+  }
+
+  const redWonSeries = redWins > blueWins;
+  const blueWonSeries = blueWins > redWins;
+
+  const seriesLabel = `${roundName.replace('Quarterfinals','QF').replace('Semifinals','SF').replace('Finals','F').replace('Round of 16','R16').replace('Round of 32','R32').replace('Round of 64','R64')} #${series.seriesNum} · Best of ${games.length}`;
+
+  // Render compact: one row per alliance with score breakdown
+  const redScores = gameRows.map(g => g.played ? g.rs : '—').join(' · ');
+  const blueScores = gameRows.map(g => g.played ? g.bs : '—').join(' · ');
+
+  return `
+    <div class="bracket-match bracket-series">
+      <div class="bracket-match-label">${seriesLabel} · ${redWins}-${blueWins}</div>
+      <div class="bracket-side bracket-red ${redWonSeries ? 'winner' : ''}">
+        <div class="bracket-teams">${redTeams.join(' ')}</div>
+        <div class="bracket-score">${redScores}</div>
+      </div>
+      <div class="bracket-side bracket-blue ${blueWonSeries ? 'winner' : ''}">
+        <div class="bracket-teams">${blueTeams.join(' ')}</div>
+        <div class="bracket-score">${blueScores}</div>
+      </div>
+    </div>`;
 }
 
 function renderBracketMatch(match) {
