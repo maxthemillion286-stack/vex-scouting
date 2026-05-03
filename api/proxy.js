@@ -4,18 +4,17 @@
 //   - Set ROBOTEVENTS_TOKEN, ROBOTEVENTS_TOKEN_2, ROBOTEVENTS_TOKEN_3, etc.
 //   - Tokens are rotated round-robin per request
 //   - On 429 (rate limit), automatically falls over to the next token
-//
-// Add new tokens later by setting ROBOTEVENTS_TOKEN_4, _5, etc. in Vercel.
 
 const cache = new Map(); // path -> { data, status, expires }
-const CACHE_TTL_MS = 30 * 1000;
+const DEFAULT_TTL_MS = 60 * 1000;       // 1 min for general data
+const LONG_TTL_MS = 5 * 60 * 1000;      // 5 min for stable data (skills rankings, team details)
+const SHORT_TTL_MS = 15 * 1000;         // 15s for live match data
 
 // Round-robin counter persists across requests in the same Vercel instance
 let tokenCursor = 0;
 
 function getTokens() {
   const tokens = [];
-  // Read up to 10 token slots from environment
   for (let i = 1; i <= 10; i++) {
     const key = i === 1 ? 'ROBOTEVENTS_TOKEN' : `ROBOTEVENTS_TOKEN_${i}`;
     const val = process.env[key];
@@ -24,13 +23,25 @@ function getTokens() {
   return tokens;
 }
 
+// Determine cache TTL based on what's being requested
+function ttlFor(path) {
+  // Skills rankings (legacy) and team details rarely change — cache longer
+  if (path.startsWith('legacy:/seasons/') && path.includes('/skills')) return LONG_TTL_MS;
+  if (path.match(/^\/teams\/\d+$/)) return LONG_TTL_MS;
+  if (path.startsWith('/teams?')) return LONG_TTL_MS;
+  if (path.startsWith('/seasons')) return LONG_TTL_MS;
+  // Match scores during live events change often
+  if (path.includes('/matches')) return SHORT_TTL_MS;
+  if (path.includes('/rankings')) return SHORT_TTL_MS;
+  return DEFAULT_TTL_MS;
+}
+
 export default async function handler(req, res) {
   const path = req.query.path;
   if (!path) {
     return res.status(400).json({ error: 'Missing path parameter' });
   }
 
-  // Determine which API to use
   let url;
   let useAuth = true;
   if (path.startsWith('legacy:')) {
@@ -48,6 +59,7 @@ export default async function handler(req, res) {
   // Check cache
   const cached = cache.get(path);
   if (cached && cached.expires > Date.now()) {
+    res.setHeader('X-Cache', 'HIT');
     return res.status(cached.status).json(cached.data);
   }
 
@@ -59,7 +71,6 @@ export default async function handler(req, res) {
   };
 
   // Try each token until one succeeds (or we run out)
-  // For non-auth (legacy) endpoints we just try once
   const attempts = useAuth ? tokens.length : 1;
   let lastResponse = null;
   let lastText = '';
@@ -82,12 +93,10 @@ export default async function handler(req, res) {
         continue;
       }
 
-      // Success or non-retryable error — advance the round-robin and return
       if (useAuth) {
         tokenCursor = (tokenCursor + 1) % tokens.length;
       }
 
-      // Forward Retry-After if present
       const retryAfter = response.headers.get('Retry-After');
       if (retryAfter) res.setHeader('Retry-After', retryAfter);
 
@@ -102,19 +111,21 @@ export default async function handler(req, res) {
         };
       }
 
-      // Cache successful responses
+      // Cache successful responses with smart TTL
       if (response.status >= 200 && response.status < 300) {
         cache.set(path, {
           data,
           status: response.status,
-          expires: Date.now() + CACHE_TTL_MS
+          expires: Date.now() + ttlFor(path)
         });
-        if (cache.size > 200) {
+        // Cap cache at 500 entries
+        if (cache.size > 500) {
           const firstKey = cache.keys().next().value;
           cache.delete(firstKey);
         }
       }
 
+      res.setHeader('X-Cache', 'MISS');
       return res.status(response.status).json(data);
     } catch (err) {
       lastResponse = null;
@@ -125,7 +136,6 @@ export default async function handler(req, res) {
     }
   }
 
-  // All tokens exhausted with rate limits — return last response
   if (lastResponse) {
     let data;
     try {
