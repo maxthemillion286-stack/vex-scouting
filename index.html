@@ -391,15 +391,46 @@
   .tournament-summary-count { font-family: var(--mono); font-size: 11px; color: var(--text-muted); letter-spacing: 1px; }
   .tournament-summary-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
-  .tournament-teams { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  .tournament-teams { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; margin-top: 12px; }
   .tournament-team-tag {
-    display: flex; align-items: center; gap: 6px;
-    background: var(--card); border: 1px solid var(--border); padding: 6px 10px;
-    cursor: pointer; transition: all 0.15s;
+    display: flex; flex-direction: column; gap: 4px;
+    background: var(--card); border: 1px solid var(--border); padding: 8px 12px;
+    cursor: pointer; transition: all 0.15s; user-select: none;
   }
   .tournament-team-tag:hover { background: var(--card2); border-color: var(--accent); }
-  .tournament-team-tag .tt-num { font-family: var(--display); font-size: 13px; color: var(--accent-bright); font-weight: 700; }
-  .tournament-team-tag .tt-name { font-family: var(--body); font-size: 12px; color: var(--text-dim); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tournament-team-tag.selected { background: var(--card2); border-color: var(--accent-bright); box-shadow: inset 4px 0 0 var(--accent-bright); }
+  .tournament-team-tag .tt-row1 { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+  .tournament-team-tag .tt-num { font-family: var(--display); font-size: 14px; color: var(--accent-bright); font-weight: 700; }
+  .tournament-team-tag .tt-name { font-family: var(--body); font-size: 12px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  .tournament-team-tag .tt-row2 { display: flex; gap: 10px; flex-wrap: wrap; }
+  .tournament-team-tag .tt-stat { font-family: var(--mono); font-size: 11px; color: var(--text); }
+  .tournament-team-tag .tt-stat-label { color: var(--text-muted); font-size: 9px; letter-spacing: 1px; margin-right: 2px; }
+
+  /* Info bar with (i) icon hint */
+  .info-bar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 12px; margin-top: 12px;
+    font-family: var(--mono); font-size: 11px; color: var(--text-muted);
+    background: var(--card); border-left: 2px solid var(--accent-dim);
+  }
+  .info-icon {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 16px; height: 16px; border-radius: 50%;
+    border: 1px solid var(--accent); color: var(--accent-bright);
+    font-family: var(--body); font-size: 11px; font-style: italic; font-weight: 600;
+    cursor: help; flex-shrink: 0;
+  }
+  .info-icon:hover { background: var(--accent-dim); color: var(--text); }
+
+  /* Inline (i) for section labels */
+  .section-info {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 14px; height: 14px; border-radius: 50%;
+    border: 1px solid var(--accent-dim); color: var(--accent);
+    font-family: var(--body); font-size: 9px; font-style: italic; font-weight: 600;
+    cursor: help; margin-left: 6px; vertical-align: middle;
+  }
+  .section-info:hover { background: var(--accent-dim); color: var(--text); }
   .skill-row.rank-top { border-left: 3px solid var(--accent); }
   .skill-row.rank-top:nth-child(2) { border-left-color: #ffd700; }
   .skill-row.rank-top:nth-child(3) { border-left-color: #c0c0c0; }
@@ -560,7 +591,7 @@
 
   <!-- ═══════════ SKILLS RANKINGS SECTION ═══════════ -->
   <section class="search-section" style="margin-top: 40px;">
-    <div class="section-label">Skills Rankings</div>
+    <div class="section-label">Skills Rankings <span class="section-info" title="Click any team row to scout them. Hold Shift and click to select multiple teams, then use 'Compare Selected' to scout them all together.">i</span></div>
 
     <div class="controls-row">
       <div class="input-wrap select-wrap" style="min-width:160px;">
@@ -1513,7 +1544,15 @@ async function findTournament() {
   loadingEl.classList.remove('active');
 }
 
+// Selection set for tournament teams (parallel to skills selection)
+const selectedTournamentTeams = new Set();
+let tournamentTeamCache = []; // last-loaded teams (for re-sorting)
+let tournamentEventName = '';
+let tournamentGrade = 'High School';
+
 async function loadTournamentTeams(eventId, eventName) {
+  selectedTournamentTeams.clear();
+  tournamentEventName = eventName;
   const resultsEl = document.getElementById('tournamentResults');
   resultsEl.innerHTML = '';
   const loadingEl = document.getElementById('tournamentLoading');
@@ -1525,22 +1564,17 @@ async function loadTournamentTeams(eventId, eventName) {
     // Get teams registered at this event
     const teams = await apiGet(`/events/${eventId}/teams`);
 
-    // Debug: log the first team to verify field names
-    if (teams.length > 0) {
-      console.log('[Tournament] Sample team object:', teams[0]);
-    }
+    if (teams.length > 0) console.log('[Tournament] Sample team:', teams[0]);
 
-    // Filter by grade level — try multiple possible field paths
+    // Filter by grade level
     const grade = document.getElementById('tournamentGradeSelect').value;
+    tournamentGrade = grade;
     let filtered = teams;
     if (grade && grade !== 'All') {
       filtered = teams.filter(t => {
-        // Try every possible field that might hold grade
         const g = (t.grade || t.grade_level || t.gradeLevel || '').trim();
-        // Only include if grade matches exactly. Don't include unknown grades.
         return g === grade;
       });
-      console.log(`[Tournament] Filtered ${teams.length} teams to ${filtered.length} for grade "${grade}"`);
     }
 
     if (!filtered.length) {
@@ -1549,32 +1583,195 @@ async function loadTournamentTeams(eventId, eventName) {
       return;
     }
 
-    // Show team list with "Scout All" button
-    const teamNumbers = filtered.map(t => t.number).filter(Boolean);
+    // Get the season ID from the dropdown so we can fetch per-team stats
+    const seasonId = document.getElementById('tournamentSeasonSelect')?.value;
 
-    resultsEl.innerHTML = `
-      <div class="tournament-summary">
-        <div class="tournament-summary-name">${eventName}</div>
-        <div class="tournament-summary-count">${filtered.length} ${grade} team${filtered.length === 1 ? '' : 's'} registered</div>
-        <div class="tournament-summary-actions">
-          <button class="btn btn-secondary" onclick="copyTournamentTeams('${teamNumbers.join(',')}')">COPY TEAM LIST</button>
-          <button class="btn btn-primary" onclick="scoutTournamentTeams('${teamNumbers.join(',')}', '${grade}')">SCOUT ALL ${filtered.length}</button>
-        </div>
-      </div>
-      <div class="tournament-teams">
-        ${filtered.map(t => `
-          <div class="tournament-team-tag" onclick="scoutFromTournament('${t.number}', '${grade}')">
-            <span class="tt-num">${t.number}</span>
-            <span class="tt-name">${t.team_name || ''}</span>
-          </div>
-        `).join('')}
-      </div>`;
+    // Get global skills rankings (cached)
+    loadingText.textContent = 'LOADING WORLD SKILLS RANKINGS...';
+    const seasonSkills = seasonId ? await getFullSeasonSkills(seasonId, grade).catch(() => null) : null;
+
+    // For each team, fetch their ranking at THIS event + their per-event win record
+    loadingText.textContent = `LOADING STATS FOR ${filtered.length} TEAMS...`;
+    const enriched = [];
+    const BATCH = 8;
+    for (let i = 0; i < filtered.length; i += BATCH) {
+      const slice = filtered.slice(i, i + BATCH);
+      loadingText.textContent = `LOADING STATS (${i + 1}-${Math.min(i + BATCH, filtered.length)} / ${filtered.length})...`;
+      const results = await Promise.all(slice.map(async t => {
+        let eventRank = null, wins = 0, losses = 0, ties = 0;
+        try {
+          const rankings = await apiGet(`/teams/${t.id}/rankings`, { 'event[]': [eventId] });
+          if (rankings.length > 0) {
+            const r = rankings[0];
+            eventRank = r.rank || null;
+            wins = r.wins || 0;
+            losses = r.losses || 0;
+            ties = r.ties || 0;
+          }
+        } catch(e) {}
+        const total = wins + losses + ties;
+        const winRate = total > 0 ? wins / total * 100 : null;
+        const worldSkills = seasonSkills?.byId[t.id]?.globalRank || null;
+        return {
+          id: t.id,
+          number: t.number,
+          team_name: t.team_name || '',
+          eventRank,
+          wins, losses, ties,
+          winRate,
+          worldSkills
+        };
+      }));
+      enriched.push(...results);
+    }
+
+    tournamentTeamCache = enriched;
+    renderTournamentTeams();
 
   } catch(e) {
     showError('⚠ ' + e.message);
     console.error('Tournament teams error:', e);
   }
   loadingEl.classList.remove('active');
+}
+
+function renderTournamentTeams() {
+  const resultsEl = document.getElementById('tournamentResults');
+  const sortMode = document.getElementById('tournamentSortSelect')?.value || 'winrate';
+
+  // Sort teams
+  const teams = [...tournamentTeamCache];
+  if (sortMode === 'winrate') {
+    teams.sort((a, b) => {
+      const aw = a.winRate ?? -1;
+      const bw = b.winRate ?? -1;
+      return bw - aw;
+    });
+  } else if (sortMode === 'world') {
+    teams.sort((a, b) => {
+      const aw = a.worldSkills ?? Number.MAX_SAFE_INTEGER;
+      const bw = b.worldSkills ?? Number.MAX_SAFE_INTEGER;
+      return aw - bw;
+    });
+  } else if (sortMode === 'eventrank') {
+    teams.sort((a, b) => {
+      const aw = a.eventRank ?? Number.MAX_SAFE_INTEGER;
+      const bw = b.eventRank ?? Number.MAX_SAFE_INTEGER;
+      return aw - bw;
+    });
+  }
+
+  const teamNumbers = teams.map(t => t.number).filter(Boolean);
+
+  resultsEl.innerHTML = `
+    <div class="tournament-summary">
+      <div class="tournament-summary-name">${tournamentEventName}</div>
+      <div class="tournament-summary-count">${teams.length} ${tournamentGrade} team${teams.length === 1 ? '' : 's'} registered</div>
+      <div class="tournament-summary-actions">
+        <div class="input-wrap select-wrap" style="min-width:180px;">
+          <span class="input-label">SORT BY</span>
+          <select id="tournamentSortSelect" onchange="renderTournamentTeams()">
+            <option value="winrate" ${sortMode==='winrate'?'selected':''}>Win Rate (high → low)</option>
+            <option value="world" ${sortMode==='world'?'selected':''}>World Skills Rank</option>
+            <option value="eventrank" ${sortMode==='eventrank'?'selected':''}>Event Rank</option>
+          </select>
+        </div>
+        <button class="btn btn-secondary" onclick="copyTournamentTeams('${teamNumbers.join(',')}')">COPY ALL</button>
+        <button class="btn btn-primary" onclick="scoutTournamentTeams('${teamNumbers.join(',')}', '${tournamentGrade}')">SCOUT ALL ${teams.length}</button>
+      </div>
+    </div>
+
+    <div class="info-bar">
+      <span class="info-icon" title="Click to scout one team. Shift+click to select multiple, then 'Compare Selected' to scout them together.">ⓘ</span>
+      <span>Click to scout · Shift+click to select multiple</span>
+    </div>
+
+    <div class="tournament-teams">
+      ${teams.map(t => {
+        const winRateStr = t.winRate !== null ? t.winRate.toFixed(0) + '%' : '—';
+        const worldStr = t.worldSkills ? '#' + t.worldSkills : '—';
+        const eventStr = t.eventRank ? '#' + t.eventRank : '—';
+        return `
+        <div class="tournament-team-tag" data-team="${t.number}" onclick="onTournamentTeamClick('${t.number}', event)">
+          <div class="tt-row1">
+            <span class="tt-num">${t.number}</span>
+            <span class="tt-name">${t.team_name || ''}</span>
+          </div>
+          <div class="tt-row2">
+            <span class="tt-stat"><span class="tt-stat-label">Event</span> ${eventStr}</span>
+            <span class="tt-stat"><span class="tt-stat-label">Win%</span> ${winRateStr}</span>
+            <span class="tt-stat"><span class="tt-stat-label">World</span> ${worldStr}</span>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>`;
+
+  updateTournamentSelectionUI();
+}
+
+function onTournamentTeamClick(teamNumber, evt) {
+  if (evt && evt.shiftKey) {
+    if (selectedTournamentTeams.has(teamNumber)) {
+      selectedTournamentTeams.delete(teamNumber);
+    } else {
+      selectedTournamentTeams.add(teamNumber);
+    }
+    updateTournamentSelectionUI();
+    return;
+  }
+  // Regular click — scout that one team
+  selectedTournamentTeams.clear();
+  updateTournamentSelectionUI();
+  scoutFromTournament(teamNumber, tournamentGrade);
+}
+
+function updateTournamentSelectionUI() {
+  document.querySelectorAll('.tournament-team-tag').forEach(tag => {
+    const num = tag.dataset.team;
+    if (num && selectedTournamentTeams.has(num)) {
+      tag.classList.add('selected');
+    } else {
+      tag.classList.remove('selected');
+    }
+  });
+
+  let bar = document.getElementById('tournamentSelectionBar');
+  if (selectedTournamentTeams.size > 0) {
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'tournamentSelectionBar';
+      bar.className = 'skills-selection-bar';
+      const resultsEl = document.getElementById('tournamentResults');
+      resultsEl.appendChild(bar);
+    }
+    const list = Array.from(selectedTournamentTeams).join(', ');
+    bar.innerHTML = `
+      <span class="sel-count">${selectedTournamentTeams.size} team${selectedTournamentTeams.size === 1 ? '' : 's'} selected:</span>
+      <span class="sel-list">${list}</span>
+      <button class="btn btn-secondary" onclick="clearTournamentSelection()">CLEAR</button>
+      <button class="btn btn-primary" onclick="scoutSelectedTournament()">COMPARE SELECTED</button>
+    `;
+  } else if (bar) {
+    bar.remove();
+  }
+}
+
+function clearTournamentSelection() {
+  selectedTournamentTeams.clear();
+  updateTournamentSelectionUI();
+}
+
+function scoutSelectedTournament() {
+  if (selectedTournamentTeams.size === 0) return;
+  const list = Array.from(selectedTournamentTeams).join(', ');
+  document.getElementById('teamInput').value = list;
+  document.getElementById('scoutGradeSelect').value = tournamentGrade;
+  const tourSeason = document.getElementById('tournamentSeasonSelect').value;
+  if (tourSeason) document.getElementById('seasonSelect').value = tourSeason;
+  selectedTournamentTeams.clear();
+  updateTournamentSelectionUI();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  scoutTeams();
 }
 
 function copyTournamentTeams(commaList) {
@@ -1912,7 +2109,7 @@ async function buildTeamCard(teamNumber, seasonId, gradeLevel = 'High School') {
         <div class="stat-row"><div class="stat-name">Events Played</div><div class="stat-value">${rankings.length}</div></div>
       </div>
       <div class="stat-group">
-        <div class="stat-group-label">Awards (${awardsList.length})</div>
+        <div class="stat-group-label">Awards (${awardsList.length}) <span class="section-info" title="Click any award to see which event it was won at.">i</span></div>
         ${awardsList.length
           ? `<div class="awards-list">${awardsList.map((a, idx) => {
               const eventStr = (a.event || '').replace(/"/g, '&quot;');
