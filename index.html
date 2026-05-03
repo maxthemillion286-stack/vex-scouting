@@ -1,142 +1,2767 @@
-// Vercel Serverless Function — proxies requests to RobotEvents API
-//
-// Supports MULTIPLE TOKENS for higher rate limits:
-//   - Set ROBOTEVENTS_TOKEN, ROBOTEVENTS_TOKEN_2, ROBOTEVENTS_TOKEN_3, etc.
-//   - Tokens are rotated round-robin per request
-//   - On 429 (rate limit), automatically falls over to the next token
-//
-// Add new tokens later by setting ROBOTEVENTS_TOKEN_4, _5, etc. in Vercel.
-
-const cache = new Map(); // path -> { data, status, expires }
-const CACHE_TTL_MS = 30 * 1000;
-
-// Round-robin counter persists across requests in the same Vercel instance
-let tokenCursor = 0;
-
-function getTokens() {
-  const tokens = [];
-  // Read up to 10 token slots from environment
-  for (let i = 1; i <= 10; i++) {
-    const key = i === 1 ? 'ROBOTEVENTS_TOKEN' : `ROBOTEVENTS_TOKEN_${i}`;
-    const val = process.env[key];
-    if (val) tokens.push(val);
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VEX Scout</title>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&family=Oswald:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    /* DARK MODE — RED / BLACK (default) */
+    --accent: #cc0000;
+    --accent-bright: #ee2222;
+    --accent-dim: #770000;
+    --accent-glow: rgba(204,0,0,0.4);
+    --bg: #0a0000;
+    --card: #1a0606;
+    --card2: #220a0a;
+    --border: #4a1010;
+    --text: #ffffff;
+    --text-dim: #d0a8a8;
+    --text-muted: #806060;
+    --grad1: rgba(160,0,0,0.22);
+    --grad2: rgba(120,0,0,0.14);
+    --mono: 'Share Tech Mono', monospace;
+    --display: 'Oswald', sans-serif;
+    --body: 'Rajdhani', sans-serif;
   }
-  return tokens;
+
+  /* ════════════════════════════════════════════════ */
+  /* DARK MODE THEMES                                 */
+  /* ════════════════════════════════════════════════ */
+
+  /* DARK BLUE */
+  body.theme-dark-blue {
+    --accent: #0066dd; --accent-bright: #2288ff; --accent-dim: #003388;
+    --accent-glow: rgba(0,102,221,0.4);
+    --bg: #00050a; --card: #061018; --card2: #0a1a2a; --border: #103055;
+    --text: #ffffff; --text-dim: #a8c8e0; --text-muted: #506880;
+    --grad1: rgba(0,80,200,0.30); --grad2: rgba(0,60,160,0.16);
+  }
+
+  /* DARK GREEN */
+  body.theme-dark-green {
+    --accent: #00aa44; --accent-bright: #22dd66; --accent-dim: #006622;
+    --accent-glow: rgba(0,170,68,0.4);
+    --bg: #000a05; --card: #06180c; --card2: #0a2a14; --border: #105530;
+    --text: #ffffff; --text-dim: #a8e0c0; --text-muted: #508070;
+    --grad1: rgba(0,160,60,0.25); --grad2: rgba(0,120,50,0.14);
+  }
+
+  /* DARK PURPLE */
+  body.theme-dark-purple {
+    --accent: #8800cc; --accent-bright: #aa22ee; --accent-dim: #550088;
+    --accent-glow: rgba(136,0,204,0.4);
+    --bg: #08000a; --card: #160620; --card2: #240a30; --border: #401055;
+    --text: #ffffff; --text-dim: #d0a8e8; --text-muted: #705088;
+    --grad1: rgba(120,0,180,0.25); --grad2: rgba(80,0,140,0.14);
+  }
+
+  /* DARK ORANGE */
+  body.theme-dark-orange {
+    --accent: #dd6600; --accent-bright: #ff8822; --accent-dim: #883300;
+    --accent-glow: rgba(221,102,0,0.4);
+    --bg: #0a0500; --card: #1a0c04; --card2: #2a1608; --border: #553010;
+    --text: #ffffff; --text-dim: #e8c8a8; --text-muted: #806850;
+    --grad1: rgba(200,90,0,0.26); --grad2: rgba(160,70,0,0.14);
+  }
+
+  /* DARK YELLOW */
+  body.theme-dark-yellow {
+    --accent: #ccaa00; --accent-bright: #eecc22; --accent-dim: #886600;
+    --accent-glow: rgba(204,170,0,0.4);
+    --bg: #0a0800; --card: #181408; --card2: #28220a; --border: #554410;
+    --text: #ffffff; --text-dim: #e8d8a8; --text-muted: #807050;
+    --grad1: rgba(180,150,0,0.24); --grad2: rgba(140,110,0,0.14);
+  }
+
+  /* DARK PINK */
+  body.theme-dark-pink {
+    --accent: #ee0088; --accent-bright: #ff44aa; --accent-dim: #aa0055;
+    --accent-glow: rgba(238,0,136,0.4);
+    --bg: #0a0006; --card: #1a0612; --card2: #2a0a20; --border: #551040;
+    --text: #ffffff; --text-dim: #e8a8c8; --text-muted: #805070;
+    --grad1: rgba(220,0,120,0.24); --grad2: rgba(180,0,90,0.14);
+  }
+
+  /* DARK GREY */
+  body.theme-dark-grey {
+    --accent: #888888; --accent-bright: #bbbbbb; --accent-dim: #555555;
+    --accent-glow: rgba(136,136,136,0.4);
+    --bg: #0a0a0a; --card: #1a1a1a; --card2: #242424; --border: #404040;
+    --text: #ffffff; --text-dim: #bbbbbb; --text-muted: #707070;
+    --grad1: rgba(140,140,140,0.18); --grad2: rgba(100,100,100,0.12);
+  }
+
+  /* ════════════════════════════════════════════════ */
+  /* LIGHT MODE THEMES — TINTED, NOT WHITE            */
+  /* ════════════════════════════════════════════════ */
+
+  /* LIGHT RED */
+  body.theme-light-red {
+    --accent: #cc0000; --accent-bright: #ee0000; --accent-dim: #aa0000;
+    --accent-glow: rgba(204,0,0,0.5);
+    --bg: #fff5f5; --card: #ffe0e0; --card2: #ffc8c8; --border: #cc4444;
+    --text: #220000; --text-dim: #770000; --text-muted: #aa3333;
+    --grad1: rgba(220,0,0,0.65); --grad2: rgba(180,0,0,0.30);
+  }
+
+  /* LIGHT BLUE */
+  body.theme-light-blue {
+    --accent: #0055cc; --accent-bright: #0066ee; --accent-dim: #003388;
+    --accent-glow: rgba(0,85,204,0.5);
+    --bg: #f0f6ff; --card: #d8e6ff; --card2: #c0d4ff; --border: #4477cc;
+    --text: #00102a; --text-dim: #003388; --text-muted: #335588;
+    --grad1: rgba(0,90,220,0.65); --grad2: rgba(0,60,180,0.30);
+  }
+
+  /* LIGHT GREEN */
+  body.theme-light-green {
+    --accent: #008833; --accent-bright: #00aa44; --accent-dim: #006622;
+    --accent-glow: rgba(0,136,51,0.5);
+    --bg: #f0faf0; --card: #d8f0d8; --card2: #b8e8c0; --border: #44aa66;
+    --text: #002a10; --text-dim: #006622; --text-muted: #336644;
+    --grad1: rgba(0,150,50,0.65); --grad2: rgba(0,120,40,0.30);
+  }
+
+  /* LIGHT PURPLE */
+  body.theme-light-purple {
+    --accent: #7700bb; --accent-bright: #9933dd; --accent-dim: #550088;
+    --accent-glow: rgba(119,0,187,0.5);
+    --bg: #f8f0ff; --card: #ecd8ff; --card2: #ddc0ff; --border: #8844cc;
+    --text: #150028; --text-dim: #550088; --text-muted: #663388;
+    --grad1: rgba(130,0,200,0.65); --grad2: rgba(100,0,160,0.30);
+  }
+
+  /* LIGHT ORANGE */
+  body.theme-light-orange {
+    --accent: #cc5500; --accent-bright: #ee6600; --accent-dim: #aa4400;
+    --accent-glow: rgba(204,85,0,0.5);
+    --bg: #fff5ee; --card: #ffe0c8; --card2: #ffd0a8; --border: #cc6622;
+    --text: #281200; --text-dim: #aa4400; --text-muted: #885533;
+    --grad1: rgba(220,90,0,0.65); --grad2: rgba(180,75,0,0.30);
+  }
+
+  /* LIGHT YELLOW */
+  body.theme-light-yellow {
+    --accent: #aa7700; --accent-bright: #cc9900; --accent-dim: #886600;
+    --accent-glow: rgba(170,119,0,0.5);
+    --bg: #fffaeb; --card: #fff0c0; --card2: #ffe890; --border: #ccaa22;
+    --text: #1a1400; --text-dim: #886600; --text-muted: #776633;
+    --grad1: rgba(220,170,0,0.65); --grad2: rgba(180,140,0,0.30);
+  }
+
+  /* LIGHT PINK */
+  body.theme-light-pink {
+    --accent: #cc0077; --accent-bright: #ee0099; --accent-dim: #aa0055;
+    --accent-glow: rgba(204,0,119,0.5);
+    --bg: #fff0f7; --card: #ffd8eb; --card2: #ffc0dd; --border: #cc4488;
+    --text: #28001a; --text-dim: #aa0055; --text-muted: #883366;
+    --grad1: rgba(220,0,120,0.65); --grad2: rgba(180,0,90,0.30);
+  }
+
+  /* LIGHT GREY */
+  body.theme-light-grey {
+    --accent: #222222; --accent-bright: #000000; --accent-dim: #444444;
+    --accent-glow: rgba(34,34,34,0.5);
+    --bg: #f0f0f0; --card: #d8d8d8; --card2: #c4c4c4; --border: #555555;
+    --text: #000000; --text-dim: #1a1a1a; --text-muted: #444444;
+    --grad1: rgba(60,60,60,0.45); --grad2: rgba(40,40,40,0.30);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: var(--body); font-size: 16px; min-height: 100vh; overflow-x: hidden;
+    transition: background 0.3s, color 0.3s;
+  }
+
+  body::before {
+    content: ''; position: fixed; inset: 0;
+    background: radial-gradient(ellipse 80% 60% at 0% 50%, var(--grad1) 0%, transparent 70%),
+                radial-gradient(ellipse 40% 40% at 100% 20%, var(--grad2) 0%, transparent 60%);
+    pointer-events: none; z-index: 0;
+  }
+  body::after {
+    content: ''; position: fixed; inset: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.05) 2px, rgba(0,0,0,0.05) 4px);
+    pointer-events: none; z-index: 1;
+  }
+
+  /* Light mode: main fade from left + smaller accent fade from top right */
+  body[class*="theme-light"]::before {
+    background: radial-gradient(ellipse 70% 80% at 0% 50%, var(--grad1) 0%, transparent 70%),
+                radial-gradient(ellipse 40% 50% at 100% 0%, var(--grad2) 0%, transparent 65%);
+  }
+
+  /* Light grey gets no fade at all — clean look */
+  body.theme-light-grey::before { background: none; }
+
+  /* Disable scanlines on light themes */
+  body[class*="theme-light"]::after { display: none; }
+
+  .container { max-width: 1100px; margin: 0 auto; padding: 0 24px; position: relative; z-index: 2; }
+
+  /* ── HEADER ── */
+  header { border-bottom: 1px solid var(--border); padding: 24px 0 20px; position: relative; z-index: 99999; }
+  .header-inner { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .logo-mark { width: 40px; height: 40px; border: 2px solid var(--accent); display: flex; align-items: center; justify-content: center; position: relative; flex-shrink: 0; }
+  .logo-mark::before { content: ''; position: absolute; inset: 3px; border: 1px solid var(--accent-dim); }
+  .logo-mark svg { width: 20px; height: 20px; fill: var(--accent-bright); }
+  .logo-text { display: flex; flex-direction: column; gap: 1px; }
+  .logo-title { font-family: var(--display); font-size: 24px; font-weight: 700; letter-spacing: 4px; color: var(--text); line-height: 1; text-transform: uppercase; }
+  .logo-title span { color: var(--accent-bright); }
+  .logo-sub { font-family: var(--mono); font-size: 9px; color: var(--text-muted); letter-spacing: 3px; text-transform: uppercase; }
+
+  .header-right { margin-left: auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; position: relative; z-index: 999999; }
+
+  .status-badge { font-family: var(--mono); font-size: 10px; padding: 4px 10px; letter-spacing: 1px; border: 1px solid var(--border); color: var(--text-muted); transition: all 0.3s; white-space: nowrap; }
+  .status-badge.connected { color: #22aa44; border-color: #228844; }
+
+  /* ── THEME SWITCHER ── */
+  .theme-switcher { position: relative; z-index: 999999; }
+  .theme-btn {
+    font-family: var(--mono); font-size: 10px; color: var(--text-dim);
+    border: 1px solid var(--border); background: transparent; cursor: pointer;
+    padding: 4px 10px; letter-spacing: 1px; transition: all 0.2s;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .theme-btn:hover { border-color: var(--accent); color: var(--text); }
+  .theme-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-bright); pointer-events: none; }
+  .theme-dropdown {
+    display: none; position: absolute; top: calc(100% + 6px); right: 0;
+    background: var(--card); border: 1px solid var(--border); min-width: 200px; z-index: 999999;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.6);
+    max-height: 70vh; overflow-y: auto;
+  }
+  .theme-dropdown.open { display: block; }
+  .theme-section-label {
+    font-family: var(--mono); font-size: 9px; color: var(--text-muted);
+    letter-spacing: 3px; text-transform: uppercase; padding: 10px 14px 6px;
+    border-top: 1px solid var(--border);
+  }
+  .theme-section-label:first-child { border-top: none; }
+  .theme-option {
+    font-family: var(--mono); font-size: 11px; color: var(--text-dim);
+    padding: 8px 14px; cursor: pointer; display: flex; align-items: center; gap: 10px;
+    transition: background 0.1s; letter-spacing: 1px; border: none; background: none;
+    width: 100%; text-align: left;
+  }
+  .theme-option * { pointer-events: none; }
+  .theme-option:hover { background: var(--card2); color: var(--text); }
+  .theme-option.active { color: var(--accent-bright); }
+  .theme-option.active::before { content: '▸'; margin-right: -4px; }
+  .tdot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex-shrink: 0; border: 1px solid rgba(0,0,0,0.2); }
+
+  /* ── SEARCH SECTION ── */
+  .search-section { padding: 36px 0 24px; position: relative; z-index: 2; }
+  .section-label { font-family: var(--mono); font-size: 11px; color: var(--accent); letter-spacing: 3px; text-transform: uppercase; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; }
+  .section-label::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, var(--border), transparent); }
+
+  .token-row { display: flex; gap: 10px; margin-bottom: 28px; }
+  .controls-row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+  .input-wrap { position: relative; flex: 1; min-width: 200px; }
+  .input-label { font-family: var(--mono); font-size: 10px; color: var(--text-muted); letter-spacing: 2px; position: absolute; top: -18px; left: 0; white-space: nowrap; }
+
+  input[type="text"], input[type="password"], select {
+    width: 100%; background: var(--card); border: 1px solid var(--border); color: var(--text);
+    font-family: var(--mono); font-size: 14px; padding: 12px 16px; outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s; letter-spacing: 1px; appearance: none;
+  }
+  input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-dim), inset 0 0 20px rgba(0,0,0,0.1); }
+  input::placeholder { color: var(--text-muted); }
+  select option { background: var(--card); color: var(--text); }
+
+  .select-wrap { position: relative; }
+  .select-wrap::after {
+    content: '▾'; position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+    color: var(--accent); pointer-events: none; font-size: 12px;
+  }
+
+  .btn { font-family: var(--display); font-size: 14px; font-weight: 600; letter-spacing: 3px; text-transform: uppercase; padding: 12px 24px; border: none; cursor: pointer; transition: all 0.15s; white-space: nowrap; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: var(--accent-bright); box-shadow: 0 0 20px var(--accent-glow); }
+  .btn-primary:active { transform: scale(0.98); }
+  .btn-secondary { background: transparent; color: var(--text-dim); border: 1px solid var(--border); font-size: 12px; padding: 12px 16px; }
+  .btn-secondary:hover { border-color: var(--accent-dim); color: var(--text); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .hint { font-family: var(--mono); font-size: 11px; color: var(--text-muted); margin-top: 10px; }
+  .hint a { color: var(--accent); text-decoration: none; }
+
+  /* ── LOADING ── */
+  .loading { display: none; padding: 60px 0; text-align: center; }
+  .loading.active { display: block; }
+  .loading-spinner { width: 48px; height: 48px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 20px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-text { font-family: var(--mono); font-size: 13px; color: var(--text-muted); letter-spacing: 2px; }
+
+  /* ── ERROR ── */
+  .error-box { display: none; background: rgba(170,0,0,0.1); border: 1px solid var(--accent-dim); padding: 14px 18px; font-family: var(--mono); font-size: 13px; color: #ff6666; margin-bottom: 24px; }
+  .error-box.active { display: block; }
+
+  /* ── RESULTS ── */
+  .results-section { position: relative; z-index: 2; padding-bottom: 60px; }
+  .results-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 2px; }
+
+  .team-card { background: var(--card); border: 1px solid var(--border); animation: fadeUp 0.4s ease both; position: relative; overflow: hidden; }
+  .team-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, var(--accent), transparent); }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+
+  .card-header { padding: 18px 20px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+  .team-number { font-family: var(--display); font-size: 30px; font-weight: 700; color: var(--text); letter-spacing: 2px; line-height: 1; }
+  .team-name { font-family: var(--body); font-size: 13px; color: var(--text-dim); margin-top: 4px; font-weight: 500; }
+  .team-location { font-family: var(--mono); font-size: 11px; color: var(--text-muted); margin-top: 3px; }
+  .robot-name { font-family: var(--mono); font-size: 11px; color: var(--accent); text-align: right; letter-spacing: 1px; flex-shrink: 0; }
+
+  .stats-body { padding: 0; }
+  .stat-group { border-bottom: 1px solid var(--border); }
+  .stat-group:last-child { border-bottom: none; }
+  .stat-group-label { font-family: var(--mono); font-size: 9px; color: var(--text-muted); letter-spacing: 3px; text-transform: uppercase; padding: 10px 20px 4px; }
+  .stat-row { display: flex; align-items: center; padding: 8px 20px; gap: 12px; transition: background 0.1s; }
+  .stat-row:hover { background: var(--card2); }
+  .stat-name { font-family: var(--body); font-size: 14px; font-weight: 600; color: var(--text-dim); flex: 1; }
+  .stat-value { font-family: var(--mono); font-size: 16px; color: var(--text); letter-spacing: 1px; text-align: right; min-width: 70px; }
+  .stat-value.highlight { color: var(--accent-bright); font-size: 18px; }
+  .stat-value .highlight { color: var(--accent-bright); font-weight: 600; }
+  .stat-bar-wrap { flex: 1; height: 3px; background: var(--border); max-width: 80px; }
+  .stat-bar { height: 100%; background: linear-gradient(90deg, var(--accent-dim), var(--accent-bright)); transition: width 0.6s cubic-bezier(0.4,0,0.2,1); }
+  .wl-display { font-family: var(--mono); font-size: 12px; color: var(--text-muted); text-align: right; min-width: 70px; }
+  .awards-list { padding: 10px 20px 14px; display: flex; flex-wrap: wrap; gap: 6px; }
+  .award-tag { font-family: var(--mono); font-size: 10px; color: var(--accent); border: 1px solid var(--accent-dim); padding: 3px 8px; }
+  .award-tag.award-clickable { cursor: pointer; transition: background 0.1s; }
+  .award-tag.award-clickable:hover { background: var(--card2); }
+  .award-event { display: none; color: var(--text-muted); font-weight: normal; }
+  .award-event.show { display: inline; }
+  .no-awards { font-family: var(--mono); font-size: 11px; color: var(--text-muted); padding: 10px 20px 14px; }
+  .na { color: var(--text-muted) !important; font-size: 13px !important; }
+  .compare-notice { font-family: var(--mono); font-size: 11px; color: var(--text-muted); text-align: center; padding: 20px 0 0; }
+
+  /* ── SKILLS RANKINGS TABLE ── */
+  .skill-table { display: flex; flex-direction: column; gap: 1px; background: var(--border); border: 1px solid var(--border); }
+  .skill-header-row, .skill-row {
+    display: grid;
+    grid-template-columns: 70px 1fr 90px 90px 100px;
+    background: var(--card);
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+  }
+  .skill-header-row {
+    background: var(--card2);
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-muted);
+    letter-spacing: 2px;
+    padding: 10px 16px;
+  }
+  .skill-header-row > div { text-align: right; }
+  .skill-header-row > div:first-child, .skill-header-row > div:nth-child(2) { text-align: left; }
+
+  .skill-row { transition: background 0.15s; position: relative; cursor: pointer; }
+  .skill-row:hover { background: var(--card2); }
+  .skill-row.selected { background: var(--card2); box-shadow: inset 4px 0 0 var(--accent-bright); }
+  .skill-row.selected .skill-rank { color: var(--accent-bright); }
+
+  /* Selection bar */
+  .skills-selection-bar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 16px; margin-top: 16px;
+    background: var(--card); border: 1px solid var(--accent);
+    font-family: var(--mono); font-size: 12px; color: var(--text);
+    flex-wrap: wrap;
+  }
+  .skills-selection-bar .sel-count { color: var(--accent-bright); font-weight: 700; letter-spacing: 1px; }
+  .skills-selection-bar .sel-list { flex: 1; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 200px; }
+
+  /* Tournament scouting */
+  .tournament-list { display: flex; flex-direction: column; gap: 1px; background: var(--border); border: 1px solid var(--border); margin-top: 16px; }
+  .tournament-list-label { background: var(--card2); padding: 10px 16px; font-family: var(--mono); font-size: 10px; color: var(--text-muted); letter-spacing: 2px; }
+  .tournament-item { background: var(--card); padding: 12px 16px; cursor: pointer; transition: background 0.15s; }
+  .tournament-item:hover { background: var(--card2); }
+  .tournament-name { font-family: var(--display); font-size: 14px; color: var(--text); font-weight: 600; }
+  .tournament-meta { font-family: var(--mono); font-size: 11px; color: var(--text-muted); margin-top: 3px; }
+
+  .tournament-summary {
+    background: var(--card); border: 1px solid var(--border); padding: 16px 20px; margin-top: 16px;
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  }
+  .tournament-summary-name { font-family: var(--display); font-size: 16px; color: var(--text); font-weight: 700; flex: 1; min-width: 200px; }
+  .tournament-summary-count { font-family: var(--mono); font-size: 11px; color: var(--text-muted); letter-spacing: 1px; }
+  .tournament-summary-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  .tournament-teams { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; margin-top: 12px; }
+  .tournament-team-tag {
+    display: flex; flex-direction: column; gap: 4px;
+    background: var(--card); border: 1px solid var(--border); padding: 8px 12px;
+    cursor: pointer; transition: all 0.15s; user-select: none;
+  }
+  .tournament-team-tag:hover { background: var(--card2); border-color: var(--accent); }
+  .tournament-team-tag.selected { background: var(--card2); border-color: var(--accent-bright); box-shadow: inset 4px 0 0 var(--accent-bright); }
+  .tournament-team-tag .tt-row1 { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+  .tournament-team-tag .tt-num { font-family: var(--display); font-size: 14px; color: var(--accent-bright); font-weight: 700; }
+  .tournament-team-tag .tt-name { font-family: var(--body); font-size: 12px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  .tournament-team-tag .tt-row2 { display: flex; gap: 10px; flex-wrap: wrap; }
+  .tournament-team-tag .tt-stat { font-family: var(--mono); font-size: 11px; color: var(--text); }
+  .tournament-team-tag .tt-stat-label { color: var(--text-muted); font-size: 9px; letter-spacing: 1px; margin-right: 2px; }
+
+  /* Info bar with (i) icon hint */
+  .info-bar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 12px; margin-top: 12px;
+    font-family: var(--mono); font-size: 11px; color: var(--text-muted);
+    background: var(--card); border-left: 2px solid var(--accent-dim);
+  }
+  .info-icon {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 16px; height: 16px; border-radius: 50%;
+    border: 1px solid var(--accent); color: var(--accent-bright);
+    font-family: var(--body); font-size: 11px; font-style: italic; font-weight: 600;
+    cursor: help; flex-shrink: 0;
+  }
+  .info-icon:hover { background: var(--accent-dim); color: var(--text); }
+
+  /* Inline (i) for section labels */
+  .section-info {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 14px; height: 14px; border-radius: 50%;
+    border: 1px solid var(--accent-dim); color: var(--accent);
+    font-family: var(--body); font-size: 9px; font-style: italic; font-weight: 600;
+    cursor: help; margin-left: 6px; vertical-align: middle;
+  }
+  .section-info:hover { background: var(--accent-dim); color: var(--text); }
+
+  /* ── MATCH LIST (event team matches view) ── */
+  .match-round-label {
+    font-family: var(--mono); font-size: 11px; color: var(--text-muted); letter-spacing: 2px;
+    margin-top: 18px; margin-bottom: 8px; padding-bottom: 4px;
+    border-bottom: 1px solid var(--border);
+  }
+  .match-list { display: flex; flex-direction: column; gap: 4px; }
+  .match-row {
+    display: grid; grid-template-columns: 90px 1fr 40px 1fr 70px;
+    align-items: center; gap: 8px;
+    background: var(--card); border: 1px solid var(--border); padding: 10px 14px;
+  }
+  .match-row.win { border-left: 4px solid #44dd44; }
+  .match-row.loss { border-left: 4px solid #ee4444; }
+  .match-row.tie { border-left: 4px solid #ddaa44; }
+  .match-num { font-family: var(--mono); font-size: 11px; color: var(--text-muted); letter-spacing: 1px; }
+
+  .match-alliance {
+    display: grid; grid-template-columns: 40px 1fr 50px;
+    align-items: center; gap: 8px;
+    padding: 8px 10px;
+  }
+  .match-alliance.alliance-red { background: rgba(220, 50, 50, 0.12); border: 1px solid rgba(220, 50, 50, 0.4); }
+  .match-alliance.alliance-blue { background: rgba(50, 80, 220, 0.12); border: 1px solid rgba(50, 80, 220, 0.4); }
+  .match-alliance-label {
+    font-family: var(--mono); font-size: 9px; letter-spacing: 1px;
+    color: var(--text-muted); font-weight: 700;
+  }
+  .match-alliance.alliance-red .match-alliance-label { color: #ff7777; }
+  .match-alliance.alliance-blue .match-alliance-label { color: #88aaff; }
+  .match-teams {
+    font-family: var(--display); font-size: 13px; color: var(--text); font-weight: 600;
+  }
+  .match-teams .match-team-self {
+    color: var(--accent-bright); text-decoration: underline; text-underline-offset: 2px;
+  }
+  .match-score {
+    font-family: var(--mono); font-size: 16px; color: var(--text); text-align: right; font-weight: 700;
+  }
+  .match-vs { font-family: var(--mono); font-size: 10px; color: var(--text-muted); text-align: center; }
+
+  .match-outcome {
+    font-family: var(--display); font-size: 13px; font-weight: 700; text-align: center;
+    letter-spacing: 1px; padding: 6px 8px;
+  }
+  .match-outcome.win { color: #44dd44; }
+  .match-outcome.loss { color: #ee4444; }
+  .match-outcome.tie { color: #ddaa44; }
+  .match-outcome.pending { color: var(--text-muted); }
+
+  @media (max-width: 720px) {
+    .match-row { grid-template-columns: 1fr; gap: 6px; }
+    .match-vs { display: none; }
+  }
+
+  /* ── ELIMINATION BRACKET ── */
+  .bracket-division-header {
+    font-family: var(--display); font-size: 18px; color: var(--accent-bright);
+    font-weight: 700; letter-spacing: 2px; margin-top: 24px; margin-bottom: 8px;
+    padding-bottom: 6px; border-bottom: 2px solid var(--accent);
+  }
+  .bracket-container {
+    display: flex; gap: 60px; overflow-x: auto;
+    padding: 8px 8px 16px 8px; margin-top: 8px;
+    align-items: stretch;
+  }
+  .bracket-column {
+    display: flex; flex-direction: column;
+    min-width: 220px;
+    justify-content: space-around;
+    position: relative;
+  }
+  .bracket-round-label {
+    font-family: var(--mono); font-size: 11px; color: var(--accent-bright);
+    letter-spacing: 2px; text-align: center;
+    margin-bottom: 4px; padding-bottom: 4px;
+    border-bottom: 1px solid var(--accent-dim);
+    font-weight: 700;
+  }
+  .bracket-column-inner {
+    display: flex; flex-direction: column;
+    flex: 1;
+    justify-content: space-around;
+    gap: 12px;
+    padding: 8px 0;
+  }
+  .bracket-match {
+    display: flex; flex-direction: column;
+    border: 1px solid var(--border); background: var(--card);
+    position: relative;
+  }
+  /* SVG overlay for bracket connector lines */
+  .bracket-wrapper { position: relative; }
+  .bracket-svg-overlay {
+    position: absolute; top: 0; left: 0;
+    pointer-events: none; z-index: 0;
+    width: 100%; height: 100%;
+  }
+  .bracket-svg-overlay path {
+    stroke: var(--border); stroke-width: 1.5; fill: none;
+  }
+  .bracket-container { position: relative; z-index: 1; }
+  .bracket-match { background: var(--card); }
+  .bracket-match-label {
+    font-family: var(--mono); font-size: 9px; color: var(--text-muted);
+    letter-spacing: 1px; padding: 4px 12px;
+    background: var(--card2); border-bottom: 1px solid var(--border);
+  }
+  .bracket-side {
+    display: grid; grid-template-columns: 1fr 50px;
+    padding: 8px 12px; align-items: center;
+    border-bottom: 1px solid var(--border);
+  }
+  .bracket-side:last-child { border-bottom: none; }
+  .bracket-side.bracket-red { background: rgba(220, 50, 50, 0.15); }
+  .bracket-side.bracket-blue { background: rgba(50, 80, 220, 0.15); }
+  .bracket-side.winner.bracket-red { background: rgba(220, 50, 50, 0.4); }
+  .bracket-side.winner.bracket-blue { background: rgba(50, 80, 220, 0.4); }
+  .bracket-side.winner { font-weight: 700; }
+  .bracket-teams { font-family: var(--display); font-size: 12px; color: var(--text); }
+  .bracket-score { font-family: var(--mono); font-size: 14px; text-align: right; font-weight: 700; color: var(--text); }
+  .skill-row.rank-top { border-left: 3px solid var(--accent); }
+  .skill-row.rank-top:nth-child(2) { border-left-color: #ffd700; }
+  .skill-row.rank-top:nth-child(3) { border-left-color: #c0c0c0; }
+  .skill-row.rank-top:nth-child(4) { border-left-color: #cd7f32; }
+
+  .skill-rank { font-family: var(--display); font-size: 18px; color: var(--accent-bright); font-weight: 700; letter-spacing: 1px; }
+  .skill-team { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .skill-num { font-family: var(--display); font-size: 18px; font-weight: 700; color: var(--text); letter-spacing: 1px; }
+  .skill-name { font-family: var(--body); font-size: 13px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .skill-loc { font-family: var(--mono); font-size: 10px; color: var(--text-muted); }
+
+  .skill-score {
+    font-family: var(--mono); font-size: 18px; color: var(--text);
+    text-align: right; display: flex; flex-direction: column; gap: 2px; align-items: flex-end;
+  }
+  .skill-score.skill-combined { color: var(--accent-bright); font-size: 22px; font-weight: bold; }
+  .skill-label { font-size: 9px; color: var(--text-muted); letter-spacing: 1px; font-weight: normal; }
+
+  @media (max-width: 720px) {
+    .skill-header-row, .skill-row { grid-template-columns: 50px 1fr 70px 70px 80px; padding: 10px 12px; gap: 8px; font-size: 13px; }
+    .skill-num { font-size: 16px; }
+    .skill-score { font-size: 15px; }
+    .skill-score.skill-combined { font-size: 18px; }
+  }
+
+  /* Pagination controls */
+  .page-controls { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; gap: 12px; }
+  .page-info { font-family: var(--mono); font-size: 11px; color: var(--text-muted); letter-spacing: 1px; text-align: center; flex: 1; }
+
+  @media (max-width: 600px) {
+    .token-row, .controls-row { flex-direction: column; }
+    .btn { width: 100%; }
+    .results-grid { grid-template-columns: 1fr; }
+    .header-right { width: 100%; justify-content: flex-start; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="container">
+    <div class="header-inner">
+      <div class="logo-mark">
+        <svg viewBox="0 0 24 24"><path d="M12 2L2 7v10l10 5 10-5V7L12 2zm0 2.18L20 8.5v7L12 19.82 4 15.5v-7L12 4.18z"/></svg>
+      </div>
+      <div class="logo-text">
+        <div class="logo-title">VEX <span>SCOUT</span></div>
+        <div class="logo-sub">Competition Intelligence &nbsp;·&nbsp; BY MAX WANG</div>
+      </div>
+      <div class="header-right">
+        <div class="status-badge" id="statusBadge">● NOT CONNECTED</div>
+
+        <!-- Theme Switcher -->
+        <div class="theme-switcher">
+          <button class="theme-btn" onclick="toggleThemeMenu()">
+            <div class="theme-dot" id="themeDot"></div>
+            THEME
+          </button>
+          <div class="theme-dropdown" id="themeDropdown">
+
+            <div class="theme-section-label">● Dark Mode</div>
+            <button class="theme-option active" id="opt-red" onclick="applyTheme('red')">
+              <span class="tdot" style="background:#cc0000"></span><span>RED / BLACK</span>
+            </button>
+            <button class="theme-option" id="opt-dark-blue" onclick="applyTheme('dark-blue')">
+              <span class="tdot" style="background:#2288ff"></span><span>BLUE / BLACK</span>
+            </button>
+            <button class="theme-option" id="opt-dark-green" onclick="applyTheme('dark-green')">
+              <span class="tdot" style="background:#22dd66"></span><span>GREEN / BLACK</span>
+            </button>
+            <button class="theme-option" id="opt-dark-purple" onclick="applyTheme('dark-purple')">
+              <span class="tdot" style="background:#aa22ee"></span><span>PURPLE / BLACK</span>
+            </button>
+            <button class="theme-option" id="opt-dark-orange" onclick="applyTheme('dark-orange')">
+              <span class="tdot" style="background:#ff8822"></span><span>ORANGE / BLACK</span>
+            </button>
+            <button class="theme-option" id="opt-dark-yellow" onclick="applyTheme('dark-yellow')">
+              <span class="tdot" style="background:#eecc22"></span><span>YELLOW / BLACK</span>
+            </button>
+            <button class="theme-option" id="opt-dark-pink" onclick="applyTheme('dark-pink')">
+              <span class="tdot" style="background:#ff44aa"></span><span>PINK / BLACK</span>
+            </button>
+            <button class="theme-option" id="opt-dark-grey" onclick="applyTheme('dark-grey')">
+              <span class="tdot" style="background:#888888"></span><span>GREY / BLACK</span>
+            </button>
+
+            <div class="theme-section-label">○ Light Mode</div>
+            <button class="theme-option" id="opt-light-red" onclick="applyTheme('light-red')">
+              <span class="tdot" style="background:#cc0000"></span><span>RED / WHITE</span>
+            </button>
+            <button class="theme-option" id="opt-light-blue" onclick="applyTheme('light-blue')">
+              <span class="tdot" style="background:#0066dd"></span><span>BLUE / WHITE</span>
+            </button>
+            <button class="theme-option" id="opt-light-green" onclick="applyTheme('light-green')">
+              <span class="tdot" style="background:#008833"></span><span>GREEN / WHITE</span>
+            </button>
+            <button class="theme-option" id="opt-light-purple" onclick="applyTheme('light-purple')">
+              <span class="tdot" style="background:#7700bb"></span><span>PURPLE / WHITE</span>
+            </button>
+            <button class="theme-option" id="opt-light-orange" onclick="applyTheme('light-orange')">
+              <span class="tdot" style="background:#cc5500"></span><span>ORANGE / WHITE</span>
+            </button>
+            <button class="theme-option" id="opt-light-yellow" onclick="applyTheme('light-yellow')">
+              <span class="tdot" style="background:#aa8800"></span><span>YELLOW / WHITE</span>
+            </button>
+            <button class="theme-option" id="opt-light-pink" onclick="applyTheme('light-pink')">
+              <span class="tdot" style="background:#cc0077"></span><span>PINK / WHITE</span>
+            </button>
+            <button class="theme-option" id="opt-light-grey" onclick="applyTheme('light-grey')">
+              <span class="tdot" style="background:#555555"></span><span>GREY / WHITE</span>
+            </button>
+
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="container">
+  <section class="search-section">
+
+    <div class="section-label">Scout Teams</div>
+    <div class="controls-row">
+      <div class="input-wrap" style="flex:2;">
+        <span class="input-label">TEAM NUMBERS</span>
+        <input type="text" id="teamInput" placeholder="e.g. 7700R  or  7700R, 7700S, 7700B" autocomplete="off">
+      </div>
+      <div class="input-wrap select-wrap" style="min-width:140px;">
+        <span class="input-label">GRADE</span>
+        <select id="scoutGradeSelect">
+          <option value="High School" selected>High School</option>
+          <option value="Middle School">Middle School</option>
+
+        </select>
+      </div>
+      <div class="input-wrap select-wrap" style="flex:1; min-width:180px;">
+        <span class="input-label">SEASON</span>
+        <select id="seasonSelect">
+          <option value="">Loading seasons...</option>
+        </select>
+      </div>
+      <button class="btn btn-primary" id="scoutBtn" onclick="scoutTeams()">SCOUT</button>
+      <button class="btn btn-secondary" id="clearBtn" onclick="clearScoutResults()">CLEAR</button>
+    </div>
+  </section>
+
+  <div class="error-box" id="errorBox"></div>
+  <div class="loading" id="loading">
+    <div class="loading-spinner"></div>
+    <div class="loading-text" id="loadingText">FETCHING TEAM DATA...</div>
+  </div>
+
+  <section class="results-section">
+    <div id="resultsLabel" style="display:none;" class="section-label">Results</div>
+    <div class="results-grid" id="resultsGrid"></div>
+    <div class="compare-notice" id="compareNotice" style="display:none;"></div>
+  </section>
+
+  <!-- ═══════════ SKILLS RANKINGS SECTION ═══════════ -->
+  <section class="search-section" style="margin-top: 40px;">
+    <div class="section-label">Skills Rankings <span class="section-info" title="Click any team row to scout them. Hold Shift and click to select multiple teams, then use 'Compare Selected' to scout them all together.">i</span></div>
+
+    <div class="controls-row">
+      <div class="input-wrap select-wrap" style="min-width:160px;">
+        <span class="input-label">REGION</span>
+        <select id="regionSelect" onchange="onRegionChange()">
+          <option value="">Global (all regions)</option>
+          <option value="USA">United States</option>
+        </select>
+      </div>
+
+      <div class="input-wrap select-wrap" style="min-width:200px;" id="stateWrap" hidden>
+        <span class="input-label">STATE</span>
+        <select id="stateSelect" onchange="loadSubregions()">
+          <option value="">All US states</option>
+        </select>
+      </div>
+
+      <div class="input-wrap select-wrap" style="min-width:200px;" id="subregionWrap" hidden>
+        <span class="input-label">VEX REGION</span>
+        <select id="subregionSelect">
+          <option value="">All</option>
+        </select>
+      </div>
+
+      <div class="input-wrap select-wrap" style="min-width:160px;">
+        <span class="input-label">GRADE</span>
+        <select id="skillsGradeSelect">
+          <option value="High School" selected>High School</option>
+          <option value="Middle School">Middle School</option>
+
+        </select>
+      </div>
+
+      <div class="input-wrap select-wrap" style="min-width:180px;">
+        <span class="input-label">SEASON</span>
+        <select id="skillsSeasonSelect"></select>
+      </div>
+
+      <button class="btn btn-primary" onclick="loadSkillsRankings()">LOAD RANKINGS</button>
+    </div>
+
+    <div class="loading" id="skillsLoading">
+      <div class="loading-spinner"></div>
+      <div class="loading-text" id="skillsLoadingText">LOADING SKILLS RANKINGS...</div>
+    </div>
+
+    <div id="skillsTableWrap" style="margin-top:24px;"></div>
+  </section>
+
+  <!-- ═══════════ TOURNAMENT SCOUTING ═══════════ -->
+  <section class="search-section" style="margin-top: 40px;">
+    <div class="section-label">Tournament Scout</div>
+
+    <div class="controls-row">
+      <div class="input-wrap" style="flex:2;">
+        <span class="input-label">EVENT SKU OR SEARCH</span>
+        <input type="text" id="tournamentInput" placeholder="Event SKU, team number (e.g. 7700S), or event name" autocomplete="off">
+      </div>
+      <div class="input-wrap select-wrap" style="min-width:140px;">
+        <span class="input-label">GRADE</span>
+        <select id="tournamentGradeSelect">
+          <option value="High School" selected>High School</option>
+          <option value="Middle School">Middle School</option>
+        </select>
+      </div>
+      <div class="input-wrap select-wrap" style="min-width:180px;">
+        <span class="input-label">SEASON</span>
+        <select id="tournamentSeasonSelect"></select>
+      </div>
+      <button class="btn btn-primary" onclick="findTournament()">FIND EVENT</button>
+    </div>
+
+    <div class="loading" id="tournamentLoading">
+      <div class="loading-spinner"></div>
+      <div class="loading-text" id="tournamentLoadingText">SEARCHING...</div>
+    </div>
+
+    <div id="tournamentResults"></div>
+  </section>
+</div>
+
+<script>
+const BASE = '/api/proxy';
+// Token is now handled server-side via Vercel environment variables
+let TOKEN = 'server-side';
+let seasonsLoaded = false;
+
+// US states list
+const US_STATES = [
+  'Alabama','Alaska','Arizona','Arkansas','California','Colorado','Connecticut','Delaware',
+  'Florida','Georgia','Hawaii','Idaho','Illinois','Indiana','Iowa','Kansas','Kentucky',
+  'Louisiana','Maine','Maryland','Massachusetts','Michigan','Minnesota','Mississippi','Missouri',
+  'Montana','Nebraska','Nevada','New Hampshire','New Jersey','New Mexico','New York',
+  'North Carolina','North Dakota','Ohio','Oklahoma','Oregon','Pennsylvania','Rhode Island',
+  'South Carolina','South Dakota','Tennessee','Texas','Utah','Vermont','Virginia','Washington',
+  'West Virginia','Wisconsin','Wyoming'
+];
+
+// ── INIT ──────────────────────────────────────
+window.onload = () => {
+  setBadge(true);
+  loadSeasons(); // always load — uses hardcoded list instantly
+  document.getElementById('teamInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') scoutTeams();
+  });
+  // Load saved theme
+  const savedTheme = localStorage.getItem('vex_theme') || 'red';
+  applyTheme(savedTheme);
+};
+
+// ── THEME ─────────────────────────────────────
+function toggleThemeMenu() {
+  document.getElementById('themeDropdown').classList.toggle('open');
 }
 
-export default async function handler(req, res) {
-  const path = req.query.path;
-  if (!path) {
-    return res.status(400).json({ error: 'Missing path parameter' });
-  }
+function applyTheme(name) {
+  // Remove all possible theme classes
+  const allThemes = [
+    'theme-dark-blue','theme-dark-green','theme-dark-purple','theme-dark-orange',
+    'theme-dark-yellow','theme-dark-pink','theme-dark-grey',
+    'theme-light-red','theme-light-blue','theme-light-green','theme-light-purple',
+    'theme-light-orange','theme-light-yellow','theme-light-pink','theme-light-grey'
+  ];
+  allThemes.forEach(t => document.body.classList.remove(t));
 
-  // Determine which API to use
-  let url;
-  let useAuth = true;
-  if (path.startsWith('legacy:')) {
-    url = `https://www.robotevents.com/api${path.slice(7)}`;
-    useAuth = false;
-  } else {
-    url = `https://www.robotevents.com/api/v2${path}`;
-  }
+  // Add the new theme class (default 'red' uses :root values, no class needed)
+  if (name !== 'red') document.body.classList.add(`theme-${name}`);
 
-  const tokens = useAuth ? getTokens() : [];
-  if (useAuth && tokens.length === 0) {
-    return res.status(500).json({ error: 'No API tokens configured' });
-  }
+  // Update active option marker
+  document.querySelectorAll('.theme-option').forEach(o => o.classList.remove('active'));
+  const el = document.getElementById(`opt-${name}`);
+  if (el) el.classList.add('active');
 
-  // Check cache
-  const cached = cache.get(path);
-  if (cached && cached.expires > Date.now()) {
-    return res.status(cached.status).json(cached.data);
-  }
+  document.getElementById('themeDropdown').classList.remove('open');
+  localStorage.setItem('vex_theme', name);
+}
 
-  const baseHeaders = {
-    'Accept': 'application/json',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-    'Accept-Language': 'en-US,en;q=0.9',
-    'Referer': 'https://www.robotevents.com/'
-  };
+// ── STATUS BADGE ──────────────────────────────
+function setBadge(connected) {
+  const b = document.getElementById('statusBadge');
+  b.textContent = connected ? '● CONNECTED' : '● OFFLINE';
+  b.classList.toggle('connected', connected);
+}
 
-  // Try each token until one succeeds (or we run out)
-  // For non-auth (legacy) endpoints we just try once
-  const attempts = useAuth ? tokens.length : 1;
-  let lastResponse = null;
-  let lastText = '';
+// ── API ───────────────────────────────────────
+// Concurrency limiter — only N requests in flight at a time across the whole app
+const API_CONCURRENCY_LIMIT = 4;
+let apiInFlight = 0;
+const apiQueue = [];
 
-  for (let i = 0; i < attempts; i++) {
-    const headers = { ...baseHeaders };
-    if (useAuth) {
-      const tokenIndex = (tokenCursor + i) % tokens.length;
-      headers['Authorization'] = `Bearer ${tokens[tokenIndex]}`;
+function apiSlot() {
+  return new Promise(resolve => {
+    if (apiInFlight < API_CONCURRENCY_LIMIT) {
+      apiInFlight++;
+      resolve();
+    } else {
+      apiQueue.push(resolve);
     }
+  });
+}
 
-    try {
-      const response = await fetch(url, { headers });
-      const text = await response.text();
-      lastResponse = response;
-      lastText = text;
+function apiRelease() {
+  apiInFlight--;
+  if (apiQueue.length > 0) {
+    apiInFlight++;
+    apiQueue.shift()();
+  }
+}
 
-      // If rate-limited or server error, try next token
-      if (useAuth && (response.status === 429 || response.status >= 500) && i < attempts - 1) {
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function apiGet(endpoint, params = {}) {
+  // Build path with query string
+  const qs = new URLSearchParams();
+  params.per_page = 250;
+  Object.entries(params).forEach(([k, v]) => {
+    if (Array.isArray(v)) v.forEach(val => qs.append(k, val));
+    else qs.set(k, v);
+  });
+
+  // Fetch one page with retry logic for rate limits and transient errors
+  async function fetchPage(page) {
+    qs.set('page', page);
+    const path = endpoint + '?' + qs.toString();
+
+    // Try up to 5 times with exponential backoff on 429/5xx
+    let lastErr = null;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await apiSlot();
+      let res;
+      try {
+        res = await fetch(`${BASE}?path=${encodeURIComponent(path)}`);
+      } catch(e) {
+        apiRelease();
+        lastErr = e;
+        await sleep(500 * Math.pow(2, attempt));
+        continue;
+      }
+      apiRelease();
+
+      if (res.ok) return res.json();
+
+      if (res.status === 401) throw new Error('API token expired. Contact site owner.');
+
+      // 429 = rate limited, 5xx = server error → retry with backoff
+      if (res.status === 429 || res.status >= 500) {
+        // Check Retry-After header if present
+        let waitMs = 1000 * Math.pow(2, attempt); // 1s, 2s, 4s, 8s, 16s
+        const retryAfter = res.headers.get('Retry-After');
+        if (retryAfter) {
+          const parsed = parseInt(retryAfter, 10);
+          if (!isNaN(parsed)) waitMs = parsed * 1000;
+        }
+        // Cap wait at 20s
+        waitMs = Math.min(waitMs, 20000);
+        console.log(`[API] ${res.status} on attempt ${attempt + 1}, waiting ${waitMs}ms before retry`);
+        await sleep(waitMs);
+        lastErr = new Error(`API error ${res.status}`);
         continue;
       }
 
-      // Success or non-retryable error — advance the round-robin and return
-      if (useAuth) {
-        tokenCursor = (tokenCursor + 1) % tokens.length;
+      // Other errors (404, 400, etc.) — don't retry, throw immediately
+      throw new Error(`API error ${res.status}`);
+    }
+    throw lastErr || new Error('Request failed after retries');
+  }
+
+  const data = await fetchPage(1);
+  let results = data.data || [];
+  if (data.meta && data.meta.last_page > 1) {
+    for (let p = 2; p <= Math.min(data.meta.last_page, 10); p++) {
+      const d2 = await fetchPage(p);
+      results = results.concat(d2.data || []);
+    }
+  }
+  return results;
+}
+
+// ── SEASONS ───────────────────────────────────
+// Hardcoded V5RC seasons (id, name) — newest first
+// ───────────────────────────────────────────────
+// ── DEFAULT SEASON — CHANGE THIS ONE LINE ──
+// ───────────────────────────────────────────────
+// Set to the name of the current game. Match must be a piece of the season name.
+// Examples that work for the current season: "Push Back", "push back", "PUSH"
+// When a new game comes out (e.g. "Override"), just change this to: "Override"
+const DEFAULT_SEASON_NAME = "Push Back";
+// ───────────────────────────────────────────────
+
+const SEASONS = [
+  { id: 190, name: 'V5RC 2025-2026: Push Back' },
+  { id: 182, name: 'V5RC 2024-2025: High Stakes' },
+  { id: 173, name: 'V5RC 2023-2024: Over Under' },
+  { id: 154, name: 'V5RC 2022-2023: Spin Up' },
+  { id: 139, name: 'V5RC 2021-2022: Tipping Point' },
+  { id: 130, name: 'V5RC 2020-2021: Change Up' },
+  { id: 125, name: 'V5RC 2019-2020: Tower Takeover' },
+];
+
+// Returns true if a season matches the configured default name (case-insensitive substring)
+function isDefaultSeason(season) {
+  if (!DEFAULT_SEASON_NAME) return false;
+  const name = (season.name || '').toLowerCase();
+  return name.includes(DEFAULT_SEASON_NAME.toLowerCase());
+}
+
+function loadSeasons() {
+  const sel = document.getElementById('seasonSelect');
+  const skillsSel = document.getElementById('skillsSeasonSelect');
+  const tourSel = document.getElementById('tournamentSeasonSelect');
+  sel.innerHTML = '';
+  skillsSel.innerHTML = '';
+  if (tourSel) tourSel.innerHTML = '';
+  SEASONS.forEach((s, i) => {
+    const isDefault = DEFAULT_SEASON_NAME ? isDefaultSeason(s) : (i === 0);
+    const opt = document.createElement('option');
+    opt.value = s.id;
+    opt.textContent = s.name;
+    if (isDefault) opt.selected = true;
+    sel.appendChild(opt);
+
+    const opt2 = opt.cloneNode(true);
+    if (isDefault) opt2.selected = true;
+    skillsSel.appendChild(opt2);
+
+    if (tourSel) {
+      const opt3 = opt.cloneNode(true);
+      if (isDefault) opt3.selected = true;
+      tourSel.appendChild(opt3);
+    }
+  });
+
+  // Populate state dropdown
+  const stateSel = document.getElementById('stateSelect');
+  stateSel.innerHTML = '<option value="">All US states</option>';
+  US_STATES.forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s;
+    opt.textContent = s;
+    stateSel.appendChild(opt);
+  });
+
+  seasonsLoaded = true;
+  // Also try to load from API to get any newer seasons
+  loadSeasonsFromAPI();
+}
+
+async function loadSeasonsFromAPI() {
+  if (!TOKEN) return;
+  try {
+    const seasons = await apiGet('/seasons', { 'program[]': [1] });
+    if (!seasons.length) return;
+    seasons.sort((a, b) => (b.start || '').localeCompare(a.start || ''));
+
+    ['seasonSelect','skillsSeasonSelect','tournamentSeasonSelect'].forEach(id => {
+      const sel = document.getElementById(id);
+      if (!sel) return;
+      sel.innerHTML = '';
+      seasons.forEach((s, i) => {
+        const opt = document.createElement('option');
+        opt.value = s.id;
+        opt.textContent = s.name;
+        // Always honor DEFAULT_SEASON_NAME; fall back to most recent if not in list
+        const isDefault = DEFAULT_SEASON_NAME
+          ? isDefaultSeason(s)
+          : (i === 0);
+        if (isDefault) opt.selected = true;
+        sel.appendChild(opt);
+      });
+      // If DEFAULT_SEASON_NAME wasn't found (rare), select the first option
+      if (DEFAULT_SEASON_NAME && !sel.value) {
+        sel.selectedIndex = 0;
+      }
+    });
+  } catch(e) { /* keep hardcoded list */ }
+}
+
+// ── REGION / STATE FILTER ─────────────────────
+function onRegionChange() {
+  const region = document.getElementById('regionSelect').value;
+  document.getElementById('stateWrap').hidden = (region !== 'USA');
+  // Reset state and subregion selectors when region changes
+  if (region !== 'USA') {
+    document.getElementById('subregionWrap').hidden = true;
+    document.getElementById('stateSelect').value = '';
+  }
+}
+
+// ── SKILLS RANKINGS ───────────────────────────
+let skillsState = {
+  rankedItems: [],
+  currentPage: 0,
+  pageSize: 30,
+  seasonId: null,
+  region: '',
+  state: '',
+  subregion: '',
+  loading: false,
+  apiPage: 1,           // next legacy API page to fetch
+  doneLoading: false    // true when we've fetched everything
+};
+
+// Cache of full season skills rankings — used for team scout card rank lookups
+// Key: seasonId, Value: { teams: [...], loadedAt: timestamp }
+const skillsCache = {};
+
+async function getFullSeasonSkills(seasonId, gradeLevel = 'High School') {
+  const cacheKey = seasonId + ':' + gradeLevel;
+  if (skillsCache[cacheKey]) return skillsCache[cacheKey];
+
+  // Build URL with grade_level filter
+  const params = new URLSearchParams();
+  params.set('per_page', '10000');
+  if (gradeLevel && gradeLevel !== 'All') {
+    params.set('grade_level', gradeLevel);
+  }
+  const path = `legacy:/seasons/${seasonId}/skills?${params.toString()}`;
+  const res = await fetch(`${BASE}?path=${encodeURIComponent(path)}`);
+  if (!res.ok) return null;
+  const data = await res.json();
+  const items = Array.isArray(data) ? data : (data.data || []);
+
+  // Build per-team aggregated data
+  const teamMap = {};
+  for (const item of items) {
+    const team = item.team || {};
+    const id = team.id;
+    if (!id) continue;
+    const prog = (team.program || '').toUpperCase();
+    if (prog && prog !== 'V5RC' && prog !== 'VRC') continue;
+
+    // Optional client-side grade filter as backup (legacy API may not always honor server-side)
+    if (gradeLevel && gradeLevel !== 'All') {
+      const teamGrade = (team.gradeLevel || '').trim();
+      if (teamGrade && teamGrade !== gradeLevel) continue;
+    }
+
+    if (!teamMap[id]) {
+      teamMap[id] = {
+        id,
+        number: team.team || '?',
+        eventRegion: team.eventRegion || '',
+        region: team.region || '',
+        country: team.country || '',
+        gradeLevel: team.gradeLevel || '',
+        driver: 0,
+        programming: 0,
+        combined: 0,
+        rank: item.rank || 999999
+      };
+    }
+    const driverScore = item.scoreDriver ?? item.scores?.driver ?? 0;
+    const progScore = item.scoreProg ?? item.scores?.programming ?? 0;
+    const combinedScore = item.score ?? item.scores?.score ?? (driverScore + progScore);
+    teamMap[id].driver = Math.max(teamMap[id].driver, driverScore);
+    teamMap[id].programming = Math.max(teamMap[id].programming, progScore);
+    teamMap[id].combined = Math.max(teamMap[id].combined, combinedScore);
+    if (item.rank && item.rank < teamMap[id].rank) {
+      teamMap[id].rank = item.rank;
+    }
+  }
+
+  // Sort globally
+  const allTeams = Object.values(teamMap)
+    .filter(t => t.combined > 0 || t.driver > 0 || t.programming > 0);
+  allTeams.sort((a, b) => {
+    if (a.rank !== 999999 && b.rank !== 999999) return a.rank - b.rank;
+    return b.combined - a.combined;
+  });
+
+  // Compute global rank, state rank, and region rank
+  const stateRankMap = {};
+  const regionRankMap = {};
+  for (let i = 0; i < allTeams.length; i++) {
+    const t = allTeams[i];
+    t.globalRank = i + 1;
+    if (t.region) {
+      stateRankMap[t.region] = (stateRankMap[t.region] || 0) + 1;
+      t.stateRank = stateRankMap[t.region];
+    }
+    if (t.eventRegion) {
+      regionRankMap[t.eventRegion] = (regionRankMap[t.eventRegion] || 0) + 1;
+      t.eventRegionRank = regionRankMap[t.eventRegion];
+    }
+  }
+
+  const byId = {};
+  for (const t of allTeams) byId[t.id] = t;
+
+  skillsCache[cacheKey] = {
+    teams: allTeams,
+    byId: byId,
+    totalCount: allTeams.length,
+    gradeLevel: gradeLevel,
+    loadedAt: Date.now()
+  };
+  return skillsCache[cacheKey];
+}
+
+async function loadSkillsRankings() {
+  showError('');
+
+  const seasonId = document.getElementById('skillsSeasonSelect').value;
+  const region = document.getElementById('regionSelect').value;
+  const state = document.getElementById('stateSelect').value;
+  const subregion = document.getElementById('subregionSelect')?.value || '';
+  const gradeLevel = document.getElementById('skillsGradeSelect')?.value || 'High School';
+
+  if (!seasonId) {
+    showError('⚠ Please select a season first.');
+    return;
+  }
+
+  skillsState = {
+    rankedItems: [],
+    currentPage: 0,
+    pageSize: 30,
+    seasonId: seasonId,
+    region: region,
+    state: state,
+    subregion: subregion,
+    gradeLevel: gradeLevel,
+    loading: false,
+    apiPage: 1,
+    doneLoading: false
+  };
+
+  const wrap = document.getElementById('skillsTableWrap');
+  wrap.innerHTML = '';
+
+  const loadingEl = document.getElementById('skillsLoading');
+  const loadingText = document.getElementById('skillsLoadingText');
+  loadingEl.classList.add('active');
+  loadingText.textContent = 'LOADING OFFICIAL RANKINGS...';
+
+  try {
+    // Load enough pages to fill the first display page (30 teams)
+    while (skillsState.rankedItems.length < skillsState.pageSize && !skillsState.doneLoading) {
+      await loadSkillsApiPage();
+    }
+
+    if (skillsState.rankedItems.length === 0) {
+      wrap.innerHTML = '<div style="text-align:center;padding:40px;font-family:var(--mono);color:var(--text-muted);">No skills rankings found for this filter.</div>';
+      loadingEl.classList.remove('active');
+      return;
+    }
+
+    renderSkillsPage();
+  } catch(e) {
+    showError('⚠ ' + e.message);
+    console.error('Skills rankings error:', e);
+  }
+
+  loadingEl.classList.remove('active');
+}
+
+// Fetch one page from the legacy V1 /api/seasons/{id}/skills endpoint
+// This endpoint is what the official RobotEvents Standings page uses
+// Returns pre-ranked, sorted skills entries
+async function loadSkillsApiPage() {
+  if (skillsState.doneLoading) return;
+
+  const params = new URLSearchParams();
+  params.set('page', String(skillsState.apiPage));
+  params.set('per_page', '50');
+  if (skillsState.state) {
+    params.set('region', skillsState.state);
+  }
+  if (skillsState.gradeLevel && skillsState.gradeLevel !== 'All') {
+    params.set('grade_level', skillsState.gradeLevel);
+  }
+
+  const path = `legacy:/seasons/${skillsState.seasonId}/skills?${params.toString()}`;
+  const res = await fetch(`${BASE}?path=${encodeURIComponent(path)}`);
+
+  if (!res.ok) {
+    const text = await res.text();
+    if (skillsState.apiPage === 1) {
+      throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
+    }
+    skillsState.doneLoading = true;
+    return;
+  }
+
+  const data = await res.json();
+
+  if (data.error && !Array.isArray(data)) {
+    if (skillsState.apiPage === 1) {
+      throw new Error(data.error + (data.preview ? ': ' + data.preview.slice(0, 100) : ''));
+    }
+    skillsState.doneLoading = true;
+    return;
+  }
+
+  // The legacy V1 endpoint returns the FULL season skills as a top-level array
+  // ranked from #1 to #6000+. We slice the page we want from this array.
+  // It already does pagination too, but with per_page=50 and page param.
+  const items = Array.isArray(data) ? data : (data.data || []);
+
+  if (!items.length) {
+    skillsState.doneLoading = true;
+    return;
+  }
+
+  // Build team map - each item is already a fully-resolved team rank entry
+  const teamMap = {};
+  for (const t of skillsState.rankedItems) {
+    teamMap[t.id] = { ...t };
+  }
+
+  for (const item of items) {
+    const team = item.team || {};
+    const id = team.id;
+    if (!id) continue;
+
+    // V5RC ONLY filter (program field is "V5RC" directly)
+    const prog = (team.program || '').toUpperCase();
+    if (prog && prog !== 'V5RC' && prog !== 'VRC') continue;
+
+    // Grade level client-side filter (backup in case API param doesn't filter)
+    if (skillsState.gradeLevel && skillsState.gradeLevel !== 'All') {
+      const teamGrade = (team.gradeLevel || '').trim();
+      if (teamGrade && teamGrade !== skillsState.gradeLevel) continue;
+    }
+
+    // State filter — strict client-side check since API param is unreliable
+    if (skillsState.state) {
+      const teamRegion = (team.region || '').trim();
+      if (teamRegion !== skillsState.state) continue;
+    }
+
+    // Sub-region filter — the legacy endpoint provides eventRegion which IS the official VEX sub-region
+    if (skillsState.subregion) {
+      const evRegion = (team.eventRegion || '').trim();
+      if (evRegion !== skillsState.subregion) continue;
+    }
+
+    if (!teamMap[id]) {
+      teamMap[id] = {
+        id: id,
+        number: team.team || '?',
+        team_name: team.teamName || team.team_name || '',
+        location: {
+          city: team.city || '',
+          region: team.region || '',
+          country: team.country || '',
+          eventRegion: team.eventRegion || ''
+        },
+        driver: 0,
+        programming: 0,
+        combined: 0,
+        rank: item.rank || 999999
+      };
+    }
+
+    // The legacy endpoint structure has scores possibly directly on item
+    // Most common: item has scoreDriver, scoreProg, score (combined)
+    // OR: item.scores = { driver, programming, score }
+    const driverScore = item.scoreDriver ?? item.scores?.driver ?? 0;
+    const progScore = item.scoreProg ?? item.scores?.programming ?? 0;
+    const combinedScore = item.score ?? item.scores?.score ?? (driverScore + progScore);
+
+    teamMap[id].driver = Math.max(teamMap[id].driver, driverScore);
+    teamMap[id].programming = Math.max(teamMap[id].programming, progScore);
+    teamMap[id].combined = Math.max(teamMap[id].combined, combinedScore);
+    if (item.rank && item.rank < teamMap[id].rank) {
+      teamMap[id].rank = item.rank;
+    }
+  }
+
+  // Sort by official rank if available, otherwise by combined score
+  const arr = Object.values(teamMap)
+    .filter(t => t.combined > 0 || t.driver > 0 || t.programming > 0);
+  arr.sort((a, b) => {
+    if (a.rank !== 999999 && b.rank !== 999999) return a.rank - b.rank;
+    return b.combined - a.combined;
+  });
+  skillsState.rankedItems = arr;
+
+  skillsState.apiPage++;
+
+  // Check if we've hit the last page
+  const meta = data.meta || {};
+  if (meta.last_page && skillsState.apiPage > meta.last_page) {
+    skillsState.doneLoading = true;
+  }
+  if (!meta.last_page && items.length < 50) {
+    skillsState.doneLoading = true;
+  }
+  // If we got way more than per_page (endpoint returned full data), we're done
+  if (items.length >= 100) {
+    skillsState.doneLoading = true;
+  }
+}
+
+async function loadSubregions() {
+  const state = document.getElementById('stateSelect').value;
+  const seasonId = document.getElementById('skillsSeasonSelect').value;
+  const subWrap = document.getElementById('subregionWrap');
+  const subSel = document.getElementById('subregionSelect');
+
+  if (!state || !seasonId) {
+    subWrap.hidden = true;
+    return;
+  }
+
+  subSel.innerHTML = '<option value="">All ' + state + '</option>';
+  subWrap.hidden = false;
+
+  try {
+    // Use the cached full-season skills data which includes eventRegion for every team
+    // This is the OFFICIAL VEX competitive sub-region (like "California - Region 1")
+    const seasonData = await getFullSeasonSkills(seasonId);
+    if (!seasonData) return;
+
+    const subregionSet = new Set();
+    for (const t of seasonData.teams) {
+      // We want teams whose state is `state` and grab their eventRegion
+      if ((t.region || '').trim() !== state) continue;
+      const er = (t.eventRegion || '').trim();
+      if (!er) continue;
+      // Only include if it's actually a sub-region (contains the state name OR doesn't equal the state)
+      // Sometimes eventRegion is just the state name with no number
+      if (er !== state) {
+        subregionSet.add(er);
+      }
+    }
+
+    const subregions = Array.from(subregionSet).sort((a, b) => {
+      // Try natural sort for "Region 1", "Region 2", "Region 10" etc.
+      const numA = parseInt(a.match(/\d+/)?.[0] || '999');
+      const numB = parseInt(b.match(/\d+/)?.[0] || '999');
+      if (numA !== numB) return numA - numB;
+      return a.localeCompare(b);
+    });
+
+    if (subregions.length === 0) return;
+
+    subregions.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s;
+      opt.textContent = s;
+      subSel.appendChild(opt);
+    });
+  } catch(e) {
+    console.error('Failed to load subregions:', e);
+  }
+}
+
+function renderSkillsPage() {
+  const wrap = document.getElementById('skillsTableWrap');
+  const start = skillsState.currentPage * skillsState.pageSize;
+  const end = start + skillsState.pageSize;
+  const pageTeams = skillsState.rankedItems.slice(start, end);
+
+  if (pageTeams.length === 0) {
+    wrap.innerHTML = '<div style="text-align:center;padding:40px;font-family:var(--mono);color:var(--text-muted);">No teams to display.</div>';
+    return;
+  }
+
+  const rows = pageTeams.map((t, i) => {
+    const positionalRank = start + i + 1;
+    // When filtering by state or sub-region, show rank within the filter
+    // Otherwise show the global rank from the API
+    const isFiltered = !!(skillsState.state || skillsState.subregion);
+    const displayRank = isFiltered ? positionalRank : ((t.rank && t.rank !== 999999) ? t.rank : positionalRank);
+    const loc = t.location || {};
+    const locStr = [loc.eventRegion || loc.region, loc.country].filter(Boolean).join(', ');
+    const rankClass = displayRank <= 3 ? 'rank-top' : '';
+    return `
+      <div class="skill-row ${rankClass}" data-team="${t.number}" onclick="scoutFromSkillsRow('${t.number}', event)" title="Click to scout · Shift+click to multi-select">
+        <div class="skill-rank">#${displayRank}</div>
+        <div class="skill-team">
+          <div class="skill-num">${t.number}</div>
+          <div class="skill-name">${t.team_name || '—'}</div>
+          <div class="skill-loc">${locStr}</div>
+        </div>
+        <div class="skill-score skill-prog">${t.programming}<span class="skill-label">AUTON</span></div>
+        <div class="skill-score skill-driver">${t.driver}<span class="skill-label">DRIVER</span></div>
+        <div class="skill-score skill-combined">${t.combined}<span class="skill-label">TOTAL</span></div>
+      </div>`;
+  }).join('');
+
+  // Determine if there's likely a next page
+  // We can show NEXT if either we have more loaded teams OR we haven't hit the API end
+  const hasMoreLoaded = end < skillsState.rankedItems.length;
+  const hasMoreToLoad = !skillsState.doneLoading;
+  const hasMore = hasMoreLoaded || hasMoreToLoad;
+  const isFirstPage = skillsState.currentPage === 0;
+
+  wrap.innerHTML = `
+    <div class="skill-table">
+      <div class="skill-header-row">
+        <div class="skill-rank">RANK</div>
+        <div class="skill-team">TEAM</div>
+        <div class="skill-score">AUTON</div>
+        <div class="skill-score">DRIVER</div>
+        <div class="skill-score">TOTAL</div>
+      </div>
+      ${rows}
+    </div>
+    <div class="page-controls">
+      <button class="btn btn-secondary" ${isFirstPage ? 'disabled' : ''} onclick="prevSkillsPage()">◂ PREV</button>
+      <div class="page-info">Page ${skillsState.currentPage + 1} · Showing rank ${start + 1}–${start + pageTeams.length}</div>
+      <button class="btn btn-secondary" ${!hasMore ? 'disabled' : ''} onclick="nextSkillsPage()" id="nextSkillsBtn">NEXT ▸</button>
+    </div>`;
+
+  // Reapply selection visual after re-render
+  updateSkillsSelectionUI();
+}
+
+async function nextSkillsPage() {
+  if (skillsState.loading) return;
+  skillsState.currentPage++;
+
+  const start = skillsState.currentPage * skillsState.pageSize;
+  const end = start + skillsState.pageSize;
+
+  // Need to load more from API?
+  if (end > skillsState.rankedItems.length && !skillsState.doneLoading) {
+    skillsState.loading = true;
+    const loadingEl = document.getElementById('skillsLoading');
+    const loadingText = document.getElementById('skillsLoadingText');
+    loadingEl.classList.add('active');
+    loadingText.textContent = 'LOADING NEXT 30...';
+    try {
+      // Keep fetching until we have enough or hit the end
+      while (end > skillsState.rankedItems.length && !skillsState.doneLoading) {
+        await loadSkillsApiPage();
+      }
+    } catch(e) {
+      showError('⚠ ' + e.message);
+    }
+    loadingEl.classList.remove('active');
+    skillsState.loading = false;
+  }
+
+  renderSkillsPage();
+  document.getElementById('skillsTableWrap').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function prevSkillsPage() {
+  if (skillsState.currentPage > 0) {
+    skillsState.currentPage--;
+    renderSkillsPage();
+    document.getElementById('skillsTableWrap').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+}
+
+// Click handler for skills rows — fills team input and runs scout
+// Set of team numbers selected via shift+click in skills list
+const selectedSkillsTeams = new Set();
+
+function scoutFromSkillsRow(teamNumber, evt) {
+  // If shift held, toggle multi-select
+  if (evt && evt.shiftKey) {
+    if (selectedSkillsTeams.has(teamNumber)) {
+      selectedSkillsTeams.delete(teamNumber);
+    } else {
+      selectedSkillsTeams.add(teamNumber);
+    }
+    updateSkillsSelectionUI();
+    return;
+  }
+
+  // Regular click — scout just this one team
+  selectedSkillsTeams.clear();
+  updateSkillsSelectionUI();
+
+  const input = document.getElementById('teamInput');
+  input.value = teamNumber;
+  const skillsSeason = document.getElementById('skillsSeasonSelect').value;
+  const scoutSeason = document.getElementById('seasonSelect');
+  if (skillsSeason && scoutSeason) {
+    scoutSeason.value = skillsSeason;
+  }
+  // Sync grade level too
+  const skillsGrade = document.getElementById('skillsGradeSelect').value;
+  const scoutGrade = document.getElementById('scoutGradeSelect');
+  if (skillsGrade && scoutGrade) {
+    scoutGrade.value = skillsGrade;
+  }
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  scoutTeams();
+}
+
+function updateSkillsSelectionUI() {
+  // Mark selected rows visually
+  document.querySelectorAll('.skill-row').forEach(row => {
+    const num = row.dataset.team;
+    if (num && selectedSkillsTeams.has(num)) {
+      row.classList.add('selected');
+    } else {
+      row.classList.remove('selected');
+    }
+  });
+
+  // Show/hide selection bar
+  let bar = document.getElementById('skillsSelectionBar');
+  if (selectedSkillsTeams.size > 0) {
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'skillsSelectionBar';
+      bar.className = 'skills-selection-bar';
+      const wrap = document.getElementById('skillsTableWrap');
+      wrap.parentNode.insertBefore(bar, wrap);
+    }
+    const list = Array.from(selectedSkillsTeams).join(', ');
+    bar.innerHTML = `
+      <span class="sel-count">${selectedSkillsTeams.size} team${selectedSkillsTeams.size === 1 ? '' : 's'} selected:</span>
+      <span class="sel-list">${list}</span>
+      <button class="btn btn-secondary" onclick="clearSkillsSelection()">CLEAR</button>
+      <button class="btn btn-primary" onclick="scoutSelectedSkills()">COMPARE SELECTED</button>
+    `;
+  } else if (bar) {
+    bar.remove();
+  }
+}
+
+function clearSkillsSelection() {
+  selectedSkillsTeams.clear();
+  updateSkillsSelectionUI();
+}
+
+function scoutSelectedSkills() {
+  if (selectedSkillsTeams.size === 0) return;
+  const teamList = Array.from(selectedSkillsTeams).join(', ');
+  document.getElementById('teamInput').value = teamList;
+  const skillsSeason = document.getElementById('skillsSeasonSelect').value;
+  const scoutSeason = document.getElementById('seasonSelect');
+  if (skillsSeason && scoutSeason) scoutSeason.value = skillsSeason;
+  const skillsGrade = document.getElementById('skillsGradeSelect').value;
+  const scoutGrade = document.getElementById('scoutGradeSelect');
+  if (skillsGrade && scoutGrade) scoutGrade.value = skillsGrade;
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  scoutTeams();
+  // Clear selection after scouting starts
+  selectedSkillsTeams.clear();
+  updateSkillsSelectionUI();
+}
+
+// ── TOURNAMENT SCOUTING ──────────────────────
+async function findTournament() {
+  const input = document.getElementById('tournamentInput').value.trim();
+  if (!input) { showError('⚠ Enter an event SKU, team number, or search term.'); return; }
+  showError('');
+
+  const resultsEl = document.getElementById('tournamentResults');
+  resultsEl.innerHTML = '';
+  const loadingEl = document.getElementById('tournamentLoading');
+  const loadingText = document.getElementById('tournamentLoadingText');
+  loadingEl.classList.add('active');
+
+  try {
+    const selectedSeason = document.getElementById('tournamentSeasonSelect')?.value;
+    const grade = document.getElementById('tournamentGradeSelect')?.value || 'High School';
+
+    // 1) SKU pattern (starts with RE-): exact event lookup
+    if (/^RE-/i.test(input)) {
+      loadingText.textContent = 'LOOKING UP SKU...';
+      const events = await apiGet('/events', { 'sku[]': [input.toUpperCase()] });
+      if (events.length) {
+        await loadTournamentTeams(events[0].id, events[0].name);
+        loadingEl.classList.remove('active');
+        return;
+      }
+      // fall through if not found
+    }
+
+    // 2) Team number pattern (digits + 0-2 letters): show events for that team
+    if (/^[0-9]{1,5}[A-Z]{0,2}$/i.test(input)) {
+      loadingText.textContent = `FINDING EVENTS FOR ${input.toUpperCase()}...`;
+      // Look up the team across V5RC then VEX U
+      let teams = await apiGet('/teams', { 'number[]': [input.toUpperCase()], 'program[]': [1] });
+      if (!teams.length) {
+        teams = await apiGet('/teams', { 'number[]': [input.toUpperCase()], 'program[]': [4] });
+      }
+      if (!teams.length) {
+        resultsEl.innerHTML = `<div style="text-align:center;padding:40px;font-family:var(--mono);color:var(--text-muted);">Team ${input.toUpperCase()} not found.</div>`;
+        loadingEl.classList.remove('active');
+        return;
+      }
+      const team = teams[0];
+
+      loadingText.textContent = `LOADING ${input.toUpperCase()}'S EVENTS...`;
+      const params = { 'team[]': [team.id] };
+      if (selectedSeason) params['season[]'] = [selectedSeason];
+      let events = await apiGet('/events', params);
+
+      // Sort by date descending (most recent first)
+      events.sort((a, b) => (b.start || '').localeCompare(a.start || ''));
+
+      if (!events.length) {
+        resultsEl.innerHTML = `<div style="text-align:center;padding:40px;font-family:var(--mono);color:var(--text-muted);">No events found for ${input.toUpperCase()} in this season.</div>`;
+        loadingEl.classList.remove('active');
+        return;
       }
 
-      // Forward Retry-After if present
-      const retryAfter = response.headers.get('Retry-After');
-      if (retryAfter) res.setHeader('Retry-After', retryAfter);
+      resultsEl.innerHTML = `
+        <div class="tournament-list">
+          <div class="tournament-list-label">${events.length} EVENT${events.length === 1 ? '' : 'S'} FOR ${input.toUpperCase()} — CLICK TO VIEW MATCHES</div>
+          ${events.slice(0, 50).map(ev => `
+            <div class="tournament-item" onclick="loadTournamentTeams(${ev.id}, ${JSON.stringify(ev.name || 'Unnamed').replace(/"/g, '&quot;')}, ${team.id}, '${input.toUpperCase()}')">
+              <div class="tournament-name">${ev.name || 'Unnamed'}</div>
+              <div class="tournament-meta">${ev.sku || ''} · ${ev.start ? new Date(ev.start).toLocaleDateString() : ''} · ${ev.location?.region || ''}</div>
+            </div>
+          `).join('')}
+        </div>`;
+      loadingEl.classList.remove('active');
+      return;
+    }
 
-      let data;
+    // 3) Free-text event name search within the selected season
+    loadingText.textContent = 'SEARCHING EVENT NAMES...';
+    let events = await apiGet('/events', {
+      'season[]': [selectedSeason],
+      'program[]': [1]
+    });
+    const lower = input.toLowerCase();
+    events = events.filter(e => (e.name || '').toLowerCase().includes(lower));
+
+    if (!events.length) {
+      resultsEl.innerHTML = '<div style="text-align:center;padding:40px;font-family:var(--mono);color:var(--text-muted);">No events found matching that search.</div>';
+      loadingEl.classList.remove('active');
+      return;
+    }
+
+    // Multiple results — let user pick
+    if (events.length > 1) {
+      resultsEl.innerHTML = `
+        <div class="tournament-list">
+          <div class="tournament-list-label">FOUND ${events.length} EVENTS — PICK ONE</div>
+          ${events.slice(0, 30).map(ev => `
+            <div class="tournament-item" onclick="loadTournamentTeams(${ev.id}, ${JSON.stringify(ev.name || 'Unnamed').replace(/"/g, '&quot;')})">
+              <div class="tournament-name">${ev.name || 'Unnamed'}</div>
+              <div class="tournament-meta">${ev.sku || ''} · ${ev.start ? new Date(ev.start).toLocaleDateString() : ''} · ${ev.location?.region || ''}</div>
+            </div>
+          `).join('')}
+        </div>`;
+      loadingEl.classList.remove('active');
+      return;
+    }
+
+    // Single match — load it directly
+    const ev = events[0];
+    await loadTournamentTeams(ev.id, ev.name);
+
+  } catch(e) {
+    showError('⚠ ' + e.message);
+    console.error('Tournament search error:', e);
+  }
+  loadingEl.classList.remove('active');
+}
+
+// Selection set for tournament teams (parallel to skills selection)
+const selectedTournamentTeams = new Set();
+let tournamentTeamCache = []; // last-loaded teams (for re-sorting)
+let tournamentEventName = '';
+let tournamentGrade = 'High School';
+
+// Tournament view state
+let tournamentEventId = null;
+let tournamentFocusTeamId = null;
+let tournamentFocusTeamNumber = '';
+
+async function loadTournamentTeams(eventId, eventName, focusTeamId, focusTeamNumber) {
+  selectedTournamentTeams.clear();
+  tournamentEventId = eventId;
+  tournamentEventName = eventName;
+  tournamentFocusTeamId = focusTeamId || null;
+  tournamentFocusTeamNumber = focusTeamNumber || '';
+
+  const resultsEl = document.getElementById('tournamentResults');
+  resultsEl.innerHTML = '';
+  const loadingEl = document.getElementById('tournamentLoading');
+  const loadingText = document.getElementById('tournamentLoadingText');
+  loadingEl.classList.add('active');
+  loadingText.textContent = `LOADING ${eventName}...`;
+
+  try {
+    // If we have a focus team, default view = matches for that team
+    if (tournamentFocusTeamId) {
+      await renderEventTeamMatchesView();
+    } else {
+      await loadAndRenderTeamList();
+    }
+  } catch(e) {
+    showError('⚠ ' + e.message);
+    console.error('Tournament teams error:', e);
+  }
+  loadingEl.classList.remove('active');
+}
+
+// Renders match list for the focused team at the focused event
+async function renderEventTeamMatchesView() {
+  const loadingText = document.getElementById('skillsLoadingText') || document.getElementById('tournamentLoadingText');
+  if (loadingText) loadingText.textContent = `LOADING ${tournamentFocusTeamNumber}'S MATCHES...`;
+
+  const eventId = tournamentEventId;
+  const teamId = tournamentFocusTeamId;
+
+  // Fetch matches for this team at this event
+  const matches = await apiGet(`/teams/${teamId}/matches`, { 'event[]': [eventId] });
+
+  // Filter out practice matches (round 1)
+  const realMatches = matches.filter(m => m.round !== 1);
+
+  // Sort by round then matchnum
+  realMatches.sort((a, b) => {
+    if (a.round !== b.round) return a.round - b.round;
+    return (a.matchnum || 0) - (b.matchnum || 0);
+  });
+
+  // Detect round name — prefer match.name field, fall back to round number mapping
+  // V5RC match name patterns: "Q1", "Q23" (qual); "R16 #1", "QF #1", "SF #1", "F #1"
+  function detectRoundFromMatch(match) {
+    const name = (match.name || '').trim().toUpperCase();
+    // Check QF/SF first since they start with Q/S which could be confused with quals
+    if (name.startsWith('QF') || name.includes('QUARTER')) return 'Quarterfinals';
+    if (name.startsWith('SF') || name.includes('SEMI')) return 'Semifinals';
+    if (/^Q\s*\d/.test(name) || name.startsWith('QUAL')) return 'Qualification';
+    if (name.startsWith('R128')) return 'Round of 128';
+    if (name.startsWith('R64')) return 'Round of 64';
+    if (name.startsWith('R32')) return 'Round of 32';
+    if (name.startsWith('R16') || name.startsWith('ROUND OF 16')) return 'Round of 16';
+    if (name.startsWith('F') || /^F\d/.test(name) || name.includes('FINAL')) return 'Finals';
+    if (/^P\s*\d/.test(name) || name.startsWith('PRACT')) return 'Practice';
+    // Fallback to round number — V5RC uses these mappings most commonly
+    return ({
+      1: 'Practice',
+      2: 'Qualification',
+      3: 'Quarterfinals',
+      4: 'Semifinals',
+      5: 'Finals',
+      6: 'Round of 16',
+      9: 'Round of 64',
+      10: 'Round of 32',
+      15: 'Practice'
+    })[match.round] || `Round ${match.round}`;
+  }
+
+  const resultsEl = document.getElementById('tournamentResults');
+
+  // Header with view-switch buttons
+  let html = `
+    <div class="tournament-summary">
+      <div class="tournament-summary-name">${tournamentEventName}</div>
+      <div class="tournament-summary-count">Matches for <span style="color:var(--accent-bright);font-weight:700;">${tournamentFocusTeamNumber}</span></div>
+      <div class="tournament-summary-actions">
+        <button class="btn btn-secondary" onclick="loadAndRenderTeamList()">SHOW ALL TEAMS</button>
+        <button class="btn btn-secondary" onclick="renderBracketView()">ELIMINATION BRACKET</button>
+      </div>
+    </div>
+  `;
+
+  if (!realMatches.length) {
+    html += `<div style="text-align:center;padding:40px;font-family:var(--mono);color:var(--text-muted);">No matches found for ${tournamentFocusTeamNumber} at this event.</div>`;
+    resultsEl.innerHTML = html;
+    return;
+  }
+
+  // Group by detected round name
+  const byRound = {};
+  const roundOrder = []; // preserve discovery order
+  for (const m of realMatches) {
+    const r = detectRoundFromMatch(m);
+    if (!byRound[r]) {
+      byRound[r] = [];
+      roundOrder.push(r);
+    }
+    byRound[r].push(m);
+  }
+
+  // Custom sort to put rounds in logical order
+  const roundPriority = ['Practice','Qualification','Round of 128','Round of 64','Round of 32','Round of 16','Quarterfinals','Semifinals','Finals'];
+  roundOrder.sort((a, b) => {
+    const ai = roundPriority.indexOf(a);
+    const bi = roundPriority.indexOf(b);
+    return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+  });
+
+  for (const round of roundOrder) {
+    html += `<div class="match-round-label">${round}</div>`;
+    html += `<div class="match-list">`;
+    for (const match of byRound[round]) {
+      html += renderMatchRow(match, teamId);
+    }
+    html += `</div>`;
+  }
+
+  resultsEl.innerHTML = html;
+}
+
+// Renders one match row showing alliance colors, opponents, partner, win/loss
+function renderMatchRow(match, focusTeamId) {
+  const al = match.alliances;
+  if (!al) return '';
+
+  let redA, blueA;
+  if (Array.isArray(al)) {
+    redA  = al.find(a => (a.color||'').toLowerCase() === 'red');
+    blueA = al.find(a => (a.color||'').toLowerCase() === 'blue');
+    if (!redA && al.length >= 2) { redA = al[0]; blueA = al[1]; }
+  } else {
+    redA = al.red; blueA = al.blue;
+  }
+  if (!redA || !blueA) return '';
+
+  function teamsOf(alliance) {
+    return (alliance.teams || []).map(t => ({
+      id: t?.team?.id ?? t?.id ?? t,
+      number: t?.team?.name ?? t?.name ?? '?'
+    }));
+  }
+  const redTeams = teamsOf(redA);
+  const blueTeams = teamsOf(blueA);
+
+  const inRed = redTeams.some(t => String(t.id) === String(focusTeamId));
+  const inBlue = blueTeams.some(t => String(t.id) === String(focusTeamId));
+
+  const myColor = inRed ? 'red' : (inBlue ? 'blue' : '');
+  if (!myColor) return '';
+
+  const myA = inRed ? redA : blueA;
+  const oppA = inRed ? blueA : redA;
+  const myTeams = inRed ? redTeams : blueTeams;
+  const oppTeams = inRed ? blueTeams : redTeams;
+
+  const myScore = myA.score ?? 0;
+  const oppScore = oppA.score ?? 0;
+  const partner = myTeams.find(t => String(t.id) !== String(focusTeamId));
+
+  let outcome = 'pending';
+  let outcomeClass = 'pending';
+  if (myA.score !== null && myA.score !== undefined) {
+    if (myScore > oppScore) { outcome = 'WIN'; outcomeClass = 'win'; }
+    else if (myScore < oppScore) { outcome = 'LOSS'; outcomeClass = 'loss'; }
+    else { outcome = 'TIE'; outcomeClass = 'tie'; }
+  } else {
+    outcome = '—';
+  }
+
+  const matchLabel = `Match ${match.matchnum || ''}`;
+  const myColorClass = myColor === 'red' ? 'alliance-red' : 'alliance-blue';
+  const oppColorClass = myColor === 'red' ? 'alliance-blue' : 'alliance-red';
+
+  return `
+    <div class="match-row ${outcomeClass}">
+      <div class="match-num">${matchLabel}</div>
+      <div class="match-alliance ${myColorClass}">
+        <div class="match-alliance-label">YOU</div>
+        <div class="match-teams">${myTeams.map(t => `<span class="${String(t.id) === String(focusTeamId) ? 'match-team-self' : ''}">${t.number}</span>`).join(' · ')}</div>
+        <div class="match-score">${myScore}</div>
+      </div>
+      <div class="match-vs">VS</div>
+      <div class="match-alliance ${oppColorClass}">
+        <div class="match-alliance-label">OPP</div>
+        <div class="match-teams">${oppTeams.map(t => `<span>${t.number}</span>`).join(' · ')}</div>
+        <div class="match-score">${oppScore}</div>
+      </div>
+      <div class="match-outcome ${outcomeClass}">${outcome}</div>
+    </div>`;
+}
+
+// ──── Elimination bracket view ────
+async function renderBracketView() {
+  const resultsEl = document.getElementById('tournamentResults');
+  const loadingEl = document.getElementById('tournamentLoading');
+  const loadingText = document.getElementById('tournamentLoadingText');
+  loadingEl.classList.add('active');
+  loadingText.textContent = 'LOADING ELIMINATION MATCHES...';
+
+  try {
+    // Fetch event details to get division IDs
+    const eventDetailRes = await fetch(`${BASE}?path=${encodeURIComponent('/events?id[]=' + tournamentEventId)}`);
+    if (!eventDetailRes.ok) throw new Error(`HTTP ${eventDetailRes.status}`);
+    const eventData = await eventDetailRes.json();
+    const event = (eventData.data || [])[0];
+    const divisions = event?.divisions || [{ id: 1 }];
+
+    // Fetch all matches across all divisions, tracking which division each match belongs to
+    const matchesByDivision = {};
+    for (const div of divisions) {
       try {
-        data = JSON.parse(text);
-      } catch (e) {
-        data = {
-          error: 'Non-JSON response from RobotEvents',
-          status: response.status,
-          preview: text.slice(0, 300)
-        };
+        const divMatches = await apiGet(`/events/${tournamentEventId}/divisions/${div.id}/matches`);
+        const divName = div.name || `Division ${div.id}`;
+        matchesByDivision[divName] = divMatches;
+      } catch(e) { /* continue with others */ }
+    }
+
+    // Filter to elimination matches — use match.name patterns to detect elims
+    // Important: exclude Q1, Q2 etc (quals) but NOT QF (quarterfinals)
+    const isElim = (m) => {
+      const name = (m.name || '').toUpperCase().trim();
+      // Exclude quals: "Q1", "Q 1", "Q23", "Qual..." but NOT "QF" anything
+      if (/^Q\s*\d/.test(name) || name.startsWith('QUAL')) return false;
+      // Exclude practice: "P1", "P 1", "Pract..."
+      if (/^P\s*\d/.test(name) || name.startsWith('PRACT')) return false;
+      // Now check for elim patterns
+      if (name.startsWith('QF') || name.startsWith('SF') || name.includes('QUARTER') || name.includes('SEMI')) return true;
+      if (name.startsWith('R') && /\d/.test(name)) return true;
+      if (name.startsWith('F') || name.includes('FINAL')) return true;
+      return m.round && m.round !== 1 && m.round !== 2;
+    };
+
+    // Filter elim matches per division
+    const elimsByDivision = {};
+    let totalElims = 0;
+    for (const [divName, matches] of Object.entries(matchesByDivision)) {
+      const elims = matches.filter(isElim);
+      if (elims.length) {
+        elimsByDivision[divName] = elims;
+        totalElims += elims.length;
+      }
+    }
+
+    if (totalElims === 0) {
+      resultsEl.innerHTML = `
+        <div class="tournament-summary">
+          <div class="tournament-summary-name">${tournamentEventName}</div>
+          <div class="tournament-summary-count">No elimination matches yet</div>
+          <div class="tournament-summary-actions">
+            ${tournamentFocusTeamId ? `<button class="btn btn-secondary" onclick="renderEventTeamMatchesView()">BACK TO ${tournamentFocusTeamNumber}'S MATCHES</button>` : ''}
+            <button class="btn btn-secondary" onclick="loadAndRenderTeamList()">SHOW ALL TEAMS</button>
+          </div>
+        </div>
+        <div style="text-align:center;padding:40px;font-family:var(--mono);color:var(--text-muted);">Elimination bracket not available — eliminations may not have started yet.</div>`;
+      loadingEl.classList.remove('active');
+      return;
+    }
+
+    // Group by detected round name (same logic as match list)
+    function detectRound(m) {
+      const name = (m.name || '').trim().toUpperCase();
+      // Order matters: check most specific first
+      if (name.startsWith('QF') || name.includes('QUARTER')) return 'Quarterfinals';
+      if (name.startsWith('SF') || name.includes('SEMI')) return 'Semifinals';
+      if (name.startsWith('R128')) return 'Round of 128';
+      if (name.startsWith('R64')) return 'Round of 64';
+      if (name.startsWith('R32')) return 'Round of 32';
+      if (name.startsWith('R16') || name.startsWith('ROUND OF 16')) return 'Round of 16';
+      if (name.startsWith('F') || name.includes('FINAL')) return 'Finals';
+      return ({
+        3: 'Quarterfinals', 4: 'Semifinals', 5: 'Finals',
+        6: 'Round of 16', 9: 'Round of 64', 10: 'Round of 32'
+      })[m.round] || `Round ${m.round}`;
+    }
+
+    const priority = ['Round of 128','Round of 64','Round of 32','Round of 16','Quarterfinals','Semifinals','Finals'];
+
+    let html = `
+      <div class="tournament-summary">
+        <div class="tournament-summary-name">${tournamentEventName} — Elimination Bracket</div>
+        <div class="tournament-summary-actions">
+          ${tournamentFocusTeamId ? `<button class="btn btn-secondary" onclick="renderEventTeamMatchesView()">BACK TO ${tournamentFocusTeamNumber}'S MATCHES</button>` : ''}
+          <button class="btn btn-secondary" onclick="loadAndRenderTeamList()">SHOW ALL TEAMS</button>
+        </div>
+      </div>`;
+
+    const divNames = Object.keys(elimsByDivision);
+    const showDivisionHeaders = divNames.length > 1;
+
+    for (const divName of divNames) {
+      const elims = elimsByDivision[divName];
+
+      const byRound = {};
+      for (const m of elims) {
+        const r = detectRound(m);
+        if (!byRound[r]) byRound[r] = [];
+        byRound[r].push(m);
+      }
+      for (const r of Object.keys(byRound)) {
+        byRound[r].sort((a, b) => (a.matchnum || 0) - (b.matchnum || 0));
       }
 
-      // Cache successful responses
-      if (response.status >= 200 && response.status < 300) {
-        cache.set(path, {
-          data,
-          status: response.status,
-          expires: Date.now() + CACHE_TTL_MS
-        });
-        if (cache.size > 200) {
-          const firstKey = cache.keys().next().value;
-          cache.delete(firstKey);
+      const sortedRounds = Object.keys(byRound).sort((a, b) => {
+        const ai = priority.indexOf(a);
+        const bi = priority.indexOf(b);
+        return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+      });
+
+      if (showDivisionHeaders) {
+        html += `<div class="bracket-division-header">${divName}</div>`;
+      }
+
+      html += `<div class="bracket-wrapper"><div class="bracket-container">`;
+      for (const r of sortedRounds) {
+        html += `
+          <div class="bracket-column">
+            <div class="bracket-round-label">${r}</div>
+            <div class="bracket-column-inner">
+              ${byRound[r].map(m => renderBracketMatch(m)).join('')}
+            </div>
+          </div>`;
+      }
+      html += `</div><svg class="bracket-svg-overlay"></svg></div>`;
+    }
+
+    resultsEl.innerHTML = html;
+
+    // Draw bracket connector lines after DOM is rendered
+    setTimeout(() => drawBracketConnectors(), 50);
+    // Redraw on resize
+    if (!window._bracketResizeBound) {
+      window._bracketResizeBound = true;
+      window.addEventListener('resize', () => {
+        if (document.querySelector('.bracket-wrapper')) drawBracketConnectors();
+      });
+    }
+
+  } catch(e) {
+    showError('⚠ ' + e.message);
+    console.error('Bracket error:', e);
+  }
+  loadingEl.classList.remove('active');
+}
+
+function drawBracketConnectors() {
+  const wrappers = document.querySelectorAll('.bracket-wrapper');
+  for (const wrapper of wrappers) {
+    const svg = wrapper.querySelector('.bracket-svg-overlay');
+    if (!svg) continue;
+
+    // Reset SVG sizing to match its container
+    const wRect = wrapper.getBoundingClientRect();
+    svg.setAttribute('width', wRect.width);
+    svg.setAttribute('height', wRect.height);
+    svg.setAttribute('viewBox', `0 0 ${wRect.width} ${wRect.height}`);
+    svg.innerHTML = '';
+
+    const columns = wrapper.querySelectorAll('.bracket-column');
+    if (columns.length < 2) continue;
+
+    for (let i = 0; i < columns.length - 1; i++) {
+      const fromMatches = columns[i].querySelectorAll('.bracket-match');
+      const toMatches = columns[i + 1].querySelectorAll('.bracket-match');
+      if (toMatches.length === 0) continue;
+
+      // Each pair of fromMatches feeds into one toMatch
+      for (let j = 0; j < toMatches.length; j++) {
+        const fromA = fromMatches[j * 2];
+        const fromB = fromMatches[j * 2 + 1];
+        const target = toMatches[j];
+        if (!target) continue;
+
+        const aRect = fromA?.getBoundingClientRect();
+        const bRect = fromB?.getBoundingClientRect();
+        const tRect = target.getBoundingClientRect();
+
+        // Convert to wrapper-relative coords
+        const aRight = aRect ? aRect.right - wRect.left : null;
+        const aMidY = aRect ? (aRect.top + aRect.bottom) / 2 - wRect.top : null;
+        const bRight = bRect ? bRect.right - wRect.left : null;
+        const bMidY = bRect ? (bRect.top + bRect.bottom) / 2 - wRect.top : null;
+        const tLeft = tRect.left - wRect.left;
+        const tMidY = (tRect.top + tRect.bottom) / 2 - wRect.top;
+
+        // Halfway between columns
+        const midX = aRight !== null ? aRight + (tLeft - aRight) / 2 : tLeft - 16;
+
+        // Draw L-paths: from each source to midX, then vertical to tMidY, then to target
+        if (aRect) {
+          const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          path.setAttribute('d', `M ${aRight} ${aMidY} L ${midX} ${aMidY} L ${midX} ${tMidY} L ${tLeft} ${tMidY}`);
+          svg.appendChild(path);
+        }
+        if (bRect) {
+          const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          path.setAttribute('d', `M ${bRight} ${bMidY} L ${midX} ${bMidY} L ${midX} ${tMidY} L ${tLeft} ${tMidY}`);
+          svg.appendChild(path);
         }
       }
+    }
+  }
+}
 
-      return res.status(response.status).json(data);
-    } catch (err) {
-      lastResponse = null;
-      lastText = err.message;
-      if (i === attempts - 1) {
-        return res.status(500).json({ error: err.message });
+function renderBracketMatch(match) {
+  const al = match.alliances;
+  if (!al) return '';
+  let redA, blueA;
+  if (Array.isArray(al)) {
+    redA = al.find(a => (a.color||'').toLowerCase() === 'red');
+    blueA = al.find(a => (a.color||'').toLowerCase() === 'blue');
+    if (!redA && al.length >= 2) { redA = al[0]; blueA = al[1]; }
+  } else {
+    redA = al.red; blueA = al.blue;
+  }
+  if (!redA || !blueA) return '';
+
+  function teamsOf(alliance) {
+    return (alliance.teams || []).map(t => t?.team?.name ?? t?.name ?? '?');
+  }
+  const redTeams = teamsOf(redA);
+  const blueTeams = teamsOf(blueA);
+  const redScore = redA.score ?? '';
+  const blueScore = blueA.score ?? '';
+  const redWon = (redA.score ?? 0) > (blueA.score ?? 0);
+  const blueWon = (blueA.score ?? 0) > (redA.score ?? 0);
+
+  // Get the match label — prefer match.name (e.g. "QF #2") then fall back to "Match N"
+  const matchLabel = (match.name || `Match ${match.matchnum || ''}`).trim();
+
+  return `
+    <div class="bracket-match">
+      <div class="bracket-match-label">${matchLabel}</div>
+      <div class="bracket-side bracket-red ${redWon ? 'winner' : ''}">
+        <div class="bracket-teams">${redTeams.join(' ')}</div>
+        <div class="bracket-score">${redScore}</div>
+      </div>
+      <div class="bracket-side bracket-blue ${blueWon ? 'winner' : ''}">
+        <div class="bracket-teams">${blueTeams.join(' ')}</div>
+        <div class="bracket-score">${blueScore}</div>
+      </div>
+    </div>`;
+}
+
+// Renders the full team list view (the existing "all teams" view)
+async function loadAndRenderTeamList() {
+  const eventId = tournamentEventId;
+  const eventName = tournamentEventName;
+
+  const resultsEl = document.getElementById('tournamentResults');
+  resultsEl.innerHTML = '';
+  const loadingEl = document.getElementById('tournamentLoading');
+  const loadingText = document.getElementById('tournamentLoadingText');
+  loadingEl.classList.add('active');
+  loadingText.textContent = `LOADING TEAMS FROM ${eventName}...`;
+
+  try {
+    const teams = await apiGet(`/events/${eventId}/teams`);
+
+    const grade = document.getElementById('tournamentGradeSelect').value;
+    tournamentGrade = grade;
+    let filtered = teams;
+    if (grade && grade !== 'All') {
+      filtered = teams.filter(t => {
+        const g = (t.grade || t.grade_level || t.gradeLevel || '').trim();
+        return g === grade;
+      });
+    }
+
+    if (!filtered.length) {
+      resultsEl.innerHTML = `<div style="text-align:center;padding:40px;font-family:var(--mono);color:var(--text-muted);">No ${grade} teams found at this event.</div>`;
+      loadingEl.classList.remove('active');
+      return;
+    }
+
+    const seasonId = document.getElementById('tournamentSeasonSelect')?.value;
+    loadingText.textContent = 'LOADING WORLD SKILLS RANKINGS...';
+    const seasonSkills = seasonId ? await getFullSeasonSkills(seasonId, grade).catch(() => null) : null;
+
+    loadingText.textContent = `LOADING STATS FOR ${filtered.length} TEAMS...`;
+    const enriched = [];
+    const BATCH = 4;
+    for (let i = 0; i < filtered.length; i += BATCH) {
+      const slice = filtered.slice(i, i + BATCH);
+      loadingText.textContent = `LOADING STATS (${i + 1}-${Math.min(i + BATCH, filtered.length)} / ${filtered.length})...`;
+      const results = await Promise.all(slice.map(async t => {
+        let eventRank = null, wins = 0, losses = 0, ties = 0;
+        try {
+          const rankings = await apiGet(`/teams/${t.id}/rankings`, { 'event[]': [eventId] });
+          if (rankings.length > 0) {
+            const r = rankings[0];
+            eventRank = r.rank || null;
+            wins = r.wins || 0;
+            losses = r.losses || 0;
+            ties = r.ties || 0;
+          }
+        } catch(e) {}
+        const total = wins + losses + ties;
+        const winRate = total > 0 ? wins / total * 100 : null;
+        const worldSkills = seasonSkills?.byId[t.id]?.globalRank || null;
+        return {
+          id: t.id, number: t.number, team_name: t.team_name || '',
+          eventRank, wins, losses, ties, winRate, worldSkills
+        };
+      }));
+      enriched.push(...results);
+    }
+
+    tournamentTeamCache = enriched;
+    renderTournamentTeams();
+  } catch(e) {
+    showError('⚠ ' + e.message);
+  }
+  loadingEl.classList.remove('active');
+}
+
+function renderTournamentTeams() {
+  const resultsEl = document.getElementById('tournamentResults');
+  const sortMode = document.getElementById('tournamentSortSelect')?.value || 'winrate';
+
+  // Sort teams
+  const teams = [...tournamentTeamCache];
+  if (sortMode === 'winrate') {
+    teams.sort((a, b) => {
+      const aw = a.winRate ?? -1;
+      const bw = b.winRate ?? -1;
+      return bw - aw;
+    });
+  } else if (sortMode === 'world') {
+    teams.sort((a, b) => {
+      const aw = a.worldSkills ?? Number.MAX_SAFE_INTEGER;
+      const bw = b.worldSkills ?? Number.MAX_SAFE_INTEGER;
+      return aw - bw;
+    });
+  } else if (sortMode === 'eventrank') {
+    teams.sort((a, b) => {
+      const aw = a.eventRank ?? Number.MAX_SAFE_INTEGER;
+      const bw = b.eventRank ?? Number.MAX_SAFE_INTEGER;
+      return aw - bw;
+    });
+  }
+
+  const teamNumbers = teams.map(t => t.number).filter(Boolean);
+
+  resultsEl.innerHTML = `
+    <div class="tournament-summary">
+      <div class="tournament-summary-name">${tournamentEventName}</div>
+      <div class="tournament-summary-count">${teams.length} ${tournamentGrade} team${teams.length === 1 ? '' : 's'} registered</div>
+      <div class="tournament-summary-actions">
+        <div class="input-wrap select-wrap" style="min-width:180px;">
+          <span class="input-label">SORT BY</span>
+          <select id="tournamentSortSelect" onchange="renderTournamentTeams()">
+            <option value="winrate" ${sortMode==='winrate'?'selected':''}>Win Rate</option>
+            <option value="world" ${sortMode==='world'?'selected':''}>World Skills Rank</option>
+            <option value="eventrank" ${sortMode==='eventrank'?'selected':''}>Event Rank</option>
+          </select>
+        </div>
+        ${tournamentFocusTeamId ? `<button class="btn btn-secondary" onclick="renderEventTeamMatchesView()">${tournamentFocusTeamNumber}'S MATCHES</button>` : ''}
+        <button class="btn btn-secondary" onclick="renderBracketView()">BRACKET</button>
+        <button class="btn btn-secondary" onclick="copyTournamentTeams('${teamNumbers.join(',')}')">COPY ALL</button>
+        <button class="btn btn-primary" onclick="scoutTournamentTeams('${teamNumbers.join(',')}', '${tournamentGrade}')">SCOUT ALL ${teams.length}</button>
+      </div>
+    </div>
+
+    <div class="info-bar">
+      <span class="info-icon" title="Click to scout one team. Shift+click to select multiple, then 'Compare Selected' to scout them together.">ⓘ</span>
+      <span>Click to scout · Shift+click to select multiple</span>
+    </div>
+
+    <div class="tournament-teams">
+      ${teams.map(t => {
+        const winRateStr = t.winRate !== null ? t.winRate.toFixed(0) + '%' : '—';
+        const worldStr = t.worldSkills ? '#' + t.worldSkills : '—';
+        const eventStr = t.eventRank ? '#' + t.eventRank : '—';
+        return `
+        <div class="tournament-team-tag" data-team="${t.number}" onclick="onTournamentTeamClick('${t.number}', event)">
+          <div class="tt-row1">
+            <span class="tt-num">${t.number}</span>
+            <span class="tt-name">${t.team_name || ''}</span>
+          </div>
+          <div class="tt-row2">
+            <span class="tt-stat"><span class="tt-stat-label">Event</span> ${eventStr}</span>
+            <span class="tt-stat"><span class="tt-stat-label">Win%</span> ${winRateStr}</span>
+            <span class="tt-stat"><span class="tt-stat-label">World</span> ${worldStr}</span>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>`;
+
+  updateTournamentSelectionUI();
+}
+
+function onTournamentTeamClick(teamNumber, evt) {
+  if (evt && evt.shiftKey) {
+    if (selectedTournamentTeams.has(teamNumber)) {
+      selectedTournamentTeams.delete(teamNumber);
+    } else {
+      selectedTournamentTeams.add(teamNumber);
+    }
+    updateTournamentSelectionUI();
+    return;
+  }
+  // Regular click — scout that one team
+  selectedTournamentTeams.clear();
+  updateTournamentSelectionUI();
+  scoutFromTournament(teamNumber, tournamentGrade);
+}
+
+function updateTournamentSelectionUI() {
+  document.querySelectorAll('.tournament-team-tag').forEach(tag => {
+    const num = tag.dataset.team;
+    if (num && selectedTournamentTeams.has(num)) {
+      tag.classList.add('selected');
+    } else {
+      tag.classList.remove('selected');
+    }
+  });
+
+  let bar = document.getElementById('tournamentSelectionBar');
+  if (selectedTournamentTeams.size > 0) {
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'tournamentSelectionBar';
+      bar.className = 'skills-selection-bar';
+      const resultsEl = document.getElementById('tournamentResults');
+      resultsEl.appendChild(bar);
+    }
+    const list = Array.from(selectedTournamentTeams).join(', ');
+    bar.innerHTML = `
+      <span class="sel-count">${selectedTournamentTeams.size} team${selectedTournamentTeams.size === 1 ? '' : 's'} selected:</span>
+      <span class="sel-list">${list}</span>
+      <button class="btn btn-secondary" onclick="clearTournamentSelection()">CLEAR</button>
+      <button class="btn btn-primary" onclick="scoutSelectedTournament()">COMPARE SELECTED</button>
+    `;
+  } else if (bar) {
+    bar.remove();
+  }
+}
+
+function clearTournamentSelection() {
+  selectedTournamentTeams.clear();
+  updateTournamentSelectionUI();
+}
+
+function scoutSelectedTournament() {
+  if (selectedTournamentTeams.size === 0) return;
+  const list = Array.from(selectedTournamentTeams).join(', ');
+  document.getElementById('teamInput').value = list;
+  document.getElementById('scoutGradeSelect').value = tournamentGrade;
+  const tourSeason = document.getElementById('tournamentSeasonSelect').value;
+  if (tourSeason) document.getElementById('seasonSelect').value = tourSeason;
+  selectedTournamentTeams.clear();
+  updateTournamentSelectionUI();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  scoutTeams();
+}
+
+function copyTournamentTeams(commaList) {
+  navigator.clipboard.writeText(commaList).then(() => {
+    showError('');
+    const original = event.target.textContent;
+    event.target.textContent = 'COPIED ✓';
+    setTimeout(() => event.target.textContent = original, 1500);
+  }).catch(() => {
+    showError('Could not copy to clipboard.');
+  });
+}
+
+function scoutFromTournament(teamNumber, grade) {
+  document.getElementById('teamInput').value = teamNumber;
+  document.getElementById('scoutGradeSelect').value = grade;
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  scoutTeams();
+}
+
+function scoutTournamentTeams(commaList, grade) {
+  if (!commaList) return;
+  document.getElementById('teamInput').value = commaList.replace(/,/g, ', ');
+  document.getElementById('scoutGradeSelect').value = grade;
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  scoutTeams();
+}
+
+
+function showError(msg) {
+  const box = document.getElementById('errorBox');
+  box.textContent = msg;
+  box.classList.toggle('active', !!msg);
+}
+
+function setLoading(active, text = 'FETCHING TEAM DATA...') {
+  document.getElementById('loading').classList.toggle('active', active);
+  document.getElementById('loadingText').textContent = text;
+  document.getElementById('scoutBtn').disabled = active;
+}
+
+// ── SCOUT ─────────────────────────────────────
+let scoutInProgress = false;
+
+function clearScoutResults() {
+  document.getElementById('teamInput').value = '';
+  document.getElementById('resultsGrid').innerHTML = '';
+  document.getElementById('resultsLabel').style.display = 'none';
+  document.getElementById('compareNotice').style.display = 'none';
+  showError('');
+}
+
+async function scoutTeams() {
+  if (scoutInProgress) return; // prevent overlapping/spammed scouts
+  const input = document.getElementById('teamInput').value.trim();
+  if (!input) return;
+
+  scoutInProgress = true;
+  const seasonId = document.getElementById('seasonSelect').value || null;
+  const gradeLevel = document.getElementById('scoutGradeSelect').value || 'High School';
+
+  showError('');
+  const teamNumbers = input.split(/[\s,]+/).map(t => t.toUpperCase().trim()).filter(Boolean);
+  const grid = document.getElementById('resultsGrid');
+  grid.innerHTML = '';
+  document.getElementById('resultsLabel').style.display = 'none';
+  document.getElementById('compareNotice').style.display = 'none';
+  setLoading(true);
+
+  try {
+    for (let i = 0; i < teamNumbers.length; i++) {
+      const num = teamNumbers[i];
+      setLoading(true, `SCOUTING ${num}... (${i+1}/${teamNumbers.length})`);
+      try {
+        const card = await buildTeamCard(num, seasonId, gradeLevel);
+        grid.appendChild(card);
+      } catch(e) {
+        const errCard = document.createElement('div');
+        errCard.className = 'team-card';
+        errCard.innerHTML = `<div class="card-header"><div>
+          <div class="team-number">${num}</div>
+          <div class="team-name" style="color:#ff4444;">Team not found</div>
+          <div class="team-location" style="color:#884444;">${e.message}</div>
+        </div></div>`;
+        grid.appendChild(errCard);
       }
     }
-  }
 
-  // All tokens exhausted with rate limits — return last response
-  if (lastResponse) {
-    let data;
-    try {
-      data = JSON.parse(lastText);
-    } catch (e) {
-      data = { error: 'All tokens rate-limited', status: lastResponse.status };
+    document.getElementById('resultsLabel').style.display = 'flex';
+    if (teamNumbers.length > 1) {
+      document.getElementById('compareNotice').style.display = 'block';
+      document.getElementById('compareNotice').textContent = `${teamNumbers.length} teams scouted · scroll to compare`;
     }
-    const retryAfter = lastResponse.headers.get('Retry-After');
-    if (retryAfter) res.setHeader('Retry-After', retryAfter);
-    return res.status(lastResponse.status).json(data);
+  } finally {
+    setLoading(false);
+    scoutInProgress = false;
+  }
+}
+
+// ── BUILD CARD ────────────────────────────────
+async function buildTeamCard(teamNumber, seasonId, gradeLevel = 'High School') {
+  // Search V5RC first (program 1), then fall back to VEX U (program 4) for university teams
+  let teams = await apiGet('/teams', { 'number[]': [teamNumber], 'program[]': [1] });
+  if (!teams.length) {
+    teams = await apiGet('/teams', { 'number[]': [teamNumber], 'program[]': [4] });
+  }
+  if (!teams.length) throw new Error('Team not found in V5RC or VEX U.');
+  const team = teams[0];
+  const teamId = team.id;
+  const params = { 'team[]': [teamId] };
+  if (seasonId) params['season[]'] = [seasonId];
+
+  // Fetch all team data + global skills rankings in parallel
+  const [allMatches, skills, rankings, awards, seasonSkills] = await Promise.all([
+    apiGet(`/teams/${teamId}/matches`, params),
+    apiGet(`/teams/${teamId}/skills`, params),
+    apiGet(`/teams/${teamId}/rankings`, params),
+    apiGet(`/teams/${teamId}/awards`, params),
+    seasonId ? getFullSeasonSkills(seasonId, gradeLevel).catch(() => null) : Promise.resolve(null)
+  ]);
+
+  const matches = allMatches.filter(m => m.round !== 1);
+  let wins = 0, losses = 0, ties = 0, awpCount = 0, autonWins = 0, autonPlayed = 0, scores = [];
+  // Signature event stats
+  let sigWins = 0, sigLosses = 0, sigTies = 0;
+
+  for (const match of matches) {
+    const al = match.alliances;
+    if (!al) continue;
+
+    // Normalize to {red, blue} regardless of array or object format
+    let redA, blueA;
+    if (Array.isArray(al)) {
+      redA  = al.find(a => (a.color||'').toLowerCase() === 'red');
+      blueA = al.find(a => (a.color||'').toLowerCase() === 'blue');
+      if (!redA && al.length >= 2) { redA = al[0]; blueA = al[1]; }
+    } else {
+      redA  = al.red  || al.Red  || null;
+      blueA = al.blue || al.Blue || null;
+    }
+    if (!redA || !blueA) continue;
+
+    // Check all possible ways a team ID could be stored
+    function hasTeam(alliance, id) {
+      return (alliance.teams || []).some(t => {
+        const tid = t?.team?.id ?? t?.id ?? t;
+        return String(tid) === String(id);
+      });
+    }
+
+    const inRed  = hasTeam(redA,  teamId);
+    const inBlue = hasTeam(blueA, teamId);
+    if (!inRed && !inBlue) continue;
+
+    const myA     = inRed ? redA  : blueA;
+    const oppA    = inRed ? blueA : redA;
+    const myColor = inRed ? 'red' : 'blue';
+
+    const myScore  = myA.score  ?? 0;
+    const oppScore = oppA.score ?? 0;
+
+    // Only count scored matches (both scores exist and at least one is nonzero)
+    if (myA.score === null || myA.score === undefined) continue;
+    scores.push(myScore);
+
+    // Detect signature event by checking if event name contains "Signature" (case-insensitive)
+    const eventName = (match.event?.name || '').toLowerCase();
+    const isSignature = eventName.includes('signature');
+
+    if (myScore > oppScore) {
+      wins++;
+      if (isSignature) sigWins++;
+    } else if (myScore < oppScore) {
+      losses++;
+      if (isSignature) sigLosses++;
+    } else {
+      ties++;
+      if (isSignature) sigTies++;
+    }
+
+    // AWP — autonomous_win_point field on match (handle multiple formats)
+    const awp = myA.autonomous_win_point;
+    if (awp === true || awp === 1 || awp === '1' || awp === 'true') awpCount++;
+
+    // Auton winner from match data
+    const aw = match.autonomous_winner;
+    if (aw && aw !== 'none' && aw !== '' && aw !== null) {
+      autonPlayed++;
+      if (aw.toLowerCase() === myColor) autonWins++;
+    }
   }
 
-  return res.status(500).json({ error: 'Request failed' });
+  const sigTotal = sigWins + sigLosses + sigTies;
+  const sigWinRate = sigTotal > 0 ? sigWins / sigTotal * 100 : null;
+
+  // Get high score and stats from rankings (the rankings endpoint is the source of truth)
+  let rankingHighScore = 0;
+  let rankingAwpCount = 0;       // explicit AWP count from rankings.ap if available
+  let rankingTotalWp = 0;        // total win points across all events
+  let rankingTotalSp = 0;        // total strength points (SP)
+  let rankingWins = 0;
+  let rankingLosses = 0;
+  let rankingTies = 0;
+  for (const r of rankings) {
+    if (typeof r.high_score === 'number') rankingHighScore = Math.max(rankingHighScore, r.high_score);
+    if (typeof r.ap === 'number') rankingAwpCount += r.ap;
+    if (typeof r.wp === 'number') rankingTotalWp += r.wp;
+    if (typeof r.sp === 'number') rankingTotalSp += r.sp;
+    if (typeof r.wins === 'number') rankingWins += r.wins;
+    if (typeof r.losses === 'number') rankingLosses += r.losses;
+    if (typeof r.ties === 'number') rankingTies += r.ties;
+  }
+  const totalRankedMatches = rankingWins + rankingLosses + rankingTies;
+  const avgSp = totalRankedMatches > 0 ? (rankingTotalSp / totalRankedMatches).toFixed(1) : null;
+
+  // Calculate stats
+  const total = wins + losses + ties;
+  const winRate = total > 0 ? wins / total * 100 : null;
+
+  // AWP calculation:
+  // In V5RC, Win Points = (wins × 2) + (ties × 1) + (AWPs earned × 1)
+  // So: AWPs = total_WP − (wins × 2) − (ties × 1)
+  // Use rankings totals because they're the source of truth
+  let finalAwpCount = 0;
+  if (rankingTotalWp > 0 && (rankingWins + rankingLosses + rankingTies) > 0) {
+    const calculatedAwp = rankingTotalWp - (rankingWins * 2) - rankingTies;
+    finalAwpCount = Math.max(0, Math.min(calculatedAwp, rankingWins + rankingLosses + rankingTies));
+  } else if (rankingAwpCount > 0) {
+    finalAwpCount = rankingAwpCount;
+  }
+
+  const awpRate = totalRankedMatches > 0 ? Math.min(100, finalAwpCount / totalRankedMatches * 100) : null;
+
+  // Auton Win % — fall back to AWP count as a minimum estimate
+  // (You can't earn an AWP without winning auton, so AWPs ≥ auton wins minimum)
+  let autonRate = autonPlayed > 0 ? autonWins / autonPlayed * 100 : null;
+  if (autonRate === null && total > 0 && finalAwpCount > 0) {
+    // Estimate: at minimum the team won auton in every match they earned AWP
+    autonRate = Math.min(100, finalAwpCount / total * 100);
+  }
+  const avgScore  = scores.length > 0 ? scores.reduce((a,b)=>a+b,0)/scores.length : null;
+  const highScore = scores.length > 0 ? Math.max(...scores) : (rankingHighScore || null);
+
+  let progSkill = 0, driverSkill = 0;
+  for (const s of skills) {
+    if (s.type === 'programming') progSkill = Math.max(progSkill, s.score || 0);
+    if (s.type === 'driver') driverSkill = Math.max(driverSkill, s.score || 0);
+  }
+
+  // Look up world / state / region skills ranks for this team
+  let worldSkillsRank = null, stateSkillsRank = null, regionSkillsRank = null;
+  let totalWorldTeams = null, totalStateTeams = null, totalRegionTeams = null;
+  let officialCombined = null;
+  // Has this team recorded ANY skills run this season?
+  const hasSkills = (progSkill > 0 || driverSkill > 0);
+  if (seasonSkills && seasonSkills.byId[teamId]) {
+    const t = seasonSkills.byId[teamId];
+    worldSkillsRank = t.globalRank;
+    stateSkillsRank = t.stateRank;
+    regionSkillsRank = t.eventRegionRank;
+    officialCombined = t.combined;
+    totalWorldTeams = seasonSkills.totalCount;
+    if (t.region) {
+      totalStateTeams = seasonSkills.teams.filter(x => x.region === t.region).length;
+    }
+    if (t.eventRegion) {
+      totalRegionTeams = seasonSkills.teams.filter(x => x.eventRegion === t.eventRegion).length;
+    }
+  }
+
+  // If team has skills runs but isn't in the rankings cache, they're "unranked" (cache may be stale or partial)
+  const skillsRankPlaceholder = hasSkills ? 'Unranked' : 'No runs';
+
+  let avgRank = null;
+  if (rankings.length) {
+    const ranks = rankings.map(r => r.rank).filter(Boolean);
+    if (ranks.length) avgRank = (ranks.reduce((a,b)=>a+b,0)/ranks.length).toFixed(1);
+  }
+
+  // Build awards with event info (event is included in the award object as event.name)
+  const awardsList = awards.map(a => ({
+    title: a.title || '',
+    event: a.event?.name || a.event?.code || a.event_name || ''
+  })).filter(a => a.title);
+  const loc = team.location || {};
+  const locationStr = [loc.city, loc.region, loc.country].filter(Boolean).join(', ');
+
+  const fmt = (val, suffix='%', dec=1) =>
+    val !== null && val !== undefined ? `${Number(val).toFixed(dec)}${suffix}` : '<span class="na">N/A</span>';
+  const bar = (val) => val !== null && val !== undefined
+    ? `<div class="stat-bar-wrap"><div class="stat-bar" style="width:${Math.min(val,100)}%"></div></div>` : '';
+
+  const card = document.createElement('div');
+  card.className = 'team-card';
+  card.innerHTML = `
+    <div class="card-header">
+      <div>
+        <div class="team-number">${team.number}</div>
+        <div class="team-name">${team.team_name || '—'}</div>
+        <div class="team-location">${locationStr || '—'}</div>
+      </div>
+      <div class="robot-name">${team.robot_name ? '⬡ ' + team.robot_name : ''}</div>
+    </div>
+    <div class="stats-body">
+      <div class="stat-group">
+        <div class="stat-group-label">Match Record</div>
+        <div class="stat-row"><div class="stat-name">Win Rate</div>${bar(winRate)}<div class="stat-value highlight">${fmt(winRate)}</div></div>
+        <div class="stat-row"><div class="stat-name">W / L / T</div><div class="wl-display">${total>0?`${wins}W · ${losses}L${ties?' · '+ties+'T':''}` : '<span class="na">N/A</span>'}</div></div>
+        <div class="stat-row"><div class="stat-name">Total Matches</div><div class="stat-value">${total}</div></div>
+      </div>
+      <div class="stat-group">
+        <div class="stat-group-label">Signature Events</div>
+        <div class="stat-row"><div class="stat-name">Sig Win Rate</div>${bar(sigWinRate)}<div class="stat-value highlight">${fmt(sigWinRate)}</div></div>
+        <div class="stat-row"><div class="stat-name">Sig W / L / T</div><div class="wl-display">${sigTotal>0?`${sigWins}W · ${sigLosses}L${sigTies?' · '+sigTies+'T':''}` : '<span class="na">No sig matches</span>'}</div></div>
+        <div class="stat-row"><div class="stat-name">Sig Matches</div><div class="stat-value">${sigTotal || '<span class="na">0</span>'}</div></div>
+      </div>
+      <div class="stat-group">
+        <div class="stat-group-label">Autonomous</div>
+        <div class="stat-row"><div class="stat-name">AWP %</div>${bar(awpRate)}<div class="stat-value">${fmt(awpRate)}</div></div>
+        <div class="stat-row"><div class="stat-name">AWP Earned</div><div class="stat-value">${totalRankedMatches>0?finalAwpCount+' / '+totalRankedMatches:'<span class="na">N/A</span>'}</div></div>
+      </div>
+      <div class="stat-group">
+        <div class="stat-group-label">Skills</div>
+        <div class="stat-row"><div class="stat-name">Autonomous</div><div class="stat-value">${progSkill||'<span class="na">—</span>'}</div></div>
+        <div class="stat-row"><div class="stat-name">Driver</div><div class="stat-value">${driverSkill||'<span class="na">—</span>'}</div></div>
+        <div class="stat-row"><div class="stat-name">Combined</div><div class="stat-value">${officialCombined || (progSkill+driverSkill) || '<span class="na">—</span>'}</div></div>
+      </div>
+      <div class="stat-group">
+        <div class="stat-group-label">Skills Rankings</div>
+        <div class="stat-row"><div class="stat-name">World</div><div class="stat-value">${worldSkillsRank ? '<span class="highlight">#' + worldSkillsRank + '</span><span style="color:var(--text-muted);font-size:11px;"> / ' + totalWorldTeams + '</span>' : '<span class="na">' + skillsRankPlaceholder + '</span>'}</div></div>
+        <div class="stat-row"><div class="stat-name">State</div><div class="stat-value">${stateSkillsRank ? '#' + stateSkillsRank + '<span style="color:var(--text-muted);font-size:11px;"> / ' + totalStateTeams + '</span>' : '<span class="na">' + skillsRankPlaceholder + '</span>'}</div></div>
+        <div class="stat-row"><div class="stat-name">State Region</div><div class="stat-value">${regionSkillsRank ? '#' + regionSkillsRank + '<span style="color:var(--text-muted);font-size:11px;"> / ' + totalRegionTeams + '</span>' : '<span class="na">' + skillsRankPlaceholder + '</span>'}</div></div>
+      </div>
+      <div class="stat-group">
+        <div class="stat-group-label">Scoring</div>
+        <div class="stat-row"><div class="stat-name">Avg Score</div><div class="stat-value">${fmt(avgScore,'',1)}</div></div>
+        <div class="stat-row"><div class="stat-name">High Score</div><div class="stat-value">${highScore!==null?highScore:'<span class="na">—</span>'}</div></div>
+        <div class="stat-row"><div class="stat-name">Avg SP</div><div class="stat-value">${avgSp !== null ? avgSp : '<span class="na">N/A</span>'}</div></div>
+      </div>
+      <div class="stat-group">
+        <div class="stat-group-label">Rankings</div>
+        <div class="stat-row"><div class="stat-name">Avg Event Rank</div><div class="stat-value">${avgRank?'#'+avgRank:'<span class="na">N/A</span>'}</div></div>
+        <div class="stat-row"><div class="stat-name">Events Played</div><div class="stat-value">${rankings.length}</div></div>
+      </div>
+      <div class="stat-group">
+        <div class="stat-group-label">Awards (${awardsList.length}) <span class="section-info" title="Click any award to see which event it was won at.">i</span></div>
+        ${awardsList.length
+          ? `<div class="awards-list">${awardsList.map((a, idx) => {
+              const eventStr = (a.event || '').replace(/"/g, '&quot;');
+              const id = 'aw_' + teamId + '_' + idx;
+              return `<span class="award-tag${eventStr ? ' award-clickable' : ''}" ${eventStr ? `onclick="document.getElementById('${id}').classList.toggle('show')"` : ''}>
+                ${a.title}
+                ${eventStr ? `<span class="award-event" id="${id}"> · ${eventStr}</span>` : ''}
+              </span>`;
+            }).join('')}</div>`
+          : `<div class="no-awards">No awards found</div>`}
+      </div>
+    </div>`;
+  return card;
 }
+</script>
+</body>
+</html>
