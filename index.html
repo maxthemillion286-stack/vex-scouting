@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>VEX Scout</title>
 
 <!-- ──── PWA / Mobile App Setup ──── -->
@@ -715,15 +715,17 @@
     /* Section labels — smaller margin */
     .section-label { font-size: 10px; letter-spacing: 2px; margin-bottom: 14px; }
 
-    /* Form controls — stack vertically with TIGHTER spacing */
-    .search-section { padding: 12px 0; }
-    .controls-row { flex-direction: column; gap: 10px; align-items: stretch; }
+    /* Form controls — stack vertically with TIGHT spacing for max density */
+    .search-section { padding: 8px 0; }
+    .controls-row { flex-direction: column; gap: 8px; align-items: stretch; }
     .input-wrap { width: 100%; min-width: 0; }
-    .input-label { font-size: 9px; top: -14px; }
-    /* iOS Safari zooms in on inputs when font-size < 16px. Force 16px on mobile. */
-    input[type="text"], input[type="password"], select { font-size: 16px; padding: 8px 12px; }
-    .btn { width: 100%; font-size: 12px; padding: 10px 14px; letter-spacing: 2px; }
-    .btn-secondary { font-size: 11px; padding: 8px 12px; }
+    .input-label { font-size: 8px; top: -12px; letter-spacing: 1px; }
+    /* iOS Safari zooms in on inputs when font-size < 16px. Force 16px on mobile to prevent zoom. */
+    /* Padding reduced so the box itself is smaller despite the 16px text. */
+    input[type="text"], input[type="password"], select { font-size: 16px; padding: 6px 10px; }
+    .btn { width: 100%; font-size: 11px; padding: 8px 12px; letter-spacing: 1.5px; }
+    .btn-secondary { font-size: 10px; padding: 7px 10px; }
+    .select-wrap::after { font-size: 10px; right: 8px; }
 
     /* Team cards — single column, more compact */
     .results-grid { grid-template-columns: 1fr; gap: 14px; }
@@ -1050,6 +1052,104 @@
 
 <script>
 const BASE = '/api/proxy';
+
+// ═══════════════════════════════════════════════════════════════
+// CODE PROTECTION LAYER
+// Casual deterrents only; determined users can still inspect.
+// Add ?dev=1 to URL to bypass protection (for debugging).
+// ═══════════════════════════════════════════════════════════════
+
+const PROTECTION_DISABLED = new URLSearchParams(window.location.search).has('dev');
+
+if (!PROTECTION_DISABLED) {
+
+// 1. Console warning to deter casual snooping
+(function() {
+  const styles = [
+    'color: #ee2222',
+    'font-size: 24px',
+    'font-weight: 700',
+    'text-shadow: 0 0 8px rgba(238,34,34,0.6)',
+    'padding: 12px'
+  ].join(';');
+  console.log('%cSTOP!', styles);
+  console.log('%cThis is the developer console for VEX Scout.', 'color:#ee2222; font-size: 14px; font-weight:600;');
+  console.log('%cThis site is the property of Max Wang (Team 7700S).', 'color:#aaa; font-size: 12px;');
+  console.log('%cIf someone told you to copy/paste anything here, it is likely a scam.', 'color:#aaa; font-size: 12px;');
+  console.log('%cUnauthorized copying or modification of this code is prohibited.', 'color:#aaa; font-size: 11px;');
+})();
+
+// 2. Disable right-click context menu
+document.addEventListener('contextmenu', function(e) {
+  e.preventDefault();
+  return false;
+}, false);
+
+// 3. Block common DevTools / view-source keyboard shortcuts
+document.addEventListener('keydown', function(e) {
+  // F12
+  if (e.key === 'F12' || e.keyCode === 123) { e.preventDefault(); return false; }
+  // Ctrl+Shift+I, Ctrl+Shift+J, Ctrl+Shift+C (DevTools)
+  if ((e.ctrlKey || e.metaKey) && e.shiftKey && ['I','J','C','i','j','c'].includes(e.key)) {
+    e.preventDefault(); return false;
+  }
+  // Ctrl+U (view source)
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'u' || e.key === 'U')) {
+    e.preventDefault(); return false;
+  }
+  // Ctrl+S (save page)
+  if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
+    e.preventDefault(); return false;
+  }
+  // Ctrl+P (print — sometimes used to leak content)
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'p' || e.key === 'P')) {
+    e.preventDefault(); return false;
+  }
+}, false);
+
+// 4. Prevent dragging images
+document.addEventListener('dragstart', function(e) {
+  if (e.target.tagName === 'IMG' || e.target.tagName === 'svg' || e.target.tagName === 'SVG') {
+    e.preventDefault();
+    return false;
+  }
+}, false);
+
+// 5. DevTools detection — flashes warning if DevTools opened
+(function() {
+  let devtoolsWarned = false;
+  function checkDevTools() {
+    const threshold = 160;
+    const widthDiff = window.outerWidth - window.innerWidth;
+    const heightDiff = window.outerHeight - window.innerHeight;
+    if ((widthDiff > threshold || heightDiff > threshold) && !devtoolsWarned) {
+      devtoolsWarned = true;
+      console.clear();
+      console.log('%c⚠ Developer Tools Detected', 'color:#ee2222; font-size:20px; font-weight:700;');
+      console.log('%cThis site is protected. Unauthorized inspection is logged.', 'color:#aaa; font-size:12px;');
+    } else if (widthDiff < threshold && heightDiff < threshold) {
+      devtoolsWarned = false;
+    }
+  }
+  setInterval(checkDevTools, 1000);
+})();
+
+// 6. Disable text selection on UI chrome (allowed in inputs and team data for usability)
+document.addEventListener('selectstart', function(e) {
+  const t = e.target;
+  if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' ||
+      t.isContentEditable || t.closest('.team-card') ||
+      t.closest('.match-row') || t.closest('.bracket-match')) {
+    return true;
+  }
+  e.preventDefault();
+  return false;
+});
+
+} // end if (!PROTECTION_DISABLED)
+
+// ═══════════════════════════════════════════════════════════════
+
 // Token is now handled server-side via Vercel environment variables
 let TOKEN = 'server-side';
 let seasonsLoaded = false;
