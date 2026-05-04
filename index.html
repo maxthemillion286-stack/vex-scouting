@@ -540,6 +540,15 @@
   }
   .multi-select-btn.active::before { content: '✓ '; }
 
+  /* Scout-all-disabled note (shown when event has too many teams) */
+  .scout-all-disabled {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 1.5px; font-weight: 700;
+    color: var(--text-muted);
+    border: 1px dashed var(--border); padding: 10px 14px;
+    cursor: help;
+    display: inline-flex; align-items: center;
+  }
+
   /* ── MATCH LIST (event team matches view) ── */
   .match-round-label {
     font-family: var(--mono); font-size: 11px; color: var(--text-muted); letter-spacing: 2px;
@@ -2880,7 +2889,10 @@ function renderTournamentTeams() {
         ${tournamentFocusTeamId ? `<button class="btn btn-secondary" onclick="renderEventTeamMatchesView()">${tournamentFocusTeamNumber}'S MATCHES</button>` : ''}
         <button class="btn btn-secondary" onclick="renderBracketView()">BRACKET</button>
         <button class="btn btn-secondary" onclick="copyTournamentTeams('${teamNumbers.join(',')}')">COPY ALL</button>
-        <button class="btn btn-primary" onclick="scoutTournamentTeams('${teamNumbers.join(',')}', '${tournamentGrade}')">SCOUT ALL ${teams.length}</button>
+        ${teams.length <= 150
+          ? `<button class="btn btn-primary" onclick="scoutTournamentTeams('${teamNumbers.join(',')}', '${tournamentGrade}')">SCOUT ALL ${teams.length}</button>`
+          : `<div class="scout-all-disabled" title="This event has ${teams.length} teams — too many to scout at once. Use multi-select to pick the teams you want.">SCOUT ALL DISABLED · ${teams.length} TEAMS</div>`
+        }
       </div>
     </div>
 
