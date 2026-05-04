@@ -1,37 +1,35 @@
-// VEX Scout — Service Worker for offline support
-// Caches the app shell so it loads even without internet.
-// API responses are NOT cached here (they're cached in the proxy).
+// VEX Scout Service Worker — v3
+// Uses NETWORK-FIRST strategy for HTML so updates appear immediately.
+// Falls back to cache only when offline.
 
-const CACHE_NAME = 'vex-scout-v1';
+const CACHE_NAME = 'vex-scout-v3';
 const APP_SHELL = [
-  '/',
-  '/index.html',
   '/manifest.json',
   '/icon-192.png',
-  '/icon-512.png'
+  '/icon-512.png',
+  '/apple-touch-icon.png'
 ];
 
-// On install, pre-cache the app shell
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL))
+    caches.open(CACHE_NAME).then((cache) =>
+      cache.addAll(APP_SHELL).catch(() => {})
+    )
   );
+  // Activate this new SW immediately, replacing the old one
   self.skipWaiting();
 });
 
-// On activate, clean up old caches
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
       Promise.all(
         keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k))
       )
-    )
+    ).then(() => self.clients.claim())
   );
-  self.clients.claim();
 });
 
-// Network-first for API calls, cache-first for app shell
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
@@ -40,23 +38,51 @@ self.addEventListener('fetch', (event) => {
     return; // let browser handle normally
   }
 
-  // App shell: try cache first, fall back to network
+  // For HTML / navigation requests: NETWORK-FIRST (always try fresh)
+  // This means updates show up immediately, no stale UI
+  if (event.request.mode === 'navigate' ||
+      event.request.destination === 'document' ||
+      url.pathname === '/' ||
+      url.pathname === '/index.html') {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          // Cache for offline fallback
+          if (response.ok) {
+            const copy = response.clone();
+            caches.open(CACHE_NAME).then((cache) =>
+              cache.put(event.request, copy)
+            );
+          }
+          return response;
+        })
+        .catch(() => caches.match(event.request).then((cached) =>
+          cached || caches.match('/index.html')
+        ))
+    );
+    return;
+  }
+
+  // For static assets (icons, manifest): cache-first is fine
   event.respondWith(
     caches.match(event.request).then((cached) => {
       if (cached) return cached;
       return fetch(event.request).then((response) => {
-        // Cache HTML/CSS/JS/images we fetch on the fly
         if (response.ok && event.request.method === 'GET') {
           const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+          caches.open(CACHE_NAME).then((cache) =>
+            cache.put(event.request, copy)
+          );
         }
         return response;
-      }).catch(() => {
-        // Offline fallback: return the cached index for any HTML request
-        if (event.request.mode === 'navigate') {
-          return caches.match('/index.html');
-        }
       });
     })
   );
+});
+
+// Listen for messages from the page (e.g. force update)
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });
