@@ -511,6 +511,27 @@
   }
   .section-info:hover { background: var(--accent-dim); color: var(--text); }
 
+  /* Section label with action button on the right */
+  .section-label-row {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; flex-wrap: wrap;
+  }
+
+  /* Multi-select toggle button */
+  .multi-select-btn {
+    background: transparent; border: 1px solid var(--border); color: var(--text-muted);
+    font-family: var(--mono); font-size: 10px; letter-spacing: 2px; font-weight: 700;
+    padding: 8px 14px; cursor: pointer;
+    transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    text-transform: uppercase;
+  }
+  .multi-select-btn:hover { border-color: var(--accent); color: var(--text); }
+  .multi-select-btn.active {
+    background: var(--accent); border-color: var(--accent); color: #fff;
+    box-shadow: 0 0 12px var(--accent-glow);
+  }
+  .multi-select-btn.active::before { content: '✓ '; }
+
   /* ── MATCH LIST (event team matches view) ── */
   .match-round-label {
     font-family: var(--mono); font-size: 11px; color: var(--text-muted); letter-spacing: 2px;
@@ -572,11 +593,6 @@
     font-weight: 700; letter-spacing: 2px; margin-top: 24px; margin-bottom: 8px;
     padding-bottom: 6px; border-bottom: 2px solid var(--accent);
   }
-  .bracket-container {
-    display: flex; gap: 60px; overflow-x: auto;
-    padding: 8px 8px 16px 8px; margin-top: 8px;
-    align-items: stretch;
-  }
   .bracket-column {
     display: flex; flex-direction: column;
     min-width: 220px;
@@ -602,18 +618,24 @@
     border: 1px solid var(--border); background: var(--card);
     position: relative;
   }
-  /* SVG overlay for bracket connector lines */
+  /* SVG overlay for bracket connector lines — must be INSIDE the scrolling container */
   .bracket-wrapper { position: relative; }
+  .bracket-container {
+    display: flex; gap: 60px; overflow-x: auto;
+    padding: 8px 8px 16px 8px; margin-top: 8px;
+    align-items: stretch;
+    position: relative; /* required so the SVG inside positions correctly */
+  }
   .bracket-svg-overlay {
     position: absolute; top: 0; left: 0;
     pointer-events: none; z-index: 0;
-    width: 100%; height: 100%;
+    /* Width/height set in JS to match the full scroll size */
   }
   .bracket-svg-overlay path {
     stroke: var(--border); stroke-width: 1.5; fill: none;
   }
-  .bracket-container { position: relative; z-index: 1; }
-  .bracket-match { background: var(--card); }
+  .bracket-column { position: relative; z-index: 1; } /* keep matches above the SVG */
+  .bracket-match { background: var(--card); position: relative; z-index: 1; }
   .bracket-match-label {
     font-family: var(--mono); font-size: 9px; color: var(--text-muted);
     letter-spacing: 1px; padding: 4px 12px;
@@ -674,31 +696,34 @@
      COMPREHENSIVE MOBILE FIXES (under 768px)
      ────────────────────────────────────────────── */
   @media (max-width: 768px) {
-    /* Container & header */
-    .container { padding: 0 14px; }
-    header { padding: 14px 0; }
-    .header-inner { flex-wrap: wrap; gap: 10px; }
-    .logo-mark { width: 28px; height: 28px; }
-    .logo-title { font-size: 18px; letter-spacing: 2px; }
-    .logo-title span { font-size: 18px; }
-    .logo-sub { font-size: 8px; letter-spacing: 1px; }
-    .header-right { gap: 6px; flex-wrap: wrap; }
-    .badge, .theme-btn { font-size: 9px; padding: 6px 10px; }
+    /* Container & header — TIGHTER to give results more vertical room */
+    .container { padding: 0 12px; }
+    header { padding: 8px 0; }
+    .header-inner { flex-wrap: wrap; gap: 6px; align-items: center; }
+    .logo-mark { width: 24px; height: 24px; }
+    .logo-title { font-size: 16px; letter-spacing: 2px; }
+    .logo-title span { font-size: 16px; }
+    .logo-sub { font-size: 7px; letter-spacing: 1px; }
+    .header-right { gap: 4px; flex-wrap: wrap; margin-left: auto; }
+    .badge, .theme-btn, .status-badge { font-size: 8px; padding: 4px 8px; }
+    #installAppBtn { font-size: 8px; padding: 4px 8px; }
 
-    /* Tabs — make sure they don't break on small screens */
-    .tabs-nav { padding: 0; margin-bottom: 18px; }
-    .tab-btn { padding: 10px 12px; font-size: 10px; letter-spacing: 1px; }
+    /* Tabs — tighter */
+    .tabs-nav { padding: 0; margin-bottom: 12px; }
+    .tab-btn { padding: 8px 10px; font-size: 10px; letter-spacing: 1px; }
 
-    /* Section labels */
-    .section-label { font-size: 10px; letter-spacing: 2px; }
+    /* Section labels — smaller margin */
+    .section-label { font-size: 10px; letter-spacing: 2px; margin-bottom: 14px; }
 
-    /* Form controls — stack vertically, full width */
-    .controls-row { flex-direction: column; gap: 14px; align-items: stretch; }
+    /* Form controls — stack vertically with TIGHTER spacing */
+    .search-section { padding: 12px 0; }
+    .controls-row { flex-direction: column; gap: 10px; align-items: stretch; }
     .input-wrap { width: 100%; min-width: 0; }
-    input[type="text"], select { font-size: 13px; padding: 10px 12px; }
-    .input-label { font-size: 9px; }
-    .btn { width: 100%; font-size: 12px; padding: 12px 16px; letter-spacing: 2px; }
-    .btn-secondary { font-size: 11px; padding: 10px 14px; }
+    .input-label { font-size: 9px; top: -14px; }
+    /* iOS Safari zooms in on inputs when font-size < 16px. Force 16px on mobile. */
+    input[type="text"], input[type="password"], select { font-size: 16px; padding: 8px 12px; }
+    .btn { width: 100%; font-size: 12px; padding: 10px 14px; letter-spacing: 2px; }
+    .btn-secondary { font-size: 11px; padding: 8px 12px; }
 
     /* Team cards — single column, more compact */
     .results-grid { grid-template-columns: 1fr; gap: 14px; }
@@ -938,7 +963,10 @@
 
   <!-- ═══════════ SKILLS RANKINGS SECTION ═══════════ -->
   <section class="search-section tab-panel" id="tab-skills">
-    <div class="section-label">Skills Rankings <span class="section-info" title="Click any team row to scout them. Hold Shift and click to select multiple teams, then use 'Compare Selected' to scout them all together.">i</span></div>
+    <div class="section-label-row">
+      <div class="section-label">Skills Rankings <span class="section-info" title="Click any team row to scout them. Hold Shift and click to select multiple teams, then use 'Compare Selected' to scout them all together. On mobile, tap MULTI-SELECT to enable selecting multiple teams without Shift.">i</span></div>
+      <button class="multi-select-btn" id="skillsMultiSelectBtn" onclick="toggleSkillsMultiSelectMode()">MULTI-SELECT</button>
+    </div>
 
     <div class="controls-row">
       <div class="input-wrap select-wrap" style="min-width:160px;">
@@ -1816,10 +1844,23 @@ function prevSkillsPage() {
 // Click handler for skills rows — fills team input and runs scout
 // Set of team numbers selected via shift+click in skills list
 const selectedSkillsTeams = new Set();
+let skillsMultiSelectMode = false; // mobile-friendly multi-select toggle
+
+function toggleSkillsMultiSelectMode() {
+  skillsMultiSelectMode = !skillsMultiSelectMode;
+  if (!skillsMultiSelectMode) {
+    selectedSkillsTeams.clear();
+  }
+  // Update button state
+  const btn = document.getElementById('skillsMultiSelectBtn');
+  if (btn) btn.classList.toggle('active', skillsMultiSelectMode);
+  updateSkillsSelectionUI();
+}
 
 function scoutFromSkillsRow(teamNumber, evt) {
-  // If shift held, toggle multi-select
-  if (evt && evt.shiftKey) {
+  // If shift held OR multi-select mode is on, toggle selection
+  const isMulti = (evt && evt.shiftKey) || skillsMultiSelectMode;
+  if (isMulti) {
     if (selectedSkillsTeams.has(teamNumber)) {
       selectedSkillsTeams.delete(teamNumber);
     } else {
@@ -1900,8 +1941,13 @@ function scoutSelectedSkills() {
   if (skillsGrade && scoutGrade) scoutGrade.value = skillsGrade;
   window.scrollTo({ top: 0, behavior: 'smooth' });
   scoutTeams();
-  // Clear selection after scouting starts
+  // Clear selection and exit multi-select mode after scouting starts
   selectedSkillsTeams.clear();
+  if (skillsMultiSelectMode) {
+    skillsMultiSelectMode = false;
+    const btn = document.getElementById('skillsMultiSelectBtn');
+    if (btn) btn.classList.remove('active');
+  }
   updateSkillsSelectionUI();
 }
 
@@ -2020,6 +2066,17 @@ async function findTournament() {
 
 // Selection set for tournament teams (parallel to skills selection)
 const selectedTournamentTeams = new Set();
+let tournamentMultiSelectMode = false;
+
+function toggleTournamentMultiSelectMode() {
+  tournamentMultiSelectMode = !tournamentMultiSelectMode;
+  if (!tournamentMultiSelectMode) {
+    selectedTournamentTeams.clear();
+  }
+  const btn = document.getElementById('tournamentMultiSelectBtn');
+  if (btn) btn.classList.toggle('active', tournamentMultiSelectMode);
+  updateTournamentSelectionUI();
+}
 let tournamentTeamCache = []; // last-loaded teams (for re-sorting)
 let tournamentEventName = '';
 let tournamentGrade = 'High School';
@@ -2382,7 +2439,7 @@ async function renderBracketView() {
         html += `<div class="bracket-division-header">${divName}</div>`;
       }
 
-      html += `<div class="bracket-wrapper"><div class="bracket-container">`;
+      html += `<div class="bracket-wrapper"><div class="bracket-container"><svg class="bracket-svg-overlay"></svg>`;
       for (const r of sortedRounds) {
         const seriesList = seriesByRound[r];
         html += `
@@ -2393,7 +2450,7 @@ async function renderBracketView() {
             </div>
           </div>`;
       }
-      html += `</div><svg class="bracket-svg-overlay"></svg></div>`;
+      html += `</div></div>`;
     }
 
     resultsEl.innerHTML = html;
@@ -2418,25 +2475,37 @@ async function renderBracketView() {
 function drawBracketConnectors() {
   const wrappers = document.querySelectorAll('.bracket-wrapper');
   for (const wrapper of wrappers) {
-    const svg = wrapper.querySelector('.bracket-svg-overlay');
+    const container = wrapper.querySelector('.bracket-container');
+    if (!container) continue;
+    const svg = container.querySelector('.bracket-svg-overlay');
     if (!svg) continue;
 
-    // Reset SVG sizing to match its container
-    const wRect = wrapper.getBoundingClientRect();
-    svg.setAttribute('width', wRect.width);
-    svg.setAttribute('height', wRect.height);
-    svg.setAttribute('viewBox', `0 0 ${wRect.width} ${wRect.height}`);
+    // Size SVG to the FULL scrollable area (not just visible viewport)
+    // This ensures arrows are positioned correctly even when bracket scrolls horizontally
+    const fullWidth = container.scrollWidth;
+    const fullHeight = container.scrollHeight;
+    svg.setAttribute('width', fullWidth);
+    svg.setAttribute('height', fullHeight);
+    svg.setAttribute('viewBox', `0 0 ${fullWidth} ${fullHeight}`);
+    svg.style.width = fullWidth + 'px';
+    svg.style.height = fullHeight + 'px';
     svg.innerHTML = '';
 
-    const columns = wrapper.querySelectorAll('.bracket-column');
+    const columns = container.querySelectorAll('.bracket-column');
     if (columns.length < 2) continue;
+
+    // Use container as the reference frame, NOT wrapper
+    // Position relative to container's content (not its viewport position)
+    // This way, when container scrolls, the SVG positions stay correct
+    const cRect = container.getBoundingClientRect();
+    const scrollLeft = container.scrollLeft;
+    const scrollTop = container.scrollTop;
 
     for (let i = 0; i < columns.length - 1; i++) {
       const fromMatches = columns[i].querySelectorAll('.bracket-match');
       const toMatches = columns[i + 1].querySelectorAll('.bracket-match');
       if (toMatches.length === 0) continue;
 
-      // Each pair of fromMatches feeds into one toMatch
       for (let j = 0; j < toMatches.length; j++) {
         const fromA = fromMatches[j * 2];
         const fromB = fromMatches[j * 2 + 1];
@@ -2447,18 +2516,16 @@ function drawBracketConnectors() {
         const bRect = fromB?.getBoundingClientRect();
         const tRect = target.getBoundingClientRect();
 
-        // Convert to wrapper-relative coords
-        const aRight = aRect ? aRect.right - wRect.left : null;
-        const aMidY = aRect ? (aRect.top + aRect.bottom) / 2 - wRect.top : null;
-        const bRight = bRect ? bRect.right - wRect.left : null;
-        const bMidY = bRect ? (bRect.top + bRect.bottom) / 2 - wRect.top : null;
-        const tLeft = tRect.left - wRect.left;
-        const tMidY = (tRect.top + tRect.bottom) / 2 - wRect.top;
+        // Convert to container-content-relative coords (add scroll offset)
+        const aRight = aRect ? aRect.right - cRect.left + scrollLeft : null;
+        const aMidY = aRect ? (aRect.top + aRect.bottom) / 2 - cRect.top + scrollTop : null;
+        const bRight = bRect ? bRect.right - cRect.left + scrollLeft : null;
+        const bMidY = bRect ? (bRect.top + bRect.bottom) / 2 - cRect.top + scrollTop : null;
+        const tLeft = tRect.left - cRect.left + scrollLeft;
+        const tMidY = (tRect.top + tRect.bottom) / 2 - cRect.top + scrollTop;
 
-        // Halfway between columns
         const midX = aRight !== null ? aRight + (tLeft - aRight) / 2 : tLeft - 16;
 
-        // Draw L-paths: from each source to midX, then vertical to tMidY, then to target
         if (aRect) {
           const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
           path.setAttribute('d', `M ${aRight} ${aMidY} L ${midX} ${aMidY} L ${midX} ${tMidY} L ${tLeft} ${tMidY}`);
@@ -2715,8 +2782,9 @@ function renderTournamentTeams() {
     </div>
 
     <div class="info-bar">
-      <span class="info-icon" title="Click to scout one team. Shift+click to select multiple, then 'Compare Selected' to scout them together.">ⓘ</span>
-      <span>Click to scout · Shift+click to select multiple</span>
+      <span class="info-icon" title="Click to scout one team. Shift+click to select multiple, then 'Compare Selected' to scout them together. On mobile, tap MULTI-SELECT to enable selecting multiple teams without Shift.">ⓘ</span>
+      <span style="flex:1;">Click to scout · Shift+click to select multiple</span>
+      <button class="multi-select-btn ${tournamentMultiSelectMode ? 'active' : ''}" id="tournamentMultiSelectBtn" onclick="toggleTournamentMultiSelectMode()">MULTI-SELECT</button>
     </div>
 
     <div class="tournament-teams">
@@ -2743,7 +2811,8 @@ function renderTournamentTeams() {
 }
 
 function onTournamentTeamClick(teamNumber, evt) {
-  if (evt && evt.shiftKey) {
+  const isMulti = (evt && evt.shiftKey) || tournamentMultiSelectMode;
+  if (isMulti) {
     if (selectedTournamentTeams.has(teamNumber)) {
       selectedTournamentTeams.delete(teamNumber);
     } else {
@@ -2802,6 +2871,11 @@ function scoutSelectedTournament() {
   const tourSeason = document.getElementById('tournamentSeasonSelect').value;
   if (tourSeason) document.getElementById('seasonSelect').value = tourSeason;
   selectedTournamentTeams.clear();
+  if (tournamentMultiSelectMode) {
+    tournamentMultiSelectMode = false;
+    const btn = document.getElementById('tournamentMultiSelectBtn');
+    if (btn) btn.classList.remove('active');
+  }
   updateTournamentSelectionUI();
   window.scrollTo({ top: 0, behavior: 'smooth' });
   scoutTeams();
