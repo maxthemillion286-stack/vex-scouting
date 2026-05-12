@@ -1,4 +1,7 @@
-// Vercel Serverless Function — proxies requests to RobotEvents API
+// Vercel Serverless Function — proxies requests to the VEX RobotEvents API
+//
+// UPDATED: As of 2026, the API moved from robotevents.com to events.vex.com
+// due to the VEX/RECF split. Tokens transferred over and remain valid.
 //
 // Supports MULTIPLE TOKENS for higher rate limits:
 //   - Set ROBOTEVENTS_TOKEN, ROBOTEVENTS_TOKEN_2, ROBOTEVENTS_TOKEN_3, etc.
@@ -45,10 +48,12 @@ export default async function handler(req, res) {
   let url;
   let useAuth = true;
   if (path.startsWith('legacy:')) {
-    url = `https://www.robotevents.com/api${path.slice(7)}`;
+    // Legacy endpoints (used for season skills standings) — public, no auth needed
+    url = `https://events.vex.com/api${path.slice(7)}`;
     useAuth = false;
   } else {
-    url = `https://www.robotevents.com/api/v2${path}`;
+    // Main authenticated v2 API
+    url = `https://events.vex.com/api/v2${path}`;
   }
 
   const tokens = useAuth ? getTokens() : [];
@@ -67,7 +72,7 @@ export default async function handler(req, res) {
     'Accept': 'application/json',
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
     'Accept-Language': 'en-US,en;q=0.9',
-    'Referer': 'https://www.robotevents.com/'
+    'Referer': 'https://events.vex.com/'
   };
 
   // Try each token until one succeeds (or we run out)
@@ -105,7 +110,7 @@ export default async function handler(req, res) {
         data = JSON.parse(text);
       } catch (e) {
         data = {
-          error: 'Non-JSON response from RobotEvents',
+          error: 'Non-JSON response from events.vex.com',
           status: response.status,
           preview: text.slice(0, 300)
         };
@@ -118,7 +123,6 @@ export default async function handler(req, res) {
           status: response.status,
           expires: Date.now() + ttlFor(path)
         });
-        // Cap cache at 500 entries
         if (cache.size > 500) {
           const firstKey = cache.keys().next().value;
           cache.delete(firstKey);
