@@ -517,7 +517,7 @@
     width: 14px; height: 14px; border-radius: 50%;
     border: 1px solid var(--accent-dim); color: var(--accent);
     font-family: var(--body); font-size: 9px; font-style: italic; font-weight: 600;
-    cursor: help; margin-left: 6px; vertical-align: middle;
+    cursor: help; margin-left: 6px; vertical-align: Mid;
   }
   .section-info:hover { background: var(--accent-dim); color: var(--text); }
 
@@ -917,11 +917,6 @@
   .sim-season-row { align-items: center; gap: 14px; margin-bottom: 8px; }
   .sim-season-note, .sim-hint { font-family: var(--body); font-size: 12px; color: var(--text-muted); line-height: 1.4; }
   .sim-hint { margin-top: 12px; padding-left: 2px; }
-  textarea#simBracketAlliances {
-    width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text);
-    font-family: var(--mono); font-size: 14px; padding: 10px; resize: vertical; line-height: 1.6;
-  }
-  textarea#simBracketAlliances:focus { outline: none; border-color: var(--accent); }
 
   /* ── Pick list results ── */
   .pick-list { display: flex; flex-direction: column; gap: 1px; background: var(--border); border: 1px solid var(--border); margin-top: 4px; }
@@ -968,6 +963,57 @@
     .pick-team { font-size: 14px; }
     .sched-row { grid-template-columns: 56px 1fr 52px 44px; gap: 6px; padding: 8px 10px; }
     .bo-row { grid-template-columns: 34px 1fr 76px; gap: 8px; padding: 10px; }
+  }
+
+  /* ── Text cleanliness: labels flow above inputs inside the Simulator (no overlap) ── */
+  #tab-simulator .input-wrap { display: flex; flex-direction: column; align-items: stretch; }
+  #tab-simulator .input-label { position: static; top: auto; left: auto; display: block; margin: 0 0 5px; }
+  #tab-simulator .select-wrap::after { top: auto; bottom: 13px; transform: none; }
+  #tab-simulator .controls-row { align-items: flex-end; row-gap: 14px; }
+  #tab-simulator .sim-season-row { align-items: flex-end; }
+
+  /* ── Strengths & weaknesses as a described bullet list ── */
+  .sim-ov-lists { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 10px; }
+  .sim-ov-col-label { font-family: var(--mono); font-size: 10px; letter-spacing: 2px; margin-bottom: 8px; }
+  .sim-ov-col.str .sim-ov-col-label { color: #4ccf6a; }
+  .sim-ov-col.weak .sim-ov-col-label { color: #ff6b6b; }
+  .sim-ov-bullets { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
+  .sim-ov-bullets li { position: relative; padding-left: 18px; font-family: var(--body); font-size: 13px; color: var(--text-dim); line-height: 1.45; }
+  .sim-ov-bullets li::before { position: absolute; left: 0; top: 0; font-weight: 700; }
+  .sim-ov-col.str .sim-ov-bullets li::before { content: '▸'; color: #4ccf6a; }
+  .sim-ov-col.weak .sim-ov-bullets li::before { content: '▸'; color: #ff6b6b; }
+  .sim-ov-bullets li.note::before { content: '·'; color: var(--text-muted); }
+  .sim-ov-bullets li b { color: var(--text); font-family: var(--mono); font-size: 12px; letter-spacing: 0.5px; }
+  .sim-ov-bullets li.note { color: var(--text-muted); }
+  .sim-ov-empty { font-family: var(--body); font-size: 12px; color: var(--text-muted); padding-left: 2px; }
+
+  /* ── Tournament picker (name search → choose event) reused in sim modes ── */
+  .sim-event-picker { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+  .sim-event-pick-label { font-family: var(--mono); font-size: 10px; letter-spacing: 2px; color: var(--text-muted); margin-bottom: 2px; }
+  .sim-event-item { border: 1px solid var(--border); background: var(--card); padding: 10px 14px; cursor: pointer; transition: all 0.2s; }
+  .sim-event-item:hover { border-color: var(--accent); background: var(--card2); }
+  .sim-event-item .ei-name { font-family: var(--display); font-weight: 600; font-size: 14px; color: var(--text); }
+  .sim-event-item .ei-meta { font-family: var(--mono); font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+  /* ── Visual bracket INPUT (fill teams into a real bracket, like the elim bracket) ── */
+  .bracket-size-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
+  .bracket-size-row .bs-label { font-family: var(--mono); font-size: 10px; letter-spacing: 2px; color: var(--text-muted); margin-right: 4px; }
+  .bracket-size-btn { font-family: var(--mono); font-size: 12px; padding: 7px 14px; border: 1px solid var(--border); background: var(--card); color: var(--text-muted); cursor: pointer; transition: all 0.2s; }
+  .bracket-size-btn:hover { color: var(--text); border-color: var(--accent-dim); }
+  .bracket-size-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .bracket-input-match { display: flex; flex-direction: column; border: 1px solid var(--border); background: var(--card); position: relative; z-index: 1; }
+  .bracket-input-seedlabel { font-family: var(--mono); font-size: 9px; color: var(--accent-bright); letter-spacing: 1px; padding: 4px 10px; background: var(--card2); border-bottom: 1px solid var(--border); }
+  .bracket-input-slot { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  .bracket-input-slot:last-child { border-bottom: none; }
+  .bracket-input-slot input { font-family: var(--mono); font-size: 12px; padding: 6px 8px; letter-spacing: 0.5px; }
+  .bracket-adv-match { display: flex; flex-direction: column; justify-content: center; border: 1px dashed var(--border); background: transparent; min-height: 54px; position: relative; z-index: 1; }
+  .bracket-adv-label { font-family: var(--mono); font-size: 10px; color: var(--text-muted); letter-spacing: 1px; text-align: center; padding: 12px 8px; }
+  .bracket-input-hint { font-family: var(--body); font-size: 12px; color: var(--text-muted); margin: 8px 0 4px; }
+
+  @media (max-width: 768px) {
+    .sim-ov-lists { grid-template-columns: 1fr; gap: 12px; }
+    .bracket-column { min-width: 150px; }
+    .bracket-input-slot input { font-size: 13px; }
   }
 </style>
 </head>
@@ -1250,21 +1296,22 @@
         <div class="input-wrap" style="min-width:150px;"><span class="input-label">YOUR TEAM</span>
           <input type="text" id="simPickYou" placeholder="e.g. 7700S" autocomplete="off"></div>
         <div class="input-wrap" style="min-width:130px;"><span class="input-label">OPPONENT 1 (optional)</span>
-          <input type="text" id="simPickOpp1" placeholder="benchmark" autocomplete="off"></div>
+          <input type="text" id="simPickOpp1" autocomplete="off"></div>
         <div class="input-wrap" style="min-width:130px;"><span class="input-label">OPPONENT 2 (optional)</span>
-          <input type="text" id="simPickOpp2" placeholder="benchmark" autocomplete="off"></div>
+          <input type="text" id="simPickOpp2" autocomplete="off"></div>
       </div>
-      <div class="controls-row" style="margin-top:12px;">
-        <div class="input-wrap" style="flex:2;min-width:220px;"><span class="input-label">CANDIDATE PARTNERS</span>
+      <div class="controls-row" style="margin-top:14px;">
+        <div class="input-wrap" style="flex:2;min-width:220px;"><span class="input-label">POSSIBLE ALLIANCES</span>
           <input type="text" id="simPickCandidates" placeholder="team numbers, e.g. 1234A, 5678B, 9012C" autocomplete="off"></div>
       </div>
-      <div class="controls-row" style="margin-top:12px;">
-        <div class="input-wrap" style="min-width:180px;"><span class="input-label">OR LOAD FROM EVENT SKU</span>
-          <input type="text" id="simPickEventSku" placeholder="RE-V5RC-... (fills candidates)" autocomplete="off"></div>
+      <div class="controls-row" style="margin-top:14px;">
+        <div class="input-wrap" style="min-width:200px;"><span class="input-label">OR LOAD FROM EVENT (NAME OR SKU)</span>
+          <input type="text" id="simPickEventSku" placeholder="event name or RE-V5RC-... (fills alliances)" autocomplete="off"></div>
         <button class="btn btn-secondary" onclick="pickLoadEvent()">LOAD EVENT TEAMS</button>
         <button class="btn btn-primary" onclick="runPickList()">RANK PICK LIST</button>
       </div>
-      <div class="sim-hint">Each candidate is paired with your team against the two benchmark opponents, then ranked by win probability. Leave opponents blank to test against an average alliance.</div>
+      <div class="sim-hint">Each possible alliance is paired with your team against the two opponents, then ranked by win probability. Leave opponents blank to test against an average alliance.</div>
+      <div id="pickEventPicker"></div>
       <div class="loading" id="pickLoading"><div class="loading-spinner"></div>
         <div class="loading-text" id="pickLoadingText">BUILDING RATINGS...</div></div>
       <div id="pickResults"></div>
@@ -1273,13 +1320,14 @@
     <!-- ─── SCHEDULE MODE ─── -->
     <div class="sim-mode" id="simmode-schedule">
       <div class="controls-row">
-        <div class="input-wrap" style="flex:2;min-width:200px;"><span class="input-label">EVENT SKU</span>
-          <input type="text" id="simSchedSku" placeholder="e.g. RE-V5RC-24-1234" autocomplete="off"></div>
+        <div class="input-wrap" style="flex:2;min-width:200px;"><span class="input-label">EVENT NAME OR SKU</span>
+          <input type="text" id="simSchedSku" placeholder="event name or RE-V5RC-24-1234" autocomplete="off"></div>
         <div class="input-wrap" style="min-width:150px;"><span class="input-label">YOUR TEAM</span>
           <input type="text" id="simSchedTeam" placeholder="e.g. 7700S" autocomplete="off"></div>
         <button class="btn btn-primary" onclick="runSchedule()">PREDICT SCHEDULE</button>
       </div>
-      <div class="sim-hint">Pulls every match at the event, rates all teams by OPR, and gives your win odds for each qualification match — plus a projected record.</div>
+      <div class="sim-hint">Pulls every match at the event, rates all teams by True Skill, and gives your win odds for each qualification match — plus a projected record.</div>
+      <div id="schedEventPicker"></div>
       <div class="loading" id="schedLoading"><div class="loading-spinner"></div>
         <div class="loading-text" id="schedLoadingText">LOADING EVENT...</div></div>
       <div id="schedResults"></div>
@@ -1288,14 +1336,26 @@
     <!-- ─── BRACKET MODE ─── -->
     <div class="sim-mode" id="simmode-bracket">
       <div class="controls-row">
-        <div class="input-wrap" style="flex:2;min-width:240px;"><span class="input-label">SEEDED ALLIANCES — ONE PER LINE, SEED 1 FIRST</span>
-          <textarea id="simBracketAlliances" rows="6" placeholder="1234A, 5678B&#10;9012C, 3456D&#10;7890E, 1122F&#10;3344G, 5566H" autocomplete="off"></textarea></div>
+        <div class="input-wrap" style="flex:2;min-width:220px;"><span class="input-label">LOAD BRACKET FROM EVENT (NAME OR SKU)</span>
+          <input type="text" id="simBracketEventSku" placeholder="event name or RE-V5RC-... (fills the bracket)" autocomplete="off"></div>
+        <button class="btn btn-secondary" onclick="bracketLoadEvent()">LOAD ELIMINATION BRACKET</button>
       </div>
-      <div class="controls-row" style="margin-top:12px;">
+      <div id="bracketEventPicker"></div>
+
+      <div class="bracket-size-row" style="margin-top:16px;">
+        <span class="bs-label">BRACKET SIZE</span>
+        <button class="bracket-size-btn" data-size="2" onclick="bracketBuildInput(2)">2</button>
+        <button class="bracket-size-btn active" data-size="4" onclick="bracketBuildInput(4)">4</button>
+        <button class="bracket-size-btn" data-size="8" onclick="bracketBuildInput(8)">8</button>
+        <button class="bracket-size-btn" data-size="16" onclick="bracketBuildInput(16)">16</button>
+      </div>
+      <div class="bracket-input-hint">Type two team numbers into each alliance slot (seed 1 at the top). Or load a real event above to fill it automatically — then tweak any slot.</div>
+      <div id="bracketInputArea"></div>
+
+      <div class="controls-row" style="margin-top:14px;">
         <button class="btn btn-primary" onclick="runBracket()">SIMULATE BRACKET</button>
         <button class="btn btn-secondary" onclick="bracketClear()">CLEAR</button>
       </div>
-      <div class="sim-hint">Enter 2, 4, 8, or 16 alliances (two teams each) in seed order. Simulates a single-elimination bracket thousands of times for championship odds.</div>
       <div class="loading" id="bracketLoading"><div class="loading-spinner"></div>
         <div class="loading-text" id="bracketLoadingText">BUILDING RATINGS...</div></div>
       <div id="bracketResults"></div>
@@ -3945,11 +4005,41 @@ async function sim_buildRatingsFromTeams(numbers, seasonId, setStatus) {
 
 // ── Shared: resolve an event by SKU, fetch ALL its matches, build event-wide OPR ──
 // Returns { event, ratings, stdByTeam, globalStd, matchCount, matches, numById, idByNum }
-async function sim_buildRatingsFromEvent(sku, setStatus) {
-  if (setStatus) setStatus('LOOKING UP EVENT...');
-  const events = await apiGet('/events', { 'sku[]': [sku.toUpperCase()] });
-  if (!events.length) throw new Error(`Event ${sku.toUpperCase()} not found`);
-  const event = events[0];
+// ── Resolve an event from a name OR sku. Returns {event} or {choices:[...]} ──
+async function sim_resolveEvent(input, seasonId) {
+  const q = (input || '').trim();
+  if (!q) throw new Error('Enter an event name or SKU.');
+  if (/^RE-/i.test(q)) {
+    const events = await apiGet('/events', { 'sku[]': [q.toUpperCase()] });
+    if (!events.length) throw new Error(`Event ${q.toUpperCase()} not found.`);
+    return { event: events[0] };
+  }
+  const sid = seasonId || document.getElementById('simSeasonSelect')?.value || null;
+  let events = await apiGet('/events', sid ? { 'season[]': [sid], 'program[]': [1] } : { 'program[]': [1] });
+  const lower = q.toLowerCase();
+  events = events.filter(e => (e.name || '').toLowerCase().includes(lower));
+  if (!events.length) throw new Error(`No events matching "${q}" in this season.`);
+  events.sort((a, b) => (b.start || '').localeCompare(a.start || ''));
+  if (events.length === 1) return { event: events[0] };
+  return { choices: events.slice(0, 12) };
+}
+
+// Render a clickable "did you mean" picker; clicking sets skuInputId and re-runs runFn
+function sim_renderEventPicker(containerId, choices, skuInputId, runFnName) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  el.innerHTML = `<div class="sim-event-picker"><div class="sim-event-pick-label">MULTIPLE EVENTS MATCH — PICK ONE</div>` +
+    choices.map(ev => {
+      const meta = [ev.sku || '', ev.start ? new Date(ev.start).toLocaleDateString() : '', ev.location?.region || ''].filter(Boolean).join(' · ');
+      return `<div class="sim-event-item" onclick="document.getElementById('${skuInputId}').value='${ev.sku}'; document.getElementById('${containerId}').innerHTML=''; ${runFnName}();">
+        <div class="ei-name">${(ev.name || 'Unnamed').replace(/"/g, '&quot;')}</div>
+        <div class="ei-meta">${meta}</div>
+      </div>`;
+    }).join('') + `</div>`;
+}
+
+// ── Build event-wide True Skill from a resolved event object ──
+async function sim_buildRatingsFromEvent(event, setStatus) {
   const divisions = event.divisions && event.divisions.length ? event.divisions : [{ id: 1 }];
 
   const allMatches = [];
@@ -4195,19 +4285,20 @@ async function runSimulation() {
   }
 }
 
-// ── Build strengths/weaknesses chips for one team from its real matches ──
+// ── Build described strengths/weaknesses for one team from its real matches ──
+// Returns { items:[{kind:'str'|'weak'|'note', title, desc}], record }
 function sim_teamProfile(p) {
-  const chips = [];
+  const items = [];
   if (!p || !p.games.length) {
-    chips.push({ cls: 'note', text: 'No scored matches' });
-    return { chips, record: '' };
+    items.push({ kind: 'note', title: 'No match data', desc: 'No scored matches this season to analyze yet.' });
+    return { items, record: '' };
   }
   const g = [...p.games].sort((a, b) => a.t - b.t);
   const n = g.length;
   const wins = g.filter(x => x.margin > 0).length;
   const losses = g.filter(x => x.margin < 0).length;
   const ties = n - wins - losses;
-  const record = `${wins}–${losses}${ties ? '–' + ties : ''}`;
+  const record = `${wins}\u2013${losses}${ties ? '\u2013' + ties : ''}`;
   const winRate = wins / n;
 
   // Consistency: own-alliance score spread relative to its mean
@@ -4215,22 +4306,28 @@ function sim_teamProfile(p) {
   const mean = ownScores.reduce((a, b) => a + b, 0) / n;
   const sd = Math.sqrt(ownScores.reduce((a, b) => a + (b - mean) * (b - mean), 0) / n);
   const cv = mean > 0 ? sd / mean : 1;
-  if (n >= 6 && cv <= 0.18) chips.push({ cls: 'plus', text: 'Consistent output' });
-  else if (n >= 6 && cv >= 0.35) chips.push({ cls: 'minus', text: 'Streaky output' });
+  if (n >= 6 && cv <= 0.18) items.push({ kind: 'str', title: 'Consistent', desc: 'Their alliance scores land in a tight band match to match \u2014 a dependable, known quantity.' });
+  else if (n >= 6 && cv >= 0.35) items.push({ kind: 'weak', title: 'Inconsistent', desc: 'Scores swing widely between matches \u2014 capable of big games but hard to count on.' });
 
   // Autonomous
   if (p.autoPlayed >= 5) {
     const ar = p.autoWon / p.autoPlayed;
-    if (ar >= 0.6) chips.push({ cls: 'plus', text: `Strong autons (${Math.round(ar * 100)}%)` });
-    else if (ar <= 0.4) chips.push({ cls: 'minus', text: `Weak autons (${Math.round(ar * 100)}%)` });
+    if (ar >= 0.6) items.push({ kind: 'str', title: `Strong auton (${Math.round(ar * 100)}%)`, desc: 'Wins the autonomous period in most matches, often grabbing the auton bonus.' });
+    else if (ar <= 0.4) items.push({ kind: 'weak', title: `Weak auton (${Math.round(ar * 100)}%)`, desc: 'Loses the autonomous period more often than not \u2014 gives up the early edge.' });
   }
 
-  // Clutch: record in matches decided by ≤7 points
+  // Ceiling: best game well above their average shows upside
+  const high = Math.max(...ownScores);
+  if (n >= 6 && mean > 0 && high >= mean * 1.4) {
+    items.push({ kind: 'str', title: `High ceiling (${Math.round(high)})`, desc: 'Has posted scores well above their average \u2014 real upside on their best day.' });
+  }
+
+  // Close Match (+): record in matches decided by ≤7 points
   const close = g.filter(x => Math.abs(x.margin) <= 7 && x.margin !== 0);
   if (close.length >= 4) {
     const cw = close.filter(x => x.margin > 0).length / close.length;
-    if (cw >= 0.6) chips.push({ cls: 'plus', text: `Clutch in close matches (${Math.round(cw * 100)}%)` });
-    else if (cw <= 0.4) chips.push({ cls: 'minus', text: `Drops close matches (${Math.round(cw * 100)}%)` });
+    if (cw >= 0.6) items.push({ kind: 'str', title: `Close Match (+) (${Math.round(cw * 100)}%)`, desc: 'Wins most matches decided by a touchdown or less \u2014 steady under pressure.' });
+    else if (cw <= 0.4) items.push({ kind: 'weak', title: `Close Match (-) (${Math.round(cw * 100)}%)`, desc: 'Tends to drop the tight ones decided by only a few points.' });
   }
 
   // Trend: last 5 alliance scores vs earlier average
@@ -4239,21 +4336,21 @@ function sim_teamProfile(p) {
     const earlier = g.slice(0, -5).reduce((a, b) => a + b.own, 0) / (n - 5);
     if (earlier > 0) {
       const delta = (recent - earlier) / earlier;
-      if (delta >= 0.12) chips.push({ cls: 'plus', text: 'Trending up' });
-      else if (delta <= -0.12) chips.push({ cls: 'minus', text: 'Trending down' });
+      if (delta >= 0.12) items.push({ kind: 'str', title: 'Recent Improvement', desc: `Scoring about ${Math.round(delta * 100)}% more in recent matches than earlier \u2014 improving.` });
+      else if (delta <= -0.12) items.push({ kind: 'weak', title: 'Recent Worsening', desc: `Scoring less lately than earlier in the season \u2014 form is dipping.` });
     }
   }
 
   // Overall record read
-  if (n >= 6 && winRate >= 0.65) chips.push({ cls: 'plus', text: `Winning record (${Math.round(winRate * 100)}%)` });
-  else if (n >= 6 && winRate <= 0.35) chips.push({ cls: 'minus', text: `Losing record (${Math.round(winRate * 100)}%)` });
+  if (n >= 6 && winRate >= 0.65) items.push({ kind: 'str', title: `Winning record (${Math.round(winRate * 100)}%)`, desc: 'Wins the clear majority of their matches.' });
+  else if (n >= 6 && winRate <= 0.35) items.push({ kind: 'weak', title: `Losing record (${Math.round(winRate * 100)}%)`, desc: 'Loses the majority of their matches this season.' });
 
-  // Sample size
-  if (n < 6) chips.push({ cls: 'note', text: `Small sample (${n} matches)` });
-  else if (n >= 25) chips.push({ cls: 'plus', text: `Battle-tested (${n} matches)` });
+  // Sample size notes
+  if (n < 6) items.push({ kind: 'note', title: `Inexperienced`, desc: `Only ${n} scored match${n === 1 ? '' : 'es'} \u2014 treat the rating as a rough estimate.` });
+  else if (n >= 25) items.push({ kind: 'note', title: 'Experienced', desc: `${n} scored matches, so their rating is well-grounded.` });
 
-  if (!chips.length) chips.push({ cls: 'note', text: 'Middle of the pack — no standout patterns' });
-  return { chips, record };
+  if (!items.some(i => i.kind !== 'note')) items.push({ kind: 'note', title: 'Mid', desc: 'No standout strengths or weaknesses stand out in the data yet.' });
+  return { items, record };
 }
 
 function sim_render(el, data) {
@@ -4276,19 +4373,33 @@ function sim_render(el, data) {
     ${tie > 0.2 ? `<div class="sim-tie-note">${tie.toFixed(1)}% projected to tie</div>` : ''}
   </div>`;
 
-  // ── Team overview: strengths & weaknesses ──
+  // ── Team overview: strengths & weaknesses as described bullet lists ──
   html += `<div class="sim-block-label">Team Overview · strengths &amp; weaknesses from this season's matches</div>`;
   html += `<div class="sim-overview">`;
   for (const id of [...redIds, ...blueIds]) {
     const t = targets.find(x => x.id === id) || {};
-    const { chips, record } = sim_teamProfile(profile ? profile.get(id) : null);
+    const { items, record } = sim_teamProfile(profile ? profile.get(id) : null);
+    const strengths = items.filter(i => i.kind === 'str');
+    const weaknesses = items.filter(i => i.kind === 'weak');
+    const notes = items.filter(i => i.kind === 'note');
+    const bullet = i => `<li><b>${i.title}</b> — ${i.desc}</li>`;
     html += `<div class="sim-ov-team">
       <div class="sim-ov-head">
         <span class="sim-ov-num">${t.displayNum || '?'}</span>
         <span class="sim-ov-name">${(t.name || '').slice(0, 34)}</span>
         ${record ? `<span class="sim-ov-record">${record}</span>` : ''}
       </div>
-      <div class="sim-ov-chips">${chips.map(c => `<span class="sim-chip ${c.cls}">${c.text}</span>`).join('')}</div>
+      <div class="sim-ov-lists">
+        <div class="sim-ov-col str">
+          <div class="sim-ov-col-label">STRENGTHS</div>
+          ${strengths.length ? `<ul class="sim-ov-bullets">${strengths.map(bullet).join('')}</ul>` : `<div class="sim-ov-empty">None standing out.</div>`}
+        </div>
+        <div class="sim-ov-col weak">
+          <div class="sim-ov-col-label">WEAKNESSES</div>
+          ${weaknesses.length ? `<ul class="sim-ov-bullets">${weaknesses.map(bullet).join('')}</ul>` : `<div class="sim-ov-empty">None standing out.</div>`}
+        </div>
+      </div>
+      ${notes.length ? `<ul class="sim-ov-bullets" style="margin-top:10px;">${notes.map(i => `<li class="note"><b>${i.title}</b> — ${i.desc}</li>`).join('')}</ul>` : ''}
     </div>`;
   }
   html += `</div>`;
@@ -4414,17 +4525,24 @@ async function runPickList() {
 }
 
 async function pickLoadEvent() {
-  const sku = (document.getElementById('simPickEventSku').value || '').trim().toUpperCase();
-  if (!sku) { showError('⚠ Enter an event SKU to load its teams.'); return; }
+  const input = (document.getElementById('simPickEventSku').value || '').trim();
+  if (!input) { showError('⚠ Enter an event name or SKU to load its teams.'); return; }
   showError('');
+  document.getElementById('pickEventPicker').innerHTML = '';
   const loadingEl = document.getElementById('pickLoading');
   const setStatus = t => { const el = document.getElementById('pickLoadingText'); if (el) el.textContent = t; };
   loadingEl.classList.add('active');
   try {
+    setStatus('FINDING EVENT...');
+    const seasonId = document.getElementById('simSeasonSelect')?.value || null;
+    const resolved = await sim_resolveEvent(input, seasonId);
+    if (resolved.choices) {
+      loadingEl.classList.remove('active');
+      sim_renderEventPicker('pickEventPicker', resolved.choices, 'simPickEventSku', 'pickLoadEvent');
+      return;
+    }
     setStatus('LOADING EVENT TEAMS...');
-    const events = await apiGet('/events', { 'sku[]': [sku] });
-    if (!events.length) throw new Error(`Event ${sku} not found`);
-    const teams = await apiGet(`/events/${events[0].id}/teams`, {});
+    const teams = await apiGet(`/events/${resolved.event.id}/teams`);
     const nums = teams.map(t => t.number).filter(Boolean);
     if (!nums.length) throw new Error('No teams found for that event.');
     document.getElementById('simPickCandidates').value = nums.join(', ');
@@ -4440,10 +4558,11 @@ async function pickLoadEvent() {
 // SCHEDULE — win odds for each of a team's qual matches at an event
 // ═══════════════════════════════════════════════
 async function runSchedule() {
-  const sku = (document.getElementById('simSchedSku').value || '').trim().toUpperCase();
+  const input = (document.getElementById('simSchedSku').value || '').trim();
   const teamNum = (document.getElementById('simSchedTeam').value || '').trim().toUpperCase();
-  if (!sku || !teamNum) { showError('⚠ Enter both an event SKU and your team number.'); return; }
+  if (!input || !teamNum) { showError('⚠ Enter an event (name or SKU) and your team number.'); return; }
   showError('');
+  document.getElementById('schedEventPicker').innerHTML = '';
 
   const resultsEl = document.getElementById('schedResults');
   resultsEl.innerHTML = '';
@@ -4452,7 +4571,15 @@ async function runSchedule() {
   loadingEl.classList.add('active');
 
   try {
-    const R = await sim_buildRatingsFromEvent(sku, setStatus);
+    setStatus('FINDING EVENT...');
+    const seasonId = document.getElementById('simSeasonSelect')?.value || null;
+    const resolved = await sim_resolveEvent(input, seasonId);
+    if (resolved.choices) {
+      loadingEl.classList.remove('active');
+      sim_renderEventPicker('schedEventPicker', resolved.choices, 'simSchedSku', 'runSchedule');
+      return;
+    }
+    const R = await sim_buildRatingsFromEvent(resolved.event, setStatus);
     const teamId = R.idByNum[teamNum];
     if (!teamId) throw new Error(`${teamNum} isn't in this event's match data.`);
     setStatus('PREDICTING MATCHES...');
@@ -4542,7 +4669,7 @@ async function runSchedule() {
         <div class="sched-tag">${r.tag}</div>
       </div>`;
     });
-    html += `</div><div class="sim-caveat">Ratings come from every match at <strong>${(R.event.name || sku)}</strong> (single-event True Skill — the most accurate kind). Win % is your alliance's chance in each qual match. Matches already played show the real result.</div></div>`;
+    html += `</div><div class="sim-caveat">Ratings come from every match at <strong>${(R.event.name || input)}</strong> (single-event True Skill — the most accurate kind). Win % is your alliance's chance in each qual match. Matches already played show the real result.</div></div>`;
     resultsEl.innerHTML = html;
   } catch (e) {
     showError('⚠ ' + e.message);
@@ -4553,15 +4680,176 @@ async function runSchedule() {
 }
 
 // ═══════════════════════════════════════════════
-// BRACKET ODDS — simulate a single-elim bracket for championship odds
+// BRACKET ODDS — fill a visual single-elim bracket, simulate championship odds
 // ═══════════════════════════════════════════════
+
+// Build the editable visual bracket for a given size (2/4/8/16).
+// prefill: { seedNumber: [team1, team2] }
+function bracketBuildInput(size, prefill) {
+  window._bracketSize = size;
+  document.querySelectorAll('.bracket-size-btn').forEach(b => b.classList.toggle('active', +b.dataset.size === size));
+  const order = sim_seedOrder(size); // 0-based seed indices in bracket order
+  const labelFor = m => m === 8 ? 'ROUND OF 16' : m === 4 ? 'QUARTERFINALS' : m === 2 ? 'SEMIFINALS' : m === 1 ? 'FINAL' : `ROUND (${m})`;
+  const slot = seed => {
+    const p = (prefill && prefill[seed]) || [];
+    const esc = s => (s || '').replace(/"/g, '&quot;');
+    return `<div class="bracket-input-slot">
+      <div class="bracket-input-seedlabel">SEED ${seed}</div>
+      <input type="text" id="brk_s${seed}_t1" value="${esc(p[0])}" placeholder="team 1" autocomplete="off">
+      <input type="text" id="brk_s${seed}_t2" value="${esc(p[1])}" placeholder="team 2" autocomplete="off">
+    </div>`;
+  };
+
+  let html = `<div class="bracket-wrapper"><div class="bracket-container"><svg class="bracket-svg-overlay"></svg>`;
+  // Round 1 — editable
+  const r1 = size / 2;
+  html += `<div class="bracket-column"><div class="bracket-round-label">${labelFor(r1)}</div><div class="bracket-column-inner">`;
+  for (let i = 0; i < r1; i++) {
+    html += `<div class="bracket-match bracket-input-match">${slot(order[2 * i] + 1)}${slot(order[2 * i + 1] + 1)}</div>`;
+  }
+  html += `</div></div>`;
+  // Advancing rounds
+  let m = r1 / 2;
+  while (m >= 1) {
+    html += `<div class="bracket-column"><div class="bracket-round-label">${labelFor(m)}</div><div class="bracket-column-inner">`;
+    for (let i = 0; i < m; i++) html += `<div class="bracket-match bracket-adv-match"><div class="bracket-adv-label">winner<br>advances</div></div>`;
+    html += `</div></div>`;
+    if (m === 1) break;
+    m = m / 2;
+  }
+  // Champion endpoint
+  html += `<div class="bracket-column"><div class="bracket-round-label">CHAMPION</div><div class="bracket-column-inner"><div class="bracket-match bracket-adv-match"><div class="bracket-adv-label">\u{1F3C6}</div></div></div></div>`;
+  html += `</div></div>`;
+
+  document.getElementById('bracketInputArea').innerHTML = html;
+  setTimeout(() => { if (typeof drawBracketConnectors === 'function') drawBracketConnectors(); }, 50);
+}
+
+// Read alliances from the bracket slots (index 0 = seed 1)
+function bracketReadInput() {
+  const size = window._bracketSize || 4;
+  const alliances = [];
+  for (let s = 1; s <= size; s++) {
+    const t1 = (document.getElementById('brk_s' + s + '_t1')?.value || '').trim().toUpperCase();
+    const t2 = (document.getElementById('brk_s' + s + '_t2')?.value || '').trim().toUpperCase();
+    alliances.push([t1, t2].filter(Boolean));
+  }
+  return alliances;
+}
+
+// Load an event's real elimination bracket into the visual input
+async function bracketLoadEvent() {
+  const input = (document.getElementById('simBracketEventSku').value || '').trim();
+  if (!input) { showError('⚠ Enter an event name or SKU to load its bracket.'); return; }
+  showError('');
+  document.getElementById('bracketEventPicker').innerHTML = '';
+  const loadingEl = document.getElementById('bracketLoading');
+  const setStatus = t => { const el = document.getElementById('bracketLoadingText'); if (el) el.textContent = t; };
+  loadingEl.classList.add('active');
+  try {
+    setStatus('FINDING EVENT...');
+    const seasonId = document.getElementById('simSeasonSelect')?.value || null;
+    const resolved = await sim_resolveEvent(input, seasonId);
+    if (resolved.choices) {
+      loadingEl.classList.remove('active');
+      sim_renderEventPicker('bracketEventPicker', resolved.choices, 'simBracketEventSku', 'bracketLoadEvent');
+      return;
+    }
+    const event = resolved.event;
+    const divisions = event.divisions && event.divisions.length ? event.divisions : [{ id: 1 }];
+    setStatus('LOADING ELIMINATION MATCHES...');
+    let all = [];
+    for (const div of divisions) {
+      try { all.push(...await apiGet(`/events/${event.id}/divisions/${div.id}/matches`)); } catch (e) {}
+    }
+    // Identify elimination matches (exclude quals/practice)
+    const isElim = m => {
+      const name = (m.name || '').toUpperCase().trim();
+      if (/^Q\s*\d/.test(name) || name.startsWith('QUAL')) return false;
+      if (/^P\s*\d/.test(name) || name.startsWith('PRACT')) return false;
+      if (name.startsWith('QF') || name.startsWith('SF') || name.includes('QUARTER') || name.includes('SEMI')) return true;
+      if (name.startsWith('R') && /\d/.test(name)) return true;
+      if (name.startsWith('F') || name.includes('FINAL')) return true;
+      return m.round && m.round !== 1 && m.round !== 2;
+    };
+    const elims = all.filter(isElim);
+    if (!elims.length) throw new Error('No elimination matches found for this event yet.');
+
+    // Round detector → normalized label + rank (widest round first)
+    const roundName = m => {
+      const nm = (m.name || '').toUpperCase().trim();
+      if (nm.startsWith('R128')) return 'R128';
+      if (nm.startsWith('R64')) return 'R64';
+      if (nm.startsWith('R32')) return 'R32';
+      if (nm.startsWith('R16')) return 'R16';
+      if (nm.startsWith('QF') || nm.includes('QUARTER')) return 'QF';
+      if (nm.startsWith('SF') || nm.includes('SEMI')) return 'SF';
+      if (nm.startsWith('F') || nm.includes('FINAL')) return 'F';
+      return 'R' + (m.round || 0);
+    };
+    const rank = { R128: 0, R64: 1, R32: 2, R16: 3, QF: 4, SF: 5, F: 6 };
+    // Series number so best-of-3 counts once (e.g. "QF 1-2" → series "QF1")
+    const seriesKey = m => {
+      const nm = (m.name || '').toUpperCase();
+      const mm = nm.match(/([A-Z0-9]+)\s*#?\s*(\d+)?/);
+      return roundName(m) + '_' + (mm && mm[2] ? mm[2] : (m.instance || m.matchnum || Math.random().toFixed(4)));
+    };
+
+    // Group by round → find widest (first) round
+    const byRound = {};
+    for (const m of elims) { const r = roundName(m); (byRound[r] = byRound[r] || []).push(m); }
+    const widest = Object.keys(byRound).sort((a, b) => (rank[a] ?? 99) - (rank[b] ?? 99))[0];
+    const firstRoundMatches = byRound[widest];
+
+    // Distinct series in the first round, each → the two alliances (team numbers)
+    const seenSeries = new Set();
+    const pairs = []; // [ [teamsA[], teamsB[]], ... ]
+    const teamsOf = a => (a.teams || []).map(t => (t?.team?.name ?? t?.name ?? '').toUpperCase()).filter(Boolean);
+    firstRoundMatches.sort((a, b) => (a.instance || a.matchnum || 0) - (b.instance || b.matchnum || 0));
+    for (const m of firstRoundMatches) {
+      const key = seriesKey(m);
+      if (seenSeries.has(key)) continue;
+      seenSeries.add(key);
+      const al = m.alliances; if (!al) continue;
+      let redA, blueA;
+      if (Array.isArray(al)) { redA = al.find(a => (a.color || '').toLowerCase() === 'red') || al[0]; blueA = al.find(a => (a.color || '').toLowerCase() === 'blue') || al[1]; }
+      else { redA = al.red || al.Red; blueA = al.blue || al.Blue; }
+      if (!redA || !blueA) continue;
+      pairs.push([teamsOf(redA), teamsOf(blueA)]);
+    }
+    if (!pairs.length) throw new Error('Could not read alliances from the bracket.');
+
+    // Fit to a power-of-2 size
+    let nAll = pairs.length * 2;
+    let size = [16, 8, 4, 2].find(s => s <= nAll) || 2;
+    const usablePairs = pairs.slice(0, size / 2);
+
+    // Place each real match's two alliances into the paired slots for that box
+    const order = sim_seedOrder(size);
+    const prefill = {};
+    usablePairs.forEach((pair, i) => {
+      prefill[order[2 * i] + 1] = pair[0];
+      prefill[order[2 * i + 1] + 1] = pair[1];
+    });
+    bracketBuildInput(size, prefill);
+    setStatus(`LOADED ${usablePairs.length * 2}-ALLIANCE BRACKET`);
+  } catch (e) {
+    showError('⚠ ' + e.message);
+  } finally {
+    setTimeout(() => loadingEl.classList.remove('active'), 400);
+  }
+}
+
 async function runBracket() {
-  const raw = (document.getElementById('simBracketAlliances').value || '').trim();
-  if (!raw) { showError('⚠ Enter your seeded alliances, one per line.'); return; }
-  const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
-  const alliancesNums = lines.map(l => l.split(/[\s,]+/).map(s => s.trim().toUpperCase()).filter(Boolean));
-  const n = alliancesNums.length;
-  if (![2, 4, 8, 16].includes(n)) { showError(`⚠ Enter 2, 4, 8, or 16 alliances (you entered ${n}).`); return; }
+  const alliancesNums = bracketReadInput().map(a => a.filter(Boolean));
+  const filled = alliancesNums.filter(a => a.length).length;
+  const size = window._bracketSize || 4;
+  if (filled < size) {
+    const empties = [];
+    alliancesNums.forEach((a, i) => { if (!a.length) empties.push(i + 1); });
+    showError(`⚠ Fill every alliance slot. Missing seed${empties.length > 1 ? 's' : ''} ${empties.join(', ')}.`);
+    return;
+  }
   showError('');
 
   const seasonId = document.getElementById('simSeasonSelect').value || null;
@@ -4583,12 +4871,12 @@ async function runBracket() {
       return { mean: st.mean, std: st.std || R.globalStd, label: nums.join(' + ') };
     });
 
-    const odds = sim_bracket(alliances, 20000, 987654);
+    const odds = sim_bracket(alliances, 30000, 987654);
     const ranked = alliances.map((a, i) => ({ seed: i + 1, label: a.label, mean: a.mean, odds: odds[i] }))
       .sort((a, b) => b.odds - a.odds);
     const maxOdds = Math.max(...odds, 1);
 
-    let html = `<div class="sim-result"><div class="sim-block-label">Championship odds · ${n}-alliance single elimination, 20,000 sims</div><div class="bracket-odds">`;
+    let html = `<div class="sim-result"><div class="sim-block-label">Championship odds · ${size}-alliance single elimination, 30,000 sims</div><div class="bracket-odds">`;
     ranked.forEach((r, i) => {
       html += `<div class="bo-row${i === 0 ? ' first' : ''}">
         <div class="bo-seed">#${r.seed}</div>
@@ -4596,7 +4884,7 @@ async function runBracket() {
         <div class="bo-bar-wrap"><div class="bo-bar" style="width:${(r.odds / maxOdds * 100).toFixed(1)}%"></div><span class="bo-pct">${r.odds.toFixed(1)}%</span></div>
       </div>`;
     });
-    html += `</div><div class="sim-caveat">Odds are how often each alliance wins the whole bracket, using standard seeding (1 plays the lowest seed, and the top two seeds can only meet in the final). Each alliance's strength is the sum of its teams' True Skill ratings.</div></div>`;
+    html += `</div><div class="sim-caveat">Odds are how often each alliance wins the whole bracket, using standard seeding (seed 1 plays the lowest seed; the top two seeds can only meet in the final). Each alliance's strength is the sum of its teams' True Skill ratings.</div></div>`;
     resultsEl.innerHTML = html;
   } catch (e) {
     showError('⚠ ' + e.message);
@@ -4606,8 +4894,10 @@ async function runBracket() {
   }
 }
 function bracketClear() {
-  document.getElementById('simBracketAlliances').value = '';
+  bracketBuildInput(window._bracketSize || 4);
   document.getElementById('bracketResults').innerHTML = '';
+  document.getElementById('bracketEventPicker').innerHTML = '';
+  document.getElementById('simBracketEventSku').value = '';
   showError('');
 }
 
@@ -4616,11 +4906,16 @@ function bracketClear() {
   const e = document.getElementById(id);
   if (e) e.addEventListener('keydown', ev => { if (ev.key === 'Enter') runSimulation(); });
 });
+// Build the default bracket input so the mode isn't empty
+if (document.getElementById('bracketInputArea')) bracketBuildInput(4);
 // Restore last simulator sub-mode
 (function () {
   try {
     const m = localStorage.getItem('vex_sim_mode');
-    if (m && ['match', 'pick', 'schedule', 'bracket'].includes(m)) simMode(m);
+    if (m && ['match', 'pick', 'schedule', 'bracket'].includes(m)) {
+      simMode(m);
+      if (m === 'bracket') setTimeout(() => { if (typeof drawBracketConnectors === 'function') drawBracketConnectors(); }, 120);
+    }
   } catch (e) {}
 })();
 </script>
