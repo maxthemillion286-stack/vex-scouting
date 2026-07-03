@@ -844,6 +844,84 @@
       padding-right: env(safe-area-inset-right);
     }
   }
+
+  /* ══════════════ MATCH SIMULATOR ══════════════ */
+  .sim-alliances { display: grid; grid-template-columns: 1fr auto 1fr; gap: 16px; align-items: stretch; margin-top: 8px; }
+  .sim-alliance { border: 1px solid var(--border); background: var(--card); padding: 16px; display: flex; flex-direction: column; gap: 18px; position: relative; }
+  .sim-alliance::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; }
+  .sim-red::before { background: linear-gradient(90deg, #ee2222, transparent); }
+  .sim-blue::before { background: linear-gradient(90deg, #2288ff, transparent); }
+  .sim-alliance-label { font-family: var(--mono); font-size: 11px; letter-spacing: 3px; font-weight: 700; }
+  .sim-red .sim-alliance-label { color: #ff4444; }
+  .sim-blue .sim-alliance-label { color: #44aaff; }
+  .sim-vs { display: flex; align-items: center; justify-content: center; font-family: var(--display); font-size: 22px; font-weight: 700; color: var(--text-muted); letter-spacing: 2px; padding: 0 4px; }
+
+  /* Result blocks */
+  .sim-result { margin-top: 28px; animation: fadeUp 0.4s ease; }
+  .sim-block-label { font-family: var(--mono); font-size: 10px; color: var(--text-muted); letter-spacing: 3px; text-transform: uppercase; margin-bottom: 12px; }
+  .sim-block { border: 1px solid var(--border); background: var(--card); padding: 20px; margin-bottom: 20px; }
+
+  /* Win probability bar */
+  .sim-winbar-labels { display: flex; justify-content: space-between; font-family: var(--display); font-weight: 700; margin-bottom: 8px; }
+  .sim-winbar-labels .sim-red-pct { color: #ff4444; font-size: 26px; }
+  .sim-winbar-labels .sim-blue-pct { color: #44aaff; font-size: 26px; }
+  .sim-winbar-names { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 11px; color: var(--text-muted); margin-bottom: 10px; letter-spacing: 1px; }
+  .sim-winbar { height: 22px; display: flex; overflow: hidden; border: 1px solid var(--border); background: var(--bg); }
+  .sim-winbar .seg-red { background: linear-gradient(90deg, #cc0000, #ee3333); transition: width 0.7s cubic-bezier(0.4,0,0.2,1); }
+  .sim-winbar .seg-tie { background: var(--text-muted); transition: width 0.7s; }
+  .sim-winbar .seg-blue { background: linear-gradient(90deg, #2277ee, #0055cc); transition: width 0.7s cubic-bezier(0.4,0,0.2,1); }
+  .sim-tie-note { text-align: center; font-family: var(--mono); font-size: 10px; color: var(--text-muted); margin-top: 8px; letter-spacing: 1px; }
+
+  /* Predicted score cards */
+  .sim-predict-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .sim-predict { border: 1px solid var(--border); padding: 16px; text-align: center; }
+  .sim-predict.red { border-color: #661111; }
+  .sim-predict.blue { border-color: #113355; }
+  .sim-predict-name { font-family: var(--mono); font-size: 11px; letter-spacing: 1px; margin-bottom: 6px; }
+  .sim-predict.red .sim-predict-name { color: #ff5555; }
+  .sim-predict.blue .sim-predict-name { color: #55aaff; }
+  .sim-predict-score { font-family: var(--display); font-size: 40px; font-weight: 700; color: var(--text); line-height: 1; }
+  .sim-predict-range { font-family: var(--mono); font-size: 11px; color: var(--text-muted); margin-top: 6px; letter-spacing: 1px; }
+
+  /* Histogram (margin of victory) */
+  .sim-hist { height: 120px; display: flex; align-items: flex-end; gap: 2px; margin-top: 4px; position: relative; }
+  .sim-hist-bar { flex: 1; min-width: 2px; transition: height 0.5s cubic-bezier(0.4,0,0.2,1); }
+  .sim-hist-bar.red { background: linear-gradient(180deg, #ee3333, #661111); }
+  .sim-hist-bar.blue { background: linear-gradient(180deg, #2277ee, #113355); }
+  .sim-hist-bar.zero { background: var(--text-muted); }
+  .sim-hist-axis { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 10px; color: var(--text-muted); margin-top: 6px; letter-spacing: 1px; }
+  .sim-hist-caption { font-family: var(--body); font-size: 12px; color: var(--text-dim); margin-top: 10px; text-align: center; }
+
+  /* Auton edge */
+  .sim-auton { display: flex; align-items: center; gap: 14px; }
+  .sim-auton-side { flex: 1; text-align: center; }
+  .sim-auton-pct { font-family: var(--display); font-size: 22px; font-weight: 700; }
+  .sim-auton-side.red .sim-auton-pct { color: #ff4444; }
+  .sim-auton-side.blue .sim-auton-pct { color: #44aaff; }
+  .sim-auton-label { font-family: var(--mono); font-size: 10px; color: var(--text-muted); letter-spacing: 1px; margin-top: 2px; }
+
+  /* Team ratings transparency table */
+  .sim-rating-table { display: flex; flex-direction: column; gap: 1px; background: var(--border); border: 1px solid var(--border); }
+  .sim-rating-head, .sim-rating-row { display: grid; grid-template-columns: 80px 1fr 90px 90px; background: var(--card); align-items: center; gap: 12px; padding: 10px 16px; }
+  .sim-rating-head { background: var(--card2); font-family: var(--mono); font-size: 10px; color: var(--text-muted); letter-spacing: 2px; }
+  .sim-rating-head > div:nth-child(n+3), .sim-rating-row > div:nth-child(n+3) { text-align: right; }
+  .sim-rating-row .sr-team { font-family: var(--display); font-weight: 700; font-size: 15px; color: var(--text); }
+  .sim-rating-row.red .sr-team { color: #ff5555; }
+  .sim-rating-row.blue .sr-team { color: #55aaff; }
+  .sim-rating-row .sr-opr { font-family: var(--mono); font-size: 15px; color: var(--accent-bright); }
+  .sim-rating-row .sr-meta { font-family: var(--mono); font-size: 13px; color: var(--text-muted); }
+  .sim-caveat { font-family: var(--body); font-size: 12px; color: var(--text-muted); line-height: 1.5; margin-top: 4px; padding: 12px 14px; border-left: 2px solid var(--accent-dim); background: var(--card); }
+
+  @media (max-width: 768px) {
+    .sim-alliances { grid-template-columns: 1fr; gap: 10px; }
+    .sim-vs { padding: 4px 0; }
+    .sim-predict-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+    .sim-predict-score { font-size: 30px; }
+    .sim-winbar-labels .sim-red-pct, .sim-winbar-labels .sim-blue-pct { font-size: 20px; }
+    .sim-hist { height: 90px; }
+    .sim-rating-head, .sim-rating-row { grid-template-columns: 56px 1fr 64px 64px; font-size: 11px; padding: 8px 10px; gap: 6px; }
+    .sim-rating-row .sr-team { font-size: 13px; }
+  }
 </style>
 </head>
 <body>
@@ -938,6 +1016,7 @@
     <button class="tab-btn active" data-tab="scout" onclick="switchTab('scout')">SCOUT</button>
     <button class="tab-btn" data-tab="skills" onclick="switchTab('skills')">SKILLS RANKINGS</button>
     <button class="tab-btn" data-tab="tournament" onclick="switchTab('tournament')">TOURNAMENT</button>
+    <button class="tab-btn" data-tab="simulator" onclick="switchTab('simulator')">MATCH SIM</button>
     <div class="tab-indicator" id="tabIndicator"></div>
   </div>
 
@@ -1065,6 +1144,62 @@
 
     <div id="tournamentResults"></div>
   </section>
+
+  <!-- ═══════════ MATCH SIMULATOR ═══════════ -->
+  <section class="search-section tab-panel" id="tab-simulator">
+    <div class="section-label">Match Simulator <span class="section-info" title="Enter the teams for each alliance, then run a Monte Carlo simulation of the match. Predictions are built from real match scores this season — each team's offensive rating is derived by least-squares (OPR) and thousands of matches are simulated from their actual scoring spread. Leave a partner blank to simulate 1v1.">i</span></div>
+
+    <div class="sim-alliances">
+      <div class="sim-alliance sim-red">
+        <div class="sim-alliance-label">RED ALLIANCE</div>
+        <div class="input-wrap">
+          <span class="input-label">TEAM 1</span>
+          <input type="text" id="simRed1" placeholder="e.g. 7700S" autocomplete="off">
+        </div>
+        <div class="input-wrap">
+          <span class="input-label">TEAM 2 (optional)</span>
+          <input type="text" id="simRed2" placeholder="partner — leave blank for 1v1" autocomplete="off">
+        </div>
+      </div>
+
+      <div class="sim-vs">VS</div>
+
+      <div class="sim-alliance sim-blue">
+        <div class="sim-alliance-label">BLUE ALLIANCE</div>
+        <div class="input-wrap">
+          <span class="input-label">TEAM 1</span>
+          <input type="text" id="simBlue1" placeholder="e.g. 12345A" autocomplete="off">
+        </div>
+        <div class="input-wrap">
+          <span class="input-label">TEAM 2 (optional)</span>
+          <input type="text" id="simBlue2" placeholder="partner — leave blank for 1v1" autocomplete="off">
+        </div>
+      </div>
+    </div>
+
+    <div class="controls-row" style="margin-top:16px;">
+      <div class="input-wrap select-wrap" style="min-width:140px;">
+        <span class="input-label">GRADE</span>
+        <select id="simGradeSelect">
+          <option value="High School" selected>High School</option>
+          <option value="Middle School">Middle School</option>
+        </select>
+      </div>
+      <div class="input-wrap select-wrap" style="min-width:180px;">
+        <span class="input-label">SEASON</span>
+        <select id="simSeasonSelect"></select>
+      </div>
+      <button class="btn btn-primary" id="simRunBtn" onclick="runSimulation()">RUN SIMULATION</button>
+      <button class="btn btn-secondary" onclick="clearSimulation()">CLEAR</button>
+    </div>
+
+    <div class="loading" id="simLoading">
+      <div class="loading-spinner"></div>
+      <div class="loading-text" id="simLoadingText">PULLING MATCH DATA...</div>
+    </div>
+
+    <div id="simResults"></div>
+  </section>
 </div>
 
 <script>
@@ -1163,7 +1298,7 @@ window.onload = () => {
   applyTheme(savedTheme);
   // Restore last viewed tab
   const savedTab = localStorage.getItem('vex_active_tab');
-  if (savedTab && ['scout','skills','tournament'].includes(savedTab)) {
+  if (savedTab && ['scout','skills','tournament','simulator'].includes(savedTab)) {
     switchTab(savedTab);
   }
   // Position tab indicator after layout settles
@@ -1414,9 +1549,11 @@ function loadSeasons() {
   const sel = document.getElementById('seasonSelect');
   const skillsSel = document.getElementById('skillsSeasonSelect');
   const tourSel = document.getElementById('tournamentSeasonSelect');
+  const simSel = document.getElementById('simSeasonSelect');
   sel.innerHTML = '';
   skillsSel.innerHTML = '';
   if (tourSel) tourSel.innerHTML = '';
+  if (simSel) simSel.innerHTML = '';
   SEASONS.forEach((s, i) => {
     const isDefault = DEFAULT_SEASON_NAME ? isDefaultSeason(s) : (i === 0);
     const opt = document.createElement('option');
@@ -1433,6 +1570,12 @@ function loadSeasons() {
       const opt3 = opt.cloneNode(true);
       if (isDefault) opt3.selected = true;
       tourSel.appendChild(opt3);
+    }
+
+    if (simSel) {
+      const opt4 = opt.cloneNode(true);
+      if (isDefault) opt4.selected = true;
+      simSel.appendChild(opt4);
     }
   });
 
@@ -1458,7 +1601,7 @@ async function loadSeasonsFromAPI() {
     if (!seasons.length) return;
     seasons.sort((a, b) => (b.start || '').localeCompare(a.start || ''));
 
-    ['seasonSelect','skillsSeasonSelect','tournamentSeasonSelect'].forEach(id => {
+    ['seasonSelect','skillsSeasonSelect','tournamentSeasonSelect','simSeasonSelect'].forEach(id => {
       const sel = document.getElementById(id);
       if (!sel) return;
       sel.innerHTML = '';
@@ -3389,6 +3532,411 @@ async function buildTeamCard(teamNumber, seasonId, gradeLevel = 'High School') {
     </div>`;
   return card;
 }
+
+// ═══════════════════════════════════════════════════════════════
+// MATCH SIMULATOR
+// Data-driven Monte Carlo. Each team's offensive rating is derived
+// from real alliance scores this season via ridge-regularized OPR
+// (least squares). Matches are then simulated by sampling each
+// alliance's real scoring spread. No eyeballed inputs.
+// ═══════════════════════════════════════════════════════════════
+
+let simInProgress = false;
+
+// ── Seeded RNG so a given matchup gives a stable, repeatable read ──
+function sim_mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function sim_gaussian(rng, mean, std) {
+  let u = 0, v = 0;
+  while (u === 0) u = rng();
+  while (v === 0) v = rng();
+  const z = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+  return mean + std * z;
+}
+
+// ── OPR via conjugate gradient on (AᵀA + λI)x = Aᵀb ──
+// observations: [{ teams:[id,...], score }]
+function sim_computeOPR(observations, lambda = 2.0) {
+  const idx = new Map();
+  for (const o of observations) for (const t of o.teams) if (!idx.has(t)) idx.set(t, idx.size);
+  const K = idx.size;
+  const ratings = new Map();
+  if (K === 0) return { ratings, matchCount: new Map() };
+
+  const rows = observations.map(o => o.teams.map(t => idx.get(t)));
+  const bvec = observations.map(o => o.score);
+
+  const Atb = new Float64Array(K);
+  for (let i = 0; i < rows.length; i++) for (const c of rows[i]) Atb[c] += bvec[i];
+
+  function applyM(v) {
+    const out = new Float64Array(K);
+    for (const cols of rows) {
+      let s = 0;
+      for (const c of cols) s += v[c];
+      for (const c of cols) out[c] += s;
+    }
+    for (let i = 0; i < K; i++) out[i] += lambda * v[i];
+    return out;
+  }
+  const dot = (a, b) => { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * b[i]; return s; };
+
+  const x = new Float64Array(K);
+  let r = Float64Array.from(Atb);
+  let p = Float64Array.from(r);
+  let rsold = dot(r, r);
+  for (let iter = 0; iter < 500; iter++) {
+    const Ap = applyM(p);
+    const denom = dot(p, Ap) || 1e-12;
+    const alpha = rsold / denom;
+    for (let i = 0; i < K; i++) { x[i] += alpha * p[i]; r[i] -= alpha * Ap[i]; }
+    const rsnew = dot(r, r);
+    if (Math.sqrt(rsnew) < 1e-6) break;
+    const beta = rsnew / rsold;
+    for (let i = 0; i < K; i++) p[i] = r[i] + beta * p[i];
+    rsold = rsnew;
+  }
+
+  const matchCount = new Map();
+  for (const cols of rows) for (const c of cols) {
+    // map col back not needed; count via idx reverse below
+  }
+  for (const [t, i] of idx) ratings.set(t, x[i]);
+  // count matches per team
+  for (const o of observations) for (const t of o.teams) matchCount.set(t, (matchCount.get(t) || 0) + 1);
+  return { ratings, matchCount };
+}
+
+// ── Per-team residual std from the OPR fit ──
+function sim_residualStd(observations, ratings) {
+  const byTeam = new Map();
+  let allSq = 0, allN = 0;
+  for (const o of observations) {
+    let pred = 0;
+    for (const t of o.teams) pred += ratings.get(t) || 0;
+    const res = o.score - pred;
+    allSq += res * res; allN++;
+    for (const t of o.teams) { if (!byTeam.has(t)) byTeam.set(t, []); byTeam.get(t).push(res); }
+  }
+  const globalStd = allN > 0 ? Math.sqrt(allSq / allN) : 15;
+  const stdByTeam = new Map();
+  for (const [t, arr] of byTeam) {
+    if (arr.length < 2) { stdByTeam.set(t, globalStd); continue; }
+    const m = arr.reduce((a, b) => a + b, 0) / arr.length;
+    const varr = arr.reduce((a, b) => a + (b - m) * (b - m), 0) / arr.length;
+    stdByTeam.set(t, Math.max(Math.sqrt(varr), globalStd * 0.35)); // floor so a lucky-consistent team isn't overconfident
+  }
+  return { stdByTeam, globalStd };
+}
+
+// ── Monte Carlo match sim ──
+function sim_runMonteCarlo(redIds, blueIds, ratings, stdByTeam, globalStd, N, seed) {
+  const rng = sim_mulberry32(seed);
+  const redMean = redIds.reduce((s, t) => s + (ratings.get(t) || 0), 0);
+  const blueMean = blueIds.reduce((s, t) => s + (ratings.get(t) || 0), 0);
+  const meanVar = ids => {
+    const vs = ids.map(t => { const s = stdByTeam.get(t) ?? globalStd; return s * s; });
+    return vs.reduce((a, b) => a + b, 0) / vs.length;
+  };
+  const redStd = Math.sqrt(meanVar(redIds));
+  const blueStd = Math.sqrt(meanVar(blueIds));
+
+  let redW = 0, blueW = 0, tie = 0;
+  const reds = new Array(N), blues = new Array(N), margins = new Array(N);
+  for (let i = 0; i < N; i++) {
+    const rs = Math.max(0, Math.round(sim_gaussian(rng, redMean, redStd)));
+    const bs = Math.max(0, Math.round(sim_gaussian(rng, blueMean, blueStd)));
+    reds[i] = rs; blues[i] = bs; margins[i] = rs - bs;
+    if (rs > bs) redW++; else if (bs > rs) blueW++; else tie++;
+  }
+  const pctile = (arr, p) => { const s = [...arr].sort((a, b) => a - b); return s[Math.floor(p / 100 * (s.length - 1))]; };
+  return {
+    redWin: redW / N * 100, blueWin: blueW / N * 100, tie: tie / N * 100,
+    redMean, blueMean,
+    redP10: pctile(reds, 10), redP90: pctile(reds, 90),
+    blueP10: pctile(blues, 10), blueP90: pctile(blues, 90),
+    margins
+  };
+}
+
+// ── Resolve a team number to its VEX id + basic info ──
+async function sim_resolveTeam(number) {
+  let teams = await apiGet('/teams', { 'number[]': [number], 'program[]': [1] });
+  if (!teams.length) teams = await apiGet('/teams', { 'number[]': [number], 'program[]': [4] });
+  if (!teams.length) throw new Error(`Team ${number} not found`);
+  return teams[0];
+}
+
+// ── Normalize a match into {red:{ids,score,autoWin}, blue:{...}} ──
+function sim_parseMatch(match) {
+  if (match.round === 1) return null; // skip practice
+  const al = match.alliances;
+  if (!al) return null;
+  let redA, blueA;
+  if (Array.isArray(al)) {
+    redA = al.find(a => (a.color || '').toLowerCase() === 'red');
+    blueA = al.find(a => (a.color || '').toLowerCase() === 'blue');
+    if (!redA && al.length >= 2) { redA = al[0]; blueA = al[1]; }
+  } else {
+    redA = al.red || al.Red || null;
+    blueA = al.blue || al.Blue || null;
+  }
+  if (!redA || !blueA) return null;
+  const idsOf = a => (a.teams || []).map(t => t?.team?.id ?? t?.id ?? t).filter(v => v != null).map(String);
+  const scoreOf = a => (a.score === null || a.score === undefined) ? null : a.score;
+  return {
+    red: { ids: idsOf(redA), score: scoreOf(redA) },
+    blue: { ids: idsOf(blueA), score: scoreOf(blueA) },
+    autoWinner: (match.autonomous_winner || '').toLowerCase()
+  };
+}
+
+async function runSimulation() {
+  if (simInProgress) return;
+  switchTab('simulator');
+
+  const read = id => (document.getElementById(id).value || '').trim().toUpperCase();
+  const red1 = read('simRed1'), red2 = read('simRed2');
+  const blue1 = read('simBlue1'), blue2 = read('simBlue2');
+
+  if (!red1 || !blue1) {
+    showError('⚠ Enter at least one team per alliance (Red Team 1 and Blue Team 1).');
+    return;
+  }
+  showError('');
+
+  const seasonId = document.getElementById('simSeasonSelect').value || null;
+  const resultsEl = document.getElementById('simResults');
+  resultsEl.innerHTML = '';
+  const loadingEl = document.getElementById('simLoading');
+  const loadingText = document.getElementById('simLoadingText');
+  loadingEl.classList.add('active');
+  simInProgress = true;
+
+  try {
+    // Build the target list (dedupe if the same team is typed twice)
+    const rawTargets = [
+      { key: 'red1', number: red1, color: 'red' },
+      red2 ? { key: 'red2', number: red2, color: 'red' } : null,
+      { key: 'blue1', number: blue1, color: 'blue' },
+      blue2 ? { key: 'blue2', number: blue2, color: 'blue' } : null
+    ].filter(Boolean);
+
+    // Resolve each team → id
+    const targets = [];
+    for (let i = 0; i < rawTargets.length; i++) {
+      const t = rawTargets[i];
+      loadingText.textContent = `RESOLVING ${t.number}... (${i + 1}/${rawTargets.length})`;
+      const info = await sim_resolveTeam(t.number);
+      targets.push({ ...t, id: String(info.id), name: info.team_name || '', displayNum: info.number });
+    }
+
+    // Fetch each unique team's season matches, collect UNIQUE matches by id
+    const uniqueMatches = new Map();
+    const seenIds = [...new Set(targets.map(t => t.id))];
+    for (let i = 0; i < seenIds.length; i++) {
+      const tid = seenIds[i];
+      const tgt = targets.find(t => t.id === tid);
+      loadingText.textContent = `PULLING MATCHES FOR ${tgt.displayNum}... (${i + 1}/${seenIds.length})`;
+      const params = { 'team[]': [tid] };
+      if (seasonId) params['season[]'] = [seasonId];
+      const matches = await apiGet(`/teams/${tid}/matches`, params);
+      for (const m of matches) {
+        if (m && m.id != null && !uniqueMatches.has(m.id)) uniqueMatches.set(m.id, m);
+      }
+    }
+
+    loadingText.textContent = 'COMPUTING RATINGS...';
+    await sleep(30); // let the UI paint the message
+
+    // Build observations + auton tally
+    const observations = [];
+    const autonTally = new Map(); // id -> {played, won}
+    for (const t of targets) autonTally.set(t.id, { played: 0, won: 0 });
+    const targetIds = new Set(targets.map(t => t.id));
+
+    for (const m of uniqueMatches.values()) {
+      const pm = sim_parseMatch(m);
+      if (!pm) continue;
+      if (pm.red.score !== null && pm.red.ids.length) observations.push({ teams: pm.red.ids, score: pm.red.score });
+      if (pm.blue.score !== null && pm.blue.ids.length) observations.push({ teams: pm.blue.ids, score: pm.blue.score });
+
+      // Auton: credit our targets based on which color they were on
+      if (pm.autoWinner === 'red' || pm.autoWinner === 'blue') {
+        for (const t of targets) {
+          const onRed = pm.red.ids.includes(t.id);
+          const onBlue = pm.blue.ids.includes(t.id);
+          if (!onRed && !onBlue) continue;
+          const tally = autonTally.get(t.id);
+          tally.played++;
+          if ((onRed && pm.autoWinner === 'red') || (onBlue && pm.autoWinner === 'blue')) tally.won++;
+        }
+      }
+    }
+
+    if (observations.length === 0) {
+      resultsEl.innerHTML = `<div class="sim-caveat">No scored matches found for these teams in the selected season. Try a different season, or check the team numbers.</div>`;
+      loadingEl.classList.remove('active');
+      simInProgress = false;
+      return;
+    }
+
+    // OPR + residuals
+    const { ratings, matchCount } = sim_computeOPR(observations, 2.0);
+    const { stdByTeam, globalStd } = sim_residualStd(observations, ratings);
+
+    // Alliance id groups (dedup within a side just in case)
+    const redIds = [...new Set(targets.filter(t => t.color === 'red').map(t => t.id))];
+    const blueIds = [...new Set(targets.filter(t => t.color === 'blue').map(t => t.id))];
+
+    // Stable seed from the team numbers so the same matchup reads the same
+    const seedStr = [red1, red2, blue1, blue2].join('|');
+    let seed = 0; for (let i = 0; i < seedStr.length; i++) seed = (seed * 31 + seedStr.charCodeAt(i)) >>> 0;
+
+    const result = sim_runMonteCarlo(redIds, blueIds, ratings, stdByTeam, globalStd, 5000, seed || 1);
+
+    // Auton edge (informational, separate from score model)
+    const autonStrength = ids => {
+      const rates = ids.map(id => { const a = autonTally.get(id); return a && a.played > 0 ? a.won / a.played : null; }).filter(v => v !== null);
+      if (!rates.length) return null;
+      return rates.reduce((a, b) => a + b, 0) / rates.length;
+    };
+    const redAuto = autonStrength(redIds), blueAuto = autonStrength(blueIds);
+    let redAutoPct = null, blueAutoPct = null;
+    if (redAuto !== null && blueAuto !== null) {
+      const rs = Math.max(redAuto, 0.001), bs = Math.max(blueAuto, 0.001);
+      redAutoPct = rs / (rs + bs) * 100;
+      blueAutoPct = 100 - redAutoPct;
+    }
+
+    sim_render(resultsEl, { targets, redIds, blueIds, ratings, matchCount, stdByTeam, result, redAutoPct, blueAutoPct });
+  } catch (e) {
+    showError('⚠ ' + e.message);
+    console.error('Simulation error:', e);
+  } finally {
+    loadingEl.classList.remove('active');
+    simInProgress = false;
+  }
+}
+
+function sim_render(el, data) {
+  const { targets, redIds, blueIds, ratings, matchCount, stdByTeam, result, redAutoPct, blueAutoPct } = data;
+  const nameFor = ids => ids.map(id => (targets.find(t => t.id === id) || {}).displayNum || '?').join(' + ');
+  const redName = nameFor(redIds), blueName = nameFor(blueIds);
+
+  const rWin = result.redWin, bWin = result.blueWin, tie = result.tie;
+  const favored = rWin > bWin ? redName : blueName;
+
+  // ── Win probability ──
+  let html = `<div class="sim-result">`;
+  html += `<div class="sim-block-label">Win Probability · 5,000 simulated matches</div>`;
+  html += `<div class="sim-block">
+    <div class="sim-winbar-labels"><span class="sim-red-pct">${rWin.toFixed(1)}%</span><span class="sim-blue-pct">${bWin.toFixed(1)}%</span></div>
+    <div class="sim-winbar-names"><span>${redName}</span><span>${blueName}</span></div>
+    <div class="sim-winbar">
+      <div class="seg-red" style="width:${rWin}%"></div>
+      <div class="seg-tie" style="width:${tie}%"></div>
+      <div class="seg-blue" style="width:${bWin}%"></div>
+    </div>
+    ${tie > 0.2 ? `<div class="sim-tie-note">${tie.toFixed(1)}% projected to tie</div>` : ''}
+  </div>`;
+
+  // ── Predicted score ──
+  html += `<div class="sim-block-label">Predicted Score</div>`;
+  html += `<div class="sim-block"><div class="sim-predict-grid">
+    <div class="sim-predict red">
+      <div class="sim-predict-name">${redName}</div>
+      <div class="sim-predict-score">${Math.round(result.redMean)}</div>
+      <div class="sim-predict-range">likely ${result.redP10}–${result.redP90}</div>
+    </div>
+    <div class="sim-predict blue">
+      <div class="sim-predict-name">${blueName}</div>
+      <div class="sim-predict-score">${Math.round(result.blueMean)}</div>
+      <div class="sim-predict-range">likely ${result.blueP10}–${result.blueP90}</div>
+    </div>
+  </div></div>`;
+
+  // ── Margin histogram ──
+  const margins = result.margins;
+  const NB = 25;
+  let mn = Math.min(...margins), mx = Math.max(...margins);
+  if (mn === mx) { mn -= 1; mx += 1; }
+  const span = mx - mn;
+  const bins = new Array(NB).fill(0);
+  for (const m of margins) { let b = Math.floor((m - mn) / span * NB); if (b >= NB) b = NB - 1; if (b < 0) b = 0; bins[b]++; }
+  const maxBin = Math.max(...bins);
+  let barsHtml = '';
+  for (let i = 0; i < NB; i++) {
+    const center = mn + (i + 0.5) / NB * span;
+    const cls = Math.abs(center) < span / NB / 1.5 ? 'zero' : (center > 0 ? 'red' : 'blue');
+    const h = maxBin > 0 ? (bins[i] / maxBin * 100) : 0;
+    barsHtml += `<div class="sim-hist-bar ${cls}" style="height:${h}%" title="margin ~${Math.round(center)}"></div>`;
+  }
+  html += `<div class="sim-block-label">Margin of Victory · red wins right, blue wins left</div>`;
+  html += `<div class="sim-block">
+    <div class="sim-hist">${barsHtml}</div>
+    <div class="sim-hist-axis"><span>${redName} by ${Math.abs(mn)}</span><span>tie</span><span>${redName} by ${mx > 0 ? mx : 0}</span></div>
+    <div class="sim-hist-caption">${favored} wins by an average of ${Math.abs(Math.round(result.redMean - result.blueMean))} points.</div>
+  </div>`;
+
+  // ── Auton edge (only if we have data) ──
+  if (redAutoPct !== null) {
+    html += `<div class="sim-block-label">Autonomous Edge · informational, not part of score model</div>`;
+    html += `<div class="sim-block"><div class="sim-auton">
+      <div class="sim-auton-side red"><div class="sim-auton-pct">${redAutoPct.toFixed(0)}%</div><div class="sim-auton-label">${redName}</div></div>
+      <div class="sim-auton-side blue"><div class="sim-auton-pct">${blueAutoPct.toFixed(0)}%</div><div class="sim-auton-label">${blueName}</div></div>
+    </div></div>`;
+  }
+
+  // ── Team ratings (transparency) ──
+  const rowFor = (id, side) => {
+    const t = targets.find(x => x.id === id) || {};
+    const opr = (ratings.get(id) || 0).toFixed(1);
+    const mc = matchCount.get(id) || 0;
+    const vol = (stdByTeam.get(id) || 0).toFixed(1);
+    return `<div class="sim-rating-row ${side}">
+      <div class="sr-team">${t.displayNum || '?'}</div>
+      <div class="sr-meta" style="text-align:left;">${(t.name || '').slice(0, 28)}</div>
+      <div class="sr-opr">${opr}</div>
+      <div class="sr-meta">${mc} · ±${vol}</div>
+    </div>`;
+  };
+  html += `<div class="sim-block-label">Team Ratings · the numbers driving this prediction</div>`;
+  html += `<div class="sim-rating-table">
+    <div class="sim-rating-head"><div>TEAM</div><div>NAME</div><div>OFF. RATING</div><div>MATCHES · ±</div></div>
+    ${redIds.map(id => rowFor(id, 'red')).join('')}
+    ${blueIds.map(id => rowFor(id, 'blue')).join('')}
+  </div>`;
+
+  // ── Caveat ──
+  const flimsy = [...redIds, ...blueIds].filter(id => (matchCount.get(id) || 0) < 6);
+  html += `<div class="sim-caveat">
+    <strong>Offensive rating</strong> is each team's estimated point contribution, solved by least squares (OPR) from real alliance scores this season — so it already accounts for the fact that scores are shared between partners. <strong>±</strong> is how much that team's matches swing. Predictions sharpen as more matches are played.
+    ${flimsy.length ? `<br><br>⚠ ${flimsy.map(id => (targets.find(t => t.id === id) || {}).displayNum).join(', ')} ${flimsy.length === 1 ? 'has' : 'have'} very few scored matches, so their rating is a rough estimate.` : ''}
+  </div>`;
+
+  html += `</div>`;
+  el.innerHTML = html;
+}
+
+function clearSimulation() {
+  ['simRed1', 'simRed2', 'simBlue1', 'simBlue2'].forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
+  document.getElementById('simResults').innerHTML = '';
+  showError('');
+}
+
+// Enter key runs the sim from any of the four inputs
+['simRed1', 'simRed2', 'simBlue1', 'simBlue2'].forEach(id => {
+  const e = document.getElementById(id);
+  if (e) e.addEventListener('keydown', ev => { if (ev.key === 'Enter') runSimulation(); });
+});
 </script>
 </body>
 </html>
