@@ -1011,6 +1011,10 @@
   .bracket-input-hint { font-family: var(--body); font-size: 12px; color: var(--text-muted); margin: 8px 0 4px; }
   .bracket-slot-odds { float: right; font-family: var(--mono); font-size: 10px; color: var(--text-dim); letter-spacing: 0.5px; }
   .bracket-slot-odds.fav { color: var(--accent-bright); font-weight: 700; }
+  .bracket-adv-filled { display: flex; flex-direction: column; border: 1px solid var(--border); background: var(--card); position: relative; z-index: 1; }
+  .bracket-adv-side { font-family: var(--mono); font-size: 12px; color: var(--text-dim); padding: 8px 12px; border-bottom: 1px solid var(--border); letter-spacing: 0.5px; }
+  .bracket-adv-side:last-child { border-bottom: none; }
+  .bracket-adv-side.won { color: var(--accent-bright); font-weight: 700; background: var(--card2); }
 
   /* ── Draft board ── */
   .draft-btn { font-family: var(--mono); font-size: 10px; letter-spacing: 1px; padding: 6px 12px; border: 1px solid var(--border); background: transparent; color: var(--text-muted); cursor: pointer; transition: all 0.2s; }
@@ -4754,8 +4758,9 @@ async function runSchedule() {
 
 // Build the editable visual bracket for a given size (2/4/8/16).
 // prefill: { seedNumber: [team1, team2] }
-function bracketBuildInput(size, prefill) {
+function bracketBuildInput(size, prefill, advance) {
   window._bracketSize = size;
+  window._bracketAdvance = advance || null;
   document.querySelectorAll('.bracket-size-btn').forEach(b => b.classList.toggle('active', +b.dataset.size === size));
   const order = sim_seedOrder(size); // 0-based seed indices in bracket order
   const labelFor = m => m === 8 ? 'ROUND OF 16' : m === 4 ? 'QUARTERFINALS' : m === 2 ? 'SEMIFINALS' : m === 1 ? 'FINAL' : `ROUND (${m})`;
@@ -4768,6 +4773,15 @@ function bracketBuildInput(size, prefill) {
       <input type="text" id="brk_s${seed}_t2" value="${esc(p[1])}" placeholder="team 2" autocomplete="off">
     </div>`;
   };
+  // A real result box: both alliances, winner highlighted
+  const advBox = mt => {
+    if (!mt) return `<div class="bracket-match bracket-adv-match"><div class="bracket-adv-label">winner<br>advances</div></div>`;
+    const side = (teams, won) => `<div class="bracket-adv-side${won ? ' won' : ''}">${(teams || []).join(' ') || '?'}</div>`;
+    return `<div class="bracket-match bracket-adv-filled">
+      ${side(mt.a, mt.winner === 'a')}
+      ${side(mt.b, mt.winner === 'b')}
+    </div>`;
+  };
 
   let html = `<div class="bracket-wrapper"><div class="bracket-container"><svg class="bracket-svg-overlay"></svg>`;
   // Round 1 — editable
@@ -4777,17 +4791,27 @@ function bracketBuildInput(size, prefill) {
     html += `<div class="bracket-match bracket-input-match">${slot(order[2 * i] + 1)}${slot(order[2 * i + 1] + 1)}</div>`;
   }
   html += `</div></div>`;
-  // Advancing rounds
+  // Advancing rounds — real results when we have them, placeholders when we don't
   let m = r1 / 2;
+  let roundIdx = 0;
   while (m >= 1) {
+    const roundData = advance && advance[roundIdx] ? advance[roundIdx] : null;
     html += `<div class="bracket-column"><div class="bracket-round-label">${labelFor(m)}</div><div class="bracket-column-inner">`;
-    for (let i = 0; i < m; i++) html += `<div class="bracket-match bracket-adv-match"><div class="bracket-adv-label">winner<br>advances</div></div>`;
+    for (let i = 0; i < m; i++) html += advBox(roundData ? roundData[i] : null);
     html += `</div></div>`;
+    roundIdx++;
     if (m === 1) break;
     m = m / 2;
   }
-  // Champion endpoint
-  html += `<div class="bracket-column"><div class="bracket-round-label">CHAMPION</div><div class="bracket-column-inner"><div class="bracket-match bracket-adv-match"><div class="bracket-adv-label">\u{1F3C6}</div></div></div></div>`;
+  // Champion endpoint — show the real champion when the final is decided
+  const finalRound = advance && advance.length ? advance[advance.length - 1] : null;
+  const finalMatch = finalRound && finalRound[0] ? finalRound[0] : null;
+  const champTeams = finalMatch && finalMatch.winner ? finalMatch[finalMatch.winner] : null;
+  html += `<div class="bracket-column"><div class="bracket-round-label">CHAMPION</div><div class="bracket-column-inner">` +
+    (champTeams && champTeams.length
+      ? `<div class="bracket-match bracket-adv-filled"><div class="bracket-adv-side won">\u{1F3C6} ${champTeams.join(' ')}</div></div>`
+      : `<div class="bracket-match bracket-adv-match"><div class="bracket-adv-label">\u{1F3C6}</div></div>`) +
+    `</div></div>`;
   html += `</div></div>`;
 
   document.getElementById('bracketInputArea').innerHTML = html;
@@ -4888,6 +4912,39 @@ async function bracketLoadEvent() {
     }
     if (!pairs.length) throw new Error('Could not read alliances from the bracket.');
 
+    // ── Extract the LATER rounds (QF/SF/F) so completed matches fill the bracket ──
+    // Groups each round's games into series (best-of-3 counts once) and decides the
+    // series winner by game wins.
+    const sideParse = m => {
+      const al = m.alliances; if (!al) return null;
+      let redA, blueA;
+      if (Array.isArray(al)) { redA = al.find(a => (a.color || '').toLowerCase() === 'red') || al[0]; blueA = al.find(a => (a.color || '').toLowerCase() === 'blue') || al[1]; }
+      else { redA = al.red || al.Red; blueA = al.blue || al.Blue; }
+      if (!redA || !blueA) return null;
+      return { a: teamsOf(redA), b: teamsOf(blueA), aScore: redA.score ?? null, bScore: blueA.score ?? null };
+    };
+    const laterRounds = Object.keys(byRound)
+      .filter(r => r !== widest)
+      .sort((a, b) => (rank[a] ?? 99) - (rank[b] ?? 99));
+    const advance = laterRounds.map(r => {
+      const seriesMap = new Map(); // seriesKey -> { a, b, aWins, bWins, order }
+      const ms = byRound[r].slice().sort((x, y) => (x.instance || x.matchnum || 0) - (y.instance || y.matchnum || 0));
+      for (const m of ms) {
+        const key = seriesKey(m);
+        const s = sideParse(m);
+        if (!s) continue;
+        if (!seriesMap.has(key)) seriesMap.set(key, { a: s.a, b: s.b, aWins: 0, bWins: 0, order: seriesMap.size });
+        const e = seriesMap.get(key);
+        if (s.aScore !== null && s.bScore !== null) {
+          if (s.aScore > s.bScore) e.aWins++;
+          else if (s.bScore > s.aScore) e.bWins++;
+        }
+      }
+      return [...seriesMap.values()]
+        .sort((x, y) => x.order - y.order)
+        .map(e => ({ a: e.a, b: e.b, winner: e.aWins > e.bWins ? 'a' : e.bWins > e.aWins ? 'b' : null }));
+    });
+
     // Fit to a power-of-2 size
     let nAll = pairs.length * 2;
     let size = [16, 8, 4, 2].find(s => s <= nAll) || 2;
@@ -4900,7 +4957,7 @@ async function bracketLoadEvent() {
       prefill[order[2 * i] + 1] = pair[0];
       prefill[order[2 * i + 1] + 1] = pair[1];
     });
-    bracketBuildInput(size, prefill);
+    bracketBuildInput(size, prefill, advance);
     setStatus(`LOADED ${usablePairs.length * 2}-ALLIANCE BRACKET — SIMULATING...`);
     loadingEl.classList.remove('active');
     await runBracket(); // one button: load, fill the bracket, simulate
