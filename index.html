@@ -1058,15 +1058,6 @@
   .md-next.queue-now { border-color: var(--accent-bright); box-shadow: 0 0 24px var(--accent-glow); }
   .md-next.queue-now .md-next-label { animation: mdPulse 1.6s ease-in-out infinite; }
   @keyframes mdPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.45; } }
-  .md-pinrow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 12px; padding: 10px 12px; border: 1px solid var(--border); background: var(--card); }
-  .md-pin-label { font-family: var(--mono); font-size: 10px; letter-spacing: 2px; color: var(--text-muted); }
-  .md-pin-chip { font-family: var(--mono); font-size: 12px; padding: 4px 6px 4px 10px; border: 1px solid var(--accent-dim); color: var(--text); display: inline-flex; align-items: center; gap: 6px; margin-right: 4px; }
-  .md-pin-chip button { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 14px; padding: 0 2px; }
-  .md-pin-chip button:hover { color: var(--accent-bright); }
-  .md-pinrow input { width: 90px; padding: 6px 8px; font-size: 12px; }
-  .draft-btn.armed { border-color: var(--accent-bright); color: var(--accent-bright); box-shadow: 0 0 12px var(--accent-glow); }
-  .md-pin-hint { font-family: var(--body); font-size: 11px; color: var(--text-muted); margin-top: 6px; }
-  .md-alert-flash { color: var(--accent-bright); animation: mdPulse 1.2s ease-in-out 4; }
   @media (max-width: 768px) {
     .md-next-name { font-size: 20px; }
     .md-opp-num { font-size: 17px; }
@@ -1317,15 +1308,6 @@
     </div>
     <div class="md-updated" id="mdUpdated"></div>
 
-    <!-- Pinned teams + queue alerts -->
-    <div class="md-pinrow">
-      <span class="md-pin-label">📌 PINNED</span>
-      <span id="mdPinChips"></span>
-      <input type="text" id="mdPinInput" placeholder="team #" autocomplete="off" style="width:90px;">
-      <button class="draft-btn" onclick="mdPinAdd()">PIN</button>
-      <button class="draft-btn" id="mdAlertBtn" onclick="mdAlertsToggle()">🔔 ALERTS OFF</button>
-    </div>
-    <div class="md-pin-hint">Pin any team (yours or a rival's) and turn alerts on — you'll get a notification when a pinned team is within 5 qualification matches of playing. Alerts check every 90s while this page is open.</div>
 
     <div id="mdEventPicker"></div>
     <div class="loading" id="mdLoading"><div class="loading-spinner"></div>
@@ -1344,6 +1326,7 @@
       <button class="sub-btn" data-mode="schedule" onclick="simMode('schedule')">Schedule</button>
       <button class="sub-btn" data-mode="bracket" onclick="simMode('bracket')">Bracket Odds</button>
       <button class="sub-btn" data-mode="draft" onclick="simMode('draft')">Draft Board</button>
+      <button class="sub-btn" data-mode="escout" onclick="simMode('escout')">Event Scout</button>
     </div>
 
     <!-- shared season selector -->
@@ -1471,6 +1454,22 @@
       <div class="loading" id="draftLoading"><div class="loading-spinner"></div>
         <div class="loading-text" id="draftLoadingText">BUILDING BOARD...</div></div>
       <div id="draftResults"></div>
+    </div>
+
+    <!-- ─── EVENT SCOUT MODE (which event should we enter?) ─── -->
+    <div class="sim-mode" id="simmode-escout">
+      <div class="controls-row">
+        <div class="input-wrap" style="flex:2;min-width:200px;"><span class="input-label">EVENT (NAME OR SKU)</span>
+          <input type="text" id="simEscoutSku" placeholder="event name or RE-V5RC-..." autocomplete="off"></div>
+        <div class="input-wrap" style="min-width:140px;"><span class="input-label">YOUR TEAM (optional)</span>
+          <input type="text" id="simEscoutYou" placeholder="e.g. 7700S" autocomplete="off"></div>
+        <button class="btn btn-primary" onclick="runEventScout()">ANALYZE FIELD</button>
+      </div>
+      <div class="sim-hint">Deciding which event to register for? This sizes up the field before you commit: how strong the attendees are by season skills standings, who the sharks are, and where you'd likely land.</div>
+      <div id="escoutEventPicker"></div>
+      <div class="loading" id="escoutLoading"><div class="loading-spinner"></div>
+        <div class="loading-text" id="escoutLoadingText">ANALYZING FIELD...</div></div>
+      <div id="escoutResults"></div>
     </div>
   </section>
 </div>
@@ -5406,9 +5405,7 @@ async function matchdayLoad(isRefresh) {
       mm.win = sim_matchupProb(myStat.mean, myStat.std, oppStat.mean, oppStat.std, 10000, 777 + i).redWin;
     }
 
-    window._mdEvent = { id: event.id, divisions };
     matchdayRender(resultsEl, { teamNum, youId, event, myMatches, profiles, R, myRank, drift, liveGapMin });
-    if (window._mdAlerts) mdPinCheck(); // fresh data → check pinned teams immediately
     document.getElementById('mdRefreshBtn').style.display = '';
     document.getElementById('mdUpdated').textContent = 'UPDATED ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   } catch (e) {
@@ -5567,115 +5564,98 @@ function matchdayRender(el, data) {
 }
 
 // ═══════════════════════════════════════════════
-// PINNED TEAMS + QUEUE ALERTS
-// Notifies when a pinned team is ≤5 qualification matches from playing.
-// Polls every 90s ONLY while alerts are armed and the page is open —
-// the API has no push, so a closed app can't be notified without a server.
+// EVENT SCOUT — size up an event's field before registering
+// One bulk skills-standings call; no per-team fetching, so it's fast and cheap.
 // ═══════════════════════════════════════════════
-function mdPins() { try { return JSON.parse(localStorage.getItem('vex_md_pins') || '[]'); } catch (e) { return []; } }
-function mdPinsSave(p) { try { localStorage.setItem('vex_md_pins', JSON.stringify(p.slice(0, 12))); } catch (e) {} }
-
-function mdPinAdd() {
-  const inp = document.getElementById('mdPinInput');
-  const num = (inp.value || '').trim().toUpperCase();
-  if (!num) return;
-  const pins = mdPins();
-  if (!pins.includes(num)) { pins.push(num); mdPinsSave(pins); }
-  inp.value = '';
-  mdPinsRender();
-  if (window._mdAlerts) mdPinCheck();
-}
-function mdPinRemove(num) {
-  mdPinsSave(mdPins().filter(p => p !== num));
-  mdPinsRender();
-}
-function mdPinsRender() {
-  const el = document.getElementById('mdPinChips');
-  if (!el) return;
-  el.innerHTML = mdPins().map(p => `<span class="md-pin-chip">${p}<button onclick="mdPinRemove('${p}')" title="unpin">×</button></span>`).join('');
-}
-
-async function mdAlertsToggle() {
-  const btn = document.getElementById('mdAlertBtn');
-  if (window._mdAlerts) {
-    window._mdAlerts = false;
-    if (window._mdAlertTimer) { clearInterval(window._mdAlertTimer); window._mdAlertTimer = null; }
-    if (btn) { btn.textContent = '🔔 ALERTS OFF'; btn.classList.remove('armed'); }
-    return;
-  }
-  if (!mdPins().length) { showError('⚠ Pin at least one team first.'); return; }
-  if (!window._mdEvent) { showError('⚠ Load an event first (enter team + event, hit GO).'); return; }
-  // Ask for notification permission; fall back to in-page alerts if denied
-  if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
-    try { await Notification.requestPermission(); } catch (e) {}
-  }
-  window._mdAlerts = true;
-  if (btn) { btn.textContent = '🔔 ALERTS ON'; btn.classList.add('armed'); }
-  mdPinCheck();
-  window._mdAlertTimer = setInterval(mdPinCheck, 90000);
-}
-
-function mdNotified() { try { return JSON.parse(localStorage.getItem('vex_md_notified') || '[]'); } catch (e) { return []; } }
-function mdNotifiedAdd(key) {
-  const n = mdNotified(); n.push(key);
-  try { localStorage.setItem('vex_md_notified', JSON.stringify(n.slice(-50))); } catch (e) {}
-}
-
-function mdFireAlert(title, body) {
-  let shown = false;
-  if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-    try { new Notification(title, { body, icon: '/icon-192.png' }); shown = true; } catch (e) {}
-  }
-  // In-page banner regardless (also covers denied permission)
-  const up = document.getElementById('mdUpdated');
-  if (up) up.innerHTML = `<span class="md-alert-flash">🔔 ${title} — ${body}</span>`;
-  return shown;
-}
-
-async function mdPinCheck() {
-  const ev = window._mdEvent;
-  const pins = mdPins();
-  if (!ev || !pins.length || !window._mdAlerts) return;
+async function runEventScout() {
+  const input = (document.getElementById('simEscoutSku').value || '').trim();
+  const you = (document.getElementById('simEscoutYou').value || '').trim().toUpperCase();
+  if (!input) { showError('⚠ Enter an event name or SKU.'); return; }
+  showError('');
+  document.getElementById('escoutEventPicker').innerHTML = '';
+  const resultsEl = document.getElementById('escoutResults');
+  resultsEl.innerHTML = '';
+  const loadingEl = document.getElementById('escoutLoading');
+  const setStatus = t => { const el = document.getElementById('escoutLoadingText'); if (el) el.textContent = t; };
+  loadingEl.classList.add('active');
   try {
-    const isQualM = m => { const n = (m.name || '').toUpperCase().trim(); return /^Q\s*\d/.test(n) || n.startsWith('QUAL') || m.round === 2; };
-    const startedMs = m => { const t = m.started ? Date.parse(m.started) : NaN; return isNaN(t) ? null : t; };
-    for (const div of (ev.divisions && ev.divisions.length ? ev.divisions : [{ id: 1 }])) {
-      let matches;
-      try { matches = await apiGet(`/events/${ev.id}/divisions/${div.id}/matches`); } catch (e) { continue; }
-      const quals = matches.filter(isQualM).sort((a, b) => (a.matchnum || 0) - (b.matchnum || 0));
-      // Position of play head: last qual that has actually started
-      let head = -1;
-      quals.forEach((m, i) => { if (startedMs(m) !== null) head = i; });
-      for (const pin of pins) {
-        // Find pin's next qual with no score yet
-        for (let i = 0; i < quals.length; i++) {
-          const m = quals[i];
-          const names = JSON.stringify(m.alliances || '').toUpperCase();
-          if (!names.includes(`"${pin}"`) && !names.includes(`"NAME":"${pin}"`)) continue;
-          const played = (() => {
-            const al = m.alliances; if (!al) return false;
-            const arr = Array.isArray(al) ? al : [al.red || al.Red, al.blue || al.Blue];
-            return arr.every(a => a && a.score !== null && a.score !== undefined);
-          })();
-          if (played) continue;
-          // Unplayed quals between play head and this match
-          const away = quals.slice(head + 1, i).filter(x => startedMs(x) === null).length;
-          if (away <= 5) {
-            const key = `${ev.id}|${pin}|${m.name}`;
-            if (!mdNotified().includes(key)) {
-              mdNotifiedAdd(key);
-              mdFireAlert(`${pin} queues soon`, `${m.name} is ~${away} match${away === 1 ? '' : 'es'} away`);
-            }
-          }
-          break; // only their next match matters
-        }
+    setStatus('FINDING EVENT...');
+    const seasonId = document.getElementById('simSeasonSelect')?.value || null;
+    const resolved = await sim_resolveEvent(input, seasonId);
+    if (resolved.choices) {
+      loadingEl.classList.remove('active');
+      sim_renderEventPicker('escoutEventPicker', resolved.choices, 'simEscoutSku', 'runEventScout');
+      return;
+    }
+    const event = resolved.event;
+    setStatus('LOADING ATTENDEES...');
+    const teams = await apiGet(`/events/${event.id}/teams`);
+    if (!teams.length) throw new Error('No teams registered for this event yet.');
+
+    setStatus('LOADING SEASON STANDINGS...');
+    // Grade detection: try High School; if few attendees match, try Middle School
+    let standings = seasonId ? await getFullSeasonSkills(seasonId, 'High School').catch(() => null) : null;
+    let matched = teams.filter(t => standings?.byId[t.id]?.globalRank).length;
+    if (seasonId && matched < teams.length * 0.3) {
+      const ms = await getFullSeasonSkills(seasonId, 'Middle School').catch(() => null);
+      const msMatched = teams.filter(t => ms?.byId[t.id]?.globalRank).length;
+      if (msMatched > matched) { standings = ms; matched = msMatched; }
+    }
+
+    const ranked = teams.map(t => ({
+      id: t.id, number: (t.number || '').toUpperCase(), name: t.team_name || '',
+      rank: standings?.byId[t.id]?.globalRank || null
+    }));
+    const withRank = ranked.filter(t => t.rank).sort((a, b) => a.rank - b.rank);
+
+    let html = `<div class="sim-result">`;
+    if (!withRank.length) {
+      html += `<div class="sim-caveat">${teams.length} teams registered, but none appear in the season skills standings yet — too early in the season to size up this field. Check back after teams post skills runs.</div></div>`;
+      resultsEl.innerHTML = html;
+      loadingEl.classList.remove('active');
+      return;
+    }
+
+    const median = withRank[Math.floor(withRank.length / 2)].rank;
+    const top50 = withRank.filter(t => t.rank <= 50).length;
+    const top250 = withRank.filter(t => t.rank <= 250).length;
+    const tag = median <= 300 ? 'STACKED' : median <= 800 ? 'COMPETITIVE' : 'OPEN FIELD';
+
+    // Your projected standing among attendees
+    let youLine = '';
+    if (you) {
+      const yt = ranked.find(t => t.number === you);
+      if (!yt) youLine = `<div class="ss-strength">⚠ ${you} isn't on this event's team list.</div>`;
+      else if (!yt.rank) youLine = `<div class="ss-strength">${you} has no season skills score yet — post a skills run to see your projected standing.</div>`;
+      else {
+        const pos = withRank.findIndex(t => t.number === you) + 1;
+        youLine = `<div class="ss-strength">YOUR STANDING: <strong>~#${pos} of ${withRank.length}</strong> rated attendees (world skills #${yt.rank})</div>`;
       }
     }
-  } catch (e) { console.error('Pin check error:', e); }
-}
 
-// Restore pins on load
-setTimeout(mdPinsRender, 50);
+    html += `<div class="sched-summary">
+      <div class="ss-record">${tag}</div>
+      <div class="ss-label">${teams.length} teams registered · ${withRank.length} with season skills scores · median world rank #${median} · ${top50} in top 50 · ${top250} in top 250</div>
+      ${youLine}</div>`;
+
+    html += `<div class="sim-block-label">The sharks · strongest attendees by season skills</div><div class="pick-list">`;
+    withRank.slice(0, 10).forEach((t, i) => {
+      html += `<div class="pick-row${i === 0 ? ' first' : ''}">
+        <div class="pick-rank">${i + 1}</div>
+        <div><div class="pick-team">${t.number}</div><div class="pick-name">${(t.name || '').slice(0, 30)}</div></div>
+        <div class="pick-win">#${t.rank}</div>
+        <div class="pick-opr">world<br>skills</div>
+      </div>`;
+    });
+    html += `</div><div class="sim-caveat">Field strength is measured by season <strong>skills standings</strong> — a fast proxy that works before any matches are played. It rewards teams that grind skills, so a match-dominant team with few skills runs can be underrated here. For match-based ratings of a specific field, use the Pick List's LOAD &amp; RANK on this event.</div></div>`;
+    resultsEl.innerHTML = html;
+  } catch (e) {
+    showError('⚠ ' + e.message);
+    console.error('Event scout error:', e);
+  } finally {
+    loadingEl.classList.remove('active');
+  }
+}
 
 // Enter key runs the sim from any of the four match inputs
 ['simRed1', 'simRed2', 'simBlue1', 'simBlue2'].forEach(id => {
@@ -5688,7 +5668,7 @@ if (document.getElementById('bracketInputArea')) bracketBuildInput(4);
 (function () {
   try {
     const m = localStorage.getItem('vex_sim_mode');
-    if (m && ['match', 'pick', 'schedule', 'bracket', 'draft'].includes(m)) {
+    if (m && ['match', 'pick', 'schedule', 'bracket', 'draft', 'escout'].includes(m)) {
       simMode(m);
       if (m === 'bracket') setTimeout(() => { if (typeof drawBracketConnectors === 'function') drawBracketConnectors(); }, 120);
     }
