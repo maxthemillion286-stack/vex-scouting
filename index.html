@@ -1326,7 +1326,6 @@
       <button class="sub-btn" data-mode="pick" onclick="simMode('pick')">Pick List</button>
       <button class="sub-btn" data-mode="schedule" onclick="simMode('schedule')">Schedule</button>
       <button class="sub-btn" data-mode="bracket" onclick="simMode('bracket')">Bracket Odds</button>
-      <button class="sub-btn" data-mode="draft" onclick="simMode('draft')">Draft Board</button>
       <button class="sub-btn" data-mode="escout" onclick="simMode('escout')">Event Scout</button>
     </div>
 
@@ -1441,21 +1440,6 @@
       <div id="bracketResults"></div>
     </div>
 
-    <!-- ─── DRAFT BOARD MODE (live alliance selection) ─── -->
-    <div class="sim-mode" id="simmode-draft">
-      <div class="controls-row">
-        <div class="input-wrap" style="min-width:150px;"><span class="input-label">YOUR TEAM</span>
-          <input type="text" id="simDraftYou" placeholder="e.g. 7700S" autocomplete="off"></div>
-        <div class="input-wrap" style="flex:2;min-width:200px;"><span class="input-label">EVENT (NAME OR SKU)</span>
-          <input type="text" id="simDraftEventSku" placeholder="event name or RE-V5RC-..." autocomplete="off"></div>
-        <button class="btn btn-primary" onclick="draftLoad()">LOAD DRAFT BOARD</button>
-      </div>
-      <div class="sim-hint">For live alliance selection. Every team at the event is ranked by how well they'd pair with you. As alliances get picked, tap <strong>TAKEN</strong> to knock teams off the board — the best available pick is always on top.</div>
-      <div id="draftEventPicker"></div>
-      <div class="loading" id="draftLoading"><div class="loading-spinner"></div>
-        <div class="loading-text" id="draftLoadingText">BUILDING BOARD...</div></div>
-      <div id="draftResults"></div>
-    </div>
 
     <!-- ─── EVENT SCOUT MODE (find the easiest events to enter) ─── -->
     <div class="sim-mode" id="simmode-escout">
@@ -4735,17 +4719,13 @@ async function runPickList() {
     if (!ranked.length) { resultsEl.innerHTML = `<div class="sim-caveat">None of those candidates could be rated. Check the team numbers.</div>`; loadingEl.classList.remove('active'); return; }
 
     const oppLabel = oppIds.length ? `${opp1}${opp2 ? ' + ' + opp2 : ''}` : 'an average alliance';
-    let html = `<div class="sim-result"><div class="sim-block-label">Pick list for ${youT.displayNum} vs ${oppLabel} · best partner first</div><div class="pick-list">`;
-    ranked.forEach((r, i) => {
-      html += `<div class="pick-row${i === 0 ? ' first' : ''}">
-        <div class="pick-rank">${i + 1}</div>
-        <div><div class="pick-team">${r.num}</div><div class="pick-name">${(r.name || '').slice(0, 30)}</div></div>
-        <div class="pick-win">${r.win.toFixed(1)}%</div>
-        <div class="pick-opr">TS ${r.opr.toFixed(1)}<br>${r.matches} m</div>
-      </div>`;
-    });
-    html += `</div><div class="sim-caveat">Win % is how often <strong>you + that partner</strong> beat the benchmark opponents across 10,000 simulated matches. True Skill (TS) is each team's individual performance rating from real match scores. Set the opponents to a strong alliance at your event for the most useful ranking.</div></div>`;
-    resultsEl.innerHTML = html;
+    // ── Live draft behavior: taken teams persist per event (or per manual list) ──
+    const takenKey = 'vex_pick_taken_' + ((document.getElementById('simPickEventSku').value || '').trim().toUpperCase() || 'manual');
+    let takenSet = new Set();
+    try { takenSet = new Set(JSON.parse(localStorage.getItem(takenKey) || '[]')); } catch (e) {}
+    ranked.forEach(r => { r.taken = takenSet.has(r.num); });
+    window._pickCtx = { you: youT.displayNum, oppLabel, rows: ranked, takenKey, basis: 'season' };
+    pickRender();
   } catch (e) {
     showError('⚠ ' + e.message);
     console.error('Pick list error:', e);
@@ -4754,14 +4734,70 @@ async function runPickList() {
   }
 }
 
-// One-button flow: resolve event → fill Possible Alliances → rank immediately
+// ── Render the pick list as a live draft board: best available on top,
+//    tap TAKEN as alliances get picked, UNDO for mis-taps. Taken state
+//    persists per event so a page reload mid-selection loses nothing. ──
+function pickToggle(idx) {
+  const ctx = window._pickCtx;
+  if (!ctx || !ctx.rows[idx]) return;
+  ctx.rows[idx].taken = !ctx.rows[idx].taken;
+  try { localStorage.setItem(ctx.takenKey, JSON.stringify(ctx.rows.filter(r => r.taken).map(r => r.num))); } catch (e) {}
+  pickRender();
+}
+
+function pickRender() {
+  const ctx = window._pickCtx;
+  const el = document.getElementById('pickResults');
+  if (!ctx || !el) return;
+  const avail = [], gone = [];
+  ctx.rows.forEach((r, idx) => (r.taken ? gone : avail).push({ ...r, idx }));
+
+  let html = `<div class="sim-result">`;
+  html += `<div class="sim-block-label">Pick list for ${ctx.you} vs ${ctx.oppLabel} · best available first · ${avail.length} on the board${gone.length ? `, ${gone.length} taken` : ''}</div>`;
+  html += `<div class="pick-list">`;
+  avail.forEach((r, i) => {
+    html += `<div class="pick-row${i === 0 ? ' first' : ''}">
+      <div class="pick-rank">${i + 1}</div>
+      <div><div class="pick-team">${r.num}</div><div class="pick-name">${(r.name || '').slice(0, 30)}</div>
+           <button class="draft-btn" style="margin-top:5px;" onclick="pickToggle(${r.idx})">TAKEN</button></div>
+      <div class="pick-win">${r.win.toFixed(1)}%</div>
+      <div class="pick-opr">TS ${r.opr.toFixed(1)}<br>${r.matches} m</div>
+    </div>`;
+  });
+  html += `</div>`;
+  if (gone.length) {
+    html += `<div class="sim-block-label" style="margin-top:16px;">Off the board</div><div class="pick-list">`;
+    gone.forEach(r => {
+      html += `<div class="pick-row taken">
+        <div class="pick-rank">—</div>
+        <div><div class="pick-team">${r.num}</div><div class="pick-name">${(r.name || '').slice(0, 30)}</div>
+             <button class="draft-btn undo" style="margin-top:5px;" onclick="pickToggle(${r.idx})">UNDO</button></div>
+        <div class="pick-win">${r.win.toFixed(1)}%</div>
+        <div class="pick-opr">TS ${r.opr.toFixed(1)}</div>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+  const basisNote = ctx.basis === 'event'
+    ? `from <strong>this event's own matches</strong> — the most accurate basis on selection day`
+    : `from real season match data (recent matches weigh most)`;
+  html += `<div class="sim-caveat">Win % is how often <strong>you + that partner</strong> beat ${ctx.oppLabel} across 10,000 simulated matches, ${basisNote}. During alliance selection, tap <strong>TAKEN</strong> the moment a team is picked or declines — the top of the board is always your best available call. Taken state is saved per event, so a reload loses nothing.</div></div>`;
+  el.innerHTML = html;
+}
+
+// One-button flow: resolve event → rank its roster. Uses the EVENT's own match
+// data when quals have started (the most accurate basis for alliance selection);
+// falls back to season data when the event hasn't played yet.
 async function pickLoadAndRank() {
   const input = (document.getElementById('simPickEventSku').value || '').trim();
-  const you = (document.getElementById('simPickYou').value || '').trim();
+  const you = (document.getElementById('simPickYou').value || '').trim().toUpperCase();
+  const opp1 = (document.getElementById('simPickOpp1').value || '').trim().toUpperCase();
+  const opp2 = (document.getElementById('simPickOpp2').value || '').trim().toUpperCase();
   if (!you) { showError('⚠ Enter your team number first.'); return; }
   if (!input) { showError('⚠ Enter an event name or SKU to load.'); return; }
   showError('');
   document.getElementById('pickEventPicker').innerHTML = '';
+  const resultsEl = document.getElementById('pickResults');
   const loadingEl = document.getElementById('pickLoading');
   const setStatus = t => { const el = document.getElementById('pickLoadingText'); if (el) el.textContent = t; };
   loadingEl.classList.add('active');
@@ -4775,52 +4811,66 @@ async function pickLoadAndRank() {
       return;
     }
     setStatus('LOADING EVENT TEAMS...');
-    const teams = await apiGet(`/events/${resolved.event.id}/teams`);
-    const nums = teams.map(t => t.number).filter(Boolean);
-    if (!nums.length) throw new Error('No teams found for that event.');
-    document.getElementById('simPickCandidates').value = nums.join(', ');
-    loadingEl.classList.remove('active');
-    await runPickList(); // straight into ranking — one button, one flow
-    return;
-  } catch (e) {
-    showError('⚠ ' + e.message);
-  }
-  loadingEl.classList.remove('active');
-}
+    const roster = await apiGet(`/events/${resolved.event.id}/teams`);
+    if (!roster.length) throw new Error('No teams found for that event.');
 
-async function pickLoadEvent() {
-  const input = (document.getElementById('simPickEventSku').value || '').trim();
-  if (!input) { showError('⚠ Enter an event name or SKU to load its teams.'); return; }
-  showError('');
-  document.getElementById('pickEventPicker').innerHTML = '';
-  const loadingEl = document.getElementById('pickLoading');
-  const setStatus = t => { const el = document.getElementById('pickLoadingText'); if (el) el.textContent = t; };
-  loadingEl.classList.add('active');
-  try {
-    setStatus('FINDING EVENT...');
-    const seasonId = document.getElementById('simSeasonSelect')?.value || null;
-    const resolved = await sim_resolveEvent(input, seasonId);
-    if (resolved.choices) {
+    // Try EVENT-basis ratings first (cached — instant if any other mode loaded this event)
+    setStatus('CHECKING EVENT MATCH DATA...');
+    let usedEvent = false;
+    try {
+      const R = await sim_buildRatingsFromEvent(resolved.event, setStatus);
+      const covered = roster.filter(t => (R.matchCount.get(String(t.id)) || 0) > 0).length;
+      const youId = R.idByNum[you];
+      if (youId && covered >= Math.max(4, roster.length * 0.3)) {
+        // Benchmark: typed opponents if given (and present in event data), else event average
+        let oppMean, oppStd, oppLabel;
+        const oppIds = [opp1, opp2].map(n => R.idByNum[n]).filter(Boolean);
+        if (oppIds.length) {
+          const st = sim_allianceStats(oppIds, R.ratings, R.stdByTeam, R.globalStd);
+          oppMean = st.mean; oppStd = st.std;
+          oppLabel = `${opp1}${opp2 && R.idByNum[opp2] ? ' + ' + opp2 : ''}`;
+        } else {
+          const vals = [...R.ratings.values()].filter(v => Math.abs(v) > 0.01).sort((a, b) => a - b);
+          const med = vals.length ? vals[Math.floor(vals.length / 2)] : 40;
+          oppMean = med * 2; oppStd = R.globalStd;
+          oppLabel = 'an average alliance at this event';
+        }
+        const nameById = {}; roster.forEach(t => { nameById[String(t.id)] = t.team_name || ''; });
+        const seedBase = 20260703;
+        const ranked = roster.map(t => {
+          const id = String(t.id);
+          if (id === youId || !(R.matchCount.get(id) > 0)) return null;
+          const st = sim_allianceStats([youId, id], R.ratings, R.stdByTeam, R.globalStd);
+          const res = sim_matchupProb(st.mean, st.std, oppMean, oppStd, 10000, seedBase);
+          return { num: (t.number || '').toUpperCase(), name: nameById[id], win: res.redWin, opr: R.ratings.get(id) || 0, matches: R.matchCount.get(id) || 0 };
+        }).filter(Boolean).sort((a, b) => b.win - a.win);
+        if (ranked.length) {
+          const takenKey = 'vex_pick_taken_' + (resolved.event.sku || input).toUpperCase();
+          let takenSet = new Set();
+          try { takenSet = new Set(JSON.parse(localStorage.getItem(takenKey) || '[]')); } catch (e) {}
+          ranked.forEach(r => { r.taken = takenSet.has(r.num); });
+          window._pickCtx = { you, oppLabel, rows: ranked, takenKey, basis: 'event' };
+          pickRender();
+          usedEvent = true;
+        }
+      }
+    } catch (e) { /* event basis unavailable — fall back to season */ }
+
+    if (!usedEvent) {
+      // Season fallback: fill the typed list and rank from season match data
+      document.getElementById('simPickCandidates').value = roster.map(t => t.number).filter(Boolean).join(', ');
       loadingEl.classList.remove('active');
-      sim_renderEventPicker('pickEventPicker', resolved.choices, 'simPickEventSku', 'pickLoadEvent');
+      await runPickList();
       return;
     }
-    setStatus('LOADING EVENT TEAMS...');
-    const teams = await apiGet(`/events/${resolved.event.id}/teams`);
-    const nums = teams.map(t => t.number).filter(Boolean);
-    if (!nums.length) throw new Error('No teams found for that event.');
-    document.getElementById('simPickCandidates').value = nums.join(', ');
-    setStatus(`LOADED ${nums.length} TEAMS`);
   } catch (e) {
     showError('⚠ ' + e.message);
+    console.error('Pick list error:', e);
   } finally {
-    setTimeout(() => loadingEl.classList.remove('active'), 400);
+    loadingEl.classList.remove('active');
   }
 }
 
-// ═══════════════════════════════════════════════
-// SCHEDULE — win odds for each of a team's qual matches at an event
-// ═══════════════════════════════════════════════
 async function runSchedule() {
   const input = (document.getElementById('simSchedSku').value || '').trim();
   const teamNum = (document.getElementById('simSchedTeam').value || '').trim().toUpperCase();
@@ -5239,106 +5289,6 @@ function bracketClear() {
   document.getElementById('bracketEventPicker').innerHTML = '';
   document.getElementById('simBracketEventSku').value = '';
   showError('');
-}
-
-// ═══════════════════════════════════════════════
-// DRAFT BOARD — live alliance selection: best available partner, tap TAKEN as picks happen
-// ═══════════════════════════════════════════════
-async function draftLoad() {
-  const you = (document.getElementById('simDraftYou').value || '').trim().toUpperCase();
-  const input = (document.getElementById('simDraftEventSku').value || '').trim();
-  if (!you) { showError('⚠ Enter your team number.'); return; }
-  if (!input) { showError('⚠ Enter an event name or SKU.'); return; }
-  showError('');
-  document.getElementById('draftEventPicker').innerHTML = '';
-  const resultsEl = document.getElementById('draftResults');
-  resultsEl.innerHTML = '';
-  const loadingEl = document.getElementById('draftLoading');
-  const setStatus = t => { const el = document.getElementById('draftLoadingText'); if (el) el.textContent = t; };
-  loadingEl.classList.add('active');
-  try {
-    setStatus('FINDING EVENT...');
-    const seasonId = document.getElementById('simSeasonSelect')?.value || null;
-    const resolved = await sim_resolveEvent(input, seasonId);
-    if (resolved.choices) {
-      loadingEl.classList.remove('active');
-      sim_renderEventPicker('draftEventPicker', resolved.choices, 'simDraftEventSku', 'draftLoad');
-      return;
-    }
-    // Event-wide ratings from this event's own matches — the most accurate basis for selection day
-    const R = await sim_buildRatingsFromEvent(resolved.event, setStatus);
-    const youId = R.idByNum[you];
-    if (!youId) throw new Error(`${you} isn't in this event's match data yet. The board needs qualification matches to rate teams.`);
-    setStatus('RANKING THE FIELD...');
-    await sleep(20);
-
-    // Benchmark opponent: an average alliance at this event
-    const ratedVals = [...R.ratings.values()].filter(v => Math.abs(v) > 0.01).sort((a, b) => a - b);
-    const fieldMedian = ratedVals.length ? ratedVals[Math.floor(ratedVals.length / 2)] : 40;
-    const oppMean = fieldMedian * 2;
-    const oppStd = Math.sqrt(R.globalStd * R.globalStd);
-
-    const rows = [];
-    let i = 0;
-    for (const [id, num] of Object.entries(R.numById)) {
-      if (id === youId) continue;
-      const st = sim_allianceStats([youId, id], R.ratings, R.stdByTeam, R.globalStd);
-      const res = sim_matchupProb(st.mean, st.std, oppMean, oppStd, 6000, 4242 + i++);
-      rows.push({ id, num, win: res.redWin, ts: R.ratings.get(id) || 0, matches: R.matchCount.get(id) || 0, taken: false });
-    }
-    if (!rows.length) throw new Error('No rated teams at this event yet.');
-    rows.sort((a, b) => b.win - a.win);
-    window._draftCtx = { you, rows };
-    draftRender();
-  } catch (e) {
-    showError('⚠ ' + e.message);
-    console.error('Draft error:', e);
-  } finally {
-    loadingEl.classList.remove('active');
-  }
-}
-
-function draftToggle(idx) {
-  const ctx = window._draftCtx;
-  if (!ctx || !ctx.rows[idx]) return;
-  ctx.rows[idx].taken = !ctx.rows[idx].taken;
-  draftRender();
-}
-
-function draftRender() {
-  const ctx = window._draftCtx;
-  const el = document.getElementById('draftResults');
-  if (!ctx || !el) return;
-  const avail = [];
-  const gone = [];
-  ctx.rows.forEach((r, idx) => (r.taken ? gone : avail).push({ ...r, idx }));
-
-  let html = `<div class="sim-result">`;
-  html += `<div class="sim-block-label">Best available partner for ${ctx.you} · ${avail.length} on the board, ${gone.length} taken</div>`;
-  html += `<div class="pick-list">`;
-  avail.forEach((r, i) => {
-    html += `<div class="pick-row${i === 0 ? ' first' : ''}">
-      <div class="pick-rank">${i + 1}</div>
-      <div><div class="pick-team">${r.num}</div><div class="pick-name">TS ${r.ts.toFixed(1)} · ${r.matches} matches</div></div>
-      <div class="pick-win">${r.win.toFixed(1)}%</div>
-      <div><button class="draft-btn" onclick="draftToggle(${r.idx})">TAKEN</button></div>
-    </div>`;
-  });
-  html += `</div>`;
-  if (gone.length) {
-    html += `<div class="sim-block-label" style="margin-top:16px;">Off the board</div><div class="pick-list">`;
-    gone.forEach(r => {
-      html += `<div class="pick-row taken">
-        <div class="pick-rank">—</div>
-        <div><div class="pick-team">${r.num}</div><div class="pick-name">TS ${r.ts.toFixed(1)}</div></div>
-        <div class="pick-win">${r.win.toFixed(1)}%</div>
-        <div><button class="draft-btn undo" onclick="draftToggle(${r.idx})">UNDO</button></div>
-      </div>`;
-    });
-    html += `</div>`;
-  }
-  html += `<div class="sim-caveat">Win % is you + that partner vs an average alliance at this event, from this event's own match data. Tap <strong>TAKEN</strong> the moment a team gets picked (or declines and is out) — the top of the list is always your best available call.</div></div>`;
-  el.innerHTML = html;
 }
 
 // ═══════════════════════════════════════════════
@@ -5808,8 +5758,9 @@ if (document.getElementById('bracketInputArea')) bracketBuildInput(4);
 // Restore last simulator sub-mode
 (function () {
   try {
-    const m = localStorage.getItem('vex_sim_mode');
-    if (m && ['match', 'pick', 'schedule', 'bracket', 'draft', 'escout'].includes(m)) {
+    let m = localStorage.getItem('vex_sim_mode');
+    if (m === 'draft') m = 'pick'; // Draft Board merged into Pick List
+    if (m && ['match', 'pick', 'schedule', 'bracket', 'escout'].includes(m)) {
       simMode(m);
       if (m === 'bracket') setTimeout(() => { if (typeof drawBracketConnectors === 'function') drawBracketConnectors(); }, 120);
     }
