@@ -1022,6 +1022,7 @@
   .draft-btn.undo { border-style: dashed; }
   .pick-row.taken { opacity: 0.45; }
   .pick-row.taken .pick-team { text-decoration: line-through; }
+  .es-sig { font-family: var(--mono); font-size: 9px; letter-spacing: 1px; color: var(--accent-bright); border: 1px solid var(--accent-dim); padding: 2px 6px; vertical-align: middle; }
 
   /* ── Match Day dashboard ── */
   .md-updated { font-family: var(--mono); font-size: 10px; color: var(--text-muted); letter-spacing: 1px; margin-top: 6px; min-height: 14px; }
@@ -1456,19 +1457,22 @@
       <div id="draftResults"></div>
     </div>
 
-    <!-- ─── EVENT SCOUT MODE (which event should we enter?) ─── -->
+    <!-- ─── EVENT SCOUT MODE (find the easiest events to enter) ─── -->
     <div class="sim-mode" id="simmode-escout">
       <div class="controls-row">
-        <div class="input-wrap" style="flex:2;min-width:200px;"><span class="input-label">EVENT (NAME OR SKU)</span>
-          <input type="text" id="simEscoutSku" placeholder="event name or RE-V5RC-..." autocomplete="off"></div>
-        <div class="input-wrap" style="min-width:140px;"><span class="input-label">YOUR TEAM (optional)</span>
+        <div class="input-wrap" style="min-width:140px;"><span class="input-label">YOUR TEAM</span>
           <input type="text" id="simEscoutYou" placeholder="e.g. 7700S" autocomplete="off"></div>
-        <button class="btn btn-primary" onclick="runEventScout()">ANALYZE FIELD</button>
+        <div class="input-wrap select-wrap" style="min-width:170px;"><span class="input-label">SEARCH</span>
+          <select id="simEscoutScope">
+            <option value="region" selected>My region</option>
+            <option value="signature">Signature events</option>
+            <option value="both">Both</option>
+          </select></div>
+        <button class="btn btn-primary" onclick="runEventScout()">CALCULATE OPTIMAL EVENT</button>
       </div>
-      <div class="sim-hint">Deciding which event to register for? This sizes up the field before you commit: how strong the attendees are by season skills standings, who the sharks are, and where you'd likely land.</div>
-      <div id="escoutEventPicker"></div>
+      <div class="sim-hint">Finds upcoming events you could enter and ranks them <strong>easiest field first</strong>, measured by attendees' season skills standings — plus where you'd project to land at each one.</div>
       <div class="loading" id="escoutLoading"><div class="loading-spinner"></div>
-        <div class="loading-text" id="escoutLoadingText">ANALYZING FIELD...</div></div>
+        <div class="loading-text" id="escoutLoadingText">FINDING EVENTS...</div></div>
       <div id="escoutResults"></div>
     </div>
   </section>
@@ -1578,6 +1582,17 @@ window.onload = () => {
     const mdT = localStorage.getItem('vex_md_team'), mdE = localStorage.getItem('vex_md_event');
     if (mdT) document.getElementById('mdTeam').value = mdT;
     if (mdE) document.getElementById('mdEventSku').value = mdE;
+    // WARM-ON-OPEN: quietly preload the saved event in the background so the
+    // first tap of GO / Draft / Schedule is served from warm caches. Fire-and-
+    // forget, low priority, never surfaces errors.
+    if (mdE && /^RE-/i.test(mdE)) {
+      setTimeout(async () => {
+        try {
+          const events = await apiGet('/events', { 'sku[]': [mdE.toUpperCase()] });
+          if (events.length) await sim_buildRatingsFromEvent(events[0], null);
+        } catch (e) { /* silent — this is purely opportunistic */ }
+      }, 1500);
+    }
   } catch (e) {}
   // Position tab indicator after layout settles
   setTimeout(positionTabIndicator, 100);
@@ -1737,10 +1752,12 @@ async function apiGet(endpoint, params = {}) {
     else qs.set(k, v);
   });
 
-  // Fetch one page with retry logic for rate limits and transient errors
+  // Fetch one page with retry logic for rate limits and transient errors.
+  // Builds its own query string so pages can be fetched IN PARALLEL safely.
   async function fetchPage(page) {
-    qs.set('page', page);
-    const path = endpoint + '?' + qs.toString();
+    const pqs = new URLSearchParams(qs);
+    pqs.set('page', page);
+    const path = endpoint + '?' + pqs.toString();
 
     // Try up to 5 times with exponential backoff on 429/5xx
     let lastErr = null;
@@ -1757,7 +1774,12 @@ async function apiGet(endpoint, params = {}) {
       }
       apiRelease();
 
-      if (res.ok) return res.json();
+      if (res.ok) {
+        // Proxy reports how many API tokens it holds — scale our parallelism to match.
+        const tc = parseInt(res.headers.get('X-Token-Count') || '0', 10);
+        if (tc > 0) window._apiTokens = tc;
+        return res.json();
+      }
 
       if (res.status === 401) throw new Error('API token expired. Contact site owner.');
 
@@ -1787,10 +1809,13 @@ async function apiGet(endpoint, params = {}) {
   const data = await fetchPage(1);
   let results = data.data || [];
   if (data.meta && data.meta.last_page > 1) {
-    for (let p = 2; p <= Math.min(data.meta.last_page, 10); p++) {
-      const d2 = await fetchPage(p);
-      results = results.concat(d2.data || []);
-    }
+    // Fetch all remaining pages AT ONCE — a 4-page endpoint costs one round
+    // trip instead of four. The global apiSlot gate still caps total in-flight.
+    const last = Math.min(data.meta.last_page, 10);
+    const pages = [];
+    for (let p = 2; p <= last; p++) pages.push(fetchPage(p));
+    const rest = await Promise.all(pages);
+    for (const d2 of rest) results = results.concat(d2.data || []);
   }
   return results;
 }
@@ -2861,13 +2886,12 @@ async function renderBracketView() {
 
     // Fetch all matches across all divisions, tracking which division each match belongs to
     const matchesByDivision = {};
-    for (const div of divisions) {
+    await sim_pool(divisions, async div => {
       try {
         const divMatches = await apiGet(`/events/${tournamentEventId}/divisions/${div.id}/matches`);
-        const divName = div.name || `Division ${div.id}`;
-        matchesByDivision[divName] = divMatches;
+        matchesByDivision[div.name || `Division ${div.id}`] = divMatches;
       } catch(e) { /* continue with others */ }
-    }
+    }, sim_poolSize());
 
     // Filter to elimination matches — use match.name patterns to detect elims
     // Important: exclude Q1, Q2 etc (quals) but NOT QF (quarterfinals)
@@ -4085,24 +4109,29 @@ function sim_bracket(alliances, N, seed) {
 async function sim_buildRatingsFromTeams(numbers, seasonId, setStatus) {
   const uniqueNums = [...new Set(numbers.map(n => n.toUpperCase().trim()).filter(Boolean))];
   const byNumber = {};
-  for (let i = 0; i < uniqueNums.length; i++) {
-    const num = uniqueNums[i];
-    if (setStatus) setStatus(`RESOLVING ${num}... (${i + 1}/${uniqueNums.length})`);
+  if (setStatus) setStatus(`RESOLVING ${uniqueNums.length} TEAMS...`);
+  let doneR = 0;
+  await sim_pool(uniqueNums, async num => {
     try {
-      const info = await sim_resolveTeam(num);
+      const info = await sim_resolveTeamCached(num);
       byNumber[num] = { id: String(info.id), displayNum: info.number, name: info.team_name || '' };
     } catch (e) { /* skip unresolved */ }
-  }
+    doneR++;
+    if (setStatus && doneR % 4 === 0) setStatus(`RESOLVING TEAMS... (${doneR}/${uniqueNums.length})`);
+  }, sim_poolSize());
+
   const uniqueIds = [...new Set(Object.values(byNumber).map(t => t.id))];
   const uniqueMatches = new Map();
-  for (let i = 0; i < uniqueIds.length; i++) {
-    const tid = uniqueIds[i];
-    if (setStatus) setStatus(`PULLING MATCHES... (${i + 1}/${uniqueIds.length})`);
-    const params = { 'team[]': [tid] };
-    if (seasonId) params['season[]'] = [seasonId];
-    const matches = await apiGet(`/teams/${tid}/matches`, params);
-    for (const m of matches) if (m && m.id != null && !uniqueMatches.has(m.id)) uniqueMatches.set(m.id, m);
-  }
+  if (setStatus) setStatus(`PULLING MATCHES FOR ${uniqueIds.length} TEAMS...`);
+  let doneM = 0;
+  await sim_pool(uniqueIds, async tid => {
+    try {
+      const matches = await sim_teamMatchesCached(tid, seasonId);
+      for (const m of matches) if (m && m.id != null && !uniqueMatches.has(m.id)) uniqueMatches.set(m.id, m);
+    } catch (e) { /* skip */ }
+    doneM++;
+    if (setStatus && doneM % 4 === 0) setStatus(`PULLING MATCHES... (${doneM}/${uniqueIds.length})`);
+  }, sim_poolSize());
   const observations = [];
   const allMs = [...uniqueMatches.values()].map(sim_matchTime).filter(Boolean);
   const newestMs = allMs.length ? Math.max(...allMs) : null;
@@ -4175,15 +4204,15 @@ async function sim_buildRatingsFromEventUncached(event, setStatus) {
   const divisions = event.divisions && event.divisions.length ? event.divisions : [{ id: 1 }];
 
   const allMatches = [];
-  for (let i = 0; i < divisions.length; i++) {
-    const div = divisions[i];
-    if (setStatus) setStatus(`LOADING MATCHES... (div ${i + 1}/${divisions.length})`);
+  if (setStatus) setStatus(`LOADING MATCHES ACROSS ${divisions.length} DIVISION${divisions.length > 1 ? 'S' : ''}...`);
+  const divLists = await sim_pool(divisions, async div => {
     try {
       const divMatches = await apiGet(`/events/${event.id}/divisions/${div.id}/matches`);
       for (const dm of divMatches) if (dm) dm.__div = div.id;
-      allMatches.push(...divMatches);
-    } catch (e) { /* continue */ }
-  }
+      return divMatches;
+    } catch (e) { return []; }
+  }, 5);
+  for (const list of divLists) allMatches.push(...list);
   if (setStatus) setStatus('COMPUTING RATINGS...');
   await sleep(20);
 
@@ -4230,6 +4259,80 @@ function sim_allianceStats(ids, ratings, stdByTeam, globalStd) {
   const vars = ids.map(id => { const s = stdByTeam.get(id) ?? globalStd; return s * s; });
   const std = Math.sqrt(vars.reduce((a, b) => a + b, 0) / (vars.length || 1));
   return { mean, std };
+}
+
+// ── Speed helpers ──
+// Run async work over a list with bounded parallelism (kind to the rate limit,
+// ~6x faster than one-at-a-time). Results keep input order.
+// Parallelism scales with the proxy's API token count (X-Token-Count header):
+// 1 token → 6 lanes, each extra token +4 lanes, capped at 18. More keys in
+// Vercel env (ROBOTEVENTS_TOKEN_2, _3, ...) = automatically faster loads.
+function sim_poolSize() { return Math.min(18, 6 + 4 * (Math.max(1, window._apiTokens || 1) - 1)); }
+async function sim_pool(items, worker, limit) {
+  if (!limit) limit = sim_poolSize();
+  const out = new Array(items.length);
+  let idx = 0;
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (idx < items.length) { const i = idx++; out[i] = await worker(items[i], i); }
+  });
+  await Promise.all(runners);
+  return out;
+}
+// Session caches: repeat lookups are free
+const _teamResolveCache = new Map(); // number -> promise(team)
+async function sim_resolveTeamCached(num) {
+  const k = (num || '').toUpperCase();
+  if (_teamResolveCache.has(k)) return _teamResolveCache.get(k);
+  const p = sim_resolveTeam(k);
+  _teamResolveCache.set(k, p);
+  try { return await p; } catch (e) { _teamResolveCache.delete(k); throw e; }
+}
+const _teamMatchesCache = new Map(); // teamId:season -> {ts, v}, 2 min TTL
+async function sim_teamMatchesCached(tid, seasonId) {
+  const k = tid + ':' + (seasonId || '');
+  const c = _teamMatchesCache.get(k);
+  if (c && Date.now() - c.ts < 120000) return c.v;
+  // Persistent layer: slimmed match history survives page reloads (30 min TTL),
+  // so re-opening the app at an event doesn't refetch the world.
+  const lsKey = 'vex_tm_' + k;
+  try {
+    const raw = localStorage.getItem(lsKey);
+    if (raw) {
+      const stored = JSON.parse(raw);
+      if (Date.now() - stored.ts < 30 * 60000) {
+        _teamMatchesCache.set(k, { ts: stored.ts, v: stored.v });
+        return stored.v;
+      }
+      localStorage.removeItem(lsKey);
+    }
+  } catch (e) { /* corrupt entry — fall through to network */ }
+
+  const params = { 'team[]': [tid] };
+  if (seasonId) params['season[]'] = [seasonId];
+  const full = await apiGet(`/teams/${tid}/matches`, params);
+  // Slim to only the fields every engine consumes — keeps localStorage tiny
+  const v = full.map(m => m && ({
+    id: m.id, name: m.name, round: m.round, matchnum: m.matchnum,
+    scheduled: m.scheduled, started: m.started,
+    autonomous_winner: m.autonomous_winner, __div: m.__div,
+    alliances: Array.isArray(m.alliances)
+      ? m.alliances.map(a => ({ color: a.color, score: a.score, teams: (a.teams || []).map(t => ({ team: { id: t?.team?.id ?? t?.id, name: t?.team?.name ?? t?.name } })) }))
+      : m.alliances
+  })).filter(Boolean);
+  _teamMatchesCache.set(k, { ts: Date.now(), v });
+  if (_teamMatchesCache.size > 120) _teamMatchesCache.delete(_teamMatchesCache.keys().next().value);
+  try {
+    localStorage.setItem(lsKey, JSON.stringify({ ts: Date.now(), v }));
+  } catch (e) {
+    // Quota hit — purge our own entries and carry on without persisting
+    try {
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('vex_tm_')) localStorage.removeItem(key);
+      }
+    } catch (e2) {}
+  }
+  return v;
 }
 
 // ── Resolve a team number to its VEX id + basic info ──
@@ -4295,25 +4398,19 @@ async function runSimulation() {
       blue2 ? { key: 'blue2', number: blue2, color: 'blue' } : null
     ].filter(Boolean);
 
-    // Resolve each team → id
-    const targets = [];
-    for (let i = 0; i < rawTargets.length; i++) {
-      const t = rawTargets[i];
-      loadingText.textContent = `RESOLVING ${t.number}... (${i + 1}/${rawTargets.length})`;
-      const info = await sim_resolveTeam(t.number);
-      targets.push({ ...t, id: String(info.id), name: info.team_name || '', displayNum: info.number });
-    }
+    // Resolve all teams in parallel (cached — a repeat sim is instant)
+    loadingText.textContent = `RESOLVING ${rawTargets.length} TEAMS...`;
+    const targets = (await sim_pool(rawTargets, async t => {
+      const info = await sim_resolveTeamCached(t.number);
+      return { ...t, id: String(info.id), name: info.team_name || '', displayNum: info.number };
+    }, 4));
 
-    // Fetch each unique team's season matches, collect UNIQUE matches by id
+    // Fetch all teams' season matches in parallel, collect UNIQUE matches by id
     const uniqueMatches = new Map();
     const seenIds = [...new Set(targets.map(t => t.id))];
-    for (let i = 0; i < seenIds.length; i++) {
-      const tid = seenIds[i];
-      const tgt = targets.find(t => t.id === tid);
-      loadingText.textContent = `PULLING MATCHES FOR ${tgt.displayNum}... (${i + 1}/${seenIds.length})`;
-      const params = { 'team[]': [tid] };
-      if (seasonId) params['season[]'] = [seasonId];
-      const matches = await apiGet(`/teams/${tid}/matches`, params);
+    loadingText.textContent = `PULLING MATCHES FOR ${seenIds.length} TEAMS...`;
+    const matchLists = await sim_pool(seenIds, tid => sim_teamMatchesCached(tid, seasonId), 4);
+    for (const matches of matchLists) {
       for (const m of matches) {
         if (m && m.id != null && !uniqueMatches.has(m.id)) uniqueMatches.set(m.id, m);
       }
@@ -4955,9 +5052,9 @@ async function bracketLoadEvent() {
     const divisions = event.divisions && event.divisions.length ? event.divisions : [{ id: 1 }];
     setStatus('LOADING ELIMINATION MATCHES...');
     let all = [];
-    for (const div of divisions) {
+    await sim_pool(divisions, async div => {
       try { all.push(...await apiGet(`/events/${event.id}/divisions/${div.id}/matches`)); } catch (e) {}
-    }
+    }, sim_poolSize());
     // Identify elimination matches (exclude quals/practice)
     const isElim = m => {
       const name = (m.name || '').toUpperCase().trim();
@@ -5278,7 +5375,7 @@ async function matchdayLoad(isRefresh) {
     setStatus('LOADING RANKINGS...');
     let myRank = null;
     const divisions = event.divisions && event.divisions.length ? event.divisions : [{ id: 1 }];
-    for (const div of divisions) {
+    await sim_pool(divisions, async div => {
       try {
         const ranks = await apiGet(`/events/${event.id}/divisions/${div.id}/rankings`);
         for (const r of ranks) {
@@ -5288,7 +5385,7 @@ async function matchdayLoad(isRefresh) {
           }
         }
       } catch (e) {}
-    }
+    }, sim_poolSize());
 
     // Build per-team profiles from this event's matches (for weakness callouts)
     setStatus('READING THE FIELD...');
@@ -5568,86 +5665,130 @@ function matchdayRender(el, data) {
 // One bulk skills-standings call; no per-team fetching, so it's fast and cheap.
 // ═══════════════════════════════════════════════
 async function runEventScout() {
-  const input = (document.getElementById('simEscoutSku').value || '').trim();
   const you = (document.getElementById('simEscoutYou').value || '').trim().toUpperCase();
-  if (!input) { showError('⚠ Enter an event name or SKU.'); return; }
+  const scope = document.getElementById('simEscoutScope').value || 'region';
+  if (!you) { showError('⚠ Enter your team number — it determines your region and your projected standing.'); return; }
   showError('');
-  document.getElementById('escoutEventPicker').innerHTML = '';
   const resultsEl = document.getElementById('escoutResults');
   resultsEl.innerHTML = '';
   const loadingEl = document.getElementById('escoutLoading');
   const setStatus = t => { const el = document.getElementById('escoutLoadingText'); if (el) el.textContent = t; };
   loadingEl.classList.add('active');
   try {
-    setStatus('FINDING EVENT...');
     const seasonId = document.getElementById('simSeasonSelect')?.value || null;
-    const resolved = await sim_resolveEvent(input, seasonId);
-    if (resolved.choices) {
-      loadingEl.classList.remove('active');
-      sim_renderEventPicker('escoutEventPicker', resolved.choices, 'simEscoutSku', 'runEventScout');
-      return;
-    }
-    const event = resolved.event;
-    setStatus('LOADING ATTENDEES...');
-    const teams = await apiGet(`/events/${event.id}/teams`);
-    if (!teams.length) throw new Error('No teams registered for this event yet.');
+    if (!seasonId) throw new Error('Pick a season first.');
 
-    setStatus('LOADING SEASON STANDINGS...');
-    // Grade detection: try High School; if few attendees match, try Middle School
-    let standings = seasonId ? await getFullSeasonSkills(seasonId, 'High School').catch(() => null) : null;
-    let matched = teams.filter(t => standings?.byId[t.id]?.globalRank).length;
-    if (seasonId && matched < teams.length * 0.3) {
+    setStatus('FINDING YOUR TEAM...');
+    const me = await sim_resolveTeamCached(you);
+    const myRegion = me.location?.region || null;
+    if (scope !== 'signature' && !myRegion) throw new Error(`Couldn't determine ${you}'s region — try Signature events scope.`);
+
+    // ── Gather candidate events (region + signatures fetched in parallel) ──
+    setStatus('LOADING SEASON EVENTS...');
+    const wanted = [];
+    const seen = new Set();
+    const upcoming = e => { const t = Date.parse(e.end || e.start || ''); return !isNaN(t) && t >= Date.now() - 86400000; };
+    const [regionEvs, sigEvs] = await Promise.all([
+      (scope === 'region' || scope === 'both') ? apiGet('/events', { 'season[]': [seasonId], 'region': myRegion }).catch(() => []) : Promise.resolve([]),
+      (scope === 'signature' || scope === 'both') ? apiGet('/events', { 'season[]': [seasonId], 'level[]': ['Signature'] }).catch(() => []) : Promise.resolve([])
+    ]);
+    for (const e of regionEvs) {
+      if (!upcoming(e) || (e.location?.region || '') !== myRegion) continue;
+      if (!seen.has(e.id)) { seen.add(e.id); wanted.push(e); }
+    }
+    for (const e of sigEvs) {
+      if (!upcoming(e)) continue;
+      if (!seen.has(e.id)) { seen.add(e.id); e.__sig = true; wanted.push(e); }
+    }
+    if (!wanted.length) throw new Error(scope === 'signature' ? 'No upcoming signature events found this season.' : `No upcoming events found in ${myRegion} this season.`);
+    wanted.sort((a, b) => (a.start || '').localeCompare(b.start || ''));
+    const CAP = 20;
+    const analyze = wanted.slice(0, CAP);
+
+    // ── Standings (bulk) + all rosters, in parallel ──
+    setStatus('LOADING STANDINGS + ROSTERS...');
+    const standingsP = getFullSeasonSkills(seasonId, 'High School').catch(() => null);
+    const rosters = new Array(analyze.length).fill(null);
+    await Promise.all([
+      standingsP,
+      sim_pool(analyze.map((ev, i) => ({ ev, i })), async ({ ev, i }) => {
+        try { rosters[i] = await apiGet(`/events/${ev.id}/teams`); } catch (e) { rosters[i] = []; }
+      }, 8)
+    ]);
+    let standings = await standingsP;
+    if (!standings?.byId[me.id]) {
       const ms = await getFullSeasonSkills(seasonId, 'Middle School').catch(() => null);
-      const msMatched = teams.filter(t => ms?.byId[t.id]?.globalRank).length;
-      if (msMatched > matched) { standings = ms; matched = msMatched; }
+      if (ms?.byId[me.id]) standings = ms;
     }
+    const myRank = standings?.byId[me.id]?.globalRank || null;
 
-    const ranked = teams.map(t => ({
-      id: t.id, number: (t.number || '').toUpperCase(), name: t.team_name || '',
-      rank: standings?.byId[t.id]?.globalRank || null
-    }));
-    const withRank = ranked.filter(t => t.rank).sort((a, b) => a.rank - b.rank);
+    // ── Pick each field's likely-strongest teams (by skills), dedupe ACROSS events,
+    //    then pull real season MATCH data for that shared pool in parallel. Regional
+    //    fields overlap heavily, so ~20 events usually collapse to a modest pool. ──
+    const perEvent = analyze.map((ev, i) => {
+      const teams = rosters[i] || [];
+      const rated = teams
+        .map(t => { const s = standings?.byId[t.id]; return s ? { number: (t.number || '').toUpperCase(), rank: s.globalRank } : null; })
+        .filter(Boolean)
+        .sort((a, b) => a.rank - b.rank);
+      return { ev, teams, rated, topNums: rated.slice(0, 10).map(t => t.number) };
+    });
+    const poolNums = [...new Set([you, ...perEvent.flatMap(p => p.topNums)])].slice(0, 80);
+    setStatus(`PULLING SEASON MATCH DATA (${poolNums.length} teams)...`);
+    const R = await sim_buildRatingsFromTeams(poolNums, seasonId, setStatus);
+    const tsOf = num => { const t = R.byNumber[num]; return t ? (R.ratings.get(t.id) ?? null) : null; };
+    const myTs = tsOf(you);
+
+    // ── Score every event from real match data (skills as tiebreak/fallback) ──
+    const rows = perEvent.map(p => {
+      const topTs = p.topNums.map(tsOf).filter(v => v !== null).sort((a, b) => b - a).slice(0, 8);
+      const eliteTs = topTs.length >= 3 ? topTs.reduce((s, v) => s + v, 0) / topTs.length : null;
+      const median = p.rated.length ? p.rated[Math.floor(p.rated.length / 2)].rank : null;
+      const myPos = (myTs !== null && topTs.length) ? 1 + topTs.filter(v => v > myTs).length
+        : (myRank && p.rated.length) ? 1 + p.rated.filter(r => r.rank < myRank).length : null;
+      return {
+        name: p.ev.name || p.ev.sku, sig: !!p.ev.__sig,
+        start: p.ev.start ? new Date(p.ev.start).toLocaleDateString([], { month: 'short', day: 'numeric' }) : '',
+        loc: [p.ev.location?.city, p.ev.location?.region].filter(Boolean).join(', '),
+        teams: p.teams.length, scanned: topTs.length, eliteTs, median, myPos
+      };
+    });
+
+    // Easiest first = LOWEST top-field True Skill; skills median breaks ties / covers unscanned.
+    rows.sort((a, b) => {
+      if (a.eliteTs !== null && b.eliteTs !== null) return a.eliteTs - b.eliteTs;
+      if (a.eliteTs !== null) return -1;
+      if (b.eliteTs !== null) return 1;
+      return (b.median ?? -1) - (a.median ?? -1);
+    });
+    // EASY / MEDIUM / HARD relative to the options on this list (terciles of rated rows)
+    const ratedRows = rows.filter(r => r.eliteTs !== null || r.median !== null);
+    const cut1 = Math.ceil(ratedRows.length / 3), cut2 = Math.ceil(ratedRows.length * 2 / 3);
+    let k = 0;
+    for (const r of rows) {
+      if (r.eliteTs === null && r.median === null) { r.tag = 'UNRATED'; continue; }
+      r.tag = k < cut1 ? 'EASY' : k < cut2 ? 'MEDIUM' : 'HARD';
+      k++;
+    }
 
     let html = `<div class="sim-result">`;
-    if (!withRank.length) {
-      html += `<div class="sim-caveat">${teams.length} teams registered, but none appear in the season skills standings yet — too early in the season to size up this field. Check back after teams post skills runs.</div></div>`;
-      resultsEl.innerHTML = html;
-      loadingEl.classList.remove('active');
-      return;
-    }
-
-    const median = withRank[Math.floor(withRank.length / 2)].rank;
-    const top50 = withRank.filter(t => t.rank <= 50).length;
-    const top250 = withRank.filter(t => t.rank <= 250).length;
-    const tag = median <= 300 ? 'STACKED' : median <= 800 ? 'COMPETITIVE' : 'OPEN FIELD';
-
-    // Your projected standing among attendees
-    let youLine = '';
-    if (you) {
-      const yt = ranked.find(t => t.number === you);
-      if (!yt) youLine = `<div class="ss-strength">⚠ ${you} isn't on this event's team list.</div>`;
-      else if (!yt.rank) youLine = `<div class="ss-strength">${you} has no season skills score yet — post a skills run to see your projected standing.</div>`;
-      else {
-        const pos = withRank.findIndex(t => t.number === you) + 1;
-        youLine = `<div class="ss-strength">YOUR STANDING: <strong>~#${pos} of ${withRank.length}</strong> rated attendees (world skills #${yt.rank})</div>`;
-      }
-    }
-
-    html += `<div class="sched-summary">
-      <div class="ss-record">${tag}</div>
-      <div class="ss-label">${teams.length} teams registered · ${withRank.length} with season skills scores · median world rank #${median} · ${top50} in top 50 · ${top250} in top 250</div>
-      ${youLine}</div>`;
-
-    html += `<div class="sim-block-label">The sharks · strongest attendees by season skills</div><div class="pick-list">`;
-    withRank.slice(0, 10).forEach((t, i) => {
+    html += `<div class="sim-block-label">Optimal events for ${you}${myTs !== null ? ` (TS ${myTs.toFixed(0)})` : myRank ? ` (world skills #${myRank})` : ''} · easiest field first${wanted.length > CAP ? ` · nearest ${CAP} of ${wanted.length}` : ''}</div>`;
+    html += `<div class="pick-list">`;
+    rows.forEach((r, i) => {
+      const evidence = r.eliteTs !== null
+        ? `top-field TS ${r.eliteTs.toFixed(0)} (${r.scanned} scanned)${r.median ? ` · median skills #${r.median}` : ''}`
+        : (r.median ? `median skills #${r.median} · no match data yet` : 'no data yet');
       html += `<div class="pick-row${i === 0 ? ' first' : ''}">
         <div class="pick-rank">${i + 1}</div>
-        <div><div class="pick-team">${t.number}</div><div class="pick-name">${(t.name || '').slice(0, 30)}</div></div>
-        <div class="pick-win">#${t.rank}</div>
-        <div class="pick-opr">world<br>skills</div>
+        <div><div class="pick-team">${r.name.slice(0, 44)}${r.sig ? ' <span class="es-sig">SIG</span>' : ''}</div>
+             <div class="pick-name">${r.start}${r.loc ? ' · ' + r.loc : ''} · ${r.teams} teams · ${evidence}</div></div>
+        <div class="pick-win">${r.myPos ? '~#' + r.myPos : '—'}</div>
+        <div class="pick-opr">${r.tag}</div>
       </div>`;
     });
-    html += `</div><div class="sim-caveat">Field strength is measured by season <strong>skills standings</strong> — a fast proxy that works before any matches are played. It rewards teams that grind skills, so a match-dominant team with few skills runs can be underrated here. For match-based ratings of a specific field, use the Pick List's LOAD &amp; RANK on this event.</div></div>`;
+    html += `</div>`;
+    if (myTs === null && !myRank) html += `<div class="sim-caveat">⚠ No season data found for ${you} yet, so per-event projections show "—".</div>`;
+    html += `<div class="sim-caveat">Difficulty comes from <strong>real season match data</strong>: each field's strongest attendees are pooled across all these events (regional fields overlap heavily), their True Skill is computed from actual match scores, and events are ranked by top-field strength. Skills standings pick which teams to scan and cover fields with no match data. "~#N" is where your TS lands among that event's scanned top field. EASY/MEDIUM/HARD are relative to the options on this list. Registration lists grow — re-check closer to the date.</div></div>`;
     resultsEl.innerHTML = html;
   } catch (e) {
     showError('⚠ ' + e.message);
