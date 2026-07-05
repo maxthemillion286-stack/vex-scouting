@@ -7,10 +7,12 @@
 //   - Set ROBOTEVENTS_TOKEN, ROBOTEVENTS_TOKEN_2, ROBOTEVENTS_TOKEN_3, etc.
 //   - Tokens are rotated round-robin per request
 //   - On 429 (rate limit), automatically falls over to the next token
+//   - The response carries X-Token-Count so the frontend can scale its
+//     request concurrency to match the available rate-limit headroom.
 
 const cache = new Map(); // path -> { data, status, expires }
 const DEFAULT_TTL_MS = 60 * 1000;       // 1 min for general data
-const LONG_TTL_MS = 5 * 60 * 1000;      // 5 min for stable data (skills rankings, team details)
+const LONG_TTL_MS = 5 * 60 * 1000;      // 5 min for stable data
 const SHORT_TTL_MS = 15 * 1000;         // 15s for live match data
 
 // Round-robin counter persists across requests in the same Vercel instance
@@ -28,13 +30,19 @@ function getTokens() {
 
 // Determine cache TTL based on what's being requested
 function ttlFor(path) {
+  // A TEAM's season match history changes only when they play — cache long.
+  // (Previously this fell through to the generic '/matches' 15s rule, which
+  // forced constant refetching of hundreds of near-static team histories.)
+  if (/^\/teams\/\d+\/matches/.test(path)) return LONG_TTL_MS;
+  // Event rosters are near-static once registration settles
+  if (/^\/events\/\d+\/teams/.test(path)) return LONG_TTL_MS;
   // Skills rankings (legacy) and team details rarely change — cache longer
   if (path.startsWith('legacy:/seasons/') && path.includes('/skills')) return LONG_TTL_MS;
   if (path.match(/^\/teams\/\d+$/)) return LONG_TTL_MS;
   if (path.startsWith('/teams?')) return LONG_TTL_MS;
   if (path.startsWith('/seasons')) return LONG_TTL_MS;
-  // Match scores during live events change often
-  if (path.includes('/matches')) return SHORT_TTL_MS;
+  // LIVE data at a running event changes fast — keep these short
+  if (path.includes('/matches')) return SHORT_TTL_MS;   // event/division matches
   if (path.includes('/rankings')) return SHORT_TTL_MS;
   return DEFAULT_TTL_MS;
 }
@@ -60,11 +68,16 @@ export default async function handler(req, res) {
   if (useAuth && tokens.length === 0) {
     return res.status(500).json({ error: 'No API tokens configured' });
   }
+  // Tell the frontend how much parallel headroom exists
+  res.setHeader('X-Token-Count', String(Math.max(1, tokens.length)));
 
   // Check cache
   const cached = cache.get(path);
   if (cached && cached.expires > Date.now()) {
     res.setHeader('X-Cache', 'HIT');
+    if (ttlFor(path) === LONG_TTL_MS) {
+      res.setHeader('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=300');
+    }
     return res.status(cached.status).json(cached.data);
   }
 
@@ -123,9 +136,16 @@ export default async function handler(req, res) {
           status: response.status,
           expires: Date.now() + ttlFor(path)
         });
-        if (cache.size > 500) {
+        if (cache.size > 1500) {
           const firstKey = cache.keys().next().value;
           cache.delete(firstKey);
+        }
+        // EDGE CACHING — STABLE DATA ONLY. Team histories, rosters, and skills
+        // standings (5-min TTL) are served by Vercel's CDN without invoking this
+        // function. Live data (event matches/rankings) deliberately gets NO edge
+        // caching, so a Match Day refresh is always function-fresh.
+        if (ttlFor(path) === LONG_TTL_MS) {
+          res.setHeader('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=300');
         }
       }
 
