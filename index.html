@@ -618,7 +618,7 @@
        what lets a full bracket fit on screen without a horizontal scrollbar.
        min-width is only a legibility floor for very narrow screens. */
     flex: 1 1 0;
-    min-width: 124px;
+    min-width: 92px;
     justify-content: space-around;
     position: relative;
   }
@@ -642,19 +642,12 @@
     position: relative;
   }
   /* SVG overlay for bracket connector lines — must be INSIDE the scrolling container */
-  .bracket-wrapper {
-    position: relative;
-    /* Break out of the page's 1100px container so the bracket can use the
-       screen width that's actually available. Centered on its own parent. */
-    width: min(calc(100vw - 32px), 1560px);
-    margin-left: 50%;
-    transform: translateX(-50%);
-  }
+  .bracket-wrapper { position: relative; }
   .bracket-container {
     display: flex;
-    gap: clamp(10px, 2vw, 52px); /* tightens as the bracket gets more columns */
-    overflow-x: auto;            /* safety net for phones only; desktop won't overflow */
-    padding: 8px 4px 12px 4px; margin-top: 8px;
+    gap: clamp(8px, 1.4vw, 22px); /* tight so a full bracket fits the page width */
+    overflow-x: auto;             /* safety net for phones only */
+    padding: 8px 2px 12px 2px; margin-top: 8px;
     align-items: stretch;
     position: relative; /* required so the SVG inside positions correctly */
   }
@@ -822,7 +815,7 @@
 
     /* Bracket — make horizontally scrollable with tighter columns */
     .bracket-container { gap: 14px; padding: 4px; }
-    .bracket-column { min-width: 116px; }
+    .bracket-column { min-width: 92px; }
     .bracket-round-label { font-size: 9px; letter-spacing: 1px; }
     .bracket-match-label { font-size: 8px; padding: 3px 8px; }
     .bracket-side { padding: 6px 8px; }
@@ -1015,17 +1008,17 @@
   .bracket-size-btn:hover { color: var(--text); border-color: var(--accent-dim); }
   .bracket-size-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
   .bracket-input-match { display: flex; flex-direction: column; border: 1px solid var(--border); background: var(--card); position: relative; z-index: 1; }
-  .bracket-input-seedlabel { font-family: var(--mono); font-size: 9px; color: var(--accent-bright); letter-spacing: 1px; padding: 4px 10px; background: var(--card2); border-bottom: 1px solid var(--border); }
-  .bracket-input-slot { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  .bracket-input-seedlabel { font-family: var(--mono); font-size: 8px; color: var(--accent-bright); letter-spacing: 0.5px; padding: 3px 6px; background: var(--card2); border-bottom: 1px solid var(--border); }
+  .bracket-input-slot { display: flex; flex-direction: column; gap: 3px; padding: 5px 6px; border-bottom: 1px solid var(--border); }
   .bracket-input-slot:last-child { border-bottom: none; }
-  .bracket-input-slot input { font-family: var(--mono); font-size: 12px; padding: 6px 8px; letter-spacing: 0.5px; }
+  .bracket-input-slot input { font-family: var(--mono); font-size: 11px; padding: 4px 6px; letter-spacing: 0; min-width: 0; }
   .bracket-adv-match { display: flex; flex-direction: column; justify-content: center; border: 1px dashed var(--border); background: transparent; min-height: 54px; position: relative; z-index: 1; }
   .bracket-adv-label { font-family: var(--mono); font-size: 10px; color: var(--text-muted); letter-spacing: 1px; text-align: center; padding: 12px 8px; }
   .bracket-input-hint { font-family: var(--body); font-size: 12px; color: var(--text-muted); margin: 8px 0 4px; }
   .bracket-slot-odds { float: right; font-family: var(--mono); font-size: 10px; color: var(--text-dim); letter-spacing: 0.5px; }
   .bracket-slot-odds.fav { color: var(--accent-bright); font-weight: 700; }
   .bracket-adv-filled { display: flex; flex-direction: column; border: 1px solid var(--border); background: var(--card); position: relative; z-index: 1; }
-  .bracket-adv-side { font-family: var(--mono); font-size: 12px; color: var(--text-dim); padding: 8px 12px; border-bottom: 1px solid var(--border); letter-spacing: 0.5px; }
+  .bracket-adv-side { font-family: var(--mono); font-size: 11px; color: var(--text-dim); padding: 6px 7px; border-bottom: 1px solid var(--border); letter-spacing: 0; overflow-wrap: anywhere; }
   .bracket-adv-side:last-child { border-bottom: none; }
   .bracket-adv-side.won { color: var(--accent-bright); font-weight: 700; background: var(--card2); }
 
@@ -1081,7 +1074,7 @@
 
   @media (max-width: 768px) {
     .sim-ov-lists { grid-template-columns: 1fr; gap: 12px; }
-    .bracket-column { min-width: 116px; }
+    .bracket-column { min-width: 92px; }
     .bracket-input-slot input { font-size: 13px; }
   }
 </style>
@@ -1436,10 +1429,8 @@
 
       <div class="bracket-size-row" style="margin-top:16px;">
         <span class="bs-label">BRACKET SIZE</span>
-        <button class="bracket-size-btn" data-size="2" onclick="bracketBuildInput(2)">2</button>
-        <button class="bracket-size-btn active" data-size="4" onclick="bracketBuildInput(4)">4</button>
         <button class="bracket-size-btn" data-size="8" onclick="bracketBuildInput(8)">8</button>
-        <button class="bracket-size-btn" data-size="16" onclick="bracketBuildInput(16)">16</button>
+        <button class="bracket-size-btn active" data-size="16" onclick="bracketBuildInput(16)">16</button>
       </div>
       <div class="bracket-input-hint">Type two team numbers into each alliance slot (seed 1 at the top), or load a real event above — it fills the bracket and simulates in one go. After a simulation, each slot shows that alliance's championship odds.</div>
       <div id="bracketInputArea"></div>
@@ -5083,7 +5074,7 @@ function bracketBuildInput(size, prefill, advance) {
 
 // Read alliances from the bracket slots (index 0 = seed 1)
 function bracketReadInput() {
-  const size = window._bracketSize || 4;
+  const size = window._bracketSize || 16;
   const alliances = [];
   for (let s = 1; s <= size; s++) {
     const t1 = (document.getElementById('brk_s' + s + '_t1')?.value || '').trim().toUpperCase();
@@ -5210,7 +5201,9 @@ async function bracketLoadEvent() {
 
     // Fit to a power-of-2 size
     let nAll = pairs.length * 2;
-    let size = [16, 8, 4, 2].find(s => s <= nAll) || 2;
+    // Only 8- and 16-alliance brackets are offered, so snap to those. Smaller
+    // real brackets round up to 8 and leave the extra slots blank to fill in.
+    let size = nAll >= 16 ? 16 : 8;
     const usablePairs = pairs.slice(0, size / 2);
 
     // Place each real match's two alliances into the paired slots for that box
@@ -5235,7 +5228,7 @@ async function bracketLoadEvent() {
 async function runBracket() {
   const alliancesNums = bracketReadInput().map(a => a.filter(Boolean));
   const filled = alliancesNums.filter(a => a.length).length;
-  const size = window._bracketSize || 4;
+  const size = window._bracketSize || 16;
   if (filled < size) {
     const empties = [];
     alliancesNums.forEach((a, i) => { if (!a.length) empties.push(i + 1); });
@@ -5297,7 +5290,7 @@ async function runBracket() {
   }
 }
 function bracketClear() {
-  bracketBuildInput(window._bracketSize || 4);
+  bracketBuildInput(window._bracketSize || 16);
   document.getElementById('bracketResults').innerHTML = '';
   document.getElementById('bracketEventPicker').innerHTML = '';
   document.getElementById('simBracketEventSku').value = '';
@@ -5767,7 +5760,7 @@ async function runEventScout() {
   if (e) e.addEventListener('keydown', ev => { if (ev.key === 'Enter') runSimulation(); });
 });
 // Build the default bracket input so the mode isn't empty
-if (document.getElementById('bracketInputArea')) bracketBuildInput(4);
+if (document.getElementById('bracketInputArea')) bracketBuildInput(16);
 // Restore last simulator sub-mode
 (function () {
   try {
