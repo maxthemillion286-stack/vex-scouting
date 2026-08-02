@@ -566,6 +566,19 @@
   .match-row.win { border-left: 4px solid #44dd44; }
   .match-row.loss { border-left: 4px solid #ee4444; }
   .match-row.tie { border-left: 4px solid #ddaa44; }
+  /* Matches that haven't been played yet: dimmed, with the prediction in place
+     of a score. Hovering restores full contrast so they stay readable. */
+  .match-row.upcoming { opacity: 0.5; background: transparent; border-style: dashed; transition: opacity 0.2s; }
+  .match-row.upcoming:hover { opacity: 0.85; }
+  .match-row.upcoming .match-score { color: var(--text-muted); }
+  .match-row.pred-good { border-left: 4px solid rgba(68,221,68,0.45); }
+  .match-row.pred-bad { border-left: 4px solid rgba(238,68,68,0.45); }
+  .match-row.pred-even { border-left: 4px solid rgba(221,170,68,0.45); }
+  .match-row.queue-now-row { opacity: 1; border-color: var(--accent-bright); border-style: solid; box-shadow: 0 0 18px var(--accent-glow); }
+  .match-outcome.pred-good { color: #44dd44; }
+  .match-outcome.pred-bad { color: #ee4444; }
+  .match-outcome.pred-even { color: #ddaa44; }
+  .match-time { font-family: var(--mono); font-size: 9px; color: var(--accent-bright); margin-top: 2px; letter-spacing: 0.5px; }
   .match-num { font-family: var(--mono); font-size: 11px; color: var(--text-muted); letter-spacing: 1px; }
 
   .match-alliance {
@@ -1012,6 +1025,8 @@
   .bracket-input-slot { display: flex; flex-direction: column; gap: 3px; padding: 5px 6px; border-bottom: 1px solid var(--border); }
   .bracket-input-slot:last-child { border-bottom: none; }
   .bracket-input-slot input { font-family: var(--mono); font-size: 11px; padding: 4px 6px; letter-spacing: 0; min-width: 0; }
+  .bracket-bye { display: flex; align-items: center; justify-content: center; min-height: 52px; background: transparent; }
+  .bracket-bye-label { font-family: var(--mono); font-size: 10px; letter-spacing: 2px; color: var(--text-muted); }
   .bracket-adv-match { display: flex; flex-direction: column; justify-content: center; border: 1px dashed var(--border); background: transparent; min-height: 54px; position: relative; z-index: 1; }
   .bracket-adv-label { font-family: var(--mono); font-size: 10px; color: var(--text-muted); letter-spacing: 1px; text-align: center; padding: 12px 8px; }
   .bracket-input-hint { font-family: var(--body); font-size: 12px; color: var(--text-muted); margin: 8px 0 4px; }
@@ -1171,7 +1186,6 @@
     <button class="tab-btn active" data-tab="scout" onclick="switchTab('scout')">SCOUT</button>
     <button class="tab-btn" data-tab="skills" onclick="switchTab('skills')">SKILLS RANKINGS</button>
     <button class="tab-btn" data-tab="tournament" onclick="switchTab('tournament')">TOURNAMENT</button>
-    <button class="tab-btn" data-tab="matchday" onclick="switchTab('matchday')">MATCH DAY</button>
     <button class="tab-btn" data-tab="simulator" onclick="switchTab('simulator')">SIMULATOR</button>
     <div class="tab-indicator" id="tabIndicator"></div>
   </div>
@@ -1301,26 +1315,6 @@
     <div id="tournamentResults"></div>
   </section>
 
-  <!-- ═══════════ MATCH DAY ═══════════ -->
-  <section class="search-section tab-panel" id="tab-matchday">
-    <div class="section-label">Match Day <span class="section-info" title="Your competition-day dashboard. Enter your team and event once — it remembers. Shows your next match with opponent weaknesses front and center, win odds, your remaining schedule, and your rank. Tap REFRESH after each round of matches.">i</span></div>
-
-    <div class="controls-row">
-      <div class="input-wrap" style="min-width:140px;"><span class="input-label">YOUR TEAM</span>
-        <input type="text" id="mdTeam" placeholder="e.g. 7700S" autocomplete="off"></div>
-      <div class="input-wrap" style="flex:2;min-width:200px;"><span class="input-label">EVENT (NAME OR SKU)</span>
-        <input type="text" id="mdEventSku" placeholder="event name or RE-V5RC-..." autocomplete="off"></div>
-      <button class="btn btn-primary" id="mdGoBtn" onclick="matchdayLoad()">GO</button>
-      <button class="btn btn-secondary" id="mdRefreshBtn" onclick="matchdayLoad(true)" style="display:none;">⟳ REFRESH</button>
-    </div>
-    <div class="md-updated" id="mdUpdated"></div>
-
-
-    <div id="mdEventPicker"></div>
-    <div class="loading" id="mdLoading"><div class="loading-spinner"></div>
-      <div class="loading-text" id="mdLoadingText">LOADING EVENT...</div></div>
-    <div id="mdResults"></div>
-  </section>
 
   <!-- ═══════════ SIMULATOR ═══════════ -->
   <section class="search-section tab-panel" id="tab-simulator">
@@ -1330,7 +1324,6 @@
     <div class="sim-subnav">
       <button class="sub-btn active" data-mode="match" onclick="simMode('match')">Match</button>
       <button class="sub-btn" data-mode="pick" onclick="simMode('pick')">Pick List</button>
-      <button class="sub-btn" data-mode="schedule" onclick="simMode('schedule')">Schedule</button>
       <button class="sub-btn" data-mode="bracket" onclick="simMode('bracket')">Bracket Odds</button>
       <button class="sub-btn" data-mode="escout" onclick="simMode('escout')">Event Scout</button>
     </div>
@@ -1402,21 +1395,6 @@
       <div id="pickResults"></div>
     </div>
 
-    <!-- ─── SCHEDULE MODE ─── -->
-    <div class="sim-mode" id="simmode-schedule">
-      <div class="controls-row">
-        <div class="input-wrap" style="flex:2;min-width:200px;"><span class="input-label">EVENT NAME OR SKU</span>
-          <input type="text" id="simSchedSku" placeholder="event name or RE-V5RC-24-1234" autocomplete="off"></div>
-        <div class="input-wrap" style="min-width:150px;"><span class="input-label">YOUR TEAM</span>
-          <input type="text" id="simSchedTeam" placeholder="e.g. 7700S" autocomplete="off"></div>
-        <button class="btn btn-primary" onclick="runSchedule()">PREDICT SCHEDULE</button>
-      </div>
-      <div class="sim-hint">Pulls every match at the event, rates all teams by True Skill, and gives your win odds for each qualification match — plus a projected record.</div>
-      <div id="schedEventPicker"></div>
-      <div class="loading" id="schedLoading"><div class="loading-spinner"></div>
-        <div class="loading-text" id="schedLoadingText">LOADING EVENT...</div></div>
-      <div id="schedResults"></div>
-    </div>
 
     <!-- ─── BRACKET MODE ─── -->
     <div class="sim-mode" id="simmode-bracket">
@@ -1429,6 +1407,7 @@
 
       <div class="bracket-size-row" style="margin-top:16px;">
         <span class="bs-label">BRACKET SIZE</span>
+        <button class="bracket-size-btn" data-size="6" onclick="bracketBuildInput(6)">6</button>
         <button class="bracket-size-btn" data-size="8" onclick="bracketBuildInput(8)">8</button>
         <button class="bracket-size-btn active" data-size="16" onclick="bracketBuildInput(16)">16</button>
       </div>
@@ -1562,26 +1541,9 @@ window.onload = () => {
   applyTheme(savedTheme);
   // Restore last viewed tab
   const savedTab = localStorage.getItem('vex_active_tab');
-  if (savedTab && ['scout','skills','tournament','simulator','matchday'].includes(savedTab)) {
+  if (savedTab && ['scout','skills','tournament','simulator'].includes(savedTab)) {
     switchTab(savedTab);
   }
-  // Match Day remembers your team + event so re-opening at the venue is zero-setup
-  try {
-    const mdT = localStorage.getItem('vex_md_team'), mdE = localStorage.getItem('vex_md_event');
-    if (mdT) document.getElementById('mdTeam').value = mdT;
-    if (mdE) document.getElementById('mdEventSku').value = mdE;
-    // WARM-ON-OPEN: quietly preload the saved event in the background so the
-    // first tap of GO / Draft / Schedule is served from warm caches. Fire-and-
-    // forget, low priority, never surfaces errors.
-    if (mdE && /^RE-/i.test(mdE)) {
-      setTimeout(async () => {
-        try {
-          const events = await apiGet('/events', { 'sku[]': [mdE.toUpperCase()] });
-          if (events.length) await sim_buildRatingsFromEvent(events[0], null);
-        } catch (e) { /* silent — this is purely opportunistic */ }
-      }, 1500);
-    }
-  } catch (e) {}
   // Position tab indicator after layout settles
   setTimeout(positionTabIndicator, 100);
 
@@ -2661,75 +2623,185 @@ async function loadTournamentTeams(eventId, eventName, focusTeamId, focusTeamNum
 }
 
 // Renders match list for the focused team at the focused event
+// ═══════════════════════════════════════════════════════════════
+// Unified event view for a focused team. Absorbs what used to live in the
+// separate Match Day tab and the Simulator's Schedule mode:
+//   · live schedule projected from real match pace (delays push everything)
+//   · win prediction on every match, greyed until it's actually played
+//   · next-match card with opponent + alliance strengths and weaknesses
+//   · projected qual record and schedule favorability
+// ═══════════════════════════════════════════════════════════════
 async function renderEventTeamMatchesView() {
-  const loadingText = document.getElementById('skillsLoadingText') || document.getElementById('tournamentLoadingText');
-  if (loadingText) loadingText.textContent = `LOADING ${tournamentFocusTeamNumber}'S MATCHES...`;
+  const loadingText = document.getElementById('tournamentLoadingText');
+  const setStatus = t => { if (loadingText) loadingText.textContent = t; };
+  setStatus(`LOADING ${tournamentFocusTeamNumber}'S MATCHES...`);
 
   const eventId = tournamentEventId;
-  const teamId = tournamentFocusTeamId;
-
-  // Fetch matches + this team's ranking at this event (in parallel)
-  const [matches, focusRankings] = await Promise.all([
-    apiGet(`/teams/${teamId}/matches`, { 'event[]': [eventId] }),
-    apiGet(`/teams/${teamId}/rankings`, { 'event[]': [eventId] }).catch(() => [])
-  ]);
-
-  // Multi-division events return one ranking per division — use the one actually played
-  let focusRank = null;
-  if (focusRankings.length) {
-    let r = focusRankings[0];
-    for (const cand of focusRankings) {
-      const played = (cand.wins || 0) + (cand.losses || 0) + (cand.ties || 0);
-      const best = (r.wins || 0) + (r.losses || 0) + (r.ties || 0);
-      if (played > best) r = cand;
-    }
-    focusRank = {
-      rank: r.rank || null,
-      division: r.division?.name || null,
-      wins: r.wins || 0, losses: r.losses || 0, ties: r.ties || 0
-    };
-  }
-
-  // Filter out practice matches (round 1)
-  const realMatches = matches.filter(m => m.round !== 1);
-
-  // Sort by round then matchnum
-  realMatches.sort((a, b) => {
-    if (a.round !== b.round) return a.round - b.round;
-    return (a.matchnum || 0) - (b.matchnum || 0);
-  });
-
-  // Detect round name — prefer match.name field, fall back to round number mapping
-  // V5RC match name patterns: "Q1", "Q23" (qual); "R16 #1", "QF #1", "SF #1", "F #1"
-  function detectRoundFromMatch(match) {
-    const name = (match.name || '').trim().toUpperCase();
-    // Check QF/SF first since they start with Q/S which could be confused with quals
-    if (name.startsWith('QF') || name.includes('QUARTER')) return 'Quarterfinals';
-    if (name.startsWith('SF') || name.includes('SEMI')) return 'Semifinals';
-    if (/^Q\s*\d/.test(name) || name.startsWith('QUAL')) return 'Qualification';
-    if (name.startsWith('R128')) return 'Round of 128';
-    if (name.startsWith('R64')) return 'Round of 64';
-    if (name.startsWith('R32')) return 'Round of 32';
-    if (name.startsWith('R16') || name.startsWith('ROUND OF 16')) return 'Round of 16';
-    if (name.startsWith('F') || /^F\d/.test(name) || name.includes('FINAL')) return 'Finals';
-    if (/^P\s*\d/.test(name) || name.startsWith('PRACT')) return 'Practice';
-    // Fallback to round number — V5RC uses these mappings most commonly
-    return ({
-      1: 'Practice',
-      2: 'Qualification',
-      3: 'Quarterfinals',
-      4: 'Semifinals',
-      5: 'Finals',
-      6: 'Round of 16',
-      9: 'Round of 64',
-      10: 'Round of 32',
-      15: 'Practice'
-    })[match.round] || `Round ${match.round}`;
-  }
-
+  const teamId = String(tournamentFocusTeamId);
   const resultsEl = document.getElementById('tournamentResults');
 
-  // Header with view-switch buttons
+  // Event detail (for divisions) then event-wide ratings — both cached
+  let event = { id: eventId, divisions: [{ id: 1 }] };
+  try {
+    const evs = await apiGet('/events', { 'id[]': [eventId] });
+    if (evs.length) event = evs[0];
+  } catch (e) {}
+
+  let R = null;
+  try { R = await sim_buildRatingsFromEvent(event, setStatus); } catch (e) { R = null; }
+
+  // Rankings — one call per division rather than per team
+  setStatus('LOADING RANKINGS...');
+  let focusRank = null;
+  const divisions = event.divisions && event.divisions.length ? event.divisions : [{ id: 1 }];
+  await sim_pool(divisions, async div => {
+    try {
+      const ranks = await apiGet(`/events/${event.id}/divisions/${div.id}/rankings`);
+      for (const r of ranks) {
+        if (String(r.team?.id) !== teamId) continue;
+        const played = (r.wins || 0) + (r.losses || 0) + (r.ties || 0);
+        if (!focusRank || played > focusRank._p) {
+          focusRank = { rank: r.rank || null, division: div.name || r.division?.name || null,
+            wins: r.wins || 0, losses: r.losses || 0, ties: r.ties || 0, total: ranks.length, _p: played };
+        }
+      }
+    } catch (e) {}
+  }, sim_poolSize());
+
+  // ── Walk every match once: build team profiles + this team's schedule ──
+  setStatus('READING THE FIELD...');
+  const allMatches = (R && R.matches) ? R.matches
+    : await apiGet(`/teams/${teamId}/matches`, { 'event[]': [eventId] }).catch(() => []);
+
+  const profiles = new Map();
+  const prof = id => { if (!profiles.has(id)) profiles.set(id, { games: [], autoPlayed: 0, autoWon: 0 }); return profiles.get(id); };
+  const idsOf = a => (a.teams || []).map(t => String(t?.team?.id ?? t?.id ?? t));
+  const numsOf = a => (a.teams || []).map(t => (t?.team?.name ?? t?.name ?? '?'));
+  const sidesOf = m => {
+    const al = m.alliances; if (!al) return null;
+    let redA, blueA;
+    if (Array.isArray(al)) {
+      redA = al.find(a => (a.color || '').toLowerCase() === 'red') || al[0];
+      blueA = al.find(a => (a.color || '').toLowerCase() === 'blue') || al[1];
+    } else { redA = al.red || al.Red; blueA = al.blue || al.Blue; }
+    return (redA && blueA) ? { redA, blueA } : null;
+  };
+  const startedMs = m => { const t = m.started ? Date.parse(m.started) : NaN; return isNaN(t) ? null : t; };
+  const schedMsOf = m => { const t = m.scheduled ? Date.parse(m.scheduled) : NaN; return isNaN(t) ? null : t; };
+
+  const seen = new Set();
+  const myMatches = [];
+  for (const m of allMatches) {
+    if (!m || seen.has(m.id)) continue; seen.add(m.id);
+    const s = sidesOf(m); if (!s) continue;
+    const rIds = idsOf(s.redA), bIds = idsOf(s.blueA);
+    const rS = s.redA.score ?? null, bS = s.blueA.score ?? null;
+    const scored = rS !== null && bS !== null && !(rS === 0 && bS === 0 && startedMs(m) === null);
+    const t = sim_matchTime(m) || 0;
+    const autoW = (m.autonomous_winner || '').toLowerCase();
+
+    if (scored && m.round !== 1) {
+      for (const id of rIds) { const p = prof(id); p.games.push({ own: rS, opp: bS, margin: rS - bS, t }); if (autoW === 'red' || autoW === 'blue') { p.autoPlayed++; if (autoW === 'red') p.autoWon++; } }
+      for (const id of bIds) { const p = prof(id); p.games.push({ own: bS, opp: rS, margin: bS - rS, t }); if (autoW === 'red' || autoW === 'blue') { p.autoPlayed++; if (autoW === 'blue') p.autoWon++; } }
+    }
+    if (rIds.includes(teamId) || bIds.includes(teamId)) {
+      const onRed = rIds.includes(teamId);
+      myMatches.push({
+        raw: m, name: m.name || `Match ${m.matchnum || ''}`, matchnum: m.matchnum || 0,
+        round: m.round, div: m.__div ?? 1, time: t, sched: schedMsOf(m), started: startedMs(m),
+        myIds: onRed ? rIds : bIds, oppIds: onRed ? bIds : rIds,
+        myNums: onRed ? numsOf(s.redA) : numsOf(s.blueA),
+        oppNums: onRed ? numsOf(s.blueA) : numsOf(s.redA),
+        myColor: onRed ? 'red' : 'blue',
+        myScore: onRed ? rS : bS, oppScore: onRed ? bS : rS,
+        played: scored
+      });
+    }
+  }
+  myMatches.sort((a, b) => (a.round - b.round) || (a.matchnum - b.matchnum) || (a.time - b.time));
+
+  // ── Predictions from event-wide True Skill ──
+  if (R) {
+    myMatches.forEach((mm, i) => {
+      const mine = sim_allianceStats(mm.myIds, R.ratings, R.stdByTeam, R.globalStd);
+      const theirs = sim_allianceStats(mm.oppIds, R.ratings, R.stdByTeam, R.globalStd);
+      const rated = mm.myIds.concat(mm.oppIds).filter(id => (R.matchCount.get(id) || 0) > 0).length;
+      mm.win = rated >= 2 ? sim_matchupProb(mine.mean, mine.std, theirs.mean, theirs.std, 8000, 4242 + i).redWin : null;
+      mm.oppMean = theirs.mean;
+    });
+  }
+
+  // ── Live schedule: project upcoming times from real match pace ──
+  const isQualM = m => { const n = (m.name || '').toUpperCase().trim(); return /^Q\s*\d/.test(n) || n.startsWith('QUAL') || m.round === 2; };
+  const divQuals = new Map();
+  for (const m of allMatches) {
+    if (!m || !isQualM(m)) continue;
+    const d = m.__div ?? 1;
+    if (!divQuals.has(d)) divQuals.set(d, []);
+    divQuals.get(d).push(m);
+  }
+  for (const list of divQuals.values()) list.sort((a, b) => (a.matchnum || 0) - (b.matchnum || 0) || ((schedMsOf(a) || 0) - (schedMsOf(b) || 0)));
+
+  const cadence = new Map();
+  for (const [d, list] of divQuals) {
+    const starts = list.map((m, i) => ({ i, t: startedMs(m) })).filter(x => x.t !== null);
+    if (starts.length < 4) continue;
+    const gaps = [];
+    for (let k = 1; k < starts.length; k++) {
+      const per = (starts[k].t - starts[k - 1].t) / Math.max(1, starts[k].i - starts[k - 1].i);
+      if (per > 30000 && per < 30 * 60000) gaps.push(per);
+    }
+    if (gaps.length >= 3) {
+      const recent = gaps.slice(-8).sort((a, b) => a - b);
+      const last = starts[starts.length - 1];
+      cadence.set(d, { gap: recent[Math.floor(recent.length / 2)], lastIdx: last.i, lastStart: last.t });
+    }
+  }
+
+  const now = Date.now();
+  let liveGapMin = null;
+  for (const mm of myMatches) {
+    if (mm.played) continue;
+    const cad = cadence.get(mm.div);
+    const list = divQuals.get(mm.div) || [];
+    const idx = list.findIndex(x => x.id === mm.raw.id);
+    if (cad && idx > cad.lastIdx) {
+      mm.est = cad.lastStart + (idx - cad.lastIdx) * cad.gap;
+      mm.live = true;
+      mm.away = list.slice(cad.lastIdx + 1, idx).filter(x => startedMs(x) === null).length;
+      liveGapMin = cad.gap / 60000;
+    } else if (mm.sched) {
+      mm.est = mm.sched;
+    }
+    mm.queueNow = mm.est ? mm.est <= now + 5 * 60000 : false;
+  }
+
+  // ── Record + schedule favorability (qualification matches only) ──
+  const quals = myMatches.filter(m => isQualM(m.raw));
+  const playedQ = quals.filter(m => m.played);
+  const aw = playedQ.filter(m => m.myScore > m.oppScore).length;
+  const al_ = playedQ.filter(m => m.myScore < m.oppScore).length;
+  const at = playedQ.length - aw - al_;
+  const remaining = quals.filter(m => !m.played);
+  const remainExp = remaining.reduce((s, m) => s + (m.win !== null && m.win !== undefined ? m.win / 100 : 0.5), 0);
+  const projW = aw + Math.round(remainExp);
+  const projL = quals.length - at - projW;
+
+  let favorTag = null, favorDetail = '';
+  if (R && quals.length) {
+    const oppMeans = quals.map(m => m.oppMean).filter(v => v !== undefined && v !== null);
+    if (oppMeans.length) {
+      const avgOpp = oppMeans.reduce((a, b) => a + b, 0) / oppMeans.length;
+      const vals = [...R.ratings.values()].filter(v => Math.abs(v) > 0.01).sort((a, b) => a - b);
+      const fieldMed = vals.length ? vals[Math.floor(vals.length / 2)] : 0;
+      const avgAlliance = fieldMed * 2;
+      const delta = avgOpp - avgAlliance;
+      favorTag = delta <= -6 ? 'FAVORABLE' : delta >= 6 ? 'BRUTAL' : 'AVERAGE';
+      favorDetail = `avg opponent alliance ${avgOpp.toFixed(0)} TS vs event average ${avgAlliance.toFixed(0)} (${delta >= 0 ? '+' : ''}${delta.toFixed(1)})`;
+    }
+  }
+
+  // ══════════════════ RENDER ══════════════════
   let html = `
     <div class="tournament-summary">
       <div class="tournament-summary-name">${tournamentEventName}</div>
@@ -2737,120 +2809,127 @@ async function renderEventTeamMatchesView() {
       <div class="tournament-summary-actions">
         <button class="btn btn-secondary" onclick="loadAndRenderTeamList()">SHOW ALL TEAMS</button>
         <button class="btn btn-secondary" onclick="renderBracketView()">ELIMINATION BRACKET</button>
+        <button class="btn btn-secondary" onclick="renderEventTeamMatchesView()">⟳ REFRESH</button>
       </div>
-    </div>
-  `;
+    </div>`;
 
-  const rankBadge = focusRank && focusRank.rank
-    ? `<div class="tournament-rank-badge">RANK <strong>#${focusRank.rank}</strong>${focusRank.division ? ` · ${focusRank.division.toUpperCase()}` : ''} · ${focusRank.wins}–${focusRank.losses}${focusRank.ties ? '–' + focusRank.ties : ''}</div>`
-    : '';
-
-  if (!realMatches.length) {
+  if (!myMatches.length) {
     html += `<div style="text-align:center;padding:40px;font-family:var(--mono);color:var(--text-muted);">No matches found for ${tournamentFocusTeamNumber} at this event.</div>`;
-    html += rankBadge;
     resultsEl.innerHTML = html;
     return;
   }
 
-  // Group by detected round name
-  const byRound = {};
-  const roundOrder = []; // preserve discovery order
-  for (const m of realMatches) {
-    const r = detectRoundFromMatch(m);
-    if (!byRound[r]) {
-      byRound[r] = [];
-      roundOrder.push(r);
-    }
-    byRound[r].push(m);
+  // Qual record + favorability
+  if (quals.length) {
+    html += `<div class="sched-summary">
+      <div class="ss-record">${projW}–${projL}${at ? '–' + at : ''}</div>
+      <div class="ss-label">${remaining.length === 0
+        ? `final qualification record`
+        : `projected qual record · ${aw}–${al_}${at ? '–' + at : ''} so far + ${remainExp.toFixed(1)} expected wins in ${remaining.length} remaining`}</div>
+      ${favorTag ? `<div class="ss-strength">SCHEDULE FAVORABILITY: <strong>${favorTag}</strong> · ${favorDetail}</div>` : ''}
+    </div>`;
   }
 
-  // Custom sort to put rounds in logical order
-  const roundPriority = ['Practice','Qualification','Round of 128','Round of 64','Round of 32','Round of 16','Quarterfinals','Semifinals','Finals'];
-  roundOrder.sort((a, b) => {
-    const ai = roundPriority.indexOf(a);
-    const bi = roundPriority.indexOf(b);
-    return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
-  });
+  // Live pace banner
+  if (liveGapMin) {
+    html += `<div class="md-drift">⏱ live schedule · projected from actual match pace (~${liveGapMin.toFixed(1)} min/match) — delays push times automatically on refresh</div>`;
+  }
 
-  for (const round of roundOrder) {
-    html += `<div class="match-round-label">${round}</div>`;
-    html += `<div class="match-list">`;
-    for (const match of byRound[round]) {
-      html += renderMatchRow(match, teamId);
+  // Next match card
+  const next = myMatches.find(m => !m.played);
+  if (next && R) {
+    const when = next.est ? (next.live ? 'live est. ' : 'est. ') + md_time(next.est) : md_time(next.time);
+    const away = (typeof next.away === 'number') ? ` · ${next.away} match${next.away === 1 ? '' : 'es'} ahead of yours` : '';
+    html += `<div class="md-next${next.queueNow ? ' queue-now' : ''}">
+      <div class="md-next-head"><span class="md-next-label">${next.queueNow ? '⚑ QUEUE NOW' : 'NEXT MATCH'}${when ? ` · ${when}` : ''}${away}</span><span class="md-next-name">${next.name}</span></div>`;
+    html += next.oppIds.map(id => md_teamBlock(id, R, profiles)).join('');
+    if (next.win !== null && next.win !== undefined) {
+      html += `<div class="md-winrow"><div class="md-winbar"><div class="md-winfill" style="width:${next.win}%"></div></div><div class="md-winpct">${next.win.toFixed(0)}%</div></div>`;
+    }
+    const partners = next.myIds.filter(id => id !== teamId);
+    if (partners.length) {
+      html += `<div class="md-exp-label" style="margin-top:10px;">YOUR ALLIANCE</div>`;
+      html += partners.map(id => md_teamBlock(id, R, profiles, 'PARTNER')).join('');
     }
     html += `</div>`;
   }
 
-  html += rankBadge;
+  // Match list grouped by round
+  const byRound = {};
+  const order = [];
+  for (const m of myMatches) {
+    const r = detectRoundFromMatch(m.raw);
+    if (!byRound[r]) { byRound[r] = []; order.push(r); }
+    byRound[r].push(m);
+  }
+  const priority = ['Practice', 'Qualification', 'Round of 128', 'Round of 64', 'Round of 32', 'Round of 16', 'Quarterfinals', 'Semifinals', 'Finals'];
+  order.sort((a, b) => {
+    const ai = priority.indexOf(a), bi = priority.indexOf(b);
+    return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+  });
+  for (const round of order) {
+    html += `<div class="match-round-label">${round}</div><div class="match-list">`;
+    for (const m of byRound[round]) html += renderMatchRow(m, teamId);
+    html += `</div>`;
+  }
+
+  // Rank badge
+  if (focusRank && focusRank.rank) {
+    html += `<div class="tournament-rank-badge">RANK <strong>#${focusRank.rank}</strong>${focusRank.total ? ` / ${focusRank.total}` : ''}${focusRank.division ? ` · ${focusRank.division.toUpperCase()}` : ''} · ${focusRank.wins}–${focusRank.losses}${focusRank.ties ? '–' + focusRank.ties : ''}</div>`;
+  }
+
   resultsEl.innerHTML = html;
 }
 
-// Renders one match row showing alliance colors, opponents, partner, win/loss
-function renderMatchRow(match, focusTeamId) {
-  const al = match.alliances;
-  if (!al) return '';
+// Round detection — shared by the match list and grouping
+function detectRoundFromMatch(match) {
+  const name = (match.name || '').trim().toUpperCase();
+  if (name.startsWith('QF') || name.includes('QUARTER')) return 'Quarterfinals';
+  if (name.startsWith('SF') || name.includes('SEMI')) return 'Semifinals';
+  if (/^Q\s*\d/.test(name) || name.startsWith('QUAL')) return 'Qualification';
+  if (name.startsWith('R128')) return 'Round of 128';
+  if (name.startsWith('R64')) return 'Round of 64';
+  if (name.startsWith('R32')) return 'Round of 32';
+  if (name.startsWith('R16') || name.startsWith('ROUND OF 16')) return 'Round of 16';
+  if (name.startsWith('F') || /^F\d/.test(name) || name.includes('FINAL')) return 'Finals';
+  if (/^P\s*\d/.test(name) || name.startsWith('PRACT')) return 'Practice';
+  return ({ 1: 'Practice', 2: 'Qualification', 3: 'Quarterfinals', 4: 'Semifinals', 5: 'Finals',
+    6: 'Round of 16', 9: 'Round of 64', 10: 'Round of 32', 15: 'Practice' })[match.round] || `Round ${match.round}`;
+}
 
-  let redA, blueA;
-  if (Array.isArray(al)) {
-    redA  = al.find(a => (a.color||'').toLowerCase() === 'red');
-    blueA = al.find(a => (a.color||'').toLowerCase() === 'blue');
-    if (!redA && al.length >= 2) { redA = al[0]; blueA = al[1]; }
-  } else {
-    redA = al.red; blueA = al.blue;
-  }
-  if (!redA || !blueA) return '';
+// One match row. Played matches show the real result; upcoming ones are greyed
+// out and show the win prediction instead of a score.
+function renderMatchRow(m, focusTeamId) {
+  const myColorClass = m.myColor === 'red' ? 'alliance-red' : 'alliance-blue';
+  const oppColorClass = m.myColor === 'red' ? 'alliance-blue' : 'alliance-red';
 
-  function teamsOf(alliance) {
-    return (alliance.teams || []).map(t => ({
-      id: t?.team?.id ?? t?.id ?? t,
-      number: t?.team?.name ?? t?.name ?? '?'
-    }));
-  }
-  const redTeams = teamsOf(redA);
-  const blueTeams = teamsOf(blueA);
-
-  const inRed = redTeams.some(t => String(t.id) === String(focusTeamId));
-  const inBlue = blueTeams.some(t => String(t.id) === String(focusTeamId));
-
-  const myColor = inRed ? 'red' : (inBlue ? 'blue' : '');
-  if (!myColor) return '';
-
-  const myA = inRed ? redA : blueA;
-  const oppA = inRed ? blueA : redA;
-  const myTeams = inRed ? redTeams : blueTeams;
-  const oppTeams = inRed ? blueTeams : redTeams;
-
-  const myScore = myA.score ?? 0;
-  const oppScore = oppA.score ?? 0;
-  const partner = myTeams.find(t => String(t.id) !== String(focusTeamId));
-
-  let outcome = 'pending';
-  let outcomeClass = 'pending';
-  if (myA.score !== null && myA.score !== undefined) {
-    if (myScore > oppScore) { outcome = 'WIN'; outcomeClass = 'win'; }
-    else if (myScore < oppScore) { outcome = 'LOSS'; outcomeClass = 'loss'; }
+  let outcome = '—', outcomeClass = 'pending';
+  if (m.played) {
+    if (m.myScore > m.oppScore) { outcome = 'WIN'; outcomeClass = 'win'; }
+    else if (m.myScore < m.oppScore) { outcome = 'LOSS'; outcomeClass = 'loss'; }
     else { outcome = 'TIE'; outcomeClass = 'tie'; }
-  } else {
-    outcome = '—';
+  } else if (m.win !== null && m.win !== undefined) {
+    outcome = `${m.win.toFixed(0)}%`;
+    outcomeClass = m.win >= 65 ? 'pred-good' : m.win <= 35 ? 'pred-bad' : 'pred-even';
   }
 
-  const matchLabel = `Match ${match.matchnum || ''}`;
-  const myColorClass = myColor === 'red' ? 'alliance-red' : 'alliance-blue';
-  const oppColorClass = myColor === 'red' ? 'alliance-blue' : 'alliance-red';
+  const timeStr = !m.played && m.est ? md_time(m.est) : '';
+  const scoreCell = played => played ? m.myScore : '';
+  const oppScoreCell = played => played ? m.oppScore : '';
 
   return `
-    <div class="match-row ${outcomeClass}">
-      <div class="match-num">${matchLabel}</div>
+    <div class="match-row ${outcomeClass}${m.played ? '' : ' upcoming'}${m.queueNow ? ' queue-now-row' : ''}">
+      <div class="match-num">${m.name}${timeStr ? `<div class="match-time">${m.live ? '~' : ''}${timeStr}</div>` : ''}</div>
       <div class="match-alliance ${myColorClass}">
         <div class="match-alliance-label">YOU</div>
-        <div class="match-teams">${myTeams.map(t => `<span class="${String(t.id) === String(focusTeamId) ? 'match-team-self' : ''}">${t.number}</span>`).join(' · ')}</div>
-        <div class="match-score">${myScore}</div>
+        <div class="match-teams">${m.myNums.map(n => `<span class="${n.toUpperCase() === (tournamentFocusTeamNumber || '').toUpperCase() ? 'match-team-self' : ''}">${n}</span>`).join(' · ')}</div>
+        <div class="match-score">${scoreCell(m.played)}</div>
       </div>
       <div class="match-vs">VS</div>
       <div class="match-alliance ${oppColorClass}">
         <div class="match-alliance-label">OPP</div>
-        <div class="match-teams">${oppTeams.map(t => `<span>${t.number}</span>`).join(' · ')}</div>
-        <div class="match-score">${oppScore}</div>
+        <div class="match-teams">${m.oppNums.map(n => `<span>${n}</span>`).join(' · ')}</div>
+        <div class="match-score">${oppScoreCell(m.played)}</div>
       </div>
       <div class="match-outcome ${outcomeClass}">${outcome}</div>
     </div>`;
@@ -4069,25 +4148,36 @@ function sim_seedOrder(n) {
   return seeds.map(s => s - 1);
 }
 
+// Bracket slot count: the power of 2 a field is played inside. A 6-alliance
+// bracket runs in an 8-slot structure where seeds 1 and 2 receive byes.
+function sim_bracketSlots(n) { let s = 2; while (s < n) s *= 2; return s; }
+
 // ── Simulate single-elim bracket → championship % per alliance ──
+// Handles byes: any seed beyond `alliances.length` is an empty slot that always
+// loses, so a 6-alliance bracket correctly gives seeds 1 and 2 a free round.
 function sim_bracket(alliances, N, seed) {
   const n = alliances.length;
-  const order = sim_seedOrder(n);
+  const slots = sim_bracketSlots(n);
+  const order = sim_seedOrder(slots);
   const champWins = new Array(n).fill(0);
   const rng = sim_mulberry32((seed >>> 0) || 1);
+  const isBye = i => i >= n;
   for (let s = 0; s < N; s++) {
     let field = order.slice();
     while (field.length > 1) {
       const next = [];
       for (let i = 0; i < field.length; i += 2) {
         const A = field[i], B = field[i + 1];
+        if (isBye(A) && isBye(B)) { next.push(A); continue; }
+        if (isBye(B)) { next.push(A); continue; }   // A advances on a bye
+        if (isBye(A)) { next.push(B); continue; }
         const as = Math.max(0, sim_gaussian(rng, alliances[A].mean, alliances[A].std));
         const bs = Math.max(0, sim_gaussian(rng, alliances[B].mean, alliances[B].std));
         next.push(as > bs ? A : (bs > as ? B : (rng() < 0.5 ? A : B)));
       }
       field = next;
     }
-    champWins[field[0]]++;
+    if (field[0] < n) champWins[field[0]]++;
   }
   return champWins.map(w => w / N * 100);
 }
@@ -4875,136 +4965,6 @@ async function pickLoadAndRank() {
   }
 }
 
-async function runSchedule() {
-  const input = (document.getElementById('simSchedSku').value || '').trim();
-  const teamNum = (document.getElementById('simSchedTeam').value || '').trim().toUpperCase();
-  if (!input || !teamNum) { showError('⚠ Enter an event (name or SKU) and your team number.'); return; }
-  showError('');
-  document.getElementById('schedEventPicker').innerHTML = '';
-
-  const resultsEl = document.getElementById('schedResults');
-  resultsEl.innerHTML = '';
-  const loadingEl = document.getElementById('schedLoading');
-  const setStatus = t => { const el = document.getElementById('schedLoadingText'); if (el) el.textContent = t; };
-  loadingEl.classList.add('active');
-
-  try {
-    setStatus('FINDING EVENT...');
-    const seasonId = document.getElementById('simSeasonSelect')?.value || null;
-    const resolved = await sim_resolveEvent(input, seasonId);
-    if (resolved.choices) {
-      loadingEl.classList.remove('active');
-      sim_renderEventPicker('schedEventPicker', resolved.choices, 'simSchedSku', 'runSchedule');
-      return;
-    }
-    const R = await sim_buildRatingsFromEvent(resolved.event, setStatus);
-    const teamId = R.idByNum[teamNum];
-    if (!teamId) throw new Error(`${teamNum} isn't in this event's match data.`);
-    setStatus('PREDICTING MATCHES...');
-    await sleep(20);
-
-    // Find qual matches involving the team
-    const isQual = m => {
-      const name = (m.name || '').toUpperCase().trim();
-      if (/^Q\s*\d/.test(name) || name.startsWith('QUAL')) return true;
-      return m.round === 2;
-    };
-    const rows = [];
-    const oppMeans = [];
-    let expWins = 0, remainExp = 0, played = 0, actualW = 0, actualL = 0, actualT = 0;
-    const seedBase = 555;
-
-    // dedupe matches by id
-    const seen = new Set();
-    for (const m of R.matches) {
-      if (!m || seen.has(m.id)) continue; seen.add(m.id);
-      if (!isQual(m)) continue;
-      const al = m.alliances; if (!al) continue;
-      let redA, blueA;
-      if (Array.isArray(al)) {
-        redA = al.find(a => (a.color || '').toLowerCase() === 'red');
-        blueA = al.find(a => (a.color || '').toLowerCase() === 'blue');
-        if (!redA && al.length >= 2) { redA = al[0]; blueA = al[1]; }
-      } else { redA = al.red || al.Red; blueA = al.blue || al.Blue; }
-      if (!redA || !blueA) continue;
-      const ids = a => (a.teams || []).map(t => String(t?.team?.id ?? t?.id ?? t));
-      const nums = a => (a.teams || []).map(t => t?.team?.name ?? t?.name ?? '?');
-      const redIds = ids(redA), blueIds = ids(blueA);
-      const onRed = redIds.includes(teamId), onBlue = blueIds.includes(teamId);
-      if (!onRed && !onBlue) continue;
-
-      const myIds = onRed ? redIds : blueIds;
-      const oppIds = onRed ? blueIds : redIds;
-      const myNums = onRed ? nums(redA) : nums(blueA);
-      const oppNums = onRed ? nums(blueA) : nums(redA);
-      const myStat = sim_allianceStats(myIds, R.ratings, R.stdByTeam, R.globalStd);
-      const oppStat = sim_allianceStats(oppIds, R.ratings, R.stdByTeam, R.globalStd);
-      const res = sim_matchupProb(myStat.mean, myStat.std, oppStat.mean, oppStat.std, 10000, seedBase + rows.length);
-      expWins += res.redWin / 100;
-      oppMeans.push(oppStat.mean);
-
-      // actual result if played
-      const myScore = (onRed ? redA.score : blueA.score);
-      const oppScore = (onRed ? blueA.score : redA.score);
-      let actual = null;
-      if (myScore !== null && myScore !== undefined) {
-        played++;
-        if (myScore > oppScore) { actual = 'W'; actualW++; }
-        else if (myScore < oppScore) { actual = 'L'; actualL++; }
-        else { actual = 'T'; actualT++; }
-      } else {
-        remainExp += res.redWin / 100; // prediction only counts toward the record for UNPLAYED matches
-      }
-      const tag = actual ? (actual === 'W' ? 'WON' : actual === 'L' ? 'LOST' : 'TIED')
-        : (res.redWin >= 65 ? 'FAVORED' : res.redWin <= 35 ? 'UNDERDOG' : 'TOSS-UP');
-      const cls = actual ? (actual === 'W' ? 'win' : actual === 'L' ? 'loss' : 'tossup')
-        : (res.redWin >= 65 ? 'win' : res.redWin <= 35 ? 'loss' : 'tossup');
-      rows.push({ name: m.name || `Match`, myNums, oppNums, win: res.redWin, tag, cls, sort: m.matchnum || rows.length });
-    }
-
-    if (!rows.length) { resultsEl.innerHTML = `<div class="sim-caveat">No qualification matches found for ${teamNum} at this event yet.</div>`; loadingEl.classList.remove('active'); return; }
-    rows.sort((a, b) => a.sort - b.sort);
-
-    // Record = REAL results for played matches + predictions only for unplayed ones.
-    // (A played match is a fact, not a forecast — the old version kept "predicting"
-    // finished matches, so a 6–2 event could display 5–3.)
-    const remaining = rows.length - played;
-    const projW = actualW + Math.round(remainExp);
-    const projL = rows.length - actualT - projW;
-    const recordLabel = remaining === 0
-      ? `final qual record${actualT ? ` (${actualT} tie${actualT > 1 ? 's' : ''})` : ''} · model expected ${expWins.toFixed(1)} wins and called ${rows.filter(r => (r.tag === 'WON' && r.win >= 50) || (r.tag === 'LOST' && r.win < 50)).length}/${played} matches right`
-      : `projected final record · ${actualW}–${actualL}${actualT ? '–' + actualT : ''} so far + ${remainExp.toFixed(1)} expected wins in ${remaining} remaining`;
-
-    // Schedule strength: average opponent-alliance True Skill vs an average alliance at this event
-    const ratedVals = [...R.ratings.values()].filter(v => Math.abs(v) > 0.01).sort((a, b) => a - b);
-    const fieldMedian = ratedVals.length ? ratedVals[Math.floor(ratedVals.length / 2)] : 0;
-    const avgAlliance = fieldMedian * 2;
-    const avgOpp = oppMeans.length ? oppMeans.reduce((a, b) => a + b, 0) / oppMeans.length : 0;
-    const strengthDelta = avgOpp - avgAlliance;
-    const strengthTag = strengthDelta >= 8 ? 'BRUTAL' : strengthDelta >= 3 ? 'TOUGH' : strengthDelta <= -8 ? 'SOFT' : strengthDelta <= -3 ? 'FAVORABLE' : 'AVERAGE';
-
-    let html = `<div class="sim-result">`;
-    html += `<div class="sched-summary"><div class="ss-record">${projW}–${projL}${actualT ? '–' + actualT : ''}</div><div class="ss-label">${recordLabel}</div>
-    <div class="ss-strength">SCHEDULE STRENGTH: <strong>${strengthTag}</strong> · avg opponent alliance ${avgOpp.toFixed(0)} TS vs event average ${avgAlliance.toFixed(0)} (${strengthDelta >= 0 ? '+' : ''}${strengthDelta.toFixed(1)})</div></div>`;
-    html += `<div class="sched-list">`;
-    rows.forEach(r => {
-      const myStr = r.myNums.map(n => n.toUpperCase() === teamNum ? `<span class="st-you">${n}</span>` : n).join(' ');
-      html += `<div class="sched-row ${r.cls}">
-        <div class="sched-match">${r.name}</div>
-        <div class="sched-teams">${myStr} <span style="color:var(--text-muted)">vs</span> ${r.oppNums.join(' ')}</div>
-        <div class="sched-win">${r.win.toFixed(0)}%</div>
-        <div class="sched-tag">${r.tag}</div>
-      </div>`;
-    });
-    html += `</div><div class="sim-caveat">Ratings come from every match at <strong>${(R.event.name || input)}</strong> (single-event True Skill — the most accurate kind). Win % is your alliance's chance in each qual match. Matches already played show the real result.</div></div>`;
-    resultsEl.innerHTML = html;
-  } catch (e) {
-    showError('⚠ ' + e.message);
-    console.error('Schedule error:', e);
-  } finally {
-    loadingEl.classList.remove('active');
-  }
-}
 
 // ═══════════════════════════════════════════════
 // BRACKET ODDS — fill a visual single-elim bracket, simulate championship odds
@@ -5016,9 +4976,13 @@ function bracketBuildInput(size, prefill, advance) {
   window._bracketSize = size;
   window._bracketAdvance = advance || null;
   document.querySelectorAll('.bracket-size-btn').forEach(b => b.classList.toggle('active', +b.dataset.size === size));
-  const order = sim_seedOrder(size); // 0-based seed indices in bracket order
+  // A 6-alliance bracket is played inside an 8-slot structure: seeds 7 and 8
+  // don't exist, so seeds 1 and 2 get a bye through the first round.
+  const slots = sim_bracketSlots(size);
+  const order = sim_seedOrder(slots); // 0-based seed indices in bracket order
   const labelFor = m => m === 8 ? 'ROUND OF 16' : m === 4 ? 'QUARTERFINALS' : m === 2 ? 'SEMIFINALS' : m === 1 ? 'FINAL' : `ROUND (${m})`;
   const slot = seed => {
+    if (seed > size) return `<div class="bracket-input-slot bracket-bye"><div class="bracket-bye-label">BYE</div></div>`;
     const p = (prefill && prefill[seed]) || [];
     const esc = s => (s || '').replace(/"/g, '&quot;');
     return `<div class="bracket-input-slot">
@@ -5039,7 +5003,7 @@ function bracketBuildInput(size, prefill, advance) {
 
   let html = `<div class="bracket-wrapper"><div class="bracket-container"><svg class="bracket-svg-overlay"></svg>`;
   // Round 1 — editable
-  const r1 = size / 2;
+  const r1 = slots / 2;
   html += `<div class="bracket-column"><div class="bracket-round-label">${labelFor(r1)}</div><div class="bracket-column-inner">`;
   for (let i = 0; i < r1; i++) {
     html += `<div class="bracket-match bracket-input-match">${slot(order[2 * i] + 1)}${slot(order[2 * i + 1] + 1)}</div>`;
@@ -5201,9 +5165,8 @@ async function bracketLoadEvent() {
 
     // Fit to a power-of-2 size
     let nAll = pairs.length * 2;
-    // Only 8- and 16-alliance brackets are offered, so snap to those. Smaller
-    // real brackets round up to 8 and leave the extra slots blank to fill in.
-    let size = nAll >= 16 ? 16 : 8;
+    // Only 6-, 8- and 16-alliance brackets are offered, so snap to those.
+    let size = nAll >= 16 ? 16 : (nAll <= 6 ? 6 : 8);
     const usablePairs = pairs.slice(0, size / 2);
 
     // Place each real match's two alliances into the paired slots for that box
@@ -5300,174 +5263,6 @@ function bracketClear() {
 // ═══════════════════════════════════════════════
 // MATCH DAY — competition-day dashboard: next match, opponent weaknesses first
 // ═══════════════════════════════════════════════
-async function matchdayLoad(isRefresh) {
-  const teamNum = (document.getElementById('mdTeam').value || '').trim().toUpperCase();
-  const input = (document.getElementById('mdEventSku').value || '').trim();
-  if (!teamNum || !input) { showError('⚠ Enter your team and the event.'); return; }
-  showError('');
-  document.getElementById('mdEventPicker').innerHTML = '';
-  const resultsEl = document.getElementById('mdResults');
-  const loadingEl = document.getElementById('mdLoading');
-  const setStatus = t => { const el = document.getElementById('mdLoadingText'); if (el) el.textContent = t; };
-  if (!isRefresh) resultsEl.innerHTML = '';
-  loadingEl.classList.add('active');
-  try {
-    setStatus('FINDING EVENT...');
-    const seasonId = document.getElementById('simSeasonSelect')?.value || null;
-    const resolved = await sim_resolveEvent(input, seasonId);
-    if (resolved.choices) {
-      loadingEl.classList.remove('active');
-      sim_renderEventPicker('mdEventPicker', resolved.choices, 'mdEventSku', 'matchdayLoad');
-      return;
-    }
-    const event = resolved.event;
-    try { localStorage.setItem('vex_md_team', teamNum); localStorage.setItem('vex_md_event', event.sku || input); } catch (e) {}
-
-    const R = await sim_buildRatingsFromEvent(event, setStatus, !!isRefresh);
-    const youId = R.idByNum[teamNum];
-    if (!youId) throw new Error(`${teamNum} isn't in this event's match data yet. Check back once the match schedule is posted.`);
-
-    // Your rank (bulk division rankings — same fix as the tournament tab)
-    setStatus('LOADING RANKINGS...');
-    let myRank = null;
-    const divisions = event.divisions && event.divisions.length ? event.divisions : [{ id: 1 }];
-    await sim_pool(divisions, async div => {
-      try {
-        const ranks = await apiGet(`/events/${event.id}/divisions/${div.id}/rankings`);
-        for (const r of ranks) {
-          if (String(r.team?.id) === youId) {
-            const played = (r.wins || 0) + (r.losses || 0) + (r.ties || 0);
-            if (!myRank || played > myRank._p) myRank = { rank: r.rank, wins: r.wins || 0, losses: r.losses || 0, ties: r.ties || 0, division: div.name || null, total: ranks.length, _p: played };
-          }
-        }
-      } catch (e) {}
-    }, sim_poolSize());
-
-    // Build per-team profiles from this event's matches (for weakness callouts)
-    setStatus('READING THE FIELD...');
-    await sleep(20);
-    const profiles = new Map(); // id -> {games, autoPlayed, autoWon}
-    const prof = id => { if (!profiles.has(id)) profiles.set(id, { games: [], autoPlayed: 0, autoWon: 0 }); return profiles.get(id); };
-    const seenM = new Set();
-    const myMatches = [];
-    const driftSamples = []; // { sched, delay } from every played match: how late is this event running?
-    for (const m of R.matches) {
-      if (!m || seenM.has(m.id)) continue; seenM.add(m.id);
-      const al = m.alliances; if (!al) continue;
-      let redA, blueA;
-      if (Array.isArray(al)) { redA = al.find(a => (a.color || '').toLowerCase() === 'red') || al[0]; blueA = al.find(a => (a.color || '').toLowerCase() === 'blue') || al[1]; }
-      else { redA = al.red || al.Red; blueA = al.blue || al.Blue; }
-      if (!redA || !blueA) continue;
-      const ids = a => (a.teams || []).map(t => String(t?.team?.id ?? t?.id ?? t));
-      const nums = a => (a.teams || []).map(t => (t?.team?.name ?? t?.name ?? '?').toUpperCase());
-      const rIds = ids(redA), bIds = ids(blueA);
-      const rS = redA.score ?? null, bS = blueA.score ?? null;
-      const tms = sim_matchTime(m) || 0;
-      const schedMs = m.scheduled ? Date.parse(m.scheduled) : NaN;
-      const startMs = m.started ? Date.parse(m.started) : NaN;
-      if (!isNaN(schedMs) && !isNaN(startMs)) driftSamples.push({ sched: schedMs, delay: startMs - schedMs });
-      const autoW = (m.autonomous_winner || '').toLowerCase();
-      if (rS !== null && bS !== null && m.round !== 1) {
-        for (const id of rIds) { const p = prof(id); p.games.push({ own: rS, opp: bS, margin: rS - bS, t: tms }); if (autoW === 'red' || autoW === 'blue') { p.autoPlayed++; if (autoW === 'red') p.autoWon++; } }
-        for (const id of bIds) { const p = prof(id); p.games.push({ own: bS, opp: rS, margin: bS - rS, t: tms }); if (autoW === 'red' || autoW === 'blue') { p.autoPlayed++; if (autoW === 'blue') p.autoWon++; } }
-      }
-      if (rIds.includes(youId) || bIds.includes(youId)) {
-        const onRed = rIds.includes(youId);
-        myMatches.push({
-          name: m.name || 'Match', matchnum: m.matchnum || 0, time: tms,
-          sched: isNaN(schedMs) ? null : schedMs, div: m.__div ?? 1,
-          myIds: onRed ? rIds : bIds, oppIds: onRed ? bIds : rIds,
-          myNums: onRed ? nums(redA) : nums(blueA), oppNums: onRed ? nums(blueA) : nums(redA),
-          myScore: onRed ? rS : bS, oppScore: onRed ? bS : rS,
-          played: rS !== null && bS !== null
-        });
-      }
-    }
-    if (!myMatches.length) throw new Error(`No matches scheduled for ${teamNum} yet.`);
-    myMatches.sort((a, b) => (a.matchnum - b.matchnum) || (a.time - b.time));
-
-    // ── LIVE SCHEDULE ──
-    // Project upcoming times from when matches ACTUALLY run, not the printed schedule.
-    // Anchor: the division's most recent started match. Pace: median gap between
-    // consecutive match starts. A delay anywhere pushes everything after it,
-    // automatically, on the next refresh. Falls back to schedule+drift, then raw schedule.
-    const isQualM = m => { const n = (m.name || '').toUpperCase().trim(); return /^Q\s*\d/.test(n) || n.startsWith('QUAL') || m.round === 2; };
-    const startedMs = m => { const t = m.started ? Date.parse(m.started) : NaN; return isNaN(t) ? null : t; };
-    const schedMsOf = m => { const t = m.scheduled ? Date.parse(m.scheduled) : NaN; return isNaN(t) ? null : t; };
-
-    // Per-division ordered qual lists
-    const divQuals = new Map(); // divId -> [matches ordered]
-    for (const m of R.matches) {
-      if (!m || !isQualM(m)) continue;
-      const d = m.__div ?? 1;
-      if (!divQuals.has(d)) divQuals.set(d, []);
-      divQuals.get(d).push(m);
-    }
-    for (const list of divQuals.values()) list.sort((a, b) => (a.matchnum || 0) - (b.matchnum || 0) || ((schedMsOf(a) || 0) - (schedMsOf(b) || 0)));
-
-    // Cadence per division: median of the last 8 sane gaps between consecutive starts
-    const cadence = new Map(); // divId -> { gap, lastIdx, lastStart }
-    for (const [d, list] of divQuals) {
-      const starts = list.map((m, i) => ({ i, t: startedMs(m) })).filter(x => x.t !== null);
-      if (starts.length >= 4) {
-        const gaps = [];
-        for (let k = 1; k < starts.length; k++) {
-          const perMatch = (starts[k].t - starts[k - 1].t) / Math.max(1, starts[k].i - starts[k - 1].i);
-          if (perMatch > 30000 && perMatch < 30 * 60000) gaps.push(perMatch); // 30s–30min sanity
-        }
-        if (gaps.length >= 3) {
-          const recent = gaps.slice(-8).sort((a, b) => a - b);
-          const last = starts[starts.length - 1];
-          cadence.set(d, { gap: recent[Math.floor(recent.length / 2)], lastIdx: last.i, lastStart: last.t });
-        }
-      }
-    }
-
-    // Old-style drift as fallback signal
-    let drift = 0;
-    if (driftSamples.length >= 3) {
-      const recent = driftSamples.sort((a, b) => b.sched - a.sched).slice(0, 10).map(s => s.delay).sort((a, b) => a - b);
-      drift = recent[Math.floor(recent.length / 2)];
-    }
-
-    const now = Date.now();
-    let liveGapMin = null;
-    for (const mm of myMatches) {
-      if (mm.played) continue;
-      const d = mm.div ?? 1;
-      const cad = cadence.get(d);
-      const list = divQuals.get(d) || [];
-      const myIdx = list.findIndex(x => (x.matchnum || 0) === mm.matchnum && (x.name || '') === mm.name);
-      if (cad && myIdx > cad.lastIdx) {
-        mm.est = cad.lastStart + (myIdx - cad.lastIdx) * cad.gap;
-        mm.src = 'live';
-        liveGapMin = cad.gap / 60000;
-        mm.away = list.slice(cad.lastIdx + 1, myIdx).filter(x => startedMs(x) === null).length; // unplayed matches before yours
-      } else if (mm.sched) {
-        mm.est = mm.sched + drift;
-        mm.src = 'drift';
-      }
-      mm.queueNow = mm.est ? mm.est <= now + 5 * 60000 : false;
-    }
-
-    // Predict each match
-    for (let i = 0; i < myMatches.length; i++) {
-      const mm = myMatches[i];
-      const myStat = sim_allianceStats(mm.myIds, R.ratings, R.stdByTeam, R.globalStd);
-      const oppStat = sim_allianceStats(mm.oppIds, R.ratings, R.stdByTeam, R.globalStd);
-      mm.win = sim_matchupProb(myStat.mean, myStat.std, oppStat.mean, oppStat.std, 10000, 777 + i).redWin;
-    }
-
-    matchdayRender(resultsEl, { teamNum, youId, event, myMatches, profiles, R, myRank, drift, liveGapMin });
-    document.getElementById('mdRefreshBtn').style.display = '';
-    document.getElementById('mdUpdated').textContent = 'UPDATED ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  } catch (e) {
-    showError('⚠ ' + e.message);
-    console.error('Match day error:', e);
-  } finally {
-    loadingEl.classList.remove('active');
-  }
-}
 
 // Weakness/strength callouts from the same profile engine
 function md_callouts(p) {
@@ -5501,120 +5296,7 @@ function md_teamBlock(id, R, profiles, roleLabel) {
   </div>`;
 }
 
-function mdToggleMatch(i) {
-  const ctx = window._mdCtx;
-  if (!ctx) return;
-  const panel = document.getElementById('mdExpand_' + i);
-  const row = document.getElementById('mdRow_' + i);
-  if (!panel) return;
-  const open = panel.style.display !== 'none';
-  panel.style.display = open ? 'none' : '';
-  if (row) row.classList.toggle('open', !open);
-  if (!open && !panel.dataset.built) {
-    const m = ctx.matches[i];
-    let inner = `<div class="md-exp-label">OPPONENTS</div>`;
-    inner += m.oppIds.map(id => md_teamBlock(id, ctx.R, ctx.profiles)).join('');
-    const partnerIds = m.myIds.filter(id => id !== ctx.youId);
-    if (partnerIds.length) {
-      inner += `<div class="md-exp-label">YOUR ALLIANCE</div>`;
-      inner += partnerIds.map(id => md_teamBlock(id, ctx.R, ctx.profiles, 'PARTNER')).join('');
-    }
-    inner += `<div class="md-winrow"><div class="md-winbar"><div class="md-winfill" style="width:${m.win}%"></div></div><div class="md-winpct">${m.win.toFixed(0)}%</div></div>`;
-    panel.innerHTML = inner;
-    panel.dataset.built = '1';
-  }
-}
 
-function matchdayRender(el, data) {
-  const { teamNum, youId, event, myMatches, profiles, R, myRank, drift, liveGapMin } = data;
-  const next = myMatches.find(m => !m.played);
-  const upcoming = myMatches.filter(m => !m.played && m !== next);
-  const done = myMatches.filter(m => m.played);
-  const aw = done.filter(m => m.myScore > m.oppScore).length;
-  const al_ = done.filter(m => m.myScore < m.oppScore).length;
-  const at = done.length - aw - al_;
-
-  // context for tap-to-expand rows
-  window._mdCtx = { youId, R, profiles, matches: myMatches };
-
-  const driftMin = Math.round((drift || 0) / 60000);
-  const usingLive = !!(next && next.src === 'live');
-  const driftNote = usingLive
-    ? `live schedule · projected from actual match pace (~${liveGapMin ? liveGapMin.toFixed(1) : '?'} min/match) — delays push times automatically on refresh`
-    : (Math.abs(driftMin) >= 5
-      ? (driftMin > 0 ? `event running ~${driftMin}m behind schedule` : `event running ~${-driftMin}m ahead of schedule`) + ' — times are estimates as of last refresh'
-      : '');
-  const timeFor = m => m.est ? (m.src === 'live' ? 'live est. ' : 'est. ') + md_time(m.est) : md_time(m.time);
-
-  let html = `<div class="sim-result">`;
-  if (driftNote) html += `<div class="md-drift">⏱ ${driftNote}</div>`;
-
-  // ── NEXT MATCH — opponents' weaknesses first, then YOUR alliance's full read ──
-  if (next) {
-    const when = timeFor(next);
-    const away = (typeof next.away === 'number' && next.away >= 0) ? ` · ${next.away} match${next.away === 1 ? '' : 'es'} ahead of yours` : '';
-    html += `<div class="md-next${next.queueNow ? ' queue-now' : ''}">
-      <div class="md-next-head"><span class="md-next-label">${next.queueNow ? '⚑ QUEUE NOW' : 'NEXT MATCH'}${when ? ` · ${when}` : ''}${away}</span><span class="md-next-name">${next.name}</span></div>`;
-    html += next.oppIds.map(id => md_teamBlock(id, R, profiles)).join('');
-    const w = next.win || 50;
-    html += `<div class="md-winrow">
-      <div class="md-winbar"><div class="md-winfill" style="width:${w}%"></div></div>
-      <div class="md-winpct">${w.toFixed(0)}%</div>
-    </div>`;
-    const partnerIds = next.myIds.filter(id => id !== youId);
-    if (partnerIds.length) {
-      html += `<div class="md-exp-label" style="margin-top:10px;">YOUR ALLIANCE</div>`;
-      html += partnerIds.map(id => md_teamBlock(id, R, profiles, 'PARTNER')).join('');
-    }
-    html += `</div>`;
-  } else {
-    html += `<div class="md-next"><div class="md-next-head"><span class="md-next-label">QUALS COMPLETE</span><span class="md-next-name">${aw}–${al_}${at ? '–' + at : ''}</span></div>
-      <div class="md-partner">All scheduled matches played. Head to the Simulator's Draft Board for alliance selection, or Bracket Odds for elims.</div></div>`;
-  }
-
-  // ── Remaining schedule: time + odds on the row, tap any row for the full read ──
-  if (upcoming.length) {
-    html += `<div class="sim-block-label" style="margin-top:18px;">Rest of your schedule · tap a match for the full read</div><div class="sched-list">`;
-    for (const m of upcoming) {
-      const i = myMatches.indexOf(m);
-      const cls = m.win >= 65 ? 'win' : m.win <= 35 ? 'loss' : 'tossup';
-      const when = timeFor(m);
-      html += `<div class="sched-row md-clickable ${cls}" id="mdRow_${i}" onclick="mdToggleMatch(${i})">
-        <div class="sched-match">${m.name}${when ? `<div class="md-row-time">${when}</div>` : ''}</div>
-        <div class="sched-teams">${m.myNums.map(n => n === teamNum ? `<span class="st-you">${n}</span>` : n).join(' ')} <span style="color:var(--text-muted)">vs</span> ${m.oppNums.join(' ')}</div>
-        <div class="sched-win">${m.win.toFixed(0)}%</div>
-        <div class="sched-tag">${m.win >= 65 ? 'FAVORED' : m.win <= 35 ? 'UNDERDOG' : 'TOSS-UP'} <span class="md-chev">▸</span></div>
-      </div>
-      <div class="md-expand" id="mdExpand_${i}" style="display:none;"></div>`;
-    }
-    html += `</div>`;
-  }
-
-  // ── Played matches, collapsed reference ──
-  if (done.length) {
-    html += `<div class="sim-block-label" style="margin-top:18px;">Played</div><div class="sched-list">`;
-    for (const m of done) {
-      const won = m.myScore > m.oppScore;
-      html += `<div class="sched-row ${won ? 'win' : m.myScore < m.oppScore ? 'loss' : 'tossup'}">
-        <div class="sched-match">${m.name}</div>
-        <div class="sched-teams">${m.myNums.map(n => n === teamNum ? `<span class="st-you">${n}</span>` : n).join(' ')} <span style="color:var(--text-muted)">vs</span> ${m.oppNums.join(' ')}</div>
-        <div class="sched-win">${m.myScore}–${m.oppScore}</div>
-        <div class="sched-tag">${won ? 'WON' : m.myScore < m.oppScore ? 'LOST' : 'TIED'}</div>
-      </div>`;
-    }
-    html += `</div>`;
-  }
-
-  // ── Rank + record — bottom, lowest priority per your ranking ──
-  html += `<div class="md-rankrow">
-    ${myRank && myRank.rank ? `<span>RANK <strong>#${myRank.rank}</strong>${myRank.total ? ` / ${myRank.total}` : ''}${myRank.division ? ` · ${myRank.division.toUpperCase()}` : ''}</span>` : `<span>RANK — not posted yet</span>`}
-    <span>RECORD <strong>${aw}–${al_}${at ? '–' + at : ''}</strong></span>
-    <span>${event.name ? event.name.slice(0, 40) : ''}</span>
-  </div>`;
-
-  html += `</div>`;
-  el.innerHTML = html;
-}
 
 // ═══════════════════════════════════════════════
 // EVENT SCOUT — size up an event's field before registering
@@ -5766,7 +5448,7 @@ if (document.getElementById('bracketInputArea')) bracketBuildInput(16);
   try {
     let m = localStorage.getItem('vex_sim_mode');
     if (m === 'draft') m = 'pick'; // Draft Board merged into Pick List
-    if (m && ['match', 'pick', 'schedule', 'bracket', 'escout'].includes(m)) {
+    if (m && ['match', 'pick', 'bracket', 'escout'].includes(m)) {
       simMode(m);
       if (m === 'bracket') setTimeout(() => { if (typeof drawBracketConnectors === 'function') drawBracketConnectors(); }, 120);
     }
