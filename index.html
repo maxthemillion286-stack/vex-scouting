@@ -614,7 +614,11 @@
   }
   .bracket-column {
     display: flex; flex-direction: column;
-    min-width: 220px;
+    /* Share the available width evenly instead of a fixed 220px each — this is
+       what lets a full bracket fit on screen without a horizontal scrollbar.
+       min-width is only a legibility floor for very narrow screens. */
+    flex: 1 1 0;
+    min-width: 124px;
     justify-content: space-around;
     position: relative;
   }
@@ -638,10 +642,19 @@
     position: relative;
   }
   /* SVG overlay for bracket connector lines — must be INSIDE the scrolling container */
-  .bracket-wrapper { position: relative; }
+  .bracket-wrapper {
+    position: relative;
+    /* Break out of the page's 1100px container so the bracket can use the
+       screen width that's actually available. Centered on its own parent. */
+    width: min(calc(100vw - 32px), 1560px);
+    margin-left: 50%;
+    transform: translateX(-50%);
+  }
   .bracket-container {
-    display: flex; gap: 60px; overflow-x: auto;
-    padding: 8px 8px 16px 8px; margin-top: 8px;
+    display: flex;
+    gap: clamp(10px, 2vw, 52px); /* tightens as the bracket gets more columns */
+    overflow-x: auto;            /* safety net for phones only; desktop won't overflow */
+    padding: 8px 4px 12px 4px; margin-top: 8px;
     align-items: stretch;
     position: relative; /* required so the SVG inside positions correctly */
   }
@@ -808,8 +821,8 @@
     .match-outcome { padding: 4px 6px; font-size: 11px; }
 
     /* Bracket — make horizontally scrollable with tighter columns */
-    .bracket-container { gap: 36px; padding: 4px; }
-    .bracket-column { min-width: 160px; }
+    .bracket-container { gap: 14px; padding: 4px; }
+    .bracket-column { min-width: 116px; }
     .bracket-round-label { font-size: 9px; letter-spacing: 1px; }
     .bracket-match-label { font-size: 8px; padding: 3px 8px; }
     .bracket-side { padding: 6px 8px; }
@@ -1068,7 +1081,7 @@
 
   @media (max-width: 768px) {
     .sim-ov-lists { grid-template-columns: 1fr; gap: 12px; }
-    .bracket-column { min-width: 150px; }
+    .bracket-column { min-width: 116px; }
     .bracket-input-slot input { font-size: 13px; }
   }
 </style>
