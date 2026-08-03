@@ -1117,17 +1117,25 @@
   .btn-detail:hover { color: var(--accent-bright); border-color: var(--accent); }
   .card-header-right { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
 
-  .detail-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 14px; }
-  .detail-name { font-family: var(--display); font-size: 24px; font-weight: 700; color: var(--text); line-height: 1.15; }
-  .detail-robot { font-family: var(--mono); font-size: 12px; color: var(--text-muted); margin-top: 4px; }
-  .detail-number {
-    font-family: var(--display); font-size: 40px; font-weight: 700;
-    color: var(--accent-bright); letter-spacing: 1px; line-height: 1; white-space: nowrap;
+  /* Identity block: the team number is the headline, the name supports it. */
+  .detail-head {
+    margin: 34px 0 18px;
+    padding-left: 16px;
+    border-left: 3px solid var(--accent);
   }
+  .detail-number {
+    font-family: var(--display); font-size: 46px; font-weight: 700;
+    color: var(--accent-bright); letter-spacing: 2px; line-height: 0.95;
+  }
+  .detail-name {
+    font-family: var(--display); font-size: 17px; font-weight: 500;
+    color: var(--text-dim); letter-spacing: 0.5px; margin-top: 6px;
+  }
+  .detail-robot { font-family: var(--mono); font-size: 11px; color: var(--text-muted); margin-top: 5px; letter-spacing: 1px; }
   .detail-meta {
-    display: flex; flex-wrap: wrap; gap: 10px 26px; align-items: center;
+    display: flex; flex-wrap: wrap; gap: 10px 30px; align-items: center;
     border: 1px solid var(--border); background: var(--card);
-    padding: 14px 18px; margin-bottom: 16px;
+    padding: 13px 18px; margin-bottom: 20px;
   }
   .detail-meta span { font-family: var(--body); font-size: 13px; color: var(--text); }
   .detail-meta em { font-style: normal; font-family: var(--mono); font-size: 10px; letter-spacing: 1.5px; color: var(--text-muted); margin-right: 6px; }
@@ -1138,17 +1146,30 @@
 
   .detail-grid { display: grid; grid-template-columns: 1fr 340px; gap: 16px; align-items: stretch; margin-bottom: 18px; }
   .detail-overview { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); }
-  .ov-cell { background: var(--card); padding: 16px 18px; }
+  .ov-cell { background: var(--card); padding: 17px 18px; transition: background 0.2s; }
+  .ov-cell:hover { background: var(--card2); }
   .ov-label { font-family: var(--mono); font-size: 9px; letter-spacing: 2px; color: var(--text-muted); }
-  .ov-big { font-family: var(--display); font-size: 30px; font-weight: 700; color: var(--text); line-height: 1.1; margin-top: 6px; }
-  .ov-sub { font-family: var(--body); font-size: 12px; color: var(--text-muted); margin-top: 3px; }
-  .detail-radar { border: 1px solid var(--border); background: var(--card); padding: 16px 18px; display: flex; flex-direction: column; }
+  .ov-big { font-family: var(--display); font-size: 30px; font-weight: 700; color: var(--text); line-height: 1.05; margin-top: 7px; font-variant-numeric: tabular-nums; }
+  .ov-cell:first-child .ov-big { color: var(--accent-bright); }
+  .ov-sub { font-family: var(--body); font-size: 12px; color: var(--text-muted); margin-top: 4px; line-height: 1.35; }
+  .detail-radar { border: 1px solid var(--border); background: var(--card); padding: 17px 18px; display: flex; flex-direction: column; }
   .radar-svg { width: 100%; height: auto; max-height: 300px; margin-top: 4px; }
   .radar-missing { font-family: var(--body); font-size: 11px; color: var(--text-muted); text-align: center; margin-top: 2px; }
 
-  .detail-block { border: 1px solid var(--border); background: var(--card); padding: 18px; margin-bottom: 16px; }
-  .detail-block-label { font-family: var(--mono); font-size: 10px; letter-spacing: 3px; text-transform: uppercase; color: var(--accent); margin-bottom: 14px; }
-  .detail-block .stats-body { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 18px; }
+  .detail-block { border: 1px solid var(--border); background: var(--card); padding: 18px 20px; margin-bottom: 16px; }
+  .detail-block-label {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 3px; text-transform: uppercase;
+    color: var(--accent-bright); margin-bottom: 14px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .detail-block-label::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, var(--border), transparent); }
+  .detail-block .stats-body { display: grid; grid-template-columns: repeat(auto-fit, minmax(232px, 1fr)); gap: 10px 26px; }
+  /* Keep every label on one line and pin values to the right edge of each column */
+  .detail-block .stat-row { display: grid; grid-template-columns: 1fr auto; align-items: baseline; gap: 12px; padding: 7px 0; }
+  .detail-block .stat-name { white-space: nowrap; font-size: 13px; }
+  .detail-block .stat-value { white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; }
+  .detail-block .stat-group { border-top: 1px solid var(--border); padding-top: 12px; }
+  .detail-block .stat-group-label { margin-bottom: 4px; }
 
   @media (max-width: 900px) {
     .detail-grid { grid-template-columns: 1fr; }
@@ -4312,11 +4333,9 @@ function renderDetailedTeam(d, eventFilter) {
   // ── Header ──
   let html = `
     <div class="detail-head">
-      <div class="detail-head-left">
-        <div class="detail-name">${t.team_name || '—'}</div>
-        ${t.robot_name ? `<div class="detail-robot">⬡ ${t.robot_name}</div>` : ''}
-      </div>
       <div class="detail-number">${t.number}</div>
+      <div class="detail-name">${t.team_name || '—'}</div>
+      ${t.robot_name ? `<div class="detail-robot">⬡ ${t.robot_name}</div>` : ''}
     </div>
 
     <div class="detail-meta">
@@ -4324,7 +4343,6 @@ function renderDetailedTeam(d, eventFilter) {
       <span><em>Grade</em> <strong>${grade}</strong></span>
       <span><em>Program</em> <strong class="detail-pill">${program}</strong></span>
       <span><em>Status</em> <strong class="${status === 'Active' ? 'st-active' : 'st-inactive'}">● ${status}</strong></span>
-      ${d.eventsList.length ? `<span><em>Events</em> <strong>${d.eventsList.length}</strong></span>` : ''}
     </div>
 
     <div class="controls-row detail-filter">
@@ -4368,7 +4386,7 @@ function renderDetailedTeam(d, eventFilter) {
       </div>`).join('')}
     </div>
     <div class="detail-radar">
-      <div class="ov-label">TEAM PROFILE</div>
+      <div class="detail-block-label">Team Profile</div>
       ${buildRadarSVG(axes)}
       ${missing.length ? `<div class="radar-missing">No data yet: ${missing.join(', ')}</div>` : ''}
     </div>
@@ -4422,20 +4440,20 @@ function renderDetailedTeam(d, eventFilter) {
       </div>
       <div class="stat-group">
         <div class="stat-group-label">Qualification</div>
-        ${row('Avg WP / match', d.avgWp !== null ? d.avgWp.toFixed(2) : '<span class="na">N/A</span>')}
+        ${row('Avg WP', d.avgWp !== null ? d.avgWp.toFixed(2) : '<span class="na">N/A</span>')}
         ${row('Avg SP', d.avgSp !== null ? d.avgSp : '<span class="na">N/A</span>')}
-        ${row('Avg Event Rank', d.avgRank ? '#' + d.avgRank : '<span class="na">N/A</span>')}
+        ${row('Avg Rank', d.avgRank ? '#' + d.avgRank : '<span class="na">N/A</span>')}
       </div>
       <div class="stat-group">
         <div class="stat-group-label">Autonomous</div>
         ${row('AWP %', fmt(d.awpRate))}
-        ${row('AWP Earned', d.totalRankedMatches > 0 ? `${d.finalAwpCount} / ${d.totalRankedMatches}` : '<span class="na">N/A</span>')}
+        ${row('AWP Won', d.totalRankedMatches > 0 ? `${d.finalAwpCount} / ${d.totalRankedMatches}` : '<span class="na">N/A</span>')}
         ${row('Auton Win %', fmt(d.autonRate))}
       </div>
       <div class="stat-group">
         <div class="stat-group-label">Signature Events</div>
         ${row('Sig Win Rate', fmt(d.sigWinRate))}
-        ${row('Sig W / L / T', d.sigTotal > 0 ? `${d.sigWins}W · ${d.sigLosses}L${d.sigTies ? ' · ' + d.sigTies + 'T' : ''}` : '<span class="na">None</span>')}
+        ${row('Sig Record', d.sigTotal > 0 ? `${d.sigWins}W · ${d.sigLosses}L${d.sigTies ? ' · ' + d.sigTies + 'T' : ''}` : '<span class="na">None</span>')}
         ${row('Sig Matches', d.sigTotal || '<span class="na">0</span>')}
       </div>
     </div>
