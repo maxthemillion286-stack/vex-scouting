@@ -1217,6 +1217,69 @@
     .ev-bar-count { display: none; }
     .ev-row-name { font-size: 12.5px; }
   }
+
+  /* ══════════════ CUSTOM SELECTS ══════════════ */
+  .cs { position: relative; width: 100%; }
+  .cs-native {
+    position: absolute; opacity: 0; pointer-events: none;
+    width: 1px; height: 1px; margin: 0; padding: 0; border: 0;
+  }
+  .select-wrap.cs-enhanced::after { display: none; }  /* native arrow no longer needed */
+  .cs-bar {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    background: var(--card2); border: 1px solid var(--border); color: var(--text);
+    font-family: var(--mono); font-size: 14px; letter-spacing: 1px;
+    padding: 11px 14px; cursor: pointer; text-align: left;
+    transition: border-color 0.2s, background 0.2s;
+  }
+  .cs-bar:hover { background: var(--border); }
+  .cs.open .cs-bar { border-color: var(--accent); }
+  .cs-value { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cs-arrow { font-size: 10px; color: var(--text-muted); transition: transform 0.25s; }
+  .cs.open .cs-arrow { transform: rotate(180deg); }
+
+  .cs-list {
+    display: none; position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 60;
+    background: var(--card); border: 1px solid var(--accent-dim);
+    max-height: 300px; overflow-y: auto;
+    box-shadow: 0 12px 32px rgba(0,0,0,0.55);
+  }
+  .cs.open .cs-list { display: block; }
+  .cs-opt {
+    display: block; width: 100%; text-align: left; cursor: pointer;
+    background: transparent; border: none; border-bottom: 1px solid var(--border);
+    color: var(--text-dim); font-family: var(--mono); font-size: 13px; letter-spacing: 0.5px;
+    padding: 10px 14px; transition: background 0.12s, color 0.12s;
+  }
+  .cs-opt:last-child { border-bottom: none; }
+  .cs-opt:hover { background: var(--card2); color: var(--text); }
+  .cs-opt.active { color: var(--accent-bright); background: var(--card2); box-shadow: inset 3px 0 0 var(--accent-bright); }
+
+  /* Custom scrollbars — replaces the chunky default one inside dropdowns/lists */
+  .cs-list, .ev-list, .bracket-container, .skills-table-wrap {
+    scrollbar-width: thin;
+    scrollbar-color: var(--accent-dim) transparent;
+  }
+  .cs-list::-webkit-scrollbar,
+  .ev-list::-webkit-scrollbar,
+  .bracket-container::-webkit-scrollbar,
+  .skills-table-wrap::-webkit-scrollbar { width: 6px; height: 6px; }
+  .cs-list::-webkit-scrollbar-track,
+  .ev-list::-webkit-scrollbar-track,
+  .bracket-container::-webkit-scrollbar-track,
+  .skills-table-wrap::-webkit-scrollbar-track { background: transparent; }
+  .cs-list::-webkit-scrollbar-thumb,
+  .ev-list::-webkit-scrollbar-thumb,
+  .bracket-container::-webkit-scrollbar-thumb,
+  .skills-table-wrap::-webkit-scrollbar-thumb {
+    background: var(--accent-dim); border-radius: 0;
+  }
+  .cs-list::-webkit-scrollbar-thumb:hover,
+  .ev-list::-webkit-scrollbar-thumb:hover,
+  .bracket-container::-webkit-scrollbar-thumb:hover,
+  .skills-table-wrap::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+  .cs-list::-webkit-scrollbar-button,
+  .ev-list::-webkit-scrollbar-button { display: none; height: 0; }
 </style>
 </head>
 <body class="theme-dark-grey">
@@ -1308,21 +1371,21 @@
 <div class="container">
   <!-- Tab navigation -->
   <div class="tabs-nav">
-    <button class="tab-btn active" data-tab="quickscout" onclick="switchTab('quickscout')">QUICKSCOUT</button>
-    <button class="tab-btn" data-tab="scout" onclick="switchTab('scout')">SCOUT</button>
+    <button class="tab-btn active" data-tab="scout" onclick="switchTab('scout')">SCOUT</button>
+    <button class="tab-btn" data-tab="quickscout" onclick="switchTab('quickscout')">MULTI SCOUT</button>
     <button class="tab-btn" data-tab="skills" onclick="switchTab('skills')">SKILLS RANKINGS</button>
     <button class="tab-btn" data-tab="tournament" onclick="switchTab('tournament')">TOURNAMENT</button>
     <button class="tab-btn" data-tab="simulator" onclick="switchTab('simulator')">SIMULATOR</button>
     <div class="tab-indicator" id="tabIndicator"></div>
   </div>
 
-  <section class="search-section tab-panel active" id="tab-quickscout">
+  <section class="search-section tab-panel" id="tab-quickscout">
 
-    <div class="section-label">QuickScout · compare teams side by side</div>
+    <div class="section-label">Multi Scout · compare teams side by side</div>
     <div class="controls-row">
       <div class="input-wrap" style="flex:2;">
         <span class="input-label">TEAM NUMBERS</span>
-        <input type="text" id="teamInput" placeholder="e.g. 7700R  or  7700R, 7700S, 7700B" autocomplete="off">
+        <input type="text" id="teamInput" placeholder="e.g. 66449A  or  66449A, 66449B, 66449C" autocomplete="off">
       </div>
       <div class="input-wrap select-wrap" style="min-width:140px;">
         <span class="input-label">GRADE</span>
@@ -1357,12 +1420,12 @@
 
   <!-- ═══════════ SKILLS RANKINGS SECTION ═══════════ -->
   <!-- ═══════════ SCOUT — DETAILED TEAM CARD ═══════════ -->
-  <section class="search-section tab-panel" id="tab-scout">
+  <section class="search-section tab-panel active" id="tab-scout">
     <div class="section-label">Scout <span class="section-info" title="The full profile for one team: overview, performance radar, pros and cons, and every stat we have. Use the event dropdown to narrow it to a single competition.">i</span></div>
     <div class="controls-row">
       <div class="input-wrap" style="flex:2;min-width:200px;">
         <span class="input-label">TEAM NUMBER</span>
-        <input type="text" id="detailTeamInput" placeholder="e.g. 7700R" autocomplete="off">
+        <input type="text" id="detailTeamInput" placeholder="e.g. 66449A" autocomplete="off">
       </div>
       <div class="input-wrap select-wrap" style="min-width:140px;">
         <span class="input-label">GRADE</span>
@@ -1443,7 +1506,7 @@
     <div class="controls-row">
       <div class="input-wrap" style="flex:2;">
         <span class="input-label">EVENT SKU OR SEARCH</span>
-        <input type="text" id="tournamentInput" placeholder="Event SKU, team number (e.g. 7700S), or event name" autocomplete="off">
+        <input type="text" id="tournamentInput" placeholder="Event SKU, team number (e.g. 66449A), or event name" autocomplete="off">
       </div>
       <div class="input-wrap select-wrap" style="min-width:140px;">
         <span class="input-label">GRADE</span>
@@ -1495,17 +1558,17 @@
         <div class="sim-alliance">
           <div class="sim-alliance-label">RED ALLIANCE</div>
           <div class="input-wrap"><span class="input-label">TEAM 1</span>
-            <input type="text" id="simRed1" placeholder="e.g. 7700S" autocomplete="off"></div>
+            <input type="text" id="simRed1" placeholder="e.g. 66449A" autocomplete="off"></div>
           <div class="input-wrap"><span class="input-label">TEAM 2 (optional)</span>
-            <input type="text" id="simRed2" placeholder="partner — leave blank for 1v1" autocomplete="off"></div>
+            <input type="text" id="simRed2" placeholder="e.g. 66449B — leave blank for 1v1" autocomplete="off"></div>
         </div>
         <div class="sim-vs">VS</div>
         <div class="sim-alliance">
           <div class="sim-alliance-label">BLUE ALLIANCE</div>
           <div class="input-wrap"><span class="input-label">TEAM 1</span>
-            <input type="text" id="simBlue1" placeholder="e.g. 12345A" autocomplete="off"></div>
+            <input type="text" id="simBlue1" placeholder="e.g. 66449C" autocomplete="off"></div>
           <div class="input-wrap"><span class="input-label">TEAM 2 (optional)</span>
-            <input type="text" id="simBlue2" placeholder="partner — leave blank for 1v1" autocomplete="off"></div>
+            <input type="text" id="simBlue2" placeholder="e.g. 66449D — leave blank for 1v1" autocomplete="off"></div>
         </div>
       </div>
       <div class="controls-row" style="margin-top:16px;">
@@ -1525,7 +1588,7 @@
       <div class="pick-setup">
         <div class="pick-setup-col">
           <div class="input-wrap"><span class="input-label">YOUR TEAM</span>
-            <input type="text" id="simPickYou" placeholder="e.g. 7700S" autocomplete="off"></div>
+            <input type="text" id="simPickYou" placeholder="e.g. 66449A" autocomplete="off"></div>
           <div class="pick-setup-spacer" aria-hidden="true"></div>
         </div>
         <div class="pick-setup-col">
@@ -1582,7 +1645,7 @@
     <div class="sim-mode" id="simmode-escout">
       <div class="controls-row">
         <div class="input-wrap" style="min-width:140px;"><span class="input-label">YOUR TEAM</span>
-          <input type="text" id="simEscoutYou" placeholder="e.g. 7700S" autocomplete="off"></div>
+          <input type="text" id="simEscoutYou" placeholder="e.g. 66449A" autocomplete="off"></div>
         <div class="input-wrap select-wrap" style="min-width:170px;"><span class="input-label">SEARCH</span>
           <select id="simEscoutScope">
             <option value="region" selected>My region</option>
@@ -1684,6 +1747,87 @@ const US_STATES = [
 ];
 
 // ── INIT ──────────────────────────────────────
+
+// ═══════════════════════════════════════════════════════════════
+// CUSTOM SELECTS
+// Every native <select> stays in the DOM and remains the source of truth —
+// existing code keeps reading .value and writing .options untouched. We hide it
+// visually and drive a styled bar + list that mirrors it both ways.
+// ═══════════════════════════════════════════════════════════════
+function csSyncLabel(wrap, select) {
+  const val = wrap.querySelector('.cs-value');
+  const opt = select.options[select.selectedIndex];
+  if (val) val.textContent = opt ? opt.textContent : '';
+}
+
+function csBuildList(wrap, select) {
+  const list = wrap.querySelector('.cs-list');
+  list.innerHTML = [...select.options].map((o, i) =>
+    `<button type="button" class="cs-opt${i === select.selectedIndex ? ' active' : ''}" data-idx="${i}">${o.textContent}</button>`
+  ).join('');
+  csSyncLabel(wrap, select);
+}
+
+function csClose(wrap) {
+  wrap.classList.remove('open');
+}
+function csCloseAll(except) {
+  document.querySelectorAll('.cs.open').forEach(w => { if (w !== except) csClose(w); });
+}
+
+function enhanceSelect(select) {
+  if (!select || select.dataset.csDone) return;
+  select.dataset.csDone = '1';
+
+  const wrap = document.createElement('div');
+  wrap.className = 'cs';
+  wrap.innerHTML = `<button type="button" class="cs-bar">
+      <span class="cs-value"></span>
+      <span class="cs-arrow">▾</span>
+    </button>
+    <div class="cs-list"></div>`;
+  select.parentNode.insertBefore(wrap, select);
+  wrap.appendChild(select);
+  select.classList.add('cs-native');
+  const parent = wrap.closest('.select-wrap');
+  if (parent) parent.classList.add('cs-enhanced');
+
+  csBuildList(wrap, select);
+
+  wrap.querySelector('.cs-bar').addEventListener('click', e => {
+    e.stopPropagation();
+    const willOpen = !wrap.classList.contains('open');
+    csCloseAll(wrap);
+    if (willOpen) { csBuildList(wrap, select); wrap.classList.add('open'); }
+    else csClose(wrap);
+  });
+
+  wrap.querySelector('.cs-list').addEventListener('click', e => {
+    const btn = e.target.closest('.cs-opt');
+    if (!btn) return;
+    e.stopPropagation();
+    select.selectedIndex = parseInt(btn.dataset.idx, 10);
+    csSyncLabel(wrap, select);
+    csClose(wrap);
+    // Let any existing onchange handlers fire exactly as they did before
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+
+  // Options are often filled in later (seasons, regions, divisions) — mirror those
+  const mo = new MutationObserver(() => {
+    csBuildList(wrap, select);
+  });
+  mo.observe(select, { childList: true, subtree: true, attributes: true, attributeFilter: ['selected', 'value'] });
+
+  // Keep the label right if code sets .value directly then dispatches change
+  select.addEventListener('change', () => csSyncLabel(wrap, select));
+}
+
+function enhanceAllSelects() {
+  document.querySelectorAll('select').forEach(enhanceSelect);
+}
+document.addEventListener('click', () => csCloseAll(null));
+
 window.onload = () => {
   setBadge(true);
   loadSeasons(); // always load — uses hardcoded list instantly
@@ -1700,6 +1844,9 @@ window.onload = () => {
   }
   // Position tab indicator after layout settles
   setTimeout(positionTabIndicator, 100);
+
+  // Swap every native dropdown for the styled version
+  enhanceAllSelects();
 
   // ──── Register service worker for PWA ────
   if ('serviceWorker' in navigator) {
@@ -3708,6 +3855,7 @@ function renderTournamentTeams() {
       }).join('')}
     </div>`;
 
+  enhanceAllSelects();   // sort + division dropdowns were just rebuilt
   updateTournamentSelectionUI();
 }
 
@@ -5648,8 +5796,8 @@ function bracketBuildInput(size, prefill, advance) {
     const esc = s => (s || '').replace(/"/g, '&quot;');
     return `<div class="bracket-input-slot">
       <div class="bracket-input-seedlabel">SEED ${seed} <span class="bracket-slot-odds" id="brkOdds_${seed}"></span></div>
-      <input type="text" id="brk_s${seed}_t1" value="${esc(p[0])}" placeholder="team 1" autocomplete="off">
-      <input type="text" id="brk_s${seed}_t2" value="${esc(p[1])}" placeholder="team 2" autocomplete="off">
+      <input type="text" id="brk_s${seed}_t1" value="${esc(p[0])}" placeholder="66449A" autocomplete="off">
+      <input type="text" id="brk_s${seed}_t2" value="${esc(p[1])}" placeholder="66449B" autocomplete="off">
     </div>`;
   };
   // A real result box: both alliances, winner highlighted
