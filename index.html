@@ -1182,6 +1182,41 @@
     .ov-big { font-size: 24px; }
     .detail-meta { gap: 8px 16px; padding: 12px 14px; }
   }
+
+  /* ── Event picker: a grey bar that expands into a list ── */
+  .ev-picker { border: 1px solid var(--border); background: var(--card); margin-bottom: 20px; }
+  .ev-bar {
+    display: flex; align-items: center; gap: 14px; width: 100%;
+    background: var(--card2); border: none; cursor: pointer; text-align: left;
+    padding: 13px 16px; transition: background 0.2s;
+  }
+  .ev-bar:hover { background: var(--border); }
+  .ev-bar-label { font-family: var(--mono); font-size: 9px; letter-spacing: 2px; color: var(--text-muted); }
+  .ev-bar-value { flex: 1; font-family: var(--body); font-size: 14px; color: var(--text); font-weight: 600;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ev-bar-count { font-family: var(--mono); font-size: 10px; color: var(--text-muted); letter-spacing: 1px; white-space: nowrap; }
+  .ev-bar-arrow { font-size: 11px; color: var(--text-muted); transition: transform 0.25s; }
+  .ev-picker.open .ev-bar-arrow { transform: rotate(180deg); }
+
+  /* Collapsed by default; expands to a scrollable list of events */
+  .ev-list { display: none; max-height: 380px; overflow-y: auto; }
+  .ev-picker.open .ev-list { display: block; }
+  .ev-row {
+    display: block; width: 100%; text-align: left; cursor: pointer;
+    background: transparent; border: none; border-top: 1px solid var(--border);
+    padding: 11px 16px; transition: background 0.15s;
+  }
+  .ev-row:hover { background: var(--card2); }
+  .ev-row.active { background: var(--card2); box-shadow: inset 3px 0 0 var(--accent-bright); }
+  .ev-row-name { display: block; font-family: var(--body); font-size: 13.5px; font-weight: 600; color: var(--text); line-height: 1.35; }
+  .ev-row.active .ev-row-name { color: var(--accent-bright); }
+  .ev-row-meta { display: block; font-family: var(--mono); font-size: 10.5px; color: var(--text-muted); margin-top: 3px; letter-spacing: 0.5px; }
+
+  @media (max-width: 600px) {
+    .ev-bar { gap: 10px; padding: 12px 13px; }
+    .ev-bar-count { display: none; }
+    .ev-row-name { font-size: 12.5px; }
+  }
 </style>
 </head>
 <body class="theme-dark-grey">
@@ -4093,7 +4128,27 @@ async function gatherTeamData(teamNumber, seasonId, gradeLevel = 'High School') 
     if (!ev || ev.id == null) continue;
     if (!eventMap.has(ev.id)) eventMap.set(ev.id, { id: ev.id, name: ev.name || ev.code || `Event ${ev.id}`, start: m.scheduled || m.started || '' });
   }
-  const eventsList = [...eventMap.values()].sort((a, b) => String(b.start).localeCompare(String(a.start)));
+  let eventsList = [...eventMap.values()].sort((a, b) => String(b.start).localeCompare(String(a.start)));
+  // Match payloads only carry an event's id/name — pull the real records so the
+  // event list can show SKU, date and region.
+  if (eventsList.length) {
+    try {
+      const full = await apiGet('/events', { 'id[]': eventsList.map(e => e.id) });
+      const byId = {};
+      for (const e of full) byId[e.id] = e;
+      eventsList = eventsList.map(e => {
+        const f = byId[e.id];
+        return f ? {
+          id: e.id,
+          name: f.name || e.name,
+          sku: f.sku || '',
+          start: f.start || e.start,
+          region: f.location?.region || '',
+          level: f.level || ''
+        } : { ...e, sku: '', region: '', level: '' };
+      }).sort((a, b) => String(b.start).localeCompare(String(a.start)));
+    } catch (e) { /* keep the basic list if the lookup fails */ }
+  }
 
   // ── Strengths / weaknesses, using the same engine as the Simulator ──
   const profileGames = [];
@@ -4265,6 +4320,98 @@ function buildRadarSVG(axes) {
   </svg>`;
 }
 
+// Collapsible event list — a bar you click to expand, not a native select.
+function renderEventPicker(d, eventFilter) {
+  const sel = eventFilter !== 'all' ? d.eventsList.find(e => String(e.id) === String(eventFilter)) : null;
+  const open = !!window._detailPickerOpen;
+  const fmtDate = s => { const t = Date.parse(s || ''); return isNaN(t) ? '' : new Date(t).toLocaleDateString(); };
+  const rows = d.eventsList.map(e => `
+    <button class="ev-row${String(eventFilter) === String(e.id) ? ' active' : ''}" onclick="detailFilterEvent('${e.id}')">
+      <span class="ev-row-name">${e.name || 'Event'}</span>
+      <span class="ev-row-meta">${[e.sku, fmtDate(e.start), e.region].filter(Boolean).join('  ·  ')}</span>
+    </button>`).join('');
+  return `
+    <div class="ev-picker${open ? ' open' : ''}">
+      <button class="ev-bar" onclick="detailTogglePicker()">
+        <span class="ev-bar-label">EVENT</span>
+        <span class="ev-bar-value">${sel ? (sel.name || 'Event') : `All events this season`}</span>
+        <span class="ev-bar-count">${d.eventsList.length} event${d.eventsList.length === 1 ? '' : 's'}</span>
+        <span class="ev-bar-arrow">▾</span>
+      </button>
+      <div class="ev-list">
+        <button class="ev-row${eventFilter === 'all' ? ' active' : ''}" onclick="detailFilterEvent('all')">
+          <span class="ev-row-name">All events this season</span>
+          <span class="ev-row-meta">combined totals across every event</span>
+        </button>
+        ${rows}
+      </div>
+    </div>`;
+}
+
+function detailTogglePicker() {
+  window._detailPickerOpen = !window._detailPickerOpen;
+  const el = document.querySelector('.ev-picker');
+  if (el) el.classList.toggle('open', window._detailPickerOpen);
+}
+
+// Match schedule for one event, reusing the same row treatment as Tournament:
+// played matches show the result, upcoming ones are dimmed.
+function renderEventSchedule(d, eventId) {
+  const rows = [];
+  for (const m of d.matches) {
+    if (String(m.event?.id) !== String(eventId)) continue;
+    const al = m.alliances; if (!al) continue;
+    let redA, blueA;
+    if (Array.isArray(al)) {
+      redA = al.find(a => (a.color || '').toLowerCase() === 'red') || al[0];
+      blueA = al.find(a => (a.color || '').toLowerCase() === 'blue') || al[1];
+    } else { redA = al.red || al.Red; blueA = al.blue || al.Blue; }
+    if (!redA || !blueA) continue;
+    const has = a => (a.teams || []).some(x => String(x?.team?.id ?? x?.id ?? x) === String(d.teamId));
+    const inRed = has(redA), inBlue = has(blueA);
+    if (!inRed && !inBlue) continue;
+    const mine = inRed ? redA : blueA, theirs = inRed ? blueA : redA;
+    const nums = a => (a.teams || []).map(x => x?.team?.name ?? x?.name ?? '?');
+    const played = mine.score !== null && mine.score !== undefined;
+    let cls = 'pending', label = '—';
+    if (played) {
+      if (mine.score > (theirs.score ?? 0)) { cls = 'win'; label = 'WIN'; }
+      else if (mine.score < (theirs.score ?? 0)) { cls = 'loss'; label = 'LOSS'; }
+      else { cls = 'tie'; label = 'TIE'; }
+    }
+    rows.push({ name: m.name || `Match ${m.matchnum || ''}`, num: m.matchnum || 0,
+      myNums: nums(mine), oppNums: nums(theirs),
+      myScore: played ? mine.score : '', oppScore: played ? (theirs.score ?? '') : '',
+      cls, label, played, color: inRed ? 'red' : 'blue' });
+  }
+  if (!rows.length) return '';
+  rows.sort((a, b) => a.num - b.num);
+  const wins = rows.filter(r => r.cls === 'win').length;
+  const losses = rows.filter(r => r.cls === 'loss').length;
+  const ties = rows.filter(r => r.cls === 'tie').length;
+  return `<div class="detail-block">
+    <div class="detail-block-label">Match Schedule · ${wins}–${losses}${ties ? '–' + ties : ''}</div>
+    <div class="match-list">
+      ${rows.map(r => `
+        <div class="match-row ${r.cls}${r.played ? '' : ' upcoming'}">
+          <div class="match-num">${r.name}</div>
+          <div class="match-alliance ${r.color === 'red' ? 'alliance-red' : 'alliance-blue'}">
+            <div class="match-alliance-label">YOU</div>
+            <div class="match-teams">${r.myNums.map(n => `<span class="${String(n).toUpperCase() === String(d.team.number).toUpperCase() ? 'match-team-self' : ''}">${n}</span>`).join(' · ')}</div>
+            <div class="match-score">${r.myScore}</div>
+          </div>
+          <div class="match-vs">VS</div>
+          <div class="match-alliance ${r.color === 'red' ? 'alliance-blue' : 'alliance-red'}">
+            <div class="match-alliance-label">OPP</div>
+            <div class="match-teams">${r.oppNums.map(n => `<span>${n}</span>`).join(' · ')}</div>
+            <div class="match-score">${r.oppScore}</div>
+          </div>
+          <div class="match-outcome ${r.cls}">${r.label}</div>
+        </div>`).join('')}
+    </div>
+  </div>`;
+}
+
 async function runDetailedScout() {
   const raw = (document.getElementById('detailTeamInput').value || '').trim().toUpperCase();
   if (!raw) { showError('⚠ Enter a team number.'); return; }
@@ -4290,6 +4437,7 @@ async function runDetailedScout() {
 
 // Re-render filtered to one event (or all)
 function detailFilterEvent(value) {
+  window._detailPickerOpen = false;   // collapse once a choice is made
   if (window._detailData) renderDetailedTeam(window._detailData, value);
 }
 
@@ -4345,15 +4493,7 @@ function renderDetailedTeam(d, eventFilter) {
       <span><em>Status</em> <strong class="${status === 'Active' ? 'st-active' : 'st-inactive'}">● ${status}</strong></span>
     </div>
 
-    <div class="controls-row detail-filter">
-      <div class="input-wrap select-wrap" style="min-width:240px;">
-        <span class="input-label">EVENT</span>
-        <select id="detailEventSelect" onchange="detailFilterEvent(this.value)">
-          <option value="all"${eventFilter === 'all' ? ' selected' : ''}>All events this season</option>
-          ${d.eventsList.map(e => `<option value="${e.id}"${String(eventFilter) === String(e.id) ? ' selected' : ''}>${(e.name || '').slice(0, 60)}</option>`).join('')}
-        </select>
-      </div>
-    </div>`;
+    ${renderEventPicker(d, eventFilter)}`;
 
   // ── Quick overview + radar ──
   const overview = [
@@ -4458,6 +4598,9 @@ function renderDetailedTeam(d, eventFilter) {
       </div>
     </div>
   </div>`;
+
+  // ── Match schedule for the selected event ──
+  if (eventFilter && eventFilter !== 'all') html += renderEventSchedule(d, eventFilter);
 
   // ── Awards ──
   html += `<div class="detail-block">
