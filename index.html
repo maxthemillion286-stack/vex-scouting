@@ -1361,6 +1361,15 @@
   .rw-multiday { border-left: 2px solid var(--accent-dim); padding-left: 12px; margin-bottom: 14px; }
   .rw-cal-detail { font-family: var(--mono); font-size: 11px; color: var(--text-muted); margin-bottom: 10px; letter-spacing: 0.5px; }
   .rw-noclock { font-family: var(--mono); font-size: 10px; color: var(--text-muted); letter-spacing: 0.5px; }
+
+  .rw-cal-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 10px; }
+  .rw-nudge { display: inline-flex; align-items: center; gap: 4px; }
+  .rw-nudge-label { font-family: var(--body); font-size: 11px; color: var(--text-muted); margin: 0 2px; }
+  .rw-nudge button {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.5px; padding: 4px 8px; cursor: pointer;
+    background: transparent; color: var(--text-muted); border: 1px solid var(--border); transition: all 0.15s;
+  }
+  .rw-nudge button:hover { color: var(--accent-bright); border-color: var(--accent); }
 </style>
 </head>
 <body class="theme-dark-grey">
@@ -2085,6 +2094,31 @@ async function rewatchSelectEvent(eventId) {
       return;
     }
 
+    // The event's whole match list (not just this team's) — the anchor is the
+    // event's FIRST QUALIFICATION MATCH of each day, which is a fixed, easy
+    // point to find in a stream regardless of when this team happened to play.
+    status('FINDING FIRST MATCH...');
+    ctx.dayAnchors = {};
+    try {
+      const evDetail = await apiGet('/events', { 'id[]': [eventId] });
+      const divisions = (evDetail[0]?.divisions?.length ? evDetail[0].divisions : [{ id: 1 }]);
+      const allEv = [];
+      await sim_pool(divisions, async div => {
+        try { allEv.push(...await apiGet(`/events/${eventId}/divisions/${div.id}/matches`)); } catch (e) {}
+      }, sim_poolSize());
+      const isQ = m => { const n = (m.name || '').toUpperCase().trim(); return /^Q\s*\d/.test(n) || n.startsWith('QUAL') || m.round === 2; };
+      for (const m of allEv) {
+        if (!m || !isQ(m)) continue;
+        const ms = m.started ? Date.parse(m.started) : (m.scheduled ? Date.parse(m.scheduled) : NaN);
+        if (isNaN(ms)) continue;
+        const day = rwDayKey(ms);
+        const cur = ctx.dayAnchors[day];
+        if (!cur || ms < cur.t) {
+          ctx.dayAnchors[day] = { t: ms, name: m.name || `Qualification ${m.matchnum || ''}`, exact: !!m.started };
+        }
+      }
+    } catch (e) { /* fall back to this team's own earliest match per day */ }
+
     // Try the event's own webcast link before asking the user for one
     let webcast = null;
     try {
@@ -2111,24 +2145,49 @@ async function rewatchSelectEvent(eventId) {
 }
 
 // ── Step 3: calibrate — one match's video time anchors the whole stream ──
-function rewatchCalibrate() {
+// The reference point for a day: the event's first qualification match that day.
+// Falls back to this team's own earliest match if the event list didn't load.
+function rwAnchorForDay(ctx, day) {
+  if (ctx.dayAnchors && ctx.dayAnchors[day]) return ctx.dayAnchors[day];
+  const mine = ctx.matches.filter(m => m.t !== null && rwDayKey(m.t) === day).sort((a, b) => a.t - b.t)[0];
+  return mine ? { t: mine.t, name: mine.name, exact: mine.exact } : null;
+}
+
+function rewatchCalibrate(day) {
   const ctx = window._rwCtx; if (!ctx) return;
+  day = day || ctx.calDay;
   const vid = rwParseVideoId(document.getElementById('rwVideoInput').value);
   if (!vid) { showError('⚠ That doesn\'t look like a YouTube link or video ID.'); return; }
-  const matchId = document.getElementById('rwAnchorMatch').value;
   const secs = rwParseSeconds(document.getElementById('rwAnchorTime').value);
-  if (secs === null) { showError('⚠ Enter the video time as seconds (12542), a clock time (3:29:02), or paste a youtu.be link with ?t='); return; }
-  const anchor = ctx.matches.find(m => String(m.id) === String(matchId));
-  if (!anchor) { showError('⚠ Pick which match that timestamp belongs to.'); return; }
-  if (anchor.t === null) { showError('⚠ That match has no timestamp from the API — pick a different one to anchor with.'); return; }
+  if (secs === null) { showError('⚠ Enter the video time as seconds (600), a clock time (10:00), or paste a youtu.be link with ?t='); return; }
+  const anchor = rwAnchorForDay(ctx, day);
+  if (!anchor) { showError('⚠ Couldn\'t work out when this day\'s first match ran.'); return; }
   showError('');
   ctx.videoId = vid;
-  const day = rwDayKey(anchor.t);
   ctx.cal = ctx.cal || {};
-  ctx.cal[day] = { videoId: vid, anchorMatchId: anchor.id, anchorSeconds: secs, anchorMs: anchor.t, day, savedAt: Date.now() };
+  ctx.cal[day] = { videoId: vid, anchorName: anchor.name, anchorSeconds: secs, anchorMs: anchor.t, day, savedAt: Date.now() };
   rwSaveCal(ctx.eventId, ctx.cal);
-  ctx.calDay = null;   // close the form
+  ctx.calDay = null;
   rewatchRender();
+}
+
+// Shift a whole day's timings without re-entering anything
+function rewatchNudge(day, deltaSec) {
+  const ctx = window._rwCtx; if (!ctx || !ctx.cal || !ctx.cal[day]) return;
+  ctx.cal[day].anchorSeconds = Math.max(0, ctx.cal[day].anchorSeconds + deltaSec);
+  rwSaveCal(ctx.eventId, ctx.cal);
+  rewatchRender();
+}
+
+// Rough starting point: VEX streams usually go live ~20 min before the first
+// match (setup, opening ceremony). Not exact — meant to be nudged from.
+function rewatchGuess(day) {
+  const ctx = window._rwCtx; if (!ctx) return;
+  const input = document.getElementById('rwAnchorTime');
+  if (input) input.value = rwFmtClock(20 * 60);
+  showError('');
+  const vid = rwParseVideoId((document.getElementById('rwVideoInput') || {}).value || '');
+  if (vid) rewatchCalibrate(day);
 }
 
 // Open the calibration form for one specific day
@@ -2242,28 +2301,34 @@ function rewatchRender() {
       </div>`;
 
     if (cal && !formOpen) {
-      const anchorM = ctx.matches.find(m => String(m.id) === String(cal.anchorMatchId));
-      html += `<div class="rw-cal-detail">anchored to ${anchorM ? anchorM.name : 'a match'} at ${rwFmtClock(cal.anchorSeconds)}</div>`;
+      html += `<div class="rw-cal-row">
+        <span class="rw-cal-detail">${cal.anchorName || 'first match'} at ${rwFmtClock(cal.anchorSeconds)}</span>
+        <span class="rw-nudge">
+          <span class="rw-nudge-label">everything early?</span>
+          <button onclick="rewatchNudge('${day}', -30)">−30s</button>
+          <button onclick="rewatchNudge('${day}', -5)">−5s</button>
+          <button onclick="rewatchNudge('${day}', 5)">+5s</button>
+          <button onclick="rewatchNudge('${day}', 30)">+30s</button>
+          <span class="rw-nudge-label">late?</span>
+        </span>
+      </div>`;
     }
 
     if (formOpen) {
-      html += `<div class="rw-hint">${ctx.autoWebcast
-        ? 'Found a stream link on this event. Anchor it to one match below and the rest become clickable.'
-        : 'Paste this day\'s YouTube stream, then say where <em>one</em> of its matches starts. Everything else is calculated from that.'}</div>
+      const anchor = rwAnchorForDay(ctx, day);
+      const anchorName = anchor ? anchor.name : 'the first match';
+      html += `<div class="rw-hint">Paste this day's stream, then find <strong>${anchorName}</strong> in it — the first qualification match of the day — and enter where it starts. Every other match is calculated from that one point.</div>
       <div class="controls-row">
         <div class="input-wrap" style="flex:2;min-width:220px;"><span class="input-label">YOUTUBE LINK</span>
           <input type="text" id="rwVideoInput" value="${(cal && cal.videoId) || ctx.videoId || ''}" placeholder="https://youtube.com/watch?v=..." autocomplete="off"></div>
       </div>
       <div class="controls-row" style="margin-top:12px;">
-        <div class="input-wrap select-wrap" style="min-width:190px;"><span class="input-label">THIS MATCH…</span>
-          <select id="rwAnchorMatch">
-            ${dayMatches.filter(m => m.t !== null).map(m => `<option value="${m.id}">${m.name}</option>`).join('')}
-          </select></div>
-        <div class="input-wrap" style="min-width:170px;"><span class="input-label">…STARTS AT</span>
-          <input type="text" id="rwAnchorTime" placeholder="3:29:02  or  12542" autocomplete="off"></div>
-        <button class="btn btn-primary" onclick="rewatchCalibrate()">CALIBRATE</button>
+        <div class="input-wrap" style="min-width:200px;"><span class="input-label">${anchorName.toUpperCase()} STARTS AT</span>
+          <input type="text" id="rwAnchorTime" placeholder="10:00  or  600" autocomplete="off"></div>
+        <button class="btn btn-primary" onclick="rewatchCalibrate('${day}')">CALIBRATE</button>
+        <button class="btn btn-secondary" onclick="rewatchGuess('${day}')">GUESS &amp; REFINE</button>
       </div>
-      <div class="rw-hint" style="margin-top:10px;">Tip: in YouTube, right-click the video at the moment a match starts → <strong>Copy video URL at current time</strong> → paste it straight into the time box.</div>`;
+      <div class="rw-hint" style="margin-top:10px;">Right-click the video the instant robots start moving → <strong>Copy video URL at current time</strong> → paste it here. Not sure? Hit <strong>Guess &amp; Refine</strong> for a rough start, then nudge it.</div>`;
     }
 
     // Matches for this day, grouped by round
