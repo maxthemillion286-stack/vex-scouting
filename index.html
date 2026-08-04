@@ -2030,7 +2030,15 @@ async function rewatchSelectEvent(eventId) {
       });
     }
     matches.sort((a, b) => (a.round - b.round) || (a.num - b.num));
-    if (!matches.length) throw new Error('No matches found for this team at that event.');
+    // No matches is a real state (event not played yet), not a hard failure —
+    // keep the event list on screen and explain inline instead of blanking out.
+    if (!matches.length) {
+      ctx.eventId = eventId; ctx.matches = []; ctx.cal = null; ctx.videoId = null;
+      showError('');
+      rewatchRender();
+      loading.classList.remove('active');
+      return;
+    }
 
     // Try the event's own webcast link before asking the user for one
     let webcast = null;
@@ -2118,6 +2126,14 @@ function rewatchRender() {
   </div>`;
 
   if (!ctx.eventId) { out.innerHTML = html; return; }
+
+  if (!ctx.matches.length) {
+    html += `<div class="rw-block"><div class="rw-hint">
+      No matches found for this team at that event yet — the schedule may not be posted, or the event hasn't been played.
+    </div></div>`;
+    out.innerHTML = html;
+    return;
+  }
 
   // Stream + calibration
   const cal = ctx.cal;
@@ -5598,7 +5614,7 @@ async function sim_teamMatchesCached(tid, seasonId) {
   if (c && Date.now() - c.ts < 120000) return c.v;
   // Persistent layer: slimmed match history survives page reloads (30 min TTL),
   // so re-opening the app at an event doesn't refetch the world.
-  const lsKey = 'vex_tm_' + k;
+  const lsKey = 'vex_tm2_' + k;
   try {
     const raw = localStorage.getItem(lsKey);
     if (raw) {
@@ -5619,6 +5635,8 @@ async function sim_teamMatchesCached(tid, seasonId) {
     id: m.id, name: m.name, round: m.round, matchnum: m.matchnum,
     scheduled: m.scheduled, started: m.started,
     autonomous_winner: m.autonomous_winner, __div: m.__div,
+    // Slim event reference — REWATCH filters a team's matches by event id
+    event: m.event ? { id: m.event.id, name: m.event.name, code: m.event.code } : null,
     alliances: Array.isArray(m.alliances)
       ? m.alliances.map(a => ({ color: a.color, score: a.score, teams: (a.teams || []).map(t => ({ team: { id: t?.team?.id ?? t?.id, name: t?.team?.name ?? t?.name } })) }))
       : m.alliances
@@ -5632,7 +5650,7 @@ async function sim_teamMatchesCached(tid, seasonId) {
     try {
       for (let i = localStorage.length - 1; i >= 0; i--) {
         const key = localStorage.key(i);
-        if (key && key.startsWith('vex_tm_')) localStorage.removeItem(key);
+        if (key && key.startsWith('vex_tm')) localStorage.removeItem(key);
       }
     } catch (e2) {}
   }
