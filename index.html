@@ -1384,6 +1384,15 @@
   .rw-manual { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
   .rw-manual-label { font-family: var(--body); font-size: 11px; color: var(--text-muted); }
   .rw-manual input { max-width: 130px; padding: 6px 10px; font-size: 12px; }
+
+  .rw-shift-bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+  .rw-shift-cap { font-family: var(--body); font-size: 11px; color: var(--text-muted); }
+  .rw-shift-in { width: 58px; padding: 5px 8px; font-family: var(--mono); font-size: 11px; text-align: center; }
+  .rw-shift-go, .rw-nudge-btn {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.5px; padding: 5px 9px; cursor: pointer;
+    background: transparent; color: var(--text-muted); border: 1px solid var(--border); transition: all 0.15s;
+  }
+  .rw-shift-go:hover, .rw-nudge-btn:hover { color: var(--accent-bright); border-color: var(--accent); }
 </style>
 </head>
 <body class="theme-dark-grey">
@@ -2121,17 +2130,29 @@ async function rewatchSelectEvent(eventId) {
         try { allEv.push(...await apiGet(`/events/${eventId}/divisions/${div.id}/matches`)); } catch (e) {}
       }, sim_poolSize());
       const isQ = m => { const n = (m.name || '').toUpperCase().trim(); return /^Q\s*\d/.test(n) || n.startsWith('QUAL') || m.round === 2; };
+      // Keep EVERY match at the event, not just this team's — you can then
+      // anchor on Qualifier #1 (easy to find at the head of the stream) even
+      // though your own first match might be #19.
+      // NB: use the local `matches` — ctx.matches isn't assigned until later
+      const mineIds = new Set(matches.map(x => String(x.id)));
+      ctx.allMatches = [];
       for (const m of allEv) {
-        if (!m || !isQ(m)) continue;
+        if (!m) continue;
         const ms = m.started ? Date.parse(m.started) : (m.scheduled ? Date.parse(m.scheduled) : NaN);
         if (isNaN(ms)) continue;
+        ctx.allMatches.push({
+          id: m.id, name: m.name || `Match ${m.matchnum || ''}`, num: m.matchnum || 0,
+          round: m.round, t: ms, isQual: isQ(m), mine: mineIds.has(String(m.id))
+        });
+        if (!isQ(m)) continue;
         const day = rwDayKey(ms);
         const cur = ctx.dayAnchors[day];
         if (!cur || ms < cur.t) {
           ctx.dayAnchors[day] = { t: ms, name: m.name || `Qualification ${m.matchnum || ''}`, exact: !!m.started };
         }
       }
-    } catch (e) { /* fall back to this team's own earliest match per day */ }
+      ctx.allMatches.sort((a, b) => a.t - b.t);
+    } catch (e) { ctx.allMatches = null; }
 
     // Try the event's own webcast link before asking the user for one
     let webcast = null;
@@ -2299,7 +2320,8 @@ function rewatchCalibrate(day) {
   const secs = rwParseSeconds(document.getElementById('rwAnchorTime').value);
   if (secs === null) { showError('⚠ Enter the video time as a clock time (1:27:22), seconds (5242), or paste a youtu.be link with ?t='); return; }
   const matchId = (document.getElementById('rwAnchorMatch') || {}).value;
-  const m = ctx.matches.find(x => String(x.id) === String(matchId));
+  const pool = (ctx.allMatches && ctx.allMatches.length) ? ctx.allMatches : ctx.matches;
+  const m = pool.find(x => String(x.id) === String(matchId));
   if (!m || m.t === null) { showError('⚠ Pick which match that timestamp belongs to.'); return; }
   showError('');
   ctx.videoId = vid;
@@ -2325,16 +2347,17 @@ function rewatchRemoveAnchor(day, matchId) {
   rewatchRender();
 }
 
-// Shift a whole day by a number of minutes (accepts decimals and negatives)
-function rewatchShift(day) {
+// Shift a whole day. The box you type in decides the direction — left is
+// earlier, right is later — so you never have to type a minus sign.
+function rewatchShiftBy(day, sign) {
   const ctx = window._rwCtx; if (!ctx || !ctx.cal || !ctx.cal[day]) return;
-  const raw = (document.getElementById('rwShift_' + day) || {}).value || '';
-  const mins = parseFloat(raw);
-  if (isNaN(mins)) { showError('⚠ Enter how many minutes to shift by, e.g. 2 or -1.5'); return; }
+  const id = sign < 0 ? 'rwShiftBack_' + day : 'rwShiftFwd_' + day;
+  const raw = ((document.getElementById(id) || {}).value || '').trim();
+  const mins = Math.abs(parseFloat(raw));
+  if (!raw || isNaN(mins)) { showError('⚠ Type how many minutes in the box, e.g. 2 or 1.5'); return; }
   showError('');
-  const cal = ctx.cal[day];
-  const delta = Math.round(mins * 60);
-  (cal.anchors || []).forEach(a => { a.videoSec = Math.max(0, a.videoSec + delta); });
+  const delta = Math.round(sign * mins * 60);
+  (ctx.cal[day].anchors || []).forEach(a => { a.videoSec = Math.max(0, a.videoSec + delta); });
   rwSaveCal(ctx.eventId, ctx.cal);
   rewatchRender();
 }
@@ -2446,23 +2469,29 @@ function rewatchRender() {
       ${anchors.length === 1
         ? `<div class="rw-hint rw-warn">One anchor only — times drift the further you get from ${anchors[0].name}, because streams pause for lunch and awards. If a distant match is off, add a second anchor near it and everything in between corrects itself.</div>`
         : `<div class="rw-hint">${anchors.length} anchors — matches between them are interpolated, so breaks in the stream are handled automatically.</div>`}
-      <div class="controls-row rw-shift-row">
-        <div class="input-wrap" style="max-width:170px;"><span class="input-label">SHIFT BY (MINUTES)</span>
-          <input type="text" id="rwShift_${day}" placeholder="2  or  -1.5" autocomplete="off"></div>
-        <button class="btn btn-secondary" onclick="rewatchShift('${day}')">APPLY SHIFT</button>
-        <span class="rw-nudge">
-          <button onclick="rewatchNudge('${day}', -30)">−30s</button>
-          <button onclick="rewatchNudge('${day}', -5)">−5s</button>
-          <button onclick="rewatchNudge('${day}', 5)">+5s</button>
-          <button onclick="rewatchNudge('${day}', 30)">+30s</button>
-        </span>
+      <div class="rw-shift-bar">
+        <span class="rw-shift-cap">earlier</span>
+        <input type="text" class="rw-shift-in" id="rwShiftBack_${day}" placeholder="min"
+          onkeydown="if(event.key==='Enter')rewatchShiftBy('${day}',-1)">
+        <button class="rw-shift-go" onclick="rewatchShiftBy('${day}',-1)">◀</button>
+        <button class="rw-nudge-btn" onclick="rewatchNudge('${day}', -30)">−30s</button>
+        <button class="rw-nudge-btn" onclick="rewatchNudge('${day}', 30)">+30s</button>
+        <button class="rw-shift-go" onclick="rewatchShiftBy('${day}',1)">▶</button>
+        <input type="text" class="rw-shift-in" id="rwShiftFwd_${day}" placeholder="min"
+          onkeydown="if(event.key==='Enter')rewatchShiftBy('${day}',1)">
+        <span class="rw-shift-cap">later</span>
       </div>`;
     }
 
     if (formOpen) {
-      const pick = dayMatches.filter(m => m.t !== null);
+      // Every match at the event that day — so Qualifier #1 is selectable even
+      // when this team's first match is much later in the schedule.
+      const dayKeyOf = t => rwDayKey(t);
+      const pick = (ctx.allMatches && ctx.allMatches.length)
+        ? ctx.allMatches.filter(m => m.t !== null && dayKeyOf(m.t) === day)
+        : dayMatches.filter(m => m.t !== null);
       const existing = (cal && cal.anchors) ? cal.anchors.length : 0;
-      html += `<div class="rw-hint">Load the stream, scrub to any one of your matches, and click <strong>SET ANCHOR HERE</strong>. Everything else becomes one-click from that point on.</div>
+      html += `<div class="rw-hint">Load the stream, scrub to <strong>any</strong> match — Qualifier #1 near the start of the video is usually easiest — pick which one it is, and click <strong>SET ANCHOR HERE</strong>. Every match becomes one click from then on.</div>
       <div class="controls-row">
         <div class="input-wrap" style="flex:2;min-width:220px;"><span class="input-label">YOUTUBE LINK</span>
           <input type="text" id="rwVideoInput" value="${(cal && cal.videoId) || ctx.videoId || ''}" placeholder="https://youtube.com/watch?v=..." autocomplete="off"></div>
@@ -2473,9 +2502,9 @@ function rewatchRender() {
         <div class="rw-embed rw-cal-embed"><div id="rwCalPlayer"></div></div>
       </div>
       <div class="controls-row" style="margin-top:12px;">
-        <div class="input-wrap select-wrap" style="min-width:190px;"><span class="input-label">THIS IS…</span>
+        <div class="input-wrap select-wrap" style="min-width:220px;"><span class="input-label">THIS IS…</span>
           <select id="rwAnchorMatch">
-            ${pick.map(m => `<option value="${m.id}">${m.name}</option>`).join('')}
+            ${pick.map(m => `<option value="${m.id}">${m.name}${m.mine ? '  ← yours' : ''}</option>`).join('')}
           </select></div>
         <button class="btn btn-primary" onclick="rwSetAnchorHere('${day}')">SET ANCHOR HERE</button>
       </div>
