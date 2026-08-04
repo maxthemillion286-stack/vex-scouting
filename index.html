@@ -1355,6 +1355,12 @@
     .rw-action { grid-column: 3; }
     .rw-score { display: none; }
   }
+
+  .rw-day-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+  .rw-day-head .detail-block-label::after { display: none; }
+  .rw-multiday { border-left: 2px solid var(--accent-dim); padding-left: 12px; margin-bottom: 14px; }
+  .rw-cal-detail { font-family: var(--mono); font-size: 11px; color: var(--text-muted); margin-bottom: 10px; letter-spacing: 0.5px; }
+  .rw-noclock { font-family: var(--mono); font-size: 10px; color: var(--text-muted); letter-spacing: 0.5px; }
 </style>
 </head>
 <body class="theme-dark-grey">
@@ -1966,8 +1972,47 @@ function rwFmtClock(sec) {
 }
 
 const rwCalKey = eid => 'vex_rewatch_' + eid;
-function rwLoadCal(eid) { try { return JSON.parse(localStorage.getItem(rwCalKey(eid)) || 'null'); } catch (e) { return null; } }
-function rwSaveCal(eid, cal) { try { localStorage.setItem(rwCalKey(eid), JSON.stringify(cal)); } catch (e) {} }
+
+// A day key for a match timestamp — multi-day events stream one video per day,
+// so calibrations are stored per day rather than per event.
+function rwDayKey(ms) {
+  if (ms === null || ms === undefined) return 'unknown';
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function rwDayLabel(dayKey) {
+  if (dayKey === 'unknown') return 'Undated matches';
+  const [y, m, d] = dayKey.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
+}
+
+// Calibrations are an object keyed by day: { '2025-10-18': {videoId, ...}, ... }
+function rwLoadCal(eid) {
+  try {
+    const raw = JSON.parse(localStorage.getItem(rwCalKey(eid)) || 'null');
+    if (!raw) return {};
+    // Migrate the old single-stream format into the per-day shape
+    if (raw.videoId && !raw.byDay) return { [rwDayKey(raw.anchorMs)]: raw };
+    return raw.byDay || raw;
+  } catch (e) { return {}; }
+}
+function rwSaveCal(eid, calByDay) {
+  try { localStorage.setItem(rwCalKey(eid), JSON.stringify(calByDay)); } catch (e) {}
+}
+// The stream covering a given match — strictly the one calibrated for that
+// match's own day. Never borrow another day's stream: at a multi-day event that
+// would compute a timestamp hours past the end of the wrong video.
+function rwCalForMatch(m, calByDay) {
+  if (!calByDay) return null;
+  const keys = Object.keys(calByDay);
+  if (!keys.length) return null;
+  const day = rwDayKey(m.t);
+  if (calByDay[day]) return calByDay[day];
+  // Only matches with no timestamp at all fall back, and only when there's
+  // exactly one stream to fall back to.
+  if (day === 'unknown' && keys.length === 1) return calByDay[keys[0]];
+  return null;
+}
 
 // ── Step 1: team → the events they attended ──
 async function rewatchLoadTeam() {
@@ -1986,7 +2031,7 @@ async function rewatchLoadTeam() {
     const events = await apiGet(`/teams/${team.id}/events`, seasonId ? { 'season[]': [seasonId] } : {});
     if (!events.length) throw new Error(`No events found for ${num} this season.`);
     events.sort((a, b) => String(b.start || '').localeCompare(String(a.start || '')));
-    window._rwCtx = { team, events, eventId: null, matches: [], videoId: null, cal: null };
+    window._rwCtx = { team, events, eventId: null, matches: [], videoId: null, cal: {}, calDay: null };
     rewatchRender();
   } catch (e) {
     showError('⚠ ' + e.message);
@@ -2033,7 +2078,7 @@ async function rewatchSelectEvent(eventId) {
     // No matches is a real state (event not played yet), not a hard failure —
     // keep the event list on screen and explain inline instead of blanking out.
     if (!matches.length) {
-      ctx.eventId = eventId; ctx.matches = []; ctx.cal = null; ctx.videoId = null;
+      ctx.eventId = eventId; ctx.matches = []; ctx.cal = {}; ctx.videoId = null;
       showError('');
       rewatchRender();
       loading.classList.remove('active');
@@ -2053,8 +2098,10 @@ async function rewatchSelectEvent(eventId) {
     ctx.eventId = eventId;
     ctx.matches = matches;
     ctx.cal = cal;
-    ctx.videoId = (cal && cal.videoId) || webcast || null;
-    ctx.autoWebcast = !!webcast && !(cal && cal.videoId);
+    const anyCal = Object.values(cal || {})[0];
+    ctx.videoId = (anyCal && anyCal.videoId) || webcast || null;
+    ctx.autoWebcast = !!webcast && !anyCal;
+    ctx.calDay = null;
     rewatchRender();
   } catch (e) {
     showError('⚠ ' + e.message);
@@ -2076,21 +2123,34 @@ function rewatchCalibrate() {
   if (anchor.t === null) { showError('⚠ That match has no timestamp from the API — pick a different one to anchor with.'); return; }
   showError('');
   ctx.videoId = vid;
-  ctx.cal = { videoId: vid, anchorMatchId: anchor.id, anchorSeconds: secs, anchorMs: anchor.t, savedAt: Date.now() };
+  const day = rwDayKey(anchor.t);
+  ctx.cal = ctx.cal || {};
+  ctx.cal[day] = { videoId: vid, anchorMatchId: anchor.id, anchorSeconds: secs, anchorMs: anchor.t, day, savedAt: Date.now() };
   rwSaveCal(ctx.eventId, ctx.cal);
+  ctx.calDay = null;   // close the form
   rewatchRender();
 }
 
-function rewatchClearCal() {
+// Open the calibration form for one specific day
+function rewatchCalibrateDay(day) {
   const ctx = window._rwCtx; if (!ctx) return;
-  try { localStorage.removeItem(rwCalKey(ctx.eventId)); } catch (e) {}
-  ctx.cal = null;
+  ctx.calDay = ctx.calDay === day ? null : day;
   rewatchRender();
 }
 
-// Video position for a match, from the anchor
-function rwOffsetFor(m, cal) {
-  if (!cal || m.t === null) return null;
+function rewatchClearCal(day) {
+  const ctx = window._rwCtx; if (!ctx) return;
+  if (day && ctx.cal) delete ctx.cal[day];
+  else ctx.cal = {};
+  rwSaveCal(ctx.eventId, ctx.cal || {});
+  rewatchRender();
+}
+
+// Video position for a match, from whichever day's stream covers it
+function rwOffsetFor(m, calByDay) {
+  if (m.t === null) return null;
+  const cal = (calByDay && calByDay.videoId) ? calByDay : rwCalForMatch(m, calByDay);
+  if (!cal) return null;
   return Math.max(0, cal.anchorSeconds + Math.round((m.t - cal.anchorMs) / 1000));
 }
 
@@ -2114,7 +2174,6 @@ function rewatchRender() {
   let html = '';
 
   // Event chooser
-  const ev = ctx.events.find(e => String(e.id) === String(ctx.eventId));
   html += `<div class="rw-block">
     <div class="detail-block-label">Event</div>
     <div class="rw-events">
@@ -2135,84 +2194,106 @@ function rewatchRender() {
     return;
   }
 
-  // Stream + calibration
-  const cal = ctx.cal;
-  html += `<div class="rw-block">
-    <div class="detail-block-label">Stream</div>`;
-  if (cal) {
-    const anchorM = ctx.matches.find(m => String(m.id) === String(cal.anchorMatchId));
-    html += `<div class="rw-calibrated">
-      <span class="rw-cal-ok">✓ CALIBRATED</span>
-      <span class="rw-cal-detail">${anchorM ? anchorM.name : 'anchor'} at ${rwFmtClock(cal.anchorSeconds)} · video ${cal.videoId}</span>
-      <button class="draft-btn" onclick="rewatchClearCal()">RECALIBRATE</button>
-    </div>`;
-  } else {
-    html += `<div class="rw-hint">${ctx.autoWebcast
-      ? 'Found a stream link on this event. Anchor it to one match below and every other match becomes clickable.'
-      : 'Paste the event\'s YouTube stream, then tell us where <em>one</em> match starts in it. Everything else is calculated from that.'}</div>
-    <div class="controls-row">
-      <div class="input-wrap" style="flex:2;min-width:220px;"><span class="input-label">YOUTUBE LINK</span>
-        <input type="text" id="rwVideoInput" value="${ctx.videoId || ''}" placeholder="https://youtube.com/watch?v=..." autocomplete="off"></div>
-    </div>
-    <div class="controls-row" style="margin-top:12px;">
-      <div class="input-wrap select-wrap" style="min-width:190px;"><span class="input-label">THIS MATCH…</span>
-        <select id="rwAnchorMatch">
-          ${ctx.matches.filter(m => m.t !== null).map(m => `<option value="${m.id}">${m.name}</option>`).join('')}
-        </select></div>
-      <div class="input-wrap" style="min-width:170px;"><span class="input-label">…STARTS AT</span>
-        <input type="text" id="rwAnchorTime" placeholder="3:29:02  or  12542" autocomplete="off"></div>
-      <button class="btn btn-primary" onclick="rewatchCalibrate()">CALIBRATE</button>
-    </div>
-    <div class="rw-hint" style="margin-top:10px;">Tip: in YouTube, right-click the video at the moment a match starts → <strong>Copy video URL at current time</strong> → paste it straight into the time box.</div>`;
+  // ── Group this team's matches by the day they were played ──
+  const byDay = {};
+  for (const m of ctx.matches) {
+    const k = rwDayKey(m.t);
+    (byDay[k] = byDay[k] || []).push(m);
   }
-  html += `</div>`;
+  const days = Object.keys(byDay).sort();
+  const multiDay = days.filter(d => d !== 'unknown').length > 1;
+  const calAll = ctx.cal || {};
 
-  // Player
-  if (ctx.playing && cal) {
+  // Player sits above the day list once something is playing
+  if (ctx.playing) {
     const m = ctx.matches.find(x => String(x.id) === String(ctx.playing.matchId));
-    html += `<div class="rw-block" id="rwPlayer">
-      <div class="detail-block-label">${m ? m.name : 'Match'} · ${rwFmtClock(ctx.playing.off)}</div>
-      <div class="rw-embed">
-        <iframe src="https://www.youtube.com/embed/${cal.videoId}?start=${ctx.playing.off}&autoplay=1"
-          title="Match video" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe>
-      </div>
-      <a class="rw-fallback" href="https://www.youtube.com/watch?v=${cal.videoId}&t=${ctx.playing.off}s" target="_blank" rel="noopener">
-        Video not loading? Open on YouTube at ${rwFmtClock(ctx.playing.off)} →
-      </a>
-    </div>`;
+    const pcal = m ? rwCalForMatch(m, calAll) : null;
+    if (pcal) {
+      html += `<div class="rw-block" id="rwPlayer">
+        <div class="detail-block-label">${m ? m.name : 'Match'} · ${rwFmtClock(ctx.playing.off)}</div>
+        <div class="rw-embed">
+          <iframe src="https://www.youtube.com/embed/${pcal.videoId}?start=${ctx.playing.off}&autoplay=1"
+            title="Match video" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+        </div>
+        <a class="rw-fallback" href="https://www.youtube.com/watch?v=${pcal.videoId}&t=${ctx.playing.off}s" target="_blank" rel="noopener">
+          Video not loading? Open on YouTube at ${rwFmtClock(ctx.playing.off)} →
+        </a>
+      </div>`;
+    }
   }
 
-  // Match list
-  const roundName = m => m.round === 2 ? 'Qualification' : (m.round === 1 ? 'Practice' : 'Elimination');
-  const groups = {};
-  for (const m of ctx.matches) { (groups[roundName(m)] = groups[roundName(m)] || []).push(m); }
-  const order = ['Qualification', 'Elimination', 'Practice'].filter(k => groups[k]);
+  if (multiDay) {
+    html += `<div class="rw-hint rw-multiday">This event ran across ${days.filter(d => d !== 'unknown').length} days, so each day has its own stream. Calibrate them one at a time — a day is only clickable once its stream is set.</div>`;
+  }
 
-  html += `<div class="rw-block">
-    <div class="detail-block-label">Matches (${ctx.matches.length})</div>`;
-  if (!cal) html += `<div class="rw-hint">Calibrate above to enable jumping.</div>`;
-  for (const g of order) {
-    html += `<div class="rw-group-label">${g}</div><div class="rw-list">`;
-    for (const m of groups[g]) {
-      const off = rwOffsetFor(m, cal);
-      const played = m.redScore !== null && m.blueScore !== null;
-      const myScore = m.onRed ? m.redScore : m.blueScore;
-      const oppScore = m.onRed ? m.blueScore : m.redScore;
-      const res = played ? (myScore > oppScore ? 'win' : myScore < oppScore ? 'loss' : 'tie') : 'pending';
-      html += `<div class="rw-row ${res}">
-        <div class="rw-name">${m.name}${!m.exact && m.t !== null ? '<span class="rw-approx" title="This match has no start time from the API — using its scheduled time, so the jump may be off">~</span>' : ''}</div>
-        <div class="rw-teams"><span class="${m.onRed ? 'rw-red' : 'rw-blue'}">${(m.onRed ? m.redNums : m.blueNums).join(' ')}</span>
-          <span class="rw-vs">vs</span>
-          <span class="${m.onRed ? 'rw-blue' : 'rw-red'}">${(m.onRed ? m.blueNums : m.redNums).join(' ')}</span></div>
-        <div class="rw-score">${played ? `${m.redScore}–${m.blueScore}` : '—'}</div>
-        <div class="rw-action">${off !== null
-          ? `<button class="rw-watch" onclick="rewatchJump('${m.id}')">▶ ${rwFmtClock(off)}</button>`
-          : `<span class="rw-noclock">${cal ? 'no timestamp' : ''}</span>`}</div>
+  // ── One section per day: its stream, then its matches ──
+  for (const day of days) {
+    const cal = calAll[day] || null;
+    const dayMatches = byDay[day];
+    const formOpen = ctx.calDay === day || (!cal && !multiDay && days.length === 1);
+
+    html += `<div class="rw-block">
+      <div class="rw-day-head">
+        <div class="detail-block-label" style="margin:0;">${multiDay ? rwDayLabel(day) : 'Stream'}</div>
+        ${cal
+          ? `<span class="rw-cal-ok">✓ ${cal.videoId}</span>
+             <button class="draft-btn" onclick="rewatchCalibrateDay('${day}')">RECALIBRATE</button>`
+          : `<button class="draft-btn" onclick="rewatchCalibrateDay('${day}')">${formOpen ? 'CANCEL' : '+ ADD STREAM'}</button>`}
       </div>`;
+
+    if (cal && !formOpen) {
+      const anchorM = ctx.matches.find(m => String(m.id) === String(cal.anchorMatchId));
+      html += `<div class="rw-cal-detail">anchored to ${anchorM ? anchorM.name : 'a match'} at ${rwFmtClock(cal.anchorSeconds)}</div>`;
+    }
+
+    if (formOpen) {
+      html += `<div class="rw-hint">${ctx.autoWebcast
+        ? 'Found a stream link on this event. Anchor it to one match below and the rest become clickable.'
+        : 'Paste this day\'s YouTube stream, then say where <em>one</em> of its matches starts. Everything else is calculated from that.'}</div>
+      <div class="controls-row">
+        <div class="input-wrap" style="flex:2;min-width:220px;"><span class="input-label">YOUTUBE LINK</span>
+          <input type="text" id="rwVideoInput" value="${(cal && cal.videoId) || ctx.videoId || ''}" placeholder="https://youtube.com/watch?v=..." autocomplete="off"></div>
+      </div>
+      <div class="controls-row" style="margin-top:12px;">
+        <div class="input-wrap select-wrap" style="min-width:190px;"><span class="input-label">THIS MATCH…</span>
+          <select id="rwAnchorMatch">
+            ${dayMatches.filter(m => m.t !== null).map(m => `<option value="${m.id}">${m.name}</option>`).join('')}
+          </select></div>
+        <div class="input-wrap" style="min-width:170px;"><span class="input-label">…STARTS AT</span>
+          <input type="text" id="rwAnchorTime" placeholder="3:29:02  or  12542" autocomplete="off"></div>
+        <button class="btn btn-primary" onclick="rewatchCalibrate()">CALIBRATE</button>
+      </div>
+      <div class="rw-hint" style="margin-top:10px;">Tip: in YouTube, right-click the video at the moment a match starts → <strong>Copy video URL at current time</strong> → paste it straight into the time box.</div>`;
+    }
+
+    // Matches for this day, grouped by round
+    const roundName = m => m.round === 2 ? 'Qualification' : (m.round === 1 ? 'Practice' : 'Elimination');
+    const groups = {};
+    for (const m of dayMatches) { (groups[roundName(m)] = groups[roundName(m)] || []).push(m); }
+    const order = ['Qualification', 'Elimination', 'Practice'].filter(k => groups[k]);
+    for (const g of order) {
+      html += `<div class="rw-group-label">${g}</div><div class="rw-list">`;
+      for (const m of groups[g]) {
+        const off = rwOffsetFor(m, calAll);
+        const played = m.redScore !== null && m.blueScore !== null;
+        const myScore = m.onRed ? m.redScore : m.blueScore;
+        const oppScore = m.onRed ? m.blueScore : m.redScore;
+        const res = played ? (myScore > oppScore ? 'win' : myScore < oppScore ? 'loss' : 'tie') : 'pending';
+        html += `<div class="rw-row ${res}">
+          <div class="rw-name">${m.name}${!m.exact && m.t !== null ? '<span class="rw-approx" title="This match has no start time from the API — using its scheduled time, so the jump may be off">~</span>' : ''}</div>
+          <div class="rw-teams"><span class="${m.onRed ? 'rw-red' : 'rw-blue'}">${(m.onRed ? m.redNums : m.blueNums).join(' ')}</span>
+            <span class="rw-vs">vs</span>
+            <span class="${m.onRed ? 'rw-blue' : 'rw-red'}">${(m.onRed ? m.blueNums : m.redNums).join(' ')}</span></div>
+          <div class="rw-score">${played ? `${m.redScore}–${m.blueScore}` : '—'}</div>
+          <div class="rw-action">${off !== null
+            ? `<button class="rw-watch" onclick="rewatchJump('${m.id}')">▶ ${rwFmtClock(off)}</button>`
+            : `<span class="rw-noclock">${Object.keys(calAll).length ? 'no stream for this day' : ''}</span>`}</div>
+        </div>`;
+      }
+      html += `</div>`;
     }
     html += `</div>`;
   }
-  html += `</div>`;
 
   out.innerHTML = html;
   enhanceAllSelects();
