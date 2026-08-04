@@ -1370,6 +1370,20 @@
     background: transparent; color: var(--text-muted); border: 1px solid var(--border); transition: all 0.15s;
   }
   .rw-nudge button:hover { color: var(--accent-bright); border-color: var(--accent); }
+
+  .rw-anchors { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 10px; }
+  .rw-anchor-tag { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 11px;
+    color: var(--text-dim); border: 1px solid var(--accent-dim); padding: 4px 6px 4px 10px; letter-spacing: 0.5px; }
+  .rw-anchor-tag button { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 13px; padding: 0 2px; }
+  .rw-anchor-tag button:hover { color: var(--accent-bright); }
+  .rw-shift-row { align-items: flex-end; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+  .rw-warn { border-left: 2px solid var(--accent-dim); padding-left: 10px; }
+
+  .rw-cal-embed { margin: 10px 0 4px; }
+  .rw-scrub-hint { font-family: var(--body); font-size: 12px; color: var(--text-muted); margin-top: 12px; }
+  .rw-manual { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .rw-manual-label { font-family: var(--body); font-size: 11px; color: var(--text-muted); }
+  .rw-manual input { max-width: 130px; padding: 6px 10px; font-size: 12px; }
 </style>
 </head>
 <body class="theme-dark-grey">
@@ -2153,44 +2167,186 @@ function rwAnchorForDay(ctx, day) {
   return mine ? { t: mine.t, name: mine.name, exact: mine.exact } : null;
 }
 
+// Video position for a match.
+//
+// With ONE anchor we assume video time and wall-clock time advance together.
+// That's wrong the moment a stream pauses — lunch, awards, a field fault — so a
+// single anchor drifts further the further you get from it.
+//
+// With TWO OR MORE anchors we interpolate between the surrounding pair, which
+// absorbs whatever happened in between automatically: if 90 minutes of wall
+// clock only advanced the video by 50 minutes, a 40-minute break is implied and
+// every match between those anchors lands correctly. Outside the anchored range
+// we extrapolate using the nearest pair's real rate.
+function rwOffsetFor(m, calByDay) {
+  if (m.t === null || m.t === undefined) return null;
+  const cal = (calByDay && (calByDay.videoId || calByDay.anchors)) ? calByDay : rwCalForMatch(m, calByDay);
+  if (!cal) return null;
+  const A = (cal.anchors && cal.anchors.length)
+    ? cal.anchors.slice().sort((a, b) => a.matchMs - b.matchMs)
+    : (cal.anchorMs !== undefined ? [{ matchMs: cal.anchorMs, videoSec: cal.anchorSeconds }] : []);
+  if (!A.length) return null;
+
+  if (A.length === 1) {
+    return Math.max(0, Math.round(A[0].videoSec + (m.t - A[0].matchMs) / 1000));
+  }
+  // Outside the anchored range we have no evidence of a pause, so assume the
+  // video advances with the wall clock. (Using the neighbouring segment's rate
+  // would be wrong whenever that segment happens to contain a break — it would
+  // stretch or compress every match beyond the anchors.)
+  if (m.t <= A[0].matchMs) {
+    return Math.max(0, Math.round(A[0].videoSec + (m.t - A[0].matchMs) / 1000));
+  }
+  const last = A.length - 1;
+  if (m.t >= A[last].matchMs) {
+    return Math.max(0, Math.round(A[last].videoSec + (m.t - A[last].matchMs) / 1000));
+  }
+  for (let i = 0; i < last; i++) {
+    if (m.t >= A[i].matchMs && m.t <= A[i + 1].matchMs) {
+      const span = A[i + 1].matchMs - A[i].matchMs || 1;
+      const frac = (m.t - A[i].matchMs) / span;
+      return Math.max(0, Math.round(A[i].videoSec + frac * (A[i + 1].videoSec - A[i].videoSec)));
+    }
+  }
+  return null;
+}
+
+function rewatchJump(matchId) {
+  const ctx = window._rwCtx; if (!ctx) return;
+  const m = ctx.matches.find(x => String(x.id) === String(matchId));
+  if (!m) return;
+  const off = rwOffsetFor(m, ctx.cal);
+  if (off === null) return;
+  ctx.playing = { matchId, off };
+  rewatchRender();
+  const p = document.getElementById('rwPlayer');
+  if (p && p.scrollIntoView) p.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+// ── Scrub-and-click calibration ───────────────────────────────────────────
+// The YouTube IFrame API (no key required) exposes getCurrentTime(), so the
+// calibration player can report exactly where you paused. That removes the
+// copy-a-URL-and-paste-it-back step entirely.
+let rwYTReady = false, rwYTPending = null;
+window.rwCalPlayer = null;   // on window so it's reachable everywhere
+function rwLoadYT() {
+  if (window.YT && window.YT.Player) { rwYTReady = true; return; }
+  if (document.getElementById('rw-yt-api')) return;
+  const s = document.createElement('script');
+  s.id = 'rw-yt-api';
+  s.src = 'https://www.youtube.com/iframe_api';
+  document.head.appendChild(s);
+}
+window.onYouTubeIframeAPIReady = function () {
+  rwYTReady = true;
+  if (rwYTPending) { const p = rwYTPending; rwYTPending = null; rwMountCalPlayer(p.videoId, p.start); }
+};
+
+// Mount (or re-point) the scrubbing player inside the calibration form
+function rwMountCalPlayer(videoId, start) {
+  const host = document.getElementById('rwCalPlayer');
+  if (!host || !videoId) return;
+  if (!rwYTReady) { rwLoadYT(); rwYTPending = { videoId, start }; return; }
+  try {
+    if (window.rwCalPlayer && window.rwCalPlayer.loadVideoById) {
+      window.rwCalPlayer.loadVideoById({ videoId, startSeconds: start || 0 });
+      return;
+    }
+    host.innerHTML = '<div id="rwCalPlayerInner"></div>';
+    window.rwCalPlayer = new YT.Player('rwCalPlayerInner', {
+      videoId, playerVars: { start: start || 0, rel: 0 },
+      events: { onReady: () => {} }
+    });
+  } catch (e) { /* fall back to typing a timestamp */ }
+}
+
+// Load whatever's in the link box into the scrubbing player
+function rwPreviewVideo() {
+  const vid = rwParseVideoId((document.getElementById('rwVideoInput') || {}).value || '');
+  if (!vid) { showError('\u26a0 Paste a YouTube link first.'); return; }
+  showError('');
+  const ctx = window._rwCtx;
+  // Start near an existing anchor if we have one, so you land in the right area
+  let start = 0;
+  const cal = ctx && ctx.cal && ctx.calDay ? ctx.cal[ctx.calDay] : null;
+  if (cal && cal.anchors && cal.anchors.length) start = cal.anchors[cal.anchors.length - 1].videoSec;
+  document.getElementById('rwCalPlayerWrap').style.display = '';
+  rwMountCalPlayer(vid, start);
+}
+
+// Grab the player's current position straight into the timestamp box
+function rwUseCurrentTime() {
+  if (!window.rwCalPlayer || !window.rwCalPlayer.getCurrentTime) { showError('\u26a0 Load the video first, then scrub to a match.'); return; }
+  const t = Math.floor(window.rwCalPlayer.getCurrentTime() || 0);
+  const box = document.getElementById('rwAnchorTime');
+  if (box) box.value = rwFmtClock(t);
+  showError('');
+}
+
+// Scrub-and-set in one action: read the player, anchor the chosen match, done.
+function rwSetAnchorHere(day) {
+  if (!window.rwCalPlayer || !window.rwCalPlayer.getCurrentTime) { showError('\u26a0 Load the video first, then scrub to a match.'); return; }
+  const box = document.getElementById('rwAnchorTime');
+  if (box) box.value = rwFmtClock(Math.floor(window.rwCalPlayer.getCurrentTime() || 0));
+  rewatchCalibrate(day);
+}
+
 function rewatchCalibrate(day) {
   const ctx = window._rwCtx; if (!ctx) return;
   day = day || ctx.calDay;
   const vid = rwParseVideoId(document.getElementById('rwVideoInput').value);
   if (!vid) { showError('⚠ That doesn\'t look like a YouTube link or video ID.'); return; }
   const secs = rwParseSeconds(document.getElementById('rwAnchorTime').value);
-  if (secs === null) { showError('⚠ Enter the video time as seconds (600), a clock time (10:00), or paste a youtu.be link with ?t='); return; }
-  const anchor = rwAnchorForDay(ctx, day);
-  if (!anchor) { showError('⚠ Couldn\'t work out when this day\'s first match ran.'); return; }
+  if (secs === null) { showError('⚠ Enter the video time as a clock time (1:27:22), seconds (5242), or paste a youtu.be link with ?t='); return; }
+  const matchId = (document.getElementById('rwAnchorMatch') || {}).value;
+  const m = ctx.matches.find(x => String(x.id) === String(matchId));
+  if (!m || m.t === null) { showError('⚠ Pick which match that timestamp belongs to.'); return; }
   showError('');
   ctx.videoId = vid;
   ctx.cal = ctx.cal || {};
-  ctx.cal[day] = { videoId: vid, anchorName: anchor.name, anchorSeconds: secs, anchorMs: anchor.t, day, savedAt: Date.now() };
+  const cur = ctx.cal[day] || { videoId: vid, anchors: [], day };
+  cur.videoId = vid;
+  cur.anchors = (cur.anchors || []).filter(a => String(a.matchId) !== String(m.id));
+  cur.anchors.push({ matchId: m.id, name: m.name, matchMs: m.t, videoSec: secs });
+  cur.anchors.sort((a, b) => a.matchMs - b.matchMs);
+  cur.savedAt = Date.now();
+  ctx.cal[day] = cur;
   rwSaveCal(ctx.eventId, ctx.cal);
   ctx.calDay = null;
   rewatchRender();
 }
 
-// Shift a whole day's timings without re-entering anything
-function rewatchNudge(day, deltaSec) {
+function rewatchRemoveAnchor(day, matchId) {
   const ctx = window._rwCtx; if (!ctx || !ctx.cal || !ctx.cal[day]) return;
-  ctx.cal[day].anchorSeconds = Math.max(0, ctx.cal[day].anchorSeconds + deltaSec);
+  const cal = ctx.cal[day];
+  cal.anchors = (cal.anchors || []).filter(a => String(a.matchId) !== String(matchId));
+  if (!cal.anchors.length) delete ctx.cal[day];
   rwSaveCal(ctx.eventId, ctx.cal);
   rewatchRender();
 }
 
-// Rough starting point: VEX streams usually go live ~20 min before the first
-// match (setup, opening ceremony). Not exact — meant to be nudged from.
-function rewatchGuess(day) {
-  const ctx = window._rwCtx; if (!ctx) return;
-  const input = document.getElementById('rwAnchorTime');
-  if (input) input.value = rwFmtClock(20 * 60);
+// Shift a whole day by a number of minutes (accepts decimals and negatives)
+function rewatchShift(day) {
+  const ctx = window._rwCtx; if (!ctx || !ctx.cal || !ctx.cal[day]) return;
+  const raw = (document.getElementById('rwShift_' + day) || {}).value || '';
+  const mins = parseFloat(raw);
+  if (isNaN(mins)) { showError('⚠ Enter how many minutes to shift by, e.g. 2 or -1.5'); return; }
   showError('');
-  const vid = rwParseVideoId((document.getElementById('rwVideoInput') || {}).value || '');
-  if (vid) rewatchCalibrate(day);
+  const cal = ctx.cal[day];
+  const delta = Math.round(mins * 60);
+  (cal.anchors || []).forEach(a => { a.videoSec = Math.max(0, a.videoSec + delta); });
+  rwSaveCal(ctx.eventId, ctx.cal);
+  rewatchRender();
 }
 
-// Open the calibration form for one specific day
+function rewatchNudge(day, deltaSec) {
+  const ctx = window._rwCtx; if (!ctx || !ctx.cal || !ctx.cal[day]) return;
+  (ctx.cal[day].anchors || []).forEach(a => { a.videoSec = Math.max(0, a.videoSec + deltaSec); });
+  rwSaveCal(ctx.eventId, ctx.cal);
+  rewatchRender();
+}
+
+// Open/close the calibration form for one day
 function rewatchCalibrateDay(day) {
   const ctx = window._rwCtx; if (!ctx) return;
   ctx.calDay = ctx.calDay === day ? null : day;
@@ -2203,26 +2359,6 @@ function rewatchClearCal(day) {
   else ctx.cal = {};
   rwSaveCal(ctx.eventId, ctx.cal || {});
   rewatchRender();
-}
-
-// Video position for a match, from whichever day's stream covers it
-function rwOffsetFor(m, calByDay) {
-  if (m.t === null) return null;
-  const cal = (calByDay && calByDay.videoId) ? calByDay : rwCalForMatch(m, calByDay);
-  if (!cal) return null;
-  return Math.max(0, cal.anchorSeconds + Math.round((m.t - cal.anchorMs) / 1000));
-}
-
-function rewatchJump(matchId) {
-  const ctx = window._rwCtx; if (!ctx || !ctx.cal) return;
-  const m = ctx.matches.find(x => String(x.id) === String(matchId));
-  if (!m) return;
-  const off = rwOffsetFor(m, ctx.cal);
-  if (off === null) return;
-  ctx.playing = { matchId, off };
-  rewatchRender();
-  const p = document.getElementById('rwPlayer');
-  if (p) p.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
 function rewatchRender() {
@@ -2296,39 +2432,58 @@ function rewatchRender() {
         <div class="detail-block-label" style="margin:0;">${multiDay ? rwDayLabel(day) : 'Stream'}</div>
         ${cal
           ? `<span class="rw-cal-ok">✓ ${cal.videoId}</span>
-             <button class="draft-btn" onclick="rewatchCalibrateDay('${day}')">RECALIBRATE</button>`
+             <button class="draft-btn" onclick="rewatchClearCal('${day}')">RESET</button>`
           : `<button class="draft-btn" onclick="rewatchCalibrateDay('${day}')">${formOpen ? 'CANCEL' : '+ ADD STREAM'}</button>`}
       </div>`;
 
     if (cal && !formOpen) {
-      html += `<div class="rw-cal-row">
-        <span class="rw-cal-detail">${cal.anchorName || 'first match'} at ${rwFmtClock(cal.anchorSeconds)}</span>
+      const anchors = (cal.anchors || []).slice().sort((a, b) => a.matchMs - b.matchMs);
+      html += `<div class="rw-anchors">
+        ${anchors.map(a => `<span class="rw-anchor-tag">${a.name} @ ${rwFmtClock(a.videoSec)}
+          <button title="remove" onclick="rewatchRemoveAnchor('${day}','${a.matchId}')">×</button></span>`).join('')}
+        <button class="draft-btn" onclick="rewatchCalibrateDay('${day}')">+ ADD ANCHOR</button>
+      </div>
+      ${anchors.length === 1
+        ? `<div class="rw-hint rw-warn">One anchor only — times drift the further you get from ${anchors[0].name}, because streams pause for lunch and awards. If a distant match is off, add a second anchor near it and everything in between corrects itself.</div>`
+        : `<div class="rw-hint">${anchors.length} anchors — matches between them are interpolated, so breaks in the stream are handled automatically.</div>`}
+      <div class="controls-row rw-shift-row">
+        <div class="input-wrap" style="max-width:170px;"><span class="input-label">SHIFT BY (MINUTES)</span>
+          <input type="text" id="rwShift_${day}" placeholder="2  or  -1.5" autocomplete="off"></div>
+        <button class="btn btn-secondary" onclick="rewatchShift('${day}')">APPLY SHIFT</button>
         <span class="rw-nudge">
-          <span class="rw-nudge-label">everything early?</span>
           <button onclick="rewatchNudge('${day}', -30)">−30s</button>
           <button onclick="rewatchNudge('${day}', -5)">−5s</button>
           <button onclick="rewatchNudge('${day}', 5)">+5s</button>
           <button onclick="rewatchNudge('${day}', 30)">+30s</button>
-          <span class="rw-nudge-label">late?</span>
         </span>
       </div>`;
     }
 
     if (formOpen) {
-      const anchor = rwAnchorForDay(ctx, day);
-      const anchorName = anchor ? anchor.name : 'the first match';
-      html += `<div class="rw-hint">Paste this day's stream, then find <strong>${anchorName}</strong> in it — the first qualification match of the day — and enter where it starts. Every other match is calculated from that one point.</div>
+      const pick = dayMatches.filter(m => m.t !== null);
+      const existing = (cal && cal.anchors) ? cal.anchors.length : 0;
+      html += `<div class="rw-hint">Load the stream, scrub to any one of your matches, and click <strong>SET ANCHOR HERE</strong>. Everything else becomes one-click from that point on.</div>
       <div class="controls-row">
         <div class="input-wrap" style="flex:2;min-width:220px;"><span class="input-label">YOUTUBE LINK</span>
           <input type="text" id="rwVideoInput" value="${(cal && cal.videoId) || ctx.videoId || ''}" placeholder="https://youtube.com/watch?v=..." autocomplete="off"></div>
+        <button class="btn btn-secondary" onclick="rwPreviewVideo()">LOAD VIDEO</button>
+      </div>
+      <div id="rwCalPlayerWrap" style="display:${(cal && cal.videoId) || ctx.videoId ? '' : 'none'};">
+        <div class="rw-scrub-hint">Scrub to the moment robots start moving, then pick which match it is and set the anchor.</div>
+        <div class="rw-embed rw-cal-embed"><div id="rwCalPlayer"></div></div>
       </div>
       <div class="controls-row" style="margin-top:12px;">
-        <div class="input-wrap" style="min-width:200px;"><span class="input-label">${anchorName.toUpperCase()} STARTS AT</span>
-          <input type="text" id="rwAnchorTime" placeholder="10:00  or  600" autocomplete="off"></div>
-        <button class="btn btn-primary" onclick="rewatchCalibrate('${day}')">CALIBRATE</button>
-        <button class="btn btn-secondary" onclick="rewatchGuess('${day}')">GUESS &amp; REFINE</button>
+        <div class="input-wrap select-wrap" style="min-width:190px;"><span class="input-label">THIS IS…</span>
+          <select id="rwAnchorMatch">
+            ${pick.map(m => `<option value="${m.id}">${m.name}</option>`).join('')}
+          </select></div>
+        <button class="btn btn-primary" onclick="rwSetAnchorHere('${day}')">SET ANCHOR HERE</button>
       </div>
-      <div class="rw-hint" style="margin-top:10px;">Right-click the video the instant robots start moving → <strong>Copy video URL at current time</strong> → paste it here. Not sure? Hit <strong>Guess &amp; Refine</strong> for a rough start, then nudge it.</div>`;
+      <div class="rw-manual">
+        <span class="rw-manual-label">or type the time yourself</span>
+        <input type="text" id="rwAnchorTime" placeholder="1:27:22" autocomplete="off">
+        <button class="draft-btn" onclick="rewatchCalibrate('${day}')">${existing ? 'ADD ANCHOR' : 'CALIBRATE'}</button>
+      </div>`;
     }
 
     // Matches for this day, grouped by round
@@ -2362,6 +2517,16 @@ function rewatchRender() {
 
   out.innerHTML = html;
   enhanceAllSelects();
+  // If a calibration form is open and we already know the video, show the player
+  if (ctx.calDay) {
+    const c = (ctx.cal || {})[ctx.calDay];
+    const vid = (c && c.videoId) || ctx.videoId;
+    if (vid) {
+      const start = (c && c.anchors && c.anchors.length) ? c.anchors[c.anchors.length - 1].videoSec : 0;
+      window.rwCalPlayer = null;   // the old node was just replaced
+      setTimeout(() => rwMountCalPlayer(vid, start), 30);
+    }
+  }
 }
 
 window.onload = () => {
