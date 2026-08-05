@@ -1385,14 +1385,23 @@
   .rw-manual-label { font-family: var(--body); font-size: 11px; color: var(--text-muted); }
   .rw-manual input { max-width: 130px; padding: 6px 10px; font-size: 12px; }
 
-  .rw-shift-bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
-  .rw-shift-cap { font-family: var(--body); font-size: 11px; color: var(--text-muted); }
-  .rw-shift-in { width: 58px; padding: 5px 8px; font-family: var(--mono); font-size: 11px; text-align: center; }
+  .rw-shift-bar { display: flex; align-items: center; gap: 5px; flex-wrap: nowrap; margin-bottom: 12px; }
+  .rw-shift-cap { font-family: var(--body); font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+  /* Needs the element+attribute prefix to beat the global input[type="text"]
+     rule, which is width:100% and was blowing these up to full width. */
+  input[type="text"].rw-shift-in {
+    width: 46px; flex: 0 0 46px; min-width: 0;
+    padding: 4px 6px; font-family: var(--mono); font-size: 10px; letter-spacing: 0;
+    text-align: center; background: transparent; border: 1px solid var(--border);
+  }
+  input[type="text"].rw-shift-in:focus { border-color: var(--accent); box-shadow: none; }
   .rw-shift-go, .rw-nudge-btn {
-    font-family: var(--mono); font-size: 10px; letter-spacing: 0.5px; padding: 5px 9px; cursor: pointer;
-    background: transparent; color: var(--text-muted); border: 1px solid var(--border); transition: all 0.15s;
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.5px; padding: 4px 9px; cursor: pointer;
+    background: transparent; color: var(--text-muted); border: 1px solid var(--border);
+    transition: all 0.15s; white-space: nowrap; line-height: 1.5;
   }
   .rw-shift-go:hover, .rw-nudge-btn:hover { color: var(--accent-bright); border-color: var(--accent); }
+  @media (max-width: 600px) { .rw-shift-bar { flex-wrap: wrap; } }
 </style>
 </head>
 <body class="theme-dark-grey">
@@ -2809,10 +2818,20 @@ async function apiGet(endpoint, params = {}) {
 // Set to the name of the current game. Match must be a piece of the season name.
 // Examples that work for the current season: "Push Back", "push back", "PUSH"
 // When a new game comes out (e.g. "Override"), just change this to: "Override"
-const DEFAULT_SEASON_NAME = "Push Back";
+const DEFAULT_SEASON_NAME = "Override";   // current V5RC game (2026-2027)
 // ───────────────────────────────────────────────
 
+// Fallback list used before the live /seasons call returns. Season IDs are
+// assigned by RobotEvents, so a new game is added here once its ID is known —
+// but the app does NOT depend on that: loadSeasonsFromAPI() replaces this list
+// with the real one and selects DEFAULT_SEASON_NAME by name, falling back to
+// the newest season if that name isn't found yet.
 const SEASONS = [
+  // NOTE: Override (2026-2027) is intentionally absent — its RobotEvents season
+  // ID isn't hardcoded here because guessing it would silently query the wrong
+  // season. loadSeasonsFromAPI() pulls the real list on startup and selects
+  // DEFAULT_SEASON_NAME from it; this array only covers the split-second before
+  // that returns, or a missing token.
   { id: 190, name: 'V5RC 2025-2026: Push Back' },
   { id: 182, name: 'V5RC 2024-2025: High Stakes' },
   { id: 173, name: 'V5RC 2023-2024: Over Under' },
@@ -2842,8 +2861,11 @@ function loadSeasons() {
   if (simSel) simSel.innerHTML = '';
   if (detailSel) detailSel.innerHTML = '';
   if (rwSel) rwSel.innerHTML = '';
+  // If DEFAULT_SEASON_NAME isn't in the fallback list yet (a brand-new game),
+  // fall back to the newest season we do know about rather than selecting none.
+  const haveDefault = SEASONS.some(isDefaultSeason);
   SEASONS.forEach((s, i) => {
-    const isDefault = DEFAULT_SEASON_NAME ? isDefaultSeason(s) : (i === 0);
+    const isDefault = (DEFAULT_SEASON_NAME && haveDefault) ? isDefaultSeason(s) : (i === 0);
     const opt = document.createElement('option');
     opt.value = s.id;
     opt.textContent = s.name;
@@ -3843,7 +3865,10 @@ async function renderEventTeamMatchesView() {
       const fieldMed = vals.length ? vals[Math.floor(vals.length / 2)] : 0;
       const avgAlliance = fieldMed * 2;
       const delta = avgOpp - avgAlliance;
-      favorTag = delta <= -6 ? 'FAVORABLE' : delta >= 6 ? 'BRUTAL' : 'AVERAGE';
+      // Same reasoning: 6 rating points means something different every season,
+      // so compare against 5% of what an average alliance scores at this event.
+      const favorBand = Math.max(1, avgAlliance * 0.05);
+      favorTag = delta <= -favorBand ? 'FAVORABLE' : delta >= favorBand ? 'BRUTAL' : 'AVERAGE';
       favorDetail = `avg opponent alliance ${avgOpp.toFixed(0)} TS vs event average ${avgAlliance.toFixed(0)} (${delta >= 0 ? '+' : ''}${delta.toFixed(1)})`;
     }
   }
@@ -6215,11 +6240,16 @@ function sim_teamProfile(p) {
   }
 
   // Close Match (+): record in matches decided by ≤7 points
-  const close = g.filter(x => Math.abs(x.margin) <= 7 && x.margin !== 0);
+  // "Close" has to scale with the game. A 7-point margin is a nail-biter in a
+  // 120-point game and a blowout in a 30-point one, so derive the threshold
+  // from this team's own typical alliance score (~6% of it) instead of a fixed
+  // number of points. That keeps the label meaningful in any season.
+  const closeThreshold = Math.max(2, Math.round(mean * 0.06));
+  const close = g.filter(x => Math.abs(x.margin) <= closeThreshold && x.margin !== 0);
   if (close.length >= 4) {
     const cw = close.filter(x => x.margin > 0).length / close.length;
-    if (cw >= 0.6) items.push({ kind: 'str', title: `Close Match (+) (${Math.round(cw * 100)}%)`, desc: 'Wins most matches decided by a touchdown or less \u2014 steady under pressure.' });
-    else if (cw <= 0.4) items.push({ kind: 'weak', title: `Close Match (-) (${Math.round(cw * 100)}%)`, desc: 'Tends to drop the tight ones decided by only a few points.' });
+    if (cw >= 0.6) items.push({ kind: 'str', title: `Close Match (+) (${Math.round(cw * 100)}%)`, desc: `Wins most matches decided by ${closeThreshold} points or fewer \u2014 steady under pressure.` });
+    else if (cw <= 0.4) items.push({ kind: 'weak', title: `Close Match (-) (${Math.round(cw * 100)}%)`, desc: `Tends to drop matches decided by ${closeThreshold} points or fewer.` });
   }
 
   // Trend: last 5 alliance scores vs earlier average
