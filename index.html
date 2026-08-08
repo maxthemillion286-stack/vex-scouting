@@ -3765,7 +3765,7 @@ async function renderEventTeamMatchesView() {
     const s = sidesOf(m); if (!s) continue;
     const rIds = idsOf(s.redA), bIds = idsOf(s.blueA);
     const rS = s.redA.score ?? null, bS = s.blueA.score ?? null;
-    const scored = rS !== null && bS !== null && !(rS === 0 && bS === 0 && startedMs(m) === null);
+    const scored = sim_matchPlayed(s.redA, s.blueA, m);
     const t = sim_matchTime(m) || 0;
     const autoW = (m.autonomous_winner || '').toLowerCase();
 
@@ -4370,11 +4370,12 @@ function renderBracketSeries(series, roundName) {
     if (!gRed || !gBlue) continue;
     const rs = gRed.score ?? 0;
     const bs = gBlue.score ?? 0;
-    if (gRed.score !== null && gRed.score !== undefined) {
+    const gPlayed = sim_matchPlayed(gRed, gBlue, game);
+    if (gPlayed) {
       if (rs > bs) redWins++;
       else if (bs > rs) blueWins++;
     }
-    gameRows.push({ rs, bs, played: gRed.score !== null && gRed.score !== undefined });
+    gameRows.push({ rs, bs, played: gPlayed });
   }
 
   const redWonSeries = redWins > blueWins;
@@ -4889,8 +4890,9 @@ async function gatherTeamData(teamNumber, seasonId, gradeLevel = 'High School') 
     const myScore  = myA.score  ?? 0;
     const oppScore = oppA.score ?? 0;
 
-    // Only count scored matches (both scores exist and at least one is nonzero)
-    if (myA.score === null || myA.score === undefined) continue;
+    // Skip anything not actually played — otherwise 0–0 future matches
+    // would all be counted as ties.
+    if (!sim_matchPlayed(redA, blueA, match)) continue;
     scores.push(myScore);
 
     // Detect signature event by checking if event name contains "Signature" (case-insensitive)
@@ -5315,7 +5317,7 @@ function renderEventSchedule(d, eventId) {
     if (!inRed && !inBlue) continue;
     const mine = inRed ? redA : blueA, theirs = inRed ? blueA : redA;
     const nums = a => (a.teams || []).map(x => x?.team?.name ?? x?.name ?? '?');
-    const played = mine.score !== null && mine.score !== undefined;
+    const played = sim_matchPlayed(redA, blueA, m);
     let cls = 'pending', label = '—';
     if (played) {
       if (mine.score > (theirs.score ?? 0)) { cls = 'win'; label = 'WIN'; }
@@ -5672,6 +5674,22 @@ function sim_recencyWeight(matchTimeMs, newestMs) {
   // just the last few weeks and thin out the estimate.
   return Math.max(0.25, Math.pow(0.5, days / 45));
 }
+// A match counts as PLAYED only when it has been scored. The VEX API reports
+// unplayed matches as 0–0 rather than null, so checking "score exists" alone
+// marks every future match as a tie. A real 0–0 is effectively impossible (the
+// autonomous bonus alone scores), so treat 0–0 as unplayed unless the match has
+// a start timestamp proving it ran.
+function sim_matchPlayed(redA, blueA, match) {
+  if (!redA || !blueA) return false;
+  const r = redA.score, b = blueA.score;
+  if (r === null || r === undefined || b === null || b === undefined) return false;
+  if (r === 0 && b === 0) {
+    const started = match && match.started ? Date.parse(match.started) : NaN;
+    return !isNaN(started);
+  }
+  return true;
+}
+
 function sim_matchTime(m) {
   const t = m.started || m.scheduled || null;
   if (!t) return null;
