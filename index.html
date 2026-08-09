@@ -1402,6 +1402,63 @@
   }
   .rw-shift-go:hover, .rw-nudge-btn:hover { color: var(--accent-bright); border-color: var(--accent); }
   @media (max-width: 600px) { .rw-shift-bar { flex-wrap: wrap; } }
+
+  /* ── Tournament sub-navigation ── */
+  .t-nav { display: flex; gap: 4px; border: 1px solid var(--border); background: var(--card); padding: 4px; margin: 12px 0; flex-wrap: wrap; }
+  .t-nav-btn {
+    flex: 1; min-width: 84px; background: transparent; border: none; cursor: pointer;
+    font-family: var(--display); font-size: 12px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase;
+    color: var(--text-muted); padding: 9px 10px; transition: all 0.2s;
+  }
+  .t-nav-btn:hover { color: var(--text); background: var(--card2); }
+  .t-nav-btn.active { color: #fff; background: var(--accent); }
+  .t-empty { text-align: center; padding: 40px; font-family: var(--mono); font-size: 13px; color: var(--text-muted); }
+
+  /* ── Event-wide match list ── */
+  .t-match-row {
+    display: grid; grid-template-columns: 108px 1fr 104px 1fr; align-items: center; gap: 10px;
+    background: var(--card); border: 1px solid var(--border); padding: 9px 14px;
+  }
+  .t-match-row.upcoming { opacity: 0.55; border-style: dashed; }
+  .t-match-name { font-family: var(--mono); font-size: 11px; color: var(--text-muted); letter-spacing: 0.5px; }
+  .t-match-div { font-size: 9px; color: var(--accent-dim); margin-top: 2px; }
+  .t-match-side { font-family: var(--mono); font-size: 12px; letter-spacing: 0.5px; }
+  .t-match-side span { cursor: pointer; }
+  .t-match-side span:hover { text-decoration: underline; }
+  .t-match-side.red { color: #ff6b6b; }
+  .t-match-side.blue { color: #6ba7ff; text-align: right; }
+  .t-match-side.won { font-weight: 700; }
+  .t-match-side.won::after { content: ' ✓'; opacity: 0.7; font-size: 10px; }
+  .t-match-score { font-family: var(--display); font-weight: 700; font-size: 16px; text-align: center; color: var(--text); font-variant-numeric: tabular-nums; }
+  .t-dash { color: var(--text-muted); margin: 0 3px; font-weight: 400; }
+  .t-pending { font-family: var(--mono); font-size: 10px; color: var(--text-muted); font-weight: 400; letter-spacing: 0.5px; }
+  .match-team-self { color: var(--accent-bright) !important; font-weight: 700; }
+
+  /* ── Event skills standings ── */
+  .t-skills { display: flex; flex-direction: column; gap: 1px; background: var(--border); border: 1px solid var(--border); margin-top: 4px; }
+  .t-skills-head, .t-skills-row {
+    display: grid; grid-template-columns: 54px 1fr 88px 88px 88px; align-items: center; gap: 10px;
+    background: var(--card); padding: 10px 16px;
+  }
+  .t-skills-head { background: var(--card2); font-family: var(--mono); font-size: 9px; letter-spacing: 2px; color: var(--text-muted); }
+  .t-skills-head > div:nth-child(n+3), .t-skills-row > div:nth-child(n+3) { text-align: right; }
+  .t-skills-row { cursor: pointer; transition: background 0.15s; }
+  .t-skills-row:hover { background: var(--card2); }
+  .t-skills-row.self { box-shadow: inset 3px 0 0 var(--accent-bright); }
+  .t-sk-rank { font-family: var(--mono); font-size: 13px; color: var(--text-muted); }
+  .t-sk-team { font-family: var(--display); font-weight: 700; font-size: 15px; color: var(--text); }
+  .t-skills-row.self .t-sk-team { color: var(--accent-bright); }
+  .t-sk-val { font-family: var(--mono); font-size: 13px; color: var(--text-dim); }
+  .t-sk-total { font-family: var(--display); font-weight: 700; font-size: 16px; color: var(--accent-bright); }
+
+  @media (max-width: 700px) {
+    .t-nav-btn { font-size: 10px; min-width: 62px; padding: 8px 6px; letter-spacing: 0.5px; }
+    .t-match-row { grid-template-columns: 76px 1fr 76px 1fr; gap: 6px; padding: 8px 10px; }
+    .t-match-side { font-size: 10px; }
+    .t-match-score { font-size: 13px; }
+    .t-skills-head, .t-skills-row { grid-template-columns: 36px 1fr 58px 58px 58px; gap: 6px; padding: 9px 10px; }
+    .t-sk-team { font-size: 13px; }
+  }
 </style>
 </head>
 <body class="theme-dark-grey">
@@ -3665,6 +3722,9 @@ let tournamentFocusTeamNumber = '';
 
 async function loadTournamentTeams(eventId, eventName, focusTeamId, focusTeamNumber) {
   selectedTournamentTeams.clear();
+  tournamentMatchCache = null;
+  tournamentSkillsCache = null;
+  tournamentView = 'teams';
   tournamentEventId = eventId;
   tournamentEventName = eventName;
   tournamentFocusTeamId = focusTeamId || null;
@@ -3879,11 +3939,12 @@ async function renderEventTeamMatchesView() {
       <div class="tournament-summary-name">${tournamentEventName}</div>
       <div class="tournament-summary-count">Matches for <span style="color:var(--accent-bright);font-weight:700;">${tournamentFocusTeamNumber}</span></div>
       <div class="tournament-summary-actions">
-        <button class="btn btn-secondary" onclick="loadAndRenderTeamList()">SHOW ALL TEAMS</button>
-        <button class="btn btn-secondary" onclick="renderBracketView()">ELIMINATION BRACKET</button>
+        <button class="btn btn-primary" onclick="detailScoutFromTournament('${tournamentFocusTeamNumber}')">SCOUT ${tournamentFocusTeamNumber}</button>
+        <button class="btn btn-secondary" onclick="multiScoutFromTournament('${tournamentFocusTeamNumber}')">MULTI SCOUT</button>
         <button class="btn btn-secondary" onclick="renderEventTeamMatchesView()">⟳ REFRESH</button>
       </div>
-    </div>`;
+    </div>
+    ${tournamentNav('team')}`;
 
   if (!myMatches.length) {
     html += `<div style="text-align:center;padding:40px;font-family:var(--mono);color:var(--text-muted);">No matches found for ${tournamentFocusTeamNumber} at this event.</div>`;
@@ -4527,6 +4588,233 @@ async function loadAndRenderTeamList() {
   loadingEl.classList.remove('active');
 }
 
+
+// ═══════════════════════════════════════════════════════════════
+// TOURNAMENT SUB-VIEWS
+// A shared header lets you move between the team list, every match at the
+// event, the event's skills standings, and the elimination bracket.
+// ═══════════════════════════════════════════════════════════════
+let tournamentView = 'teams';
+let tournamentMatchCache = null;   // all event matches, fetched once
+let tournamentSkillsCache = null;  // event skills standings, fetched once
+
+// Open one team in the detailed Scout tab
+// (named distinctly — scoutFromTournament() already exists and sends to Multi Scout)
+function detailScoutFromTournament(teamNumber) {
+  const input = document.getElementById('detailTeamInput');
+  if (input) input.value = teamNumber;
+  const g = document.getElementById('detailGradeSelect');
+  if (g && tournamentGrade) { g.value = tournamentGrade; g.dispatchEvent(new Event('change', { bubbles: true })); }
+  switchTab('scout');
+  runDetailedScout();
+}
+
+// Send this team (plus anything multi-selected) to Multi Scout
+function multiScoutFromTournament(teamNumber) {
+  const list = new Set(selectedTournamentTeams);
+  if (teamNumber) list.add(teamNumber);
+  const input = document.getElementById('teamInput');
+  if (input) input.value = [...list].join(', ');
+  const g = document.getElementById('scoutGradeSelect');
+  if (g && tournamentGrade) { g.value = tournamentGrade; g.dispatchEvent(new Event('change', { bubbles: true })); }
+  switchTab('quickscout');
+  scoutTeams();
+}
+
+function tournamentNav(active) {
+  const btn = (id, label) => `<button class="t-nav-btn${active === id ? ' active' : ''}" onclick="tournamentGo('${id}')">${label}</button>`;
+  return `<div class="t-nav">
+    ${btn('teams', 'Teams')}
+    ${btn('matches', 'Matches')}
+    ${btn('skills', 'Skills')}
+    ${btn('bracket', 'Bracket')}
+    ${tournamentFocusTeamNumber ? `<button class="t-nav-btn${active === 'team' ? ' active' : ''}" onclick="tournamentGo('team')">${tournamentFocusTeamNumber}</button>` : ''}
+  </div>`;
+}
+
+function tournamentGo(view) {
+  tournamentView = view;
+  if (view === 'teams') return renderTournamentTeams();
+  if (view === 'matches') return renderTournamentMatches();
+  if (view === 'skills') return renderTournamentSkills();
+  if (view === 'bracket') return renderBracketView();
+  if (view === 'team') return renderEventTeamMatchesView();
+}
+
+// Every match at the event, played and upcoming, with scores
+async function renderTournamentMatches() {
+  tournamentView = 'matches';
+  const resultsEl = document.getElementById('tournamentResults');
+  const loadingEl = document.getElementById('tournamentLoading');
+  const loadingText = document.getElementById('tournamentLoadingText');
+  if (!tournamentMatchCache) {
+    loadingEl.classList.add('active');
+    if (loadingText) loadingText.textContent = 'LOADING EVERY MATCH...';
+    try {
+      const evs = await apiGet('/events', { 'id[]': [tournamentEventId] });
+      const divisions = (evs[0]?.divisions?.length ? evs[0].divisions : [{ id: 1 }]);
+      const all = [];
+      await sim_pool(divisions, async div => {
+        try {
+          const ms = await apiGet(`/events/${tournamentEventId}/divisions/${div.id}/matches`);
+          for (const m of ms) if (m) { m.__divName = div.name || null; all.push(m); }
+        } catch (e) {}
+      }, sim_poolSize());
+      tournamentMatchCache = all;
+    } catch (e) {
+      showError('⚠ ' + e.message);
+    } finally { loadingEl.classList.remove('active'); }
+  }
+
+  const all = tournamentMatchCache || [];
+  const sides = m => {
+    const al = m.alliances; if (!al) return null;
+    let redA, blueA;
+    if (Array.isArray(al)) {
+      redA = al.find(a => (a.color || '').toLowerCase() === 'red') || al[0];
+      blueA = al.find(a => (a.color || '').toLowerCase() === 'blue') || al[1];
+    } else { redA = al.red || al.Red; blueA = al.blue || al.Blue; }
+    return (redA && blueA) ? { redA, blueA } : null;
+  };
+  const nums = a => (a.teams || []).map(t => t?.team?.name ?? t?.name ?? '?');
+
+  const rows = [];
+  const seen = new Set();
+  for (const m of all) {
+    if (!m || seen.has(m.id)) continue; seen.add(m.id);
+    const s = sides(m); if (!s) continue;
+    const played = sim_matchPlayed(s.redA, s.blueA, m);
+    rows.push({
+      id: m.id, name: m.name || `Match ${m.matchnum || ''}`, num: m.matchnum || 0,
+      round: m.round || 0, div: m.__divName,
+      red: nums(s.redA), blue: nums(s.blueA),
+      redScore: played ? (s.redA.score ?? 0) : null,
+      blueScore: played ? (s.blueA.score ?? 0) : null,
+      played, t: sim_matchTime(m) || 0
+    });
+  }
+  rows.sort((a, b) => (a.round - b.round) || (a.num - b.num) || (a.t - b.t));
+
+  const playedCount = rows.filter(r => r.played).length;
+  const groups = {};
+  for (const r of rows) {
+    const g = detectRoundFromMatch({ name: r.name, round: r.round });
+    (groups[g] = groups[g] || []).push(r);
+  }
+  const order = ['Practice', 'Qualification', 'Round of 128', 'Round of 64', 'Round of 32', 'Round of 16', 'Quarterfinals', 'Semifinals', 'Finals']
+    .filter(k => groups[k]).concat(Object.keys(groups).filter(k => !['Practice','Qualification','Round of 128','Round of 64','Round of 32','Round of 16','Quarterfinals','Semifinals','Finals'].includes(k)));
+
+  const focus = (tournamentFocusTeamNumber || '').toUpperCase();
+  let html = `
+    <div class="tournament-summary">
+      <div class="tournament-summary-name">${tournamentEventName}</div>
+      <div class="tournament-summary-count">${rows.length} matches · ${playedCount} played · ${rows.length - playedCount} upcoming</div>
+    </div>
+    ${tournamentNav('matches')}`;
+
+  if (!rows.length) {
+    html += `<div class="t-empty">No match schedule posted for this event yet.</div>`;
+    resultsEl.innerHTML = html;
+    return;
+  }
+
+  for (const g of order) {
+    html += `<div class="match-round-label">${g}</div><div class="match-list">`;
+    for (const r of groups[g]) {
+      const redWon = r.played && r.redScore > r.blueScore;
+      const blueWon = r.played && r.blueScore > r.redScore;
+      const mark = list => list.map(n =>
+        `<span class="${String(n).toUpperCase() === focus ? 'match-team-self' : ''}" onclick="event.stopPropagation();tournamentFocusOn('${n}')">${n}</span>`).join(' ');
+      html += `<div class="t-match-row${r.played ? '' : ' upcoming'}">
+        <div class="t-match-name">${r.name}${r.div ? `<div class="t-match-div">${r.div}</div>` : ''}</div>
+        <div class="t-match-side red${redWon ? ' won' : ''}">${mark(r.red)}</div>
+        <div class="t-match-score">${r.played ? `${r.redScore}<span class="t-dash">–</span>${r.blueScore}` : '<span class="t-pending">upcoming</span>'}</div>
+        <div class="t-match-side blue${blueWon ? ' won' : ''}">${mark(r.blue)}</div>
+      </div>`;
+    }
+    html += `</div>`;
+  }
+  resultsEl.innerHTML = html;
+}
+
+// Click any team number in the match list to jump to that team's view
+async function tournamentFocusOn(teamNumber) {
+  const num = String(teamNumber).toUpperCase();
+  const t = (tournamentTeamCache || []).find(x => (x.number || '').toUpperCase() === num);
+  tournamentFocusTeamNumber = num;
+  tournamentFocusTeamId = t ? t.id : null;
+  if (!tournamentFocusTeamId) {
+    try {
+      const found = await sim_resolveTeamCached(num);
+      tournamentFocusTeamId = found.id;
+    } catch (e) { showError('⚠ Could not look up ' + num); return; }
+  }
+  renderEventTeamMatchesView();
+}
+
+// Skills standings for this event
+async function renderTournamentSkills() {
+  tournamentView = 'skills';
+  const resultsEl = document.getElementById('tournamentResults');
+  const loadingEl = document.getElementById('tournamentLoading');
+  const loadingText = document.getElementById('tournamentLoadingText');
+  if (!tournamentSkillsCache) {
+    loadingEl.classList.add('active');
+    if (loadingText) loadingText.textContent = 'LOADING EVENT SKILLS...';
+    try {
+      tournamentSkillsCache = await apiGet(`/events/${tournamentEventId}/skills`);
+    } catch (e) {
+      tournamentSkillsCache = [];
+      showError('⚠ ' + e.message);
+    } finally { loadingEl.classList.remove('active'); }
+  }
+
+  // Fold driver + programming runs together per team, keeping each one's best
+  const byTeam = new Map();
+  for (const s of (tournamentSkillsCache || [])) {
+    const id = s.team?.id; if (id == null) continue;
+    if (!byTeam.has(id)) byTeam.set(id, { id, number: s.team?.name || '?', driver: 0, prog: 0, attempts: 0 });
+    const e = byTeam.get(id);
+    const type = (s.type || '').toLowerCase();
+    const score = s.score ?? 0;
+    if (type === 'driver') e.driver = Math.max(e.driver, score);
+    else if (type === 'programming') e.prog = Math.max(e.prog, score);
+    e.attempts += (s.attempts || 0);
+  }
+  const list = [...byTeam.values()].map(e => ({ ...e, total: e.driver + e.prog }))
+    .sort((a, b) => b.total - a.total || b.prog - a.prog || b.driver - a.driver);
+
+  const focus = (tournamentFocusTeamNumber || '').toUpperCase();
+  let html = `
+    <div class="tournament-summary">
+      <div class="tournament-summary-name">${tournamentEventName}</div>
+      <div class="tournament-summary-count">Skills standings · ${list.length} team${list.length === 1 ? '' : 's'} with runs</div>
+    </div>
+    ${tournamentNav('skills')}`;
+
+  if (!list.length) {
+    html += `<div class="t-empty">No skills runs recorded at this event yet.</div>`;
+    resultsEl.innerHTML = html;
+    return;
+  }
+
+  html += `<div class="t-skills">
+    <div class="t-skills-head">
+      <div>#</div><div>TEAM</div><div>DRIVER</div><div>AUTON</div><div>TOTAL</div>
+    </div>`;
+  list.forEach((e, i) => {
+    html += `<div class="t-skills-row${e.number.toUpperCase() === focus ? ' self' : ''}" onclick="tournamentFocusOn('${e.number}')">
+      <div class="t-sk-rank">${i + 1}</div>
+      <div class="t-sk-team">${e.number}</div>
+      <div class="t-sk-val">${e.driver || '—'}</div>
+      <div class="t-sk-val">${e.prog || '—'}</div>
+      <div class="t-sk-total">${e.total}</div>
+    </div>`;
+  });
+  html += `</div>`;
+  resultsEl.innerHTML = html;
+}
+
 function renderTournamentTeams() {
   const resultsEl = document.getElementById('tournamentResults');
   const sortMode = document.getElementById('tournamentSortSelect')?.value || 'winrate';
@@ -4582,8 +4870,6 @@ function renderTournamentTeams() {
             ${divisions.map(d => `<option value="${d}" ${divFilter===d?'selected':''}>${d}</option>`).join('')}
           </select>
         </div>` : ''}
-        ${tournamentFocusTeamId ? `<button class="btn btn-secondary" onclick="renderEventTeamMatchesView()">${tournamentFocusTeamNumber}'S MATCHES</button>` : ''}
-        <button class="btn btn-secondary" onclick="renderBracketView()">BRACKET</button>
         <button class="btn btn-secondary" onclick="copyTournamentTeams('${teamNumbers.join(',')}')">COPY ALL</button>
         ${teams.length <= 150
           ? `<button class="btn btn-primary" onclick="scoutTournamentTeams('${teamNumbers.join(',')}', '${tournamentGrade}')">SCOUT ALL ${teams.length}</button>`
@@ -4591,6 +4877,9 @@ function renderTournamentTeams() {
         }
       </div>
     </div>
+
+    ${tournamentNav('teams')}
+    <div id="tournamentSelectionSlot"></div>
 
     <div class="info-bar">
       <span class="info-icon" title="Click to scout one team. Shift+click to select multiple, then 'Compare Selected' to scout them together. On mobile, tap MULTI-SELECT to enable selecting multiple teams without Shift.">ⓘ</span>
@@ -4656,8 +4945,10 @@ function updateTournamentSelectionUI() {
       bar = document.createElement('div');
       bar.id = 'tournamentSelectionBar';
       bar.className = 'skills-selection-bar';
-      const resultsEl = document.getElementById('tournamentResults');
-      resultsEl.appendChild(bar);
+      // Sits just under the nav so it's visible without scrolling to the bottom
+      const slot = document.getElementById('tournamentSelectionSlot');
+      if (slot) slot.appendChild(bar);
+      else document.getElementById('tournamentResults').appendChild(bar);
     }
     const list = Array.from(selectedTournamentTeams).join(', ');
     bar.innerHTML = `
