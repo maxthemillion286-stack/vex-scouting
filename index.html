@@ -20,7 +20,14 @@
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
 <link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png">
 
-<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&family=Oswald:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<!-- Warm the font connection early: saves a DNS+TLS round trip on slow links -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- Load fonts without blocking first paint. The UI appears immediately in the
+     fallback face and upgrades when the webfont arrives (display=swap). -->
+<link rel="stylesheet" media="print" onload="this.media='all'"
+  href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&family=Oswald:wght@300;400;500;600;700&display=swap">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&family=Oswald:wght@300;400;500;600;700&display=swap"></noscript>
 <style>
   :root {
     /* DARK MODE — RED / BLACK (default) */
@@ -1547,6 +1554,9 @@
     text-align: center; border-radius: 50%; border: 1px solid var(--border);
     font-family: var(--mono); font-size: 9px; color: var(--text-muted); cursor: help;
   }
+
+  .ladder-cta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .ladder-cta-note { font-family: var(--body); font-size: 11.5px; color: var(--text-muted); }
 </style>
 </head>
 <body class="theme-dark-grey">
@@ -3120,6 +3130,49 @@ let skillsState = {
 // Key: seasonId, Value: { teams: [...], loadedAt: timestamp }
 const skillsCache = {};
 
+// ── Persistent store (IndexedDB) ───────────────────────────────────────────
+// localStorage tops out around 5 MB and blocks the main thread. IndexedDB is
+// async and roomy, which suits the two things worth keeping between visits:
+// the season skills standings and per-team award lookups. Both are used as a
+// FAST FALLBACK only — the network is still tried first, so nothing goes stale
+// on a working connection.
+const IDB_NAME = 'vexscout', IDB_STORE = 'kv';
+let _idbPromise = null;
+function idb() {
+  if (_idbPromise) return _idbPromise;
+  _idbPromise = new Promise(resolve => {
+    try {
+      const req = indexedDB.open(IDB_NAME, 1);
+      req.onupgradeneeded = () => { req.result.createObjectStore(IDB_STORE); };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => resolve(null);
+    } catch (e) { resolve(null); }
+  });
+  return _idbPromise;
+}
+async function idbGet(key, maxAgeMs) {
+  const db = await idb(); if (!db) return null;
+  return new Promise(resolve => {
+    try {
+      const tx = db.transaction(IDB_STORE, 'readonly');
+      const r = tx.objectStore(IDB_STORE).get(key);
+      r.onsuccess = () => {
+        const v = r.result;
+        if (!v || (maxAgeMs && Date.now() - v.ts > maxAgeMs)) return resolve(null);
+        resolve(v.data);
+      };
+      r.onerror = () => resolve(null);
+    } catch (e) { resolve(null); }
+  });
+}
+async function idbSet(key, data) {
+  const db = await idb(); if (!db) return;
+  try {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).put({ ts: Date.now(), data }, key);
+  } catch (e) {}
+}
+
 async function getFullSeasonSkills(seasonId, gradeLevel = 'High School') {
   const cacheKey = seasonId + ':' + gradeLevel;
   if (skillsCache[cacheKey]) return skillsCache[cacheKey];
@@ -3131,9 +3184,26 @@ async function getFullSeasonSkills(seasonId, gradeLevel = 'High School') {
     params.set('grade_level', gradeLevel);
   }
   const path = `legacy:/seasons/${seasonId}/skills?${params.toString()}`;
-  const res = await fetch(`${BASE}?path=${encodeURIComponent(path)}`);
-  if (!res.ok) return null;
-  const data = await res.json();
+  const idbKey = 'skills:' + cacheKey;
+
+  // Race the network against the stored copy. The network wins whenever it
+  // answers in time, so figures stay current; the stored copy only steps in
+  // when the connection is too slow to wait for.
+  let data = null;
+  const netP = fetch(`${BASE}?path=${encodeURIComponent(path)}`)
+    .then(r => r.ok ? r.json() : null)
+    .then(d => { if (d) idbSet(idbKey, d); return d; })
+    .catch(() => null);
+  const stored = await idbGet(idbKey, 6 * 60 * 60 * 1000);   // usable for 6h
+  if (stored) {
+    data = await Promise.race([
+      netP,
+      new Promise(r => setTimeout(() => r(null), 1800))
+    ]) || stored;
+  } else {
+    data = await netP;
+  }
+  if (!data) return null;
   const items = Array.isArray(data) ? data : (data.data || []);
 
   // Build per-team aggregated data
@@ -5763,6 +5833,14 @@ async function computeUnqualifiedLadder(teamId, seasonId, gradeLevel, onProgress
 }
 
 
+// Ladders already computed this session — a re-render (event filter, etc.)
+// shouldn't make you click the button again.
+const _ladderDone = new Set();
+function startLadder(teamId, seasonId, grade) {
+  _ladderDone.add(teamId + ':' + seasonId + ':' + grade);
+  renderLadder(teamId, seasonId, grade);
+}
+
 async function renderLadder(teamId, seasonId, gradeLevel) {
   const host = document.getElementById('qualLadder');
   if (!host) return;
@@ -6346,10 +6424,22 @@ function renderDetailedTeam(d, eventFilter) {
   </div>`;
 
   out.innerHTML = html;
-  // Ladder needs one request per team above, so it loads after the page paints
+  // The ladder costs one request per team ranked above, so it's opt-in rather
+  // than firing on every scout. Everything else on this page is already loaded.
   const _sid = document.getElementById('detailSeasonSelect')?.value || null;
   const _grade = document.getElementById('detailGradeSelect')?.value || 'High School';
-  if (_sid) setTimeout(() => renderLadder(d.teamId, _sid, _grade), 40);
+  const _host = document.getElementById('qualLadder');
+  if (_host) {
+    if (!_sid) _host.innerHTML = `<div class="ladder-none">Pick a season to work out ladder position.</div>`;
+    else if (_ladderDone.has(d.teamId + ':' + _sid + ':' + _grade)) {
+      setTimeout(() => renderLadder(d.teamId, _sid, _grade), 20);
+    } else {
+      _host.innerHTML = `<div class="ladder-cta">
+        <button class="btn btn-secondary" onclick="startLadder('${d.teamId}','${_sid}','${_grade}')">CHECK LADDER POSITION</button>
+        <span class="ladder-cta-note">Checks every team ranked above for a Worlds qualification — a few seconds.</span>
+      </div>`;
+    }
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
