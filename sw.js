@@ -1,8 +1,33 @@
-// VEX Scout Service Worker — v3
-// Uses NETWORK-FIRST strategy for HTML so updates appear immediately.
-// Falls back to cache only when offline.
+// VEX Scout Service Worker — v4
+//
+// Built on the v3 network-first design (updates always appear immediately),
+// with three additions aimed at competition venues:
+//
+//   1. A TIMEOUT on the network-first fetch. v3 only fell back to cache when a
+//      request actually failed — but bad venue wifi usually doesn't fail, it
+//      hangs. Without a timeout the page waits indefinitely on a connection
+//      that is technically "working". Now it waits a couple of seconds, then
+//      shows the cached copy.
+//
+//   2. API responses cached as an offline fallback. v3 never cached them, so a
+//      dropped connection meant errors everywhere. Still network-first, so on
+//      any working connection the data is live.
+//
+//   3. Webfonts cached permanently — they never change, and re-fetching them
+//      blocks text from rendering.
+//
+// Freshness policy is unchanged from v3: the network always wins when it
+// answers. The cache is a safety net, never a shortcut.
+//
+// Bump CACHE_NAME whenever index.html changes.
 
-const CACHE_NAME = 'vex-scout-v3';
+const CACHE_NAME = 'vex-scout-v4';
+const API_CACHE = 'vex-scout-v4-api';
+
+// How long to wait for the network before showing the cached copy.
+const HTML_TIMEOUT_MS = 2500;
+const API_TIMEOUT_MS = 6000;
+
 const APP_SHELL = [
   '/manifest.json',
   '/icon-192.png',
@@ -24,55 +49,113 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
       Promise.all(
-        keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k))
+        keys
+          .filter((k) => k !== CACHE_NAME && k !== API_CACHE)
+          .map((k) => caches.delete(k))
       )
     ).then(() => self.clients.claim())
   );
 });
 
-self.addEventListener('fetch', (event) => {
-  const url = new URL(event.request.url);
+// Network first, but don't hang forever on a slow connection.
+// Whatever the network eventually returns still refreshes the cache.
+function networkFirstWithTimeout(request, cacheName, timeoutMs, fallbackKey) {
+  let settled = false;
 
-  // Don't cache API/proxy requests — always go to network
+  const network = fetch(request).then((response) => {
+    if (response && response.ok) {
+      const copy = response.clone();
+      caches.open(cacheName).then((cache) => cache.put(request, copy));
+    }
+    return response;
+  });
+
+  const cached = () =>
+    caches.match(request)
+      .then((hit) => hit || (fallbackKey ? caches.match(fallbackKey) : null))
+      .then((hit) => {
+        if (!hit) return null;
+        // Tag it so the page can tell this didn't come from the network
+        const headers = new Headers(hit.headers);
+        headers.set('X-From-Cache', '1');
+        return hit.blob().then((body) => new Response(body, {
+          status: hit.status, statusText: hit.statusText, headers
+        }));
+      });
+
+  const timeout = new Promise((resolve) => {
+    setTimeout(() => {
+      if (!settled) resolve(cached().then((hit) => hit || network));
+    }, timeoutMs);
+  });
+
+  const live = network
+    .then((response) => { settled = true; return response; })
+    .catch(() => cached().then((hit) => hit || offlineResponse(request)));
+
+  return Promise.race([live, timeout]);
+}
+
+function offlineResponse(request) {
+  let isApi = false;
+  try { isApi = new URL(request.url).pathname.startsWith('/api/'); } catch (e) {}
+  if (isApi) {
+    return new Response(
+      JSON.stringify({ error: 'Offline and no cached copy of this request.' }),
+      { status: 503, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+  return new Response('Offline', { status: 503 });
+}
+
+self.addEventListener('fetch', (event) => {
+  const request = event.request;
+  if (request.method !== 'GET') return;
+
+  let url;
+  try { url = new URL(request.url); } catch (e) { return; }
+
+  // API / proxy: network first, cached copy only if the network is slow or gone
   if (url.pathname.startsWith('/api/')) {
-    return; // let browser handle normally
+    event.respondWith(networkFirstWithTimeout(request, API_CACHE, API_TIMEOUT_MS));
+    return;
   }
 
-  // For HTML / navigation requests: NETWORK-FIRST (always try fresh)
-  // This means updates show up immediately, no stale UI
-  if (event.request.mode === 'navigate' ||
-      event.request.destination === 'document' ||
-      url.pathname === '/' ||
-      url.pathname === '/index.html') {
+  // Webfonts: immutable, so cache first
+  if (url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com') {
     event.respondWith(
-      fetch(event.request)
-        .then((response) => {
-          // Cache for offline fallback
-          if (response.ok) {
+      caches.match(request).then((cached) =>
+        cached || fetch(request).then((response) => {
+          if (response && (response.ok || response.type === 'opaque')) {
             const copy = response.clone();
-            caches.open(CACHE_NAME).then((cache) =>
-              cache.put(event.request, copy)
-            );
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
           }
           return response;
-        })
-        .catch(() => caches.match(event.request).then((cached) =>
-          cached || caches.match('/index.html')
-        ))
+        }).catch(() => cached)
+      )
     );
     return;
   }
 
-  // For static assets (icons, manifest): cache-first is fine
+  // HTML / navigation: network first so updates show up immediately
+  if (request.mode === 'navigate' ||
+      request.destination === 'document' ||
+      url.pathname === '/' ||
+      url.pathname === '/index.html') {
+    event.respondWith(
+      networkFirstWithTimeout(request, CACHE_NAME, HTML_TIMEOUT_MS, '/index.html')
+    );
+    return;
+  }
+
+  // Static assets (icons, manifest): cache-first is fine
   event.respondWith(
-    caches.match(event.request).then((cached) => {
+    caches.match(request).then((cached) => {
       if (cached) return cached;
-      return fetch(event.request).then((response) => {
-        if (response.ok && event.request.method === 'GET') {
+      return fetch(request).then((response) => {
+        if (response.ok) {
           const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) =>
-            cache.put(event.request, copy)
-          );
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
         }
         return response;
       });
@@ -80,9 +163,11 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
-// Listen for messages from the page (e.g. force update)
+// Force-update message from the page.
+// index.html sends { type: 'SKIP_WAITING' }; the bare string is accepted too.
 self.addEventListener('message', (event) => {
-  if (event.data && event.data.type === 'SKIP_WAITING') {
+  const d = event.data;
+  if (d === 'SKIP_WAITING' || (d && d.type === 'SKIP_WAITING')) {
     self.skipWaiting();
   }
 });
