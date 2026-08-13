@@ -1505,8 +1505,15 @@
   .ladder-title { font-family: var(--mono); font-size: 9px; letter-spacing: 2px; color: var(--text-muted); margin-bottom: 8px; }
   .ladder-loading { font-family: var(--mono); font-size: 11px; color: var(--text-muted); letter-spacing: 0.5px; }
   .ladder-none { font-family: var(--body); font-size: 12px; color: var(--text-muted); }
-  .ladder-pos { font-family: var(--display); font-size: 30px; font-weight: 700; color: var(--accent-bright); line-height: 1; }
-  .ladder-pos-sub { font-family: var(--body); font-size: 13px; font-weight: 400; color: var(--text-dim); margin-left: 6px; }
+  .ladder-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); }
+  .ladder-cell { background: var(--card); padding: 12px 14px; }
+  .ladder-cell-label { font-family: var(--mono); font-size: 9px; letter-spacing: 1.5px; color: var(--text-muted); text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ladder-cell-pos { font-family: var(--display); font-size: 26px; font-weight: 700; color: var(--accent-bright); line-height: 1.1; margin-top: 5px; }
+  .ladder-cell-raw { font-family: var(--mono); font-size: 10px; color: var(--text-muted); margin-top: 4px; letter-spacing: 0.3px; }
+  @media (max-width: 600px) {
+    .ladder-grid { grid-template-columns: 1fr; }
+    .ladder-cell-pos { font-size: 22px; }
+  }
   .ladder-sub { font-family: var(--body); font-size: 12.5px; color: var(--text-dim); margin-top: 7px; line-height: 1.5; }
   .ladder-note { font-family: var(--body); font-size: 14px; color: #4ccf6a; }
   .ladder-warn { font-family: var(--body); font-size: 11.5px; color: var(--text-muted); margin-top: 6px; }
@@ -5633,17 +5640,31 @@ async function computeUnqualifiedLadder(teamId, seasonId, gradeLevel, onProgress
   const me = standings.byId[teamId];
   if (!me || !me.globalRank) return null;
 
-  const ahead = standings.teams.slice(0, me.globalRank - 1);
-  const truncated = ahead.length > LADDER_SCAN_CAP;
-  const toScan = truncated ? ahead.slice(0, LADDER_SCAN_CAP) : ahead;
+  // Teams ahead of me in each pool. State and region are small, so they cost
+  // little; the global pool is the expensive one and gets capped.
+  const aheadGlobal = standings.teams.filter(t => t.globalRank < me.globalRank);
+  const aheadState = me.region
+    ? standings.teams.filter(t => t.region === me.region && t.stateRank < me.stateRank) : null;
+  const aheadRegion = me.eventRegion
+    ? standings.teams.filter(t => t.eventRegion === me.eventRegion && t.eventRegionRank < me.eventRegionRank) : null;
+
+  const globalTruncated = aheadGlobal.length > LADDER_SCAN_CAP;
+  const globalScan = globalTruncated ? aheadGlobal.slice(0, LADDER_SCAN_CAP) : aheadGlobal;
+
+  // One award lookup per team, shared across all three scopes
+  const union = new Map();
+  for (const t of globalScan) union.set(t.id, t);
+  for (const t of (aheadState || [])) union.set(t.id, t);
+  for (const t of (aheadRegion || [])) union.set(t.id, t);
+  const toScan = [...union.values()];
 
   const key = seasonId + ':' + gradeLevel;
   if (!_ladderCache.has(key)) _ladderCache.set(key, new Map());
   const cache = _ladderCache.get(key);
 
   let done = 0;
-  const results = await sim_pool(toScan, async t => {
-    if (cache.has(t.id)) return { t, qualified: cache.get(t.id) };
+  await sim_pool(toScan, async t => {
+    if (cache.has(t.id)) return;
     let qualified = false;
     try {
       const aw = await apiGet(`/teams/${t.id}/awards`, { 'season[]': [seasonId] });
@@ -5652,33 +5673,34 @@ async function computeUnqualifiedLadder(teamId, seasonId, gradeLevel, onProgress
     cache.set(t.id, qualified);
     done++;
     if (onProgress && done % 12 === 0) onProgress(done, toScan.length);
-    return { t, qualified };
   }, sim_poolSize());
 
-  const qualifiedAhead = results.filter(r => r && r.qualified);
-  // Everyone above me, minus those already holding an invite, plus me
-  const position = (ahead.length - qualifiedAhead.length) + 1;
+  const countQualified = list => (list || []).filter(t => cache.get(t.id)).length;
 
-  // Am I already qualified myself?
   let selfQualified = false;
   try {
     const myAwards = await apiGet(`/teams/${teamId}/awards`, { 'season[]': [seasonId] });
     selfQualified = awardsShowWorlds(myAwards);
   } catch (e) {}
 
+  const scope = (rawRank, aheadList, scanned, truncated) => {
+    if (rawRank == null || !aheadList) return null;
+    const skipped = countQualified(aheadList);
+    return { rawRank, position: aheadList.length - skipped + 1, skipped, truncated: !!truncated };
+  };
+
   return {
-    globalRank: me.globalRank,
-    position,
-    skipped: qualifiedAhead.length,
-    scanned: toScan.length,
-    truncated,
     selfQualified,
-    skippedTeams: qualifiedAhead.slice(0, 8).map(r => r.t.number || r.t.id),
-    totalRanked: standings.totalCount
+    totalRanked: standings.totalCount,
+    world: scope(me.globalRank, globalScan.length === aheadGlobal.length ? aheadGlobal : globalScan, null, globalTruncated),
+    state: scope(me.stateRank, aheadState),
+    region: scope(me.eventRegionRank, aheadRegion),
+    stateName: me.region || null,
+    regionName: me.eventRegion || null
   };
 }
 
-// Render the ladder block (called after the Scout page paints)
+
 async function renderLadder(teamId, seasonId, gradeLevel) {
   const host = document.getElementById('qualLadder');
   if (!host) return;
@@ -5691,16 +5713,29 @@ async function renderLadder(teamId, seasonId, gradeLevel) {
     if (L.selfQualified) {
       host.innerHTML = `<div class="ladder-body">
         <div class="ladder-note">Already qualified for Worlds through an award, so a skills invitation isn't needed.</div>
-        <div class="ladder-sub">World skills rank #${L.globalRank} of ${L.totalRanked}.</div>
+        <div class="ladder-sub">World skills rank #${L.world ? L.world.rawRank : '—'} of ${L.totalRanked}.</div>
       </div>`;
       return;
     }
 
+    const cell = (label, s) => {
+      if (!s) return '';
+      return `<div class="ladder-cell">
+        <div class="ladder-cell-label">${label}</div>
+        <div class="ladder-cell-pos">#${s.position}</div>
+        <div class="ladder-cell-raw">skills rank #${s.rawRank}${s.skipped ? ` · ${s.skipped} above qualified` : ''}</div>
+      </div>`;
+    };
+
+    const anyTruncated = L.world && L.world.truncated;
     host.innerHTML = `<div class="ladder-body">
-      <div class="ladder-pos">#${L.position}<span class="ladder-pos-sub"> among unqualified teams</span></div>
-      <div class="ladder-sub">World skills rank <strong>#${L.globalRank}</strong> of ${L.totalRanked} · ${L.skipped} team${L.skipped === 1 ? '' : 's'} above already qualified${L.skipped ? ` (${L.skippedTeams.join(', ')}${L.skipped > L.skippedTeams.length ? ', …' : ''})` : ''}</div>
-      ${L.truncated ? `<div class="ladder-warn">Only the ${L.scanned} teams directly above were checked, so the real position may be slightly better.</div>` : ''}
-      <div class="ladder-caveat">Worlds invitations from the global skills list go to the highest-ranked teams without a spot, and how many are issued varies by season — this is your place in that line, not a guarantee.</div>
+      <div class="ladder-grid">
+        ${cell(L.regionName ? L.regionName : 'Region', L.region)}
+        ${cell(L.stateName ? L.stateName : 'State', L.state)}
+        ${cell('World', L.world)}
+      </div>
+      ${anyTruncated ? `<div class="ladder-warn">Only the ${LADDER_SCAN_CAP} teams directly above were checked for the world figure, so the real position may be slightly better.</div>` : ''}
+      <div class="ladder-caveat">Position among teams that don't already hold a Worlds spot. Invitations from the skills list go to the highest-ranked unqualified teams, and how many are issued varies by season — this is a place in line, not a guarantee.</div>
     </div>`;
   } catch (e) {
     host.innerHTML = `<div class="ladder-none">Couldn't compute the ladder: ${e.message}</div>`;
