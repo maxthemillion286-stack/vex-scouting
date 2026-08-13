@@ -1459,6 +1459,67 @@
     .t-skills-head, .t-skills-row { grid-template-columns: 36px 1fr 58px 58px 58px; gap: 6px; padding: 9px 10px; }
     .t-sk-team { font-size: 13px; }
   }
+
+  /* ── Qualification status + icons ── */
+  .qual-icon { width: 100%; height: 100%; display: block; }
+  .qual-status { display: flex; align-items: flex-start; gap: 16px; }
+  .qual-icon-wrap { width: 54px; height: 54px; flex: 0 0 54px; display: flex; align-items: center; justify-content: center; }
+  .qual-worlds .qual-icon-wrap { color: var(--accent-bright); }
+  .qual-nationals .qual-icon-wrap { color: #4ccf6a; }
+  .qual-state .qual-icon-wrap { color: #6ba7ff; }
+  .qual-body { flex: 1; min-width: 0; }
+  .qual-label { font-family: var(--display); font-size: 20px; font-weight: 700; color: var(--text); }
+  .qual-worlds .qual-label { color: var(--accent-bright); }
+  .qual-none .qual-label { color: var(--text-muted); font-size: 16px; }
+  .qual-via { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+  .qual-via-item { font-family: var(--body); font-size: 12.5px; color: var(--text-dim); }
+  .qual-via-item strong { color: var(--text); }
+  .qual-via-none { font-family: var(--body); font-size: 12px; color: var(--text-muted); margin-top: 6px; line-height: 1.5; }
+  .award-qual-icon { display: inline-block; width: 13px; height: 13px; vertical-align: -2px; margin-right: 5px; color: var(--accent-bright); }
+
+  /* ── Tournament awards ── */
+  .t-awards { display: flex; flex-direction: column; gap: 1px; background: var(--border); border: 1px solid var(--border); margin-top: 4px; }
+  .t-award { display: grid; grid-template-columns: 40px 1fr auto; align-items: center; gap: 14px; background: var(--card); padding: 12px 16px; }
+  .t-award.qualifies { background: var(--card2); box-shadow: inset 3px 0 0 var(--accent-bright); }
+  .t-award-icon { width: 30px; height: 30px; color: var(--accent-bright); }
+  .t-award-title { font-family: var(--body); font-size: 14px; font-weight: 600; color: var(--text); }
+  .t-award-winners { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
+  .t-award-win {
+    font-family: var(--mono); font-size: 11px; color: var(--text-dim); cursor: pointer;
+    border: 1px solid var(--border); padding: 2px 8px; transition: all 0.15s;
+  }
+  .t-award-win:hover { color: var(--accent-bright); border-color: var(--accent); }
+  .t-award-win.self { color: var(--accent-bright); border-color: var(--accent-dim); }
+  .t-award-none { font-family: var(--mono); font-size: 11px; color: var(--text-muted); margin-top: 5px; }
+  .t-award-qual { font-family: var(--mono); font-size: 10px; letter-spacing: 0.5px; color: var(--accent-bright); text-align: right; max-width: 190px; line-height: 1.4; }
+
+  @media (max-width: 700px) {
+    .t-award { grid-template-columns: 30px 1fr; gap: 10px; }
+    .t-award-qual { grid-column: 2; text-align: left; max-width: none; margin-top: 4px; }
+    .qual-icon-wrap { width: 42px; height: 42px; flex-basis: 42px; }
+    .qual-label { font-size: 17px; }
+  }
+
+  /* ── Skills ladder ── */
+  .ladder-wrap { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+  .ladder-title { font-family: var(--mono); font-size: 9px; letter-spacing: 2px; color: var(--text-muted); margin-bottom: 8px; }
+  .ladder-loading { font-family: var(--mono); font-size: 11px; color: var(--text-muted); letter-spacing: 0.5px; }
+  .ladder-none { font-family: var(--body); font-size: 12px; color: var(--text-muted); }
+  .ladder-pos { font-family: var(--display); font-size: 30px; font-weight: 700; color: var(--accent-bright); line-height: 1; }
+  .ladder-pos-sub { font-family: var(--body); font-size: 13px; font-weight: 400; color: var(--text-dim); margin-left: 6px; }
+  .ladder-sub { font-family: var(--body); font-size: 12.5px; color: var(--text-dim); margin-top: 7px; line-height: 1.5; }
+  .ladder-note { font-family: var(--body); font-size: 14px; color: #4ccf6a; }
+  .ladder-warn { font-family: var(--body); font-size: 11.5px; color: var(--text-muted); margin-top: 6px; }
+  .ladder-caveat { font-family: var(--body); font-size: 11.5px; color: var(--text-muted); margin-top: 8px; line-height: 1.5; border-left: 2px solid var(--accent-dim); padding-left: 10px; }
+
+  /* ── Event rolldown ── */
+  .rolldown { border: 1px solid var(--accent-dim); background: var(--card2); padding: 14px 16px; margin: 4px 0 12px; }
+  .rolldown-head { font-family: var(--display); font-size: 15px; font-weight: 700; color: var(--accent-bright); }
+  .rolldown-why { font-family: var(--body); font-size: 12.5px; color: var(--text-dim); margin-top: 5px; line-height: 1.5; }
+  .rolldown-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .rolldown-team { display: inline-flex; align-items: center; gap: 7px; font-family: var(--mono); font-size: 12px; color: var(--text); border: 1px solid var(--border); background: var(--card); padding: 5px 10px; }
+  .rd-pos { font-size: 9px; color: var(--accent-bright); }
+  .rd-score { font-size: 10px; color: var(--text-muted); }
 </style>
 </head>
 <body class="theme-dark-grey">
@@ -3724,6 +3785,7 @@ async function loadTournamentTeams(eventId, eventName, focusTeamId, focusTeamNum
   selectedTournamentTeams.clear();
   tournamentMatchCache = null;
   tournamentSkillsCache = null;
+  tournamentAwardsCache = null;
   tournamentView = 'teams';
   tournamentEventId = eventId;
   tournamentEventName = eventName;
@@ -4597,6 +4659,7 @@ async function loadAndRenderTeamList() {
 let tournamentView = 'teams';
 let tournamentMatchCache = null;   // all event matches, fetched once
 let tournamentSkillsCache = null;  // event skills standings, fetched once
+let tournamentAwardsCache = null;  // event awards, fetched once
 
 // Open one team in the detailed Scout tab
 // (named distinctly — scoutFromTournament() already exists and sends to Multi Scout)
@@ -4627,6 +4690,7 @@ function tournamentNav(active) {
     ${btn('teams', 'Teams')}
     ${btn('matches', 'Matches')}
     ${btn('skills', 'Skills')}
+    ${btn('awards', 'Awards')}
     ${btn('bracket', 'Bracket')}
     ${tournamentFocusTeamNumber ? `<button class="t-nav-btn${active === 'team' ? ' active' : ''}" onclick="tournamentGo('team')">${tournamentFocusTeamNumber}</button>` : ''}
   </div>`;
@@ -4637,6 +4701,7 @@ function tournamentGo(view) {
   if (view === 'teams') return renderTournamentTeams();
   if (view === 'matches') return renderTournamentMatches();
   if (view === 'skills') return renderTournamentSkills();
+  if (view === 'awards') return renderTournamentAwards();
   if (view === 'bracket') return renderBracketView();
   if (view === 'team') return renderEventTeamMatchesView();
 }
@@ -4750,6 +4815,129 @@ async function tournamentFocusOn(teamNumber) {
     } catch (e) { showError('⚠ Could not look up ' + num); return; }
   }
   renderEventTeamMatchesView();
+}
+
+
+// Awards handed out at this event, with what each one qualifies for
+async function renderTournamentAwards() {
+  tournamentView = 'awards';
+  const resultsEl = document.getElementById('tournamentResults');
+  const loadingEl = document.getElementById('tournamentLoading');
+  const loadingText = document.getElementById('tournamentLoadingText');
+  if (!tournamentAwardsCache) {
+    loadingEl.classList.add('active');
+    if (loadingText) loadingText.textContent = 'LOADING AWARDS...';
+    try {
+      tournamentAwardsCache = await apiGet(`/events/${tournamentEventId}/awards`);
+    } catch (e) {
+      tournamentAwardsCache = [];
+      showError('⚠ ' + e.message);
+    } finally { loadingEl.classList.remove('active'); }
+  }
+
+  const raw = tournamentAwardsCache || [];
+  const rows = raw.map(a => {
+    const winners = [];
+    for (const w of (a.teamWinners || [])) {
+      const n = w?.team?.name ?? w?.team?.number ?? null;
+      if (n) winners.push(n);
+    }
+    for (const n of (a.individualWinners || [])) if (n) winners.push(String(n));
+    return {
+      title: a.title || 'Award',
+      winners,
+      qual: qualForAward({ qualifications: a.qualifications || [] })
+    };
+  });
+  // Worlds qualifiers first, then state/regional, then everything else
+  const rank = r => r.qual ? (r.qual.icon === 'worlds' ? 0 : 1) : 2;
+  rows.sort((a, b) => rank(a) - rank(b) || a.title.localeCompare(b.title));
+
+  // ── Event-level rolldown ──
+  // A team that qualifies more than once at the same event only uses one spot;
+  // each extra rolls down to the highest team on THIS event's skills leaderboard
+  // who isn't already qualified (by any route, here or elsewhere at this event).
+  const worldsWinners = new Map();   // team number -> how many Worlds spots they won
+  for (const r of rows) {
+    if (!r.qual || r.qual.icon !== 'worlds') continue;
+    for (const w of r.winners) {
+      const k = String(w).toUpperCase();
+      worldsWinners.set(k, (worldsWinners.get(k) || 0) + 1);
+    }
+  }
+  let spare = 0;
+  for (const [, n] of worldsWinners) if (n > 1) spare += n - 1;
+
+  let rolldown = null;
+  if (spare > 0) {
+    // Need this event's skills order to know who's next in line
+    if (!tournamentSkillsCache) {
+      try { tournamentSkillsCache = await apiGet(`/events/${tournamentEventId}/skills`); } catch (e) { tournamentSkillsCache = []; }
+    }
+    const byTeam = new Map();
+    for (const s of (tournamentSkillsCache || [])) {
+      const num = s.team?.name; if (!num) continue;
+      if (!byTeam.has(num)) byTeam.set(num, { number: num, driver: 0, prog: 0 });
+      const e = byTeam.get(num);
+      const type = (s.type || '').toLowerCase();
+      if (type === 'driver') e.driver = Math.max(e.driver, s.score ?? 0);
+      else if (type === 'programming') e.prog = Math.max(e.prog, s.score ?? 0);
+    }
+    const order = [...byTeam.values()].map(e => ({ ...e, total: e.driver + e.prog }))
+      .sort((a, b) => b.total - a.total || b.prog - a.prog);
+    const alreadyQualified = new Set([...worldsWinners.keys()]);
+    const recipients = [];
+    for (const t of order) {
+      if (recipients.length >= spare) break;
+      if (alreadyQualified.has(String(t.number).toUpperCase())) continue;   // skip anyone holding a spot
+      recipients.push(t);
+      alreadyQualified.add(String(t.number).toUpperCase());
+    }
+    rolldown = { spare, recipients, doubles: [...worldsWinners.entries()].filter(([, n]) => n > 1) };
+  }
+
+  const qualCount = rows.filter(r => r.qual).length;
+  const focus = (tournamentFocusTeamNumber || '').toUpperCase();
+  let html = `
+    <div class="tournament-summary">
+      <div class="tournament-summary-name">${tournamentEventName}</div>
+      <div class="tournament-summary-count">${rows.length} award${rows.length === 1 ? '' : 's'}${qualCount ? ` · ${qualCount} carry a qualification` : ''}</div>
+    </div>
+    ${tournamentNav('awards')}`;
+
+  if (!rows.length) {
+    html += `<div class="t-empty">No awards recorded for this event yet.</div>`;
+    resultsEl.innerHTML = html;
+    return;
+  }
+
+  if (rolldown) {
+    html += `<div class="rolldown">
+      <div class="rolldown-head">${rolldown.spare} spot${rolldown.spare === 1 ? '' : 's'} rolled down</div>
+      <div class="rolldown-why">${rolldown.doubles.map(([team, n]) => `<strong>${team}</strong> qualified ${n}× here`).join(' · ')} — the extra${rolldown.spare === 1 ? '' : 's'} pass to the top unqualified team${rolldown.spare === 1 ? '' : 's'} on this event's skills board.</div>
+      ${rolldown.recipients.length
+        ? `<div class="rolldown-list">${rolldown.recipients.map((t, i) => `<span class="rolldown-team"><span class="rd-pos">${i + 1}</span>${t.number}<span class="rd-score">${t.total} pts</span></span>`).join('')}</div>`
+        : `<div class="rolldown-why">No unqualified team on this event's skills board to receive it.</div>`}
+    </div>`;
+  }
+
+  html += `<div class="t-awards">`;
+  for (const r of rows) {
+    html += `<div class="t-award${r.qual ? ' qualifies' : ''}">
+      <div class="t-award-icon">${r.qual ? QUAL_ICONS[r.qual.icon] : ''}</div>
+      <div class="t-award-body">
+        <div class="t-award-title">${r.title}</div>
+        ${r.winners.length
+          ? `<div class="t-award-winners">${r.winners.map(w =>
+              `<span class="t-award-win${String(w).toUpperCase() === focus ? ' self' : ''}" onclick="tournamentFocusOn('${String(w).replace(/'/g, "\\'")}')">${w}</span>`).join('')}</div>`
+          : `<div class="t-award-none">Not awarded</div>`}
+      </div>
+      ${r.qual ? `<div class="t-award-qual">${r.qual.text}</div>` : ''}
+    </div>`;
+  }
+  html += `</div>
+    <div class="sim-caveat">Qualifications come straight from the event's award records. Teams can also qualify through skills standings or event rank, which aren't reported here.</div>`;
+  resultsEl.innerHTML = html;
 }
 
 // Skills standings for this event
@@ -5303,7 +5491,9 @@ async function gatherTeamData(teamNumber, seasonId, gradeLevel = 'High School') 
   // Build awards with event info (event is included in the award object as event.name)
   const awardsList = awards.map(a => ({
     title: a.title || '',
-    event: a.event?.name || a.event?.code || a.event_name || ''
+    event: a.event?.name || a.event?.code || a.event_name || '',
+    // The API attaches what each award qualifies you for — previously discarded
+    qualifications: a.qualifications || []
   })).filter(a => a.title);
   const loc = team.location || {};
   const locationStr = [loc.city, loc.region, loc.country].filter(Boolean).join(', ');
@@ -5388,6 +5578,161 @@ async function gatherTeamData(teamNumber, seasonId, gradeLevel = 'High School') 
     totalWorldTeams, totalStateTeams, totalRegionTeams,
     rankings, awardsList, eventsList, prosCons, scores, matches
   };
+}
+
+// ── Qualification status ──────────────────────────────────────────────────
+// The VEX API does not publish a per-team "qualified" flag. What it does give
+// is a `qualifications` array on each award — e.g. ["2026 VEX Robotics World
+// Championship"]. We read those strings to work out the highest level a team
+// has earned, and say plainly when we can't tell.
+const QUAL_ICONS = {
+  worlds: `<svg viewBox="0 0 24 24" class="qual-icon" aria-hidden="true">
+    <circle cx="12" cy="12" r="10.5" fill="none" stroke="currentColor" stroke-width="1.6"/>
+    <path fill="currentColor" d="M6.2 5.4c1.1.5 2.2.3 3 1.1.5.5-.2 1.3.3 1.8.6.6 1.6.1 2.2.7.5.5.1 1.5.7 1.9.7.5 1.7-.2 2.4.3.6.4.4 1.4 1 1.8.5.3 1.2.1 1.7.5-.5 3.6-3.3 6.5-6.9 7.1-.3-1-.9-1.8-1-2.8-.1-.9.6-1.8.2-2.6-.4-.9-1.6-1-2.4-1.6-.7-.5-.9-1.5-1.7-1.9-.8-.4-1.8 0-2.6-.4A9.5 9.5 0 0 1 6.2 5.4Z"/>
+    <path fill="currentColor" d="M15.6 3.4c1.9.8 3.5 2.2 4.5 4-.7.4-1.6.3-2.2.9-.5.5-.3 1.5-1 1.7-.8.3-1.4-.6-2.2-.7-.6-.1-1.3.4-1.7 0-.5-.5.1-1.4-.3-2-.5-.7-1.7-.5-2-1.3-.3-.8.6-1.5 1.2-2 1.1-.7 2.4-1 3.7-.6Z"/>
+  </svg>`,
+  state: `<svg viewBox="0 0 32 20" class="qual-icon" aria-hidden="true">
+    <path fill="currentColor" d="M2.4 4.1 9 3.3l7.5-.6 6.9-.5.9 1.7 2.2.4 1.5 2.3-1.1 1.6.6 1.8-1.7 1.1-.4 2.2-2.6 1.5-1.9 2.4-3.1.7-2.6 1.6-2.2-1.4-3.4.3-2.1-1.9-3.6-.8-1.2-2.4L2 9.6l.9-2.1-.9-1.6Z"/>
+  </svg>`
+};
+
+// Highest level a team has qualified for, from its awards' qualification text
+
+// ═══════════════════════════════════════════════════════════════
+// UNQUALIFIED SKILLS LADDER
+//
+// Worlds invitations off the global skills list go to the highest-ranked teams
+// who aren't already qualified. So a team's real standing isn't their raw skills
+// rank — it's their position once every already-qualified team above them is
+// removed. Teams qualified by ANY route are skipped (an extra invite would do
+// nothing for them), which is exactly how event-level rolldown behaves too.
+//
+// Determining "already qualified" needs each team's awards, which is one request
+// per team. We therefore only walk the teams ABOVE the one being scouted, and
+// cap the walk — enough to place anyone realistically in contention without
+// hammering the API for a team ranked 4000th.
+// ═══════════════════════════════════════════════════════════════
+const LADDER_SCAN_CAP = 220;   // how many teams above we'll check for awards
+const _ladderCache = new Map(); // seasonId:grade -> Map(teamId -> bool qualified)
+
+// Does this team's award list contain a Worlds qualification?
+function awardsShowWorlds(awards) {
+  for (const a of (awards || [])) {
+    for (const q of (a.qualifications || [])) {
+      if (String(q).toLowerCase().includes('world')) return true;
+    }
+  }
+  return false;
+}
+
+// Position among teams NOT already qualified, plus who was skipped and why.
+// Returns null when it can't be computed (no skills data, or team unranked).
+async function computeUnqualifiedLadder(teamId, seasonId, gradeLevel, onProgress) {
+  const standings = await getFullSeasonSkills(seasonId, gradeLevel).catch(() => null);
+  if (!standings) return null;
+  const me = standings.byId[teamId];
+  if (!me || !me.globalRank) return null;
+
+  const ahead = standings.teams.slice(0, me.globalRank - 1);
+  const truncated = ahead.length > LADDER_SCAN_CAP;
+  const toScan = truncated ? ahead.slice(0, LADDER_SCAN_CAP) : ahead;
+
+  const key = seasonId + ':' + gradeLevel;
+  if (!_ladderCache.has(key)) _ladderCache.set(key, new Map());
+  const cache = _ladderCache.get(key);
+
+  let done = 0;
+  const results = await sim_pool(toScan, async t => {
+    if (cache.has(t.id)) return { t, qualified: cache.get(t.id) };
+    let qualified = false;
+    try {
+      const aw = await apiGet(`/teams/${t.id}/awards`, { 'season[]': [seasonId] });
+      qualified = awardsShowWorlds(aw);
+    } catch (e) { qualified = false; }
+    cache.set(t.id, qualified);
+    done++;
+    if (onProgress && done % 12 === 0) onProgress(done, toScan.length);
+    return { t, qualified };
+  }, sim_poolSize());
+
+  const qualifiedAhead = results.filter(r => r && r.qualified);
+  // Everyone above me, minus those already holding an invite, plus me
+  const position = (ahead.length - qualifiedAhead.length) + 1;
+
+  // Am I already qualified myself?
+  let selfQualified = false;
+  try {
+    const myAwards = await apiGet(`/teams/${teamId}/awards`, { 'season[]': [seasonId] });
+    selfQualified = awardsShowWorlds(myAwards);
+  } catch (e) {}
+
+  return {
+    globalRank: me.globalRank,
+    position,
+    skipped: qualifiedAhead.length,
+    scanned: toScan.length,
+    truncated,
+    selfQualified,
+    skippedTeams: qualifiedAhead.slice(0, 8).map(r => r.t.number || r.t.id),
+    totalRanked: standings.totalCount
+  };
+}
+
+// Render the ladder block (called after the Scout page paints)
+async function renderLadder(teamId, seasonId, gradeLevel) {
+  const host = document.getElementById('qualLadder');
+  if (!host) return;
+  host.innerHTML = `<div class="ladder-loading">Working out how many teams above are already qualified…</div>`;
+  try {
+    const L = await computeUnqualifiedLadder(teamId, seasonId, gradeLevel,
+      (d, n) => { host.innerHTML = `<div class="ladder-loading">Checking teams ranked above… ${d}/${n}</div>`; });
+    if (!L) { host.innerHTML = `<div class="ladder-none">No skills ranking this season, so there's no ladder position to compute.</div>`; return; }
+
+    if (L.selfQualified) {
+      host.innerHTML = `<div class="ladder-body">
+        <div class="ladder-note">Already qualified for Worlds through an award, so a skills invitation isn't needed.</div>
+        <div class="ladder-sub">World skills rank #${L.globalRank} of ${L.totalRanked}.</div>
+      </div>`;
+      return;
+    }
+
+    host.innerHTML = `<div class="ladder-body">
+      <div class="ladder-pos">#${L.position}<span class="ladder-pos-sub"> among unqualified teams</span></div>
+      <div class="ladder-sub">World skills rank <strong>#${L.globalRank}</strong> of ${L.totalRanked} · ${L.skipped} team${L.skipped === 1 ? '' : 's'} above already qualified${L.skipped ? ` (${L.skippedTeams.join(', ')}${L.skipped > L.skippedTeams.length ? ', …' : ''})` : ''}</div>
+      ${L.truncated ? `<div class="ladder-warn">Only the ${L.scanned} teams directly above were checked, so the real position may be slightly better.</div>` : ''}
+      <div class="ladder-caveat">Worlds invitations from the global skills list go to the highest-ranked teams without a spot, and how many are issued varies by season — this is your place in that line, not a guarantee.</div>
+    </div>`;
+  } catch (e) {
+    host.innerHTML = `<div class="ladder-none">Couldn't compute the ladder: ${e.message}</div>`;
+  }
+}
+
+function qualStatusFromAwards(awardsList) {
+  const hits = { worlds: [], nationals: [], state: [] };
+  for (const a of (awardsList || [])) {
+    for (const q of (a.qualifications || [])) {
+      const s = String(q).toLowerCase();
+      const entry = { award: a.title, event: a.event, qual: q };
+      if (s.includes('world')) hits.worlds.push(entry);
+      else if (s.includes('national')) hits.nationals.push(entry);
+      else if (s.includes('state') || s.includes('regional') || s.includes('championship')) hits.state.push(entry);
+    }
+  }
+  if (hits.worlds.length) return { level: 'worlds', label: 'Qualified for Worlds', icon: 'worlds', via: hits.worlds };
+  if (hits.nationals.length) return { level: 'nationals', label: 'Qualified for Nationals', icon: 'worlds', via: hits.nationals };
+  if (hits.state.length) return { level: 'state', label: 'Qualified for State / Regionals', icon: 'state', via: hits.state };
+  return { level: 'none', label: 'No qualifications recorded', icon: null, via: [] };
+}
+
+// What a single award qualifies you for (null when it qualifies for nothing)
+function qualForAward(a) {
+  for (const q of (a.qualifications || [])) {
+    const s = String(q).toLowerCase();
+    if (s.includes('world')) return { icon: 'worlds', text: q };
+    if (s.includes('national')) return { icon: 'worlds', text: q };
+    if (s.includes('state') || s.includes('regional') || s.includes('championship')) return { icon: 'state', text: q };
+  }
+  return null;
 }
 
 // ── Compact QuickScout card ──────────────────
@@ -5838,6 +6183,25 @@ function renderDetailedTeam(d, eventFilter) {
   // ── Match schedule for the selected event ──
   if (eventFilter && eventFilter !== 'all') html += renderEventSchedule(d, eventFilter);
 
+  // ── Qualification status ──
+  const qs = qualStatusFromAwards(d.awardsList);
+  html += `<div class="detail-block">
+    <div class="detail-block-label">Qualification Status</div>
+    <div class="qual-status qual-${qs.level}">
+      ${qs.icon ? `<div class="qual-icon-wrap">${QUAL_ICONS[qs.icon]}</div>` : ''}
+      <div class="qual-body">
+        <div class="qual-label">${qs.label}</div>
+        ${qs.via.length
+          ? `<div class="qual-via">${qs.via.map(v => `<span class="qual-via-item"><strong>${v.award}</strong> at ${v.event || 'an event'}</span>`).join('')}</div>`
+          : `<div class="qual-via-none">No award this season carried a qualification. Teams can also qualify through the skills list or event rank — the ladder below shows where this team stands.</div>`}
+      </div>
+    </div>
+    <div class="ladder-wrap">
+      <div class="ladder-title">Skills ladder</div>
+      <div id="qualLadder"></div>
+    </div>
+  </div>`;
+
   // ── Events attended ──
   html += renderEventsAttended(d);
 
@@ -5848,12 +6212,17 @@ function renderDetailedTeam(d, eventFilter) {
       ? `<div class="awards-list">${d.awardsList.map((a, i) => {
           const ev = (a.event || '').replace(/"/g, '&quot;');
           const id = 'dw_' + d.teamId + '_' + i;
-          return `<span class="award-tag${ev ? ' award-clickable' : ''}"${ev ? ` onclick="document.getElementById('${id}').classList.toggle('show')"` : ''}>${a.title}${ev ? `<span class="award-event" id="${id}"> · ${ev}</span>` : ''}</span>`;
+          const q = qualForAward(a);
+          return `<span class="award-tag${ev ? ' award-clickable' : ''}"${ev ? ` onclick="document.getElementById('${id}').classList.toggle('show')"` : ''}>${q ? `<span class="award-qual-icon" title="${String(q.text).replace(/"/g,'&quot;')}">${QUAL_ICONS[q.icon]}</span>` : ''}${a.title}${ev ? `<span class="award-event" id="${id}"> · ${ev}</span>` : ''}</span>`;
         }).join('')}</div>`
       : `<div class="no-awards">No awards found</div>`}
   </div>`;
 
   out.innerHTML = html;
+  // Ladder needs one request per team above, so it loads after the page paints
+  const _sid = document.getElementById('detailSeasonSelect')?.value || null;
+  const _grade = document.getElementById('detailGradeSelect')?.value || 'High School';
+  if (_sid) setTimeout(() => renderLadder(d.teamId, _sid, _grade), 40);
 }
 
 // ═══════════════════════════════════════════════════════════════
