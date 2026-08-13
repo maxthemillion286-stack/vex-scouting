@@ -47,6 +47,43 @@ function ttlFor(path) {
   return DEFAULT_TTL_MS;
 }
 
+
+// ── Payload slimming ───────────────────────────────────────────────────────
+// The season skills standings return every team worldwide with fully nested
+// team/event/season objects — several megabytes of JSON, most of which the app
+// never reads. On a competition's wifi that download is the single slowest
+// thing the app does. Strip it to the fields the client actually uses before it
+// ever crosses the network. Everything is still computed from real data; we're
+// only dropping fields nobody reads.
+function slimSeasonSkills(data) {
+  const items = Array.isArray(data) ? data : (data && data.data) || null;
+  if (!items || !Array.isArray(items)) return data;
+  const out = items.map(it => {
+    const t = it.team || {};
+    return {
+      rank: it.rank,
+      scoreDriver: it.scoreDriver ?? it.scores?.driver ?? 0,
+      scoreProg: it.scoreProg ?? it.scores?.programming ?? 0,
+      score: it.score ?? it.scores?.score ?? 0,
+      team: {
+        id: t.id,
+        team: t.team,
+        program: t.program,
+        gradeLevel: t.gradeLevel,
+        region: t.region,
+        eventRegion: t.eventRegion,
+        country: t.country
+      }
+    };
+  });
+  return Array.isArray(data) ? out : { ...data, data: out };
+}
+
+function slimForPath(path, data) {
+  if (path.startsWith('legacy:/seasons/') && path.includes('/skills')) return slimSeasonSkills(data);
+  return data;
+}
+
 export default async function handler(req, res) {
   const path = req.query.path;
   if (!path) {
@@ -120,7 +157,7 @@ export default async function handler(req, res) {
 
       let data;
       try {
-        data = JSON.parse(text);
+        data = slimForPath(path, JSON.parse(text));
       } catch (e) {
         data = {
           error: 'Non-JSON response from events.vex.com',
