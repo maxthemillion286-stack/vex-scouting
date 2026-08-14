@@ -96,6 +96,46 @@ export default async function handler(req, res) {
     // Legacy endpoints (used for season skills standings) — public, no auth needed
     url = `https://events.vex.com/api${path.slice(7)}`;
     useAuth = false;
+  } else if (path.startsWith('youtube:')) {
+    // ── Stream start lookup ──────────────────────────────────────────────
+    // A livestream's `actualStartTime` is the wall-clock moment the broadcast
+    // began. With it, a match's position in the video is pure arithmetic:
+    //     videoSeconds = (match.started - actualStartTime) / 1000
+    // ...which removes the need for a manual anchor entirely.
+    //
+    // The key stays server-side deliberately. A YouTube key shipped to the
+    // browser is readable by anyone and can be scraped and abused against your
+    // quota; proxying keeps it private and lets us cache the result.
+    const ytKey = process.env.YOUTUBE_API_KEY;
+    const videoId = path.slice(8);
+    if (!ytKey) return res.status(200).json({ ok: false, reason: 'no-key' });
+    if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) {
+      return res.status(400).json({ ok: false, reason: 'bad-id' });
+    }
+    try {
+      const r = await fetch(
+        'https://www.googleapis.com/youtube/v3/videos' +
+        '?part=liveStreamingDetails&id=' + encodeURIComponent(videoId) +
+        '&key=' + encodeURIComponent(ytKey)
+      );
+      const j = await r.json();
+      const item = (j.items || [])[0];
+      const d = item && item.liveStreamingDetails;
+      if (!d) return res.status(200).json({ ok: false, reason: 'not-a-livestream' });
+
+      if (d.actualStartTime) {
+        // Lookups are immutable once a broadcast has ended — cache hard.
+        res.setHeader('Cache-Control', 'public, s-maxage=86400, stale-while-revalidate=86400');
+        return res.status(200).json({ ok: true, status: 'started', actualStartTime: d.actualStartTime });
+      }
+      if (d.scheduledStartTime) {
+        // Scheduled but not yet live — no offset exists yet.
+        return res.status(200).json({ ok: false, reason: 'not-started', scheduledStartTime: d.scheduledStartTime });
+      }
+      return res.status(200).json({ ok: false, reason: 'not-a-livestream' });
+    } catch (err) {
+      return res.status(200).json({ ok: false, reason: 'lookup-failed' });
+    }
   } else {
     // Main authenticated v2 API
     url = `https://events.vex.com/api/v2${path}`;
