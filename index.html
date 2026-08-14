@@ -751,7 +751,6 @@
     .logo-sub { font-size: 7px; letter-spacing: 1px; }
     .header-right { gap: 4px; flex-wrap: wrap; margin-left: auto; }
     .badge, .theme-btn, .status-badge { font-size: 8px; padding: 4px 8px; }
-    #installAppBtn { font-size: 8px; padding: 4px 8px; }
 
     /* Tabs — tighter */
     .tabs-nav { padding: 0; margin-bottom: 12px; }
@@ -1273,8 +1272,19 @@
   .cs-list {
     display: none; position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 60;
     background: var(--card); border: 1px solid var(--accent-dim);
-    max-height: 300px; overflow-y: auto;
+    /* Cap to the space actually on screen, not a fixed 300px — on a short
+       phone viewport a fixed height pushes the last options out of view with
+       no way to reach them. */
+    max-height: min(300px, 52vh);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
     box-shadow: 0 12px 32px rgba(0,0,0,0.55);
+  }
+  @media (max-width: 768px) {
+    /* Roomier tap targets, and the list is allowed a bit more of the screen */
+    .cs-list { max-height: 60vh; }
+    .cs-opt { padding: 13px 14px; font-size: 14px; }
   }
   .cs.open .cs-list { display: block; }
   .cs-opt {
@@ -1557,6 +1567,16 @@
 
   .ladder-cta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
   .ladder-cta-note { font-family: var(--body); font-size: 11.5px; color: var(--text-muted); }
+
+
+  .rw-auto-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+  .rw-auto-note { font-family: var(--body); font-size: 12px; color: var(--text-muted); }
+  .rw-auto-working { font-family: var(--mono); font-size: 11px; color: var(--text-muted); }
+  .rw-auto-fail { font-family: var(--body); font-size: 12px; color: var(--text-dim); display: block; margin: 6px 0; }
+  .rw-auto-tag { font-family: var(--mono); font-size: 10px; color: #4ccf6a; letter-spacing: 0.5px; margin-bottom: 8px; }
+  .rw-or { font-family: var(--mono); font-size: 10px; letter-spacing: 2px; color: var(--text-muted);
+    margin: 14px 0 10px; display: flex; align-items: center; gap: 10px; }
+  .rw-or::after { content: ''; flex: 1; height: 1px; background: var(--border); }
 </style>
 </head>
 <body class="theme-dark-grey">
@@ -1572,10 +1592,6 @@
         <div class="logo-sub">Competition Intelligence &nbsp;·&nbsp; BY MAX WANG</div>
       </div>
       <div class="header-right">
-        <button id="installAppBtn" class="theme-btn" style="display:none;" onclick="showInstallPrompt()" title="Install as app">
-          <span style="font-size:14px;">📱</span>
-          INSTALL APP
-        </button>
         <div class="status-badge" id="statusBadge">● NOT CONNECTED</div>
 
         <!-- Theme Switcher -->
@@ -1652,7 +1668,7 @@
     <button class="tab-btn" data-tab="quickscout" onclick="switchTab('quickscout')">MULTI SCOUT</button>
     <button class="tab-btn" data-tab="skills" onclick="switchTab('skills')">SKILLS RANKINGS</button>
     <button class="tab-btn" data-tab="tournament" onclick="switchTab('tournament')">TOURNAMENT</button>
-    <button class="tab-btn" data-tab="rewatch" onclick="switchTab('rewatch')">REWATCH</button>
+    <button class="tab-btn" data-tab="rewatch" onclick="switchTab('rewatch')">JUMPER</button>
     <button class="tab-btn" data-tab="simulator" onclick="switchTab('simulator')">SIMULATOR</button>
     <div class="tab-indicator" id="tabIndicator"></div>
   </div>
@@ -1812,7 +1828,7 @@
   <!-- ═══════════ SIMULATOR ═══════════ -->
   <!-- ═══════════ REWATCH ═══════════ -->
   <section class="search-section tab-panel" id="tab-rewatch">
-    <div class="section-label">Rewatch <span class="section-info" title="Jump straight to any of a team's matches inside an event's stream. Paste the YouTube link, tell it where one match starts, and every other match becomes a one-click jump.">i</span></div>
+    <div class="section-label">Jumper <span class="section-info" title="Jump straight to any of a team's matches inside an event's stream. Paste the YouTube link, tell it where one match starts, and every other match becomes a one-click jump.">i</span></div>
     <div class="controls-row">
       <div class="input-wrap" style="flex:2;min-width:180px;">
         <span class="input-label">TEAM NUMBER</span>
@@ -2104,6 +2120,9 @@ function enhanceSelect(select) {
     if (!btn) return;
     e.stopPropagation();
     select.selectedIndex = parseInt(btn.dataset.idx, 10);
+    if (/^(seasonSelect|skillsSeasonSelect|tournamentSeasonSelect|simSeasonSelect|detailSeasonSelect|rwSeasonSelect)$/.test(select.id)) {
+      _seasonUserPicked = true;
+    }
     csSyncLabel(wrap, select);
     csClose(wrap);
     // Let any existing onchange handlers fire exactly as they did before
@@ -2137,12 +2156,66 @@ document.addEventListener('click', () => csCloseAll(null));
 // ═══════════════════════════════════════════════════════════════
 
 // Accepts youtube.com/watch?v=ID, youtu.be/ID, /embed/ID, /live/ID or a bare ID
-function rwParseVideoId(url) {
+// Works out which platform a pasted link belongs to and pulls the pieces needed
+// to embed it. Vimeo needs more than an id: unlisted clips carry a privacy hash,
+// and an "event" link is a channel whose featured clip changes between days.
+function rwParseSource(url) {
   const s = (url || '').trim();
   if (!s) return null;
-  if (/^[\w-]{11}$/.test(s)) return s;
+
+  // ── Vimeo ──
+  if (/vimeo\.com/i.test(s)) {
+    const eventId = s.match(/vimeo\.com\/event\/(\d+)/i)?.[1] || null;
+    const videoId =
+      s.match(/[?&]video=(\d+)/)?.[1] ||
+      s.match(/\/video\/(\d+)/)?.[1] ||
+      s.match(/vimeo\.com\/(\d+)/i)?.[1] || null;
+    const hash =
+      s.match(/[?&]h=([\w]+)/)?.[1] ||
+      (videoId ? s.match(new RegExp(videoId + '\\/([\\w]+)'))?.[1] : null) || null;
+    if (!eventId && !videoId) return null;
+    return { platform: 'vimeo', id: videoId, eventId, hash };
+  }
+
+  // ── YouTube ──
+  if (/^[\w-]{11}$/.test(s)) return { platform: 'youtube', id: s };
   const m = s.match(/(?:v=|youtu\.be\/|\/embed\/|\/live\/|\/shorts\/)([\w-]{11})/);
-  return m ? m[1] : null;
+  if (m) return { platform: 'youtube', id: m[1] };
+
+  // A bare number is most likely a Vimeo id
+  if (/^\d{6,12}$/.test(s)) return { platform: 'vimeo', id: s, eventId: null, hash: null };
+  return null;
+}
+
+// Back-compat: existing callers just want "is this a usable link".
+function rwParseVideoId(url) {
+  const p = rwParseSource(url);
+  return p ? (p.id || p.eventId) : null;
+}
+
+// Build the embed src for whichever platform a day was calibrated with.
+// Both players take a start position in the URL, so a jump is just a re-render.
+function rwEmbedSrc(cal, seconds) {
+  if ((cal.platform || 'youtube') === 'vimeo') {
+    // #t= is the documented way to open a Vimeo player at a position, and it
+    // avoids pulling in the Player SDK just to seek.
+    const base = cal.hash
+      ? `https://player.vimeo.com/video/${cal.videoId}?h=${cal.hash}&autoplay=1`
+      : (cal.eventId && !cal.videoId
+          ? `https://vimeo.com/event/${cal.eventId}/embed?autoplay=1`
+          : `https://player.vimeo.com/video/${cal.videoId}?autoplay=1`);
+    return `${base}#t=${seconds}s`;
+  }
+  return `https://www.youtube.com/embed/${cal.videoId}?start=${seconds}&autoplay=1`;
+}
+
+function rwWatchUrl(cal, seconds) {
+  if ((cal.platform || 'youtube') === 'vimeo') {
+    if (cal.eventId && cal.videoId) return `https://vimeo.com/event/${cal.eventId}/video/${cal.videoId}#t=${seconds}s`;
+    if (cal.eventId) return `https://vimeo.com/event/${cal.eventId}#t=${seconds}s`;
+    return `https://vimeo.com/${cal.videoId}#t=${seconds}s`;
+  }
+  return `https://www.youtube.com/watch?v=${cal.videoId}&t=${seconds}s`;
 }
 
 // Accepts 12542, "3:29:02", "209:02", or a youtu.be link carrying ?t=
@@ -2476,11 +2549,83 @@ function rwSetAnchorHere(day) {
   rewatchCalibrate(day);
 }
 
+// ── Auto-sync ──────────────────────────────────────────────────────────────
+// Asks the proxy when the broadcast actually started. Given that, a match's
+// position is simply (match.started - broadcastStart), so no anchoring is
+// needed. Falls back to the manual anchor flow whenever it can't be determined.
+async function rwFetchStreamStart(videoId) {
+  try {
+    const res = await fetch(`${BASE}?path=${encodeURIComponent('youtube:' + videoId)}`);
+    if (!res.ok) return { ok: false, reason: 'lookup-failed' };
+    return await res.json();
+  } catch (e) { return { ok: false, reason: 'lookup-failed' }; }
+}
+
+async function rewatchAutoSync(day) {
+  const ctx = window._rwCtx; if (!ctx) return;
+  const srcInfo = rwParseSource((document.getElementById('rwVideoInput') || {}).value || '');
+  const status = document.getElementById('rwAutoStatus');
+  if (!srcInfo) { showError('⚠ Paste the stream link first.'); return; }
+  if (srcInfo.platform !== 'youtube') {
+    // Vimeo's start-time data sits behind their paid API, so there's nothing
+    // to read. Anchoring one match by hand is the only route there.
+    if (status) status.innerHTML = '<span class="rw-auto-fail">Auto-sync only works for YouTube — Vimeo doesn\'t publish a broadcast start time. Set one anchor below and the rest follow.</span>';
+    return;
+  }
+  const vid = srcInfo.id;
+  if (status) status.innerHTML = '<span class="rw-auto-working">Reading the broadcast start time…</span>';
+
+  const r = await rwFetchStreamStart(vid);
+  if (!r || !r.ok) {
+    const why = {
+      'no-key': 'Auto-sync needs a YouTube API key configured on the server (YOUTUBE_API_KEY).',
+      'not-a-livestream': "YouTube has no broadcast start time for this video — it isn't an archived livestream.",
+      'not-started': 'That stream is scheduled but hasn\'t gone live yet.',
+      'bad-id': 'That video ID looks wrong.',
+      'lookup-failed': "Couldn't reach YouTube for the start time."
+    }[r && r.reason] || "Couldn't read the broadcast start time.";
+    if (status) status.innerHTML = `<span class="rw-auto-fail">${why} Set an anchor by hand instead.</span>`;
+    return;
+  }
+
+  const startMs = Date.parse(r.actualStartTime);
+  if (isNaN(startMs)) {
+    if (status) status.innerHTML = '<span class="rw-auto-fail">YouTube returned an unreadable start time.</span>';
+    return;
+  }
+
+  // Anchor against this day's first match — any match works, since the offset
+  // is fixed; using a real one keeps the display consistent with manual anchors.
+  const anchor = rwAnchorForDay(ctx, day) ||
+    ctx.matches.filter(m => m.t !== null && rwDayKey(m.t) === day).sort((a, b) => a.t - b.t)[0];
+  if (!anchor) {
+    if (status) status.innerHTML = '<span class="rw-auto-fail">No dated matches on this day to sync against.</span>';
+    return;
+  }
+  const secs = Math.round((anchor.t - startMs) / 1000);
+  if (secs < 0) {
+    if (status) status.innerHTML = '<span class="rw-auto-fail">These matches happened before this stream started — wrong day\'s video?</span>';
+    return;
+  }
+
+  ctx.videoId = vid;
+  ctx.cal = ctx.cal || {};
+  ctx.cal[day] = {
+    videoId: vid, platform: 'youtube', day, auto: true, savedAt: Date.now(),
+    anchors: [{ matchId: anchor.id || 'auto', name: anchor.name, matchMs: anchor.t, videoSec: secs }]
+  };
+  rwSaveCal(ctx.eventId, ctx.cal);
+  ctx.calDay = null;
+  showError('');
+  rewatchRender();
+}
+
 function rewatchCalibrate(day) {
   const ctx = window._rwCtx; if (!ctx) return;
   day = day || ctx.calDay;
-  const vid = rwParseVideoId(document.getElementById('rwVideoInput').value);
-  if (!vid) { showError('⚠ That doesn\'t look like a YouTube link or video ID.'); return; }
+  const srcInfo = rwParseSource(document.getElementById('rwVideoInput').value);
+  if (!srcInfo) { showError('⚠ That doesn\'t look like a YouTube or Vimeo link.'); return; }
+  const vid = srcInfo.id || srcInfo.eventId;
   const secs = rwParseSeconds(document.getElementById('rwAnchorTime').value);
   if (secs === null) { showError('⚠ Enter the video time as a clock time (1:27:22), seconds (5242), or paste a youtu.be link with ?t='); return; }
   const matchId = (document.getElementById('rwAnchorMatch') || {}).value;
@@ -2492,6 +2637,9 @@ function rewatchCalibrate(day) {
   ctx.cal = ctx.cal || {};
   const cur = ctx.cal[day] || { videoId: vid, anchors: [], day };
   cur.videoId = vid;
+  cur.platform = srcInfo.platform;
+  cur.hash = srcInfo.hash || null;
+  cur.eventId = srcInfo.eventId || null;
   cur.anchors = (cur.anchors || []).filter(a => String(a.matchId) !== String(m.id));
   cur.anchors.push({ matchId: m.id, name: m.name, matchMs: m.t, videoSec: secs });
   cur.anchors.sort((a, b) => a.matchMs - b.matchMs);
@@ -2594,11 +2742,11 @@ function rewatchRender() {
       html += `<div class="rw-block" id="rwPlayer">
         <div class="detail-block-label">${m ? m.name : 'Match'} · ${rwFmtClock(ctx.playing.off)}</div>
         <div class="rw-embed">
-          <iframe src="https://www.youtube.com/embed/${pcal.videoId}?start=${ctx.playing.off}&autoplay=1"
-            title="Match video" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+          <iframe src="${rwEmbedSrc(pcal, ctx.playing.off)}"
+            title="Match video" frameborder="0" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
         </div>
-        <a class="rw-fallback" href="https://www.youtube.com/watch?v=${pcal.videoId}&t=${ctx.playing.off}s" target="_blank" rel="noopener">
-          Video not loading? Open on YouTube at ${rwFmtClock(ctx.playing.off)} →
+        <a class="rw-fallback" href="${rwWatchUrl(pcal, ctx.playing.off)}" target="_blank" rel="noopener">
+          Video not loading? Open on ${(pcal.platform || 'youtube') === 'vimeo' ? 'Vimeo' : 'YouTube'} at ${rwFmtClock(ctx.playing.off)} →
         </a>
       </div>`;
     }
@@ -2625,7 +2773,8 @@ function rewatchRender() {
 
     if (cal && !formOpen) {
       const anchors = (cal.anchors || []).slice().sort((a, b) => a.matchMs - b.matchMs);
-      html += `<div class="rw-anchors">
+      html += `${cal.auto ? '<div class="rw-auto-tag">✓ auto-synced from the broadcast start time</div>' : ''}
+      <div class="rw-anchors">
         ${anchors.map(a => `<span class="rw-anchor-tag">${a.name} @ ${rwFmtClock(a.videoSec)}
           <button title="remove" onclick="rewatchRemoveAnchor('${day}','${a.matchId}')">×</button></span>`).join('')}
         <button class="draft-btn" onclick="rewatchCalibrateDay('${day}')">+ ADD ANCHOR</button>
@@ -2655,10 +2804,16 @@ function rewatchRender() {
         ? ctx.allMatches.filter(m => m.t !== null && dayKeyOf(m.t) === day)
         : dayMatches.filter(m => m.t !== null);
       const existing = (cal && cal.anchors) ? cal.anchors.length : 0;
-      html += `<div class="rw-hint">Load the stream, scrub to <strong>any</strong> match — Qualifier #1 near the start of the video is usually easiest — pick which one it is, and click <strong>SET ANCHOR HERE</strong>. Every match becomes one click from then on.</div>
+      html += `<div class="rw-auto-row">
+        <button class="btn btn-primary" onclick="rewatchAutoSync('${day}')">AUTO-SYNC</button>
+        <span class="rw-auto-note">Works everything out from the stream link — no scrubbing.</span>
+      </div>
+      <div id="rwAutoStatus"></div>
+      <div class="rw-or">or set it by hand</div>
+      <div class="rw-hint">Load the stream, scrub to <strong>any</strong> match — Qualifier #1 near the start of the video is usually easiest — pick which one it is, and click <strong>SET ANCHOR HERE</strong>. Every match becomes one click from then on.</div>
       <div class="controls-row">
-        <div class="input-wrap" style="flex:2;min-width:220px;"><span class="input-label">YOUTUBE LINK</span>
-          <input type="text" id="rwVideoInput" value="${(cal && cal.videoId) || ctx.videoId || ''}" placeholder="https://youtube.com/watch?v=..." autocomplete="off"></div>
+        <div class="input-wrap" style="flex:2;min-width:220px;"><span class="input-label">STREAM LINK</span>
+          <input type="text" id="rwVideoInput" value="${(cal && cal.videoId) || ctx.videoId || ''}" placeholder="YouTube or Vimeo stream link" autocomplete="off"></div>
         <button class="btn btn-secondary" onclick="rwPreviewVideo()">LOAD VIDEO</button>
       </div>
       <div id="rwCalPlayerWrap" style="display:${(cal && cal.videoId) || ctx.videoId ? '' : 'none'};">
@@ -2775,55 +2930,6 @@ window.onload = () => {
     });
   }
 };
-
-// ──── PWA Install Prompt ────
-let pwaInstallEvent = null;
-window.addEventListener('beforeinstallprompt', (e) => {
-  e.preventDefault();
-  pwaInstallEvent = e;
-  // Show our custom install button
-  const btn = document.getElementById('installAppBtn');
-  if (btn) btn.style.display = 'inline-flex';
-});
-
-function showInstallPrompt() {
-  // Detect iOS — iOS Safari doesn't fire beforeinstallprompt, so we show instructions instead
-  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-  if (isIOS) {
-    alert(
-      'To install VEX Scout on your iPhone:\n\n' +
-      '1. Tap the Share button (square with arrow up) at the bottom of Safari\n' +
-      '2. Scroll down and tap "Add to Home Screen"\n' +
-      '3. Tap "Add" in the top right\n\n' +
-      'The app icon will appear on your home screen!'
-    );
-    return;
-  }
-  // Android / desktop Chrome — use the deferred prompt
-  if (pwaInstallEvent) {
-    pwaInstallEvent.prompt();
-    pwaInstallEvent.userChoice.then(() => {
-      pwaInstallEvent = null;
-      const btn = document.getElementById('installAppBtn');
-      if (btn) btn.style.display = 'none';
-    });
-  } else {
-    alert(
-      'To install VEX Scout:\n\n' +
-      '• Chrome/Edge desktop: Click the install icon in the address bar\n' +
-      '• Android Chrome: Tap menu → "Install app" or "Add to Home Screen"\n' +
-      '• iPhone Safari: Tap Share → "Add to Home Screen"'
-    );
-  }
-}
-
-// On iOS, always show the install hint button (since beforeinstallprompt doesn't fire there)
-if (/iPad|iPhone|iPod/.test(navigator.userAgent) && !window.matchMedia('(display-mode: standalone)').matches && !navigator.standalone) {
-  window.addEventListener('load', () => {
-    const btn = document.getElementById('installAppBtn');
-    if (btn) btn.style.display = 'inline-flex';
-  });
-}
 
 // ── THEME ─────────────────────────────────────
 function toggleThemeMenu() {
@@ -3071,12 +3177,60 @@ function loadSeasons() {
   loadSeasonsFromAPI();
 }
 
+// The real season list, remembered between visits.
+// The hardcoded SEASONS array can't include a brand-new game (its RobotEvents
+// id isn't knowable in advance), so on a slow or failed network the newest
+// season would silently vanish from every dropdown. Persisting the fetched list
+// means it only has to succeed once per device.
+const SEASONS_LS_KEY = 'vex_seasons_v1';
+// Set only when someone chooses a season by hand, so a background list refresh
+// doesn't yank them off it — while still allowing the default to apply on load.
+let _seasonUserPicked = false;
+function loadCachedSeasons() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(SEASONS_LS_KEY) || 'null');
+    if (raw && Array.isArray(raw.seasons) && raw.seasons.length) return raw.seasons;
+  } catch (e) {}
+  return null;
+}
+function saveCachedSeasons(seasons) {
+  try { localStorage.setItem(SEASONS_LS_KEY, JSON.stringify({ ts: Date.now(), seasons })); } catch (e) {}
+}
+
+function fillSeasonSelects(seasons) {
+  ['seasonSelect','skillsSeasonSelect','tournamentSeasonSelect','simSeasonSelect','detailSeasonSelect','rwSeasonSelect'].forEach(id => {
+    const sel = document.getElementById(id);
+    if (!sel) return;
+    const prev = sel.value;
+    sel.innerHTML = '';
+    seasons.forEach((s, i) => {
+      const opt = document.createElement('option');
+      opt.value = s.id;
+      opt.textContent = s.name;
+      const isDefault = DEFAULT_SEASON_NAME ? isDefaultSeason(s) : (i === 0);
+      if (isDefault) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    // Only restore a season the USER actually picked. On first load `prev` is
+    // just the hardcoded default, and honouring it would override the real
+    // current season once the live list arrives.
+    if (_seasonUserPicked && prev && [...sel.options].some(o => o.value === prev)) sel.value = prev;
+    else if (DEFAULT_SEASON_NAME && !sel.value) sel.selectedIndex = 0;
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+}
+
 async function loadSeasonsFromAPI() {
+  // Show the remembered list straight away so the newest game is never missing
+  const cached = loadCachedSeasons();
+  if (cached) fillSeasonSelects(cached);
+
   if (!TOKEN) return;
   try {
     const seasons = await apiGet('/seasons', { 'program[]': [1] });
     if (!seasons.length) return;
     seasons.sort((a, b) => (b.start || '').localeCompare(a.start || ''));
+    saveCachedSeasons(seasons.map(s => ({ id: s.id, name: s.name, start: s.start })));
 
     ['seasonSelect','skillsSeasonSelect','tournamentSeasonSelect','simSeasonSelect','detailSeasonSelect','rwSeasonSelect'].forEach(id => {
       const sel = document.getElementById(id);
