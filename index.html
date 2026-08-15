@@ -1577,6 +1577,8 @@
   .rw-or { font-family: var(--mono); font-size: 10px; letter-spacing: 2px; color: var(--text-muted);
     margin: 14px 0 10px; display: flex; align-items: center; gap: 10px; }
   .rw-or::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+  .rw-found { font-family: var(--body); font-size: 12px; color: #4ccf6a; margin-bottom: 8px; }
 </style>
 </head>
 <body class="theme-dark-grey">
@@ -2392,12 +2394,17 @@ async function rewatchSelectEvent(eventId) {
     } catch (e) { ctx.allMatches = null; }
 
     // Try the event's own webcast link before asking the user for one
-    let webcast = null;
+    let webcast = null, webcastRaw = '', ctxWebcastSource = null;
     try {
       const ev = await apiGet('/events', { 'id[]': [eventId] });
       const e0 = ev[0] || {};
-      const raw = e0.webcast || e0.webcast_link || e0.livestream_link || '';
-      webcast = rwParseVideoId(raw);
+      // Look everywhere, not just the webcast field
+      const found = rwFindWebcasts(e0).filter(c => c.kind === 'direct');
+      if (found.length) {
+        webcastRaw = found[0].url;
+        webcast = rwParseVideoId(found[0].url);
+        ctxWebcastSource = found[0].source;
+      }
     } catch (e) {}
 
     const cal = rwLoadCal(eventId);
@@ -2409,6 +2416,22 @@ async function rewatchSelectEvent(eventId) {
     ctx.autoWebcast = !!webcast && !anyCal;
     ctx.calDay = null;
     rewatchRender();
+
+    // If the event publishes its own stream link and this day isn't calibrated
+    // yet, sync it without being asked. Silent: a failure just leaves the
+    // manual form in place rather than throwing an error at someone who
+    // didn't request anything.
+    if (webcastRaw && !anyCal) {
+      ctx.foundStream = { url: webcastRaw, source: ctxWebcastSource };
+      const days = [...new Set(matches.filter(m => m.t !== null).map(m => rwDayKey(m.t)))];
+      for (const d of days) {
+        if (ctx.cal && ctx.cal[d]) continue;
+        await rwTryAutoSync(d, webcastRaw, { quiet: true });
+      }
+      // Even if auto-sync couldn't run (Vimeo, or no API key), the link is
+      // found — prefill it so anchoring is one scrub, not a hunt for the URL.
+      rewatchRender();
+    }
   } catch (e) {
     showError('⚠ ' + e.message);
   } finally {
@@ -2561,19 +2584,104 @@ async function rwFetchStreamStart(videoId) {
   } catch (e) { return { ok: false, reason: 'lookup-failed' }; }
 }
 
-async function rewatchAutoSync(day) {
-  const ctx = window._rwCtx; if (!ctx) return;
-  const srcInfo = rwParseSource((document.getElementById('rwVideoInput') || {}).value || '');
+// ── Finding the stream without being told ─────────────────────────────────
+// The structured `webcast` field is usually empty; in practice event organisers
+// paste the stream link into the event description. So scan everything the
+// event object carries, rank the candidates, and take the best one.
+function rwExtractUrls(text) {
+  if (!text) return [];
+  const m = String(text).match(/(https?:\/\/[^\s<>"{}|\\^`\[\]]+)/gi) || [];
+  return [...new Set(m.map(u => u.replace(/[.,;)\]]+$/, '')))];   // trim trailing punctuation
+}
+
+// Not every link in a description is the stream — filter the obvious noise.
+const RW_URL_NOISE = /robotevents\.com|vexrobotics\.com|recf\.org|kb\.roboticseducation|google\.com\/maps|forms\.gle|docs\.google|facebook\.com|instagram\.com|twitter\.com|x\.com/i;
+
+function rwClassifyUrl(url) {
+  const l = url.toLowerCase();
+  if (l.includes('youtube.com/watch') || l.includes('youtu.be/') || l.includes('youtube.com/live/') || l.includes('youtube.com/embed/'))
+    return { kind: 'direct', platform: 'youtube', url };
+  if (l.includes('vimeo.com'))
+    return { kind: 'direct', platform: 'vimeo', url };
+  if (l.includes('youtube.com/channel/') || l.includes('youtube.com/@') || l.includes('youtube.com/c/') || l.includes('youtube.com/playlist'))
+    return { kind: 'channel', platform: 'youtube', url };   // can't jump into a channel
+  if (l.includes('twitch.tv'))
+    return { kind: 'channel', platform: 'twitch', url };
+  return { kind: 'other', platform: 'unknown', url };
+}
+
+// Ranked stream candidates for an event, best first.
+function rwFindWebcasts(ev) {
+  if (!ev) return [];
+  const out = [];
+  const push = (url, priority, source) => {
+    if (!url || RW_URL_NOISE.test(url)) return;
+    const c = rwClassifyUrl(url);
+    if (c.kind === 'other') return;
+    out.push({ ...c, priority, source });
+  };
+
+  // 1. The structured field, when an organiser filled it in
+  push(ev.webcast || ev.webcast_link || ev.livestream_link, 1, 'webcast-field');
+
+  // 2. A line in the description that actually mentions a stream
+  const text = [ev.description, ev.notes, ev.info, ev.summary].filter(Boolean).join('\n');
+  const streamLines = String(text).match(/^.*(webcast|livestream|live stream|stream|watch live|broadcast).*$/gim) || [];
+  for (const line of streamLines) for (const u of rwExtractUrls(line)) push(u, 2, 'description-stream-line');
+
+  // 3. Any other link in the description
+  for (const u of rwExtractUrls(text)) push(u, 3, 'description');
+
+  // Best first: real videos before channels, and earlier sources before later
+  out.sort((a, b) => (a.kind === 'direct' ? 0 : 1) - (b.kind === 'direct' ? 0 : 1) || a.priority - b.priority);
+  const seen = new Set();
+  return out.filter(c => !seen.has(c.url) && seen.add(c.url));
+}
+
+// Paste a link and it syncs itself — no button press. Debounced so it fires
+// once you've finished typing, and only for a day that isn't already set up.
+let _rwPasteTimer = null;
+function rwOnLinkPasted(day, value) {
+  clearTimeout(_rwPasteTimer);
+  const info = rwParseSource(value || '');
+  if (!info || info.platform !== 'youtube') return;   // Vimeo can't self-sync
+  const ctx = window._rwCtx;
+  if (ctx && ctx.cal && ctx.cal[day]) return;         // already calibrated
   const status = document.getElementById('rwAutoStatus');
-  if (!srcInfo) { showError('⚠ Paste the stream link first.'); return; }
+  if (status) status.innerHTML = '<span class="rw-auto-working">Syncing…</span>';
+  _rwPasteTimer = setTimeout(async () => {
+    const ok = await rwTryAutoSync(day, value, { quiet: true });
+    if (!ok) {
+      const s = document.getElementById('rwAutoStatus');
+      if (s) s.innerHTML = '<span class="rw-auto-fail">Couldn\'t sync automatically — set one anchor below and the rest follow.</span>';
+    }
+  }, 600);
+}
+
+// Manual press of AUTO-SYNC — same work, but it reports what happened.
+async function rewatchAutoSync(day) {
+  return rwTryAutoSync(day, (document.getElementById('rwVideoInput') || {}).value || '', { quiet: false });
+}
+
+// Attempt a sync. `quiet` mode is used when we're doing it on the user's behalf:
+// success re-renders as normal, failure leaves no error shouting at someone who
+// never asked for it — the manual anchor form is right there either way.
+async function rwTryAutoSync(day, linkText, { quiet = false } = {}) {
+  const ctx = window._rwCtx; if (!ctx) return false;
+  const srcInfo = rwParseSource(linkText || '');
+  const status = document.getElementById('rwAutoStatus');
+  const fail = (msg) => {
+    if (!quiet && status) status.innerHTML = `<span class="rw-auto-fail">${msg}</span>`;
+    return false;
+  };
+  if (!srcInfo) { if (!quiet) showError('⚠ Paste the stream link first.'); return false; }
   if (srcInfo.platform !== 'youtube') {
     // Vimeo's start-time data sits behind their paid API, so there's nothing
     // to read. Anchoring one match by hand is the only route there.
-    if (status) status.innerHTML = '<span class="rw-auto-fail">Auto-sync only works for YouTube — Vimeo doesn\'t publish a broadcast start time. Set one anchor below and the rest follow.</span>';
-    return;
+    return fail("Auto-sync only works for YouTube — Vimeo doesn't publish a broadcast start time. Set one anchor below and the rest follow.");
   }
   const vid = srcInfo.id;
-  if (status) status.innerHTML = '<span class="rw-auto-working">Reading the broadcast start time…</span>';
+  if (!quiet && status) status.innerHTML = '<span class="rw-auto-working">Reading the broadcast start time…</span>';
 
   const r = await rwFetchStreamStart(vid);
   if (!r || !r.ok) {
@@ -2584,29 +2692,19 @@ async function rewatchAutoSync(day) {
       'bad-id': 'That video ID looks wrong.',
       'lookup-failed': "Couldn't reach YouTube for the start time."
     }[r && r.reason] || "Couldn't read the broadcast start time.";
-    if (status) status.innerHTML = `<span class="rw-auto-fail">${why} Set an anchor by hand instead.</span>`;
-    return;
+    return fail(`${why} Set an anchor by hand instead.`);
   }
 
   const startMs = Date.parse(r.actualStartTime);
-  if (isNaN(startMs)) {
-    if (status) status.innerHTML = '<span class="rw-auto-fail">YouTube returned an unreadable start time.</span>';
-    return;
-  }
+  if (isNaN(startMs)) return fail('YouTube returned an unreadable start time.');
 
   // Anchor against this day's first match — any match works, since the offset
   // is fixed; using a real one keeps the display consistent with manual anchors.
   const anchor = rwAnchorForDay(ctx, day) ||
     ctx.matches.filter(m => m.t !== null && rwDayKey(m.t) === day).sort((a, b) => a.t - b.t)[0];
-  if (!anchor) {
-    if (status) status.innerHTML = '<span class="rw-auto-fail">No dated matches on this day to sync against.</span>';
-    return;
-  }
+  if (!anchor) return fail('No dated matches on this day to sync against.');
   const secs = Math.round((anchor.t - startMs) / 1000);
-  if (secs < 0) {
-    if (status) status.innerHTML = '<span class="rw-auto-fail">These matches happened before this stream started — wrong day\'s video?</span>';
-    return;
-  }
+  if (secs < 0) return fail("These matches happened before this stream started — wrong day's video?");
 
   ctx.videoId = vid;
   ctx.cal = ctx.cal || {};
@@ -2616,8 +2714,9 @@ async function rewatchAutoSync(day) {
   };
   rwSaveCal(ctx.eventId, ctx.cal);
   ctx.calDay = null;
-  showError('');
+  if (!quiet) showError('');
   rewatchRender();
+  return true;
 }
 
 function rewatchCalibrate(day) {
@@ -2804,16 +2903,18 @@ function rewatchRender() {
         ? ctx.allMatches.filter(m => m.t !== null && dayKeyOf(m.t) === day)
         : dayMatches.filter(m => m.t !== null);
       const existing = (cal && cal.anchors) ? cal.anchors.length : 0;
-      html += `<div class="rw-auto-row">
-        <button class="btn btn-primary" onclick="rewatchAutoSync('${day}')">AUTO-SYNC</button>
-        <span class="rw-auto-note">Works everything out from the stream link — no scrubbing.</span>
+      html += `${ctx.foundStream ? `<div class="rw-found">Found this event's stream automatically${ctx.foundStream.source === 'webcast-field' ? '' : ' (from the event description)'} — filled in below.</div>` : ''}
+      <div class="rw-auto-row">
+        <button class="btn btn-secondary" onclick="rewatchAutoSync('${day}')">RETRY SYNC</button>
+        <span class="rw-auto-note">Paste a YouTube link above and it syncs on its own. This retries if it didn't.</span>
       </div>
       <div id="rwAutoStatus"></div>
       <div class="rw-or">or set it by hand</div>
       <div class="rw-hint">Load the stream, scrub to <strong>any</strong> match — Qualifier #1 near the start of the video is usually easiest — pick which one it is, and click <strong>SET ANCHOR HERE</strong>. Every match becomes one click from then on.</div>
       <div class="controls-row">
         <div class="input-wrap" style="flex:2;min-width:220px;"><span class="input-label">STREAM LINK</span>
-          <input type="text" id="rwVideoInput" value="${(cal && cal.videoId) || ctx.videoId || ''}" placeholder="YouTube or Vimeo stream link" autocomplete="off"></div>
+          <input type="text" id="rwVideoInput" value="${(cal && cal.videoId) || (ctx.foundStream && ctx.foundStream.url) || ctx.videoId || ''}" placeholder="Paste a YouTube or Vimeo link — it syncs itself" autocomplete="off"
+            oninput="rwOnLinkPasted('${day}', this.value)"></div>
         <button class="btn btn-secondary" onclick="rwPreviewVideo()">LOAD VIDEO</button>
       </div>
       <div id="rwCalPlayerWrap" style="display:${(cal && cal.videoId) || ctx.videoId ? '' : 'none'};">
