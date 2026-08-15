@@ -1579,9 +1579,30 @@
   .rw-or::after { content: ''; flex: 1; height: 1px; background: var(--border); }
 
   .rw-found { font-family: var(--body); font-size: 12px; color: #4ccf6a; margin-bottom: 8px; }
+
+  .rw-or-row { font-family: var(--mono); font-size: 10px; letter-spacing: 2px; color: var(--text-muted);
+    margin: 16px 0 10px; display: flex; align-items: center; gap: 10px; }
+  .rw-or-row::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+  .match-play {
+    background: transparent; border: 1px solid var(--border); color: var(--text-muted);
+    font-size: 11px; padding: 4px 9px; cursor: pointer; transition: all 0.15s; line-height: 1;
+  }
+  .match-play:hover { color: var(--accent-bright); border-color: var(--accent); }
+  .match-row { grid-template-columns: 90px 1fr 40px 1fr 70px 36px; }
+  @media (max-width: 768px) {
+    .match-row { grid-template-columns: 68px 1fr 28px 1fr 52px 30px; }
+    .match-play { padding: 3px 6px; font-size: 10px; }
+  }
 </style>
 </head>
 <body class="theme-dark-grey">
+<!-- Multi Scout was merged into Scout. These hidden inputs keep the older
+     "compare these teams" buttons (skills table, tournament list) working:
+     they write here, and scoutTeams() forwards it into the Scout tab. -->
+<input type="hidden" id="teamInput">
+<select id="seasonSelect" hidden></select>
+<select id="scoutGradeSelect" hidden><option value="High School" selected>High School</option><option value="Middle School">Middle School</option></select>
 
 <header>
   <div class="container">
@@ -1667,7 +1688,6 @@
   <!-- Tab navigation -->
   <div class="tabs-nav">
     <button class="tab-btn active" data-tab="scout" onclick="switchTab('scout')">SCOUT</button>
-    <button class="tab-btn" data-tab="quickscout" onclick="switchTab('quickscout')">MULTI SCOUT</button>
     <button class="tab-btn" data-tab="skills" onclick="switchTab('skills')">SKILLS RANKINGS</button>
     <button class="tab-btn" data-tab="tournament" onclick="switchTab('tournament')">TOURNAMENT</button>
     <button class="tab-btn" data-tab="rewatch" onclick="switchTab('rewatch')">JUMPER</button>
@@ -1675,37 +1695,6 @@
     <div class="tab-indicator" id="tabIndicator"></div>
   </div>
 
-  <section class="search-section tab-panel" id="tab-quickscout">
-
-    <div class="section-label">Multi Scout · compare teams side by side</div>
-    <div class="controls-row">
-      <div class="input-wrap" style="flex:2;">
-        <span class="input-label">TEAM NUMBERS</span>
-        <input type="text" id="teamInput" placeholder="e.g. 66449A  or  66449A, 66449B, 66449C" autocomplete="off">
-      </div>
-      <div class="input-wrap select-wrap" style="min-width:140px;">
-        <span class="input-label">GRADE</span>
-        <select id="scoutGradeSelect">
-          <option value="High School" selected>High School</option>
-          <option value="Middle School">Middle School</option>
-
-        </select>
-      </div>
-      <div class="input-wrap select-wrap" style="flex:1; min-width:180px;">
-        <span class="input-label">SEASON</span>
-        <select id="seasonSelect">
-          <option value="">Loading seasons...</option>
-        </select>
-      </div>
-      <button class="btn btn-primary" id="scoutBtn" onclick="scoutTeams()">SCOUT</button>
-      <button class="btn btn-secondary" id="clearBtn" onclick="clearScoutResults()">CLEAR</button>
-    </div>
-
-  <section class="results-section">
-    <div id="resultsLabel" style="display:none;" class="section-label">Results</div>
-    <div class="results-grid" id="resultsGrid"></div>
-    <div class="compare-notice" id="compareNotice" style="display:none;"></div>
-  </section>
   </section><!-- end #tab-scout -->
 
   <div class="error-box" id="errorBox"></div>
@@ -1717,11 +1706,11 @@
   <!-- ═══════════ SKILLS RANKINGS SECTION ═══════════ -->
   <!-- ═══════════ SCOUT — DETAILED TEAM CARD ═══════════ -->
   <section class="search-section tab-panel active" id="tab-scout">
-    <div class="section-label">Scout <span class="section-info" title="The full profile for one team: overview, performance radar, pros and cons, and every stat we have. Use the event dropdown to narrow it to a single competition.">i</span></div>
+    <div class="section-label">Scout <span class="section-info" title="Full profile for one team — overview, performance radar, pros and cons, and every stat we have. Enter several team numbers separated by commas to compare them side by side.">i</span></div>
     <div class="controls-row">
       <div class="input-wrap" style="flex:2;min-width:200px;">
-        <span class="input-label">TEAM NUMBER</span>
-        <input type="text" id="detailTeamInput" placeholder="e.g. 66449A" autocomplete="off">
+        <span class="input-label">TEAM NUMBER(S)</span>
+        <input type="text" id="detailTeamInput" placeholder="66449A  —  or several: 66449A, 66449B, 66449C" autocomplete="off">
       </div>
       <div class="input-wrap select-wrap" style="min-width:140px;">
         <span class="input-label">GRADE</span>
@@ -1734,7 +1723,7 @@
         <span class="input-label">SEASON</span>
         <select id="detailSeasonSelect"></select>
       </div>
-      <button class="btn btn-primary" onclick="runDetailedScout()">SCOUT TEAM</button>
+      <button class="btn btn-primary" onclick="runDetailedScout()">SCOUT</button>
     </div>
     <div class="loading" id="detailLoading"><div class="loading-spinner"></div>
       <div class="loading-text" id="detailLoadingText">SCOUTING...</div></div>
@@ -1842,6 +1831,15 @@
       </div>
       <button class="btn btn-primary" onclick="rewatchLoadTeam()">FIND EVENTS</button>
     </div>
+    <div class="rw-or-row">or watch a whole event</div>
+    <div class="controls-row">
+      <div class="input-wrap" style="flex:2;min-width:200px;">
+        <span class="input-label">EVENT (NAME OR SKU)</span>
+        <input type="text" id="rwEventInput" placeholder="event name or RE-V5RC-..." autocomplete="off">
+      </div>
+      <button class="btn btn-secondary" onclick="rewatchLoadEvent()">WATCH EVENT</button>
+    </div>
+    <div id="rwEventPicker"></div>
     <div class="loading" id="rwLoading"><div class="loading-spinner"></div>
       <div class="loading-text" id="rwLoadingText">LOADING...</div></div>
     <div id="rwResults"></div>
@@ -2312,6 +2310,77 @@ async function rewatchLoadTeam() {
 }
 
 // ── Step 2: event → that team's matches, with scores ──
+// ── Deep link into Jumper from anywhere ────────────────────────────────────
+// Used by the ▶ buttons in Scout and Tournament. Opens the Jumper tab on the
+// right event, lets discovery + auto-sync do their work, then jumps straight to
+// the requested match. If it can't sync itself, the user lands on the
+// calibration form for that event rather than nowhere.
+async function jumpToMatch(eventId, eventName, matchId, teamNumber) {
+  switchTab('rewatch');
+  const evInput = document.getElementById('rwEventInput');
+  if (evInput) evInput.value = eventName || '';
+  const teamInput = document.getElementById('rwTeamInput');
+  if (teamInput && teamNumber) teamInput.value = teamNumber;
+
+  // Reuse an already-loaded event rather than refetching
+  const ctx = window._rwCtx;
+  if (!ctx || String(ctx.eventId) !== String(eventId)) {
+    window._rwCtx = {
+      team: null, events: [{ id: eventId, name: eventName }],
+      eventId: null, matches: [], videoId: null, cal: {}, calDay: null
+    };
+    await rewatchSelectEvent(eventId);
+  }
+  // Give discovery/auto-sync a moment, then jump if we can
+  const tryJump = () => {
+    const c = window._rwCtx;
+    if (!c) return false;
+    const m = c.matches.find(x => String(x.id) === String(matchId));
+    if (!m) return false;
+    if (rwOffsetFor(m, c.cal) === null) return false;
+    rewatchJump(String(matchId));
+    return true;
+  };
+  if (tryJump()) return;
+  for (let i = 0; i < 8; i++) {
+    await new Promise(r => setTimeout(r, 250));
+    if (tryJump()) return;
+  }
+  // Couldn't sync — the calibration form is on screen for this event
+}
+
+// Watch a whole event, no team required. Everything downstream is shared with
+// the team-first path; the only difference is that no match gets filtered out.
+async function rewatchLoadEvent() {
+  const input = (document.getElementById('rwEventInput').value || '').trim();
+  if (!input) { showError('⚠ Enter an event name or SKU.'); return; }
+  showError('');
+  document.getElementById('rwEventPicker').innerHTML = '';
+  const loading = document.getElementById('rwLoading');
+  const status = t => { const el = document.getElementById('rwLoadingText'); if (el) el.textContent = t; };
+  loading.classList.add('active');
+  try {
+    status('FINDING EVENT...');
+    const seasonId = document.getElementById('rwSeasonSelect')?.value || null;
+    const resolved = await sim_resolveEvent(input, seasonId);
+    if (resolved.choices) {
+      loading.classList.remove('active');
+      sim_renderEventPicker('rwEventPicker', resolved.choices, 'rwEventInput', 'rewatchLoadEvent');
+      return;
+    }
+    const ev = resolved.event;
+    window._rwCtx = {
+      team: null, events: [{ id: ev.id, name: ev.name, sku: ev.sku, start: ev.start, location: ev.location }],
+      eventId: null, matches: [], videoId: null, cal: {}, calDay: null
+    };
+    loading.classList.remove('active');
+    await rewatchSelectEvent(ev.id);
+  } catch (e) {
+    showError('⚠ ' + e.message);
+    loading.classList.remove('active');
+  }
+}
+
 async function rewatchSelectEvent(eventId) {
   const ctx = window._rwCtx; if (!ctx) return;
   const loading = document.getElementById('rwLoading');
@@ -2319,8 +2388,24 @@ async function rewatchSelectEvent(eventId) {
   loading.classList.add('active');
   try {
     status('LOADING MATCHES...');
-    const raw = await sim_teamMatchesCached(String(ctx.team.id), document.getElementById('rwSeasonSelect').value || null);
-    const teamId = String(ctx.team.id);
+    let raw;
+    if (ctx.team) {
+      raw = await sim_teamMatchesCached(String(ctx.team.id), document.getElementById('rwSeasonSelect').value || null);
+    } else {
+      // Whole-event mode: pull every division's matches instead of one team's
+      raw = [];
+      try {
+        const evd = await apiGet('/events', { 'id[]': [eventId] });
+        const divs = (evd[0]?.divisions?.length ? evd[0].divisions : [{ id: 1 }]);
+        await sim_pool(divs, async d => {
+          try {
+            const ms = await apiGet(`/events/${eventId}/divisions/${d.id}/matches`);
+            for (const m of ms) if (m) { m.event = m.event || { id: eventId }; raw.push(m); }
+          } catch (e) {}
+        }, sim_poolSize());
+      } catch (e) {}
+    }
+    const teamId = ctx.team ? String(ctx.team.id) : null;
     const matches = [];
     for (const m of raw) {
       if (String(m.event?.id ?? m.__eventId ?? '') !== String(eventId)) continue;
@@ -2333,7 +2418,7 @@ async function rewatchSelectEvent(eventId) {
       if (!redA || !blueA) continue;
       const nums = a => (a.teams || []).map(t => t?.team?.name ?? t?.name ?? '?');
       const has = a => (a.teams || []).some(t => String(t?.team?.id ?? t?.id ?? t) === teamId);
-      if (!has(redA) && !has(blueA)) continue;
+      if (teamId && !has(redA) && !has(blueA)) continue;
       const startedMs = m.started ? Date.parse(m.started) : NaN;
       const schedMs = m.scheduled ? Date.parse(m.scheduled) : NaN;
       matches.push({
@@ -2398,12 +2483,27 @@ async function rewatchSelectEvent(eventId) {
     try {
       const ev = await apiGet('/events', { 'id[]': [eventId] });
       const e0 = ev[0] || {};
-      // Look everywhere, not just the webcast field
+      // Look everywhere the API gives us first
       const found = rwFindWebcasts(e0).filter(c => c.kind === 'direct');
       if (found.length) {
         webcastRaw = found[0].url;
         webcast = rwParseVideoId(found[0].url);
         ctxWebcastSource = found[0].source;
+      } else if (e0.sku) {
+        // The API carries no description or webcast section, so the links only
+        // exist on the event's public page. Have the proxy read it for us.
+        try {
+          const s = await fetch(`${BASE}?path=${encodeURIComponent('streams:' + e0.sku)}`);
+          if (s.ok) {
+            const j = await s.json();
+            const best = (j.streams || []).find(x => /youtube|youtu\.be/i.test(x.url)) || (j.streams || [])[0];
+            if (best) {
+              webcastRaw = best.url;
+              webcast = rwParseVideoId(best.url);
+              ctxWebcastSource = best.source === 'webcast-section' ? 'event-page-webcast' : 'event-page';
+            }
+          }
+        } catch (e) {}
       }
     } catch (e) {}
 
@@ -2903,7 +3003,7 @@ function rewatchRender() {
         ? ctx.allMatches.filter(m => m.t !== null && dayKeyOf(m.t) === day)
         : dayMatches.filter(m => m.t !== null);
       const existing = (cal && cal.anchors) ? cal.anchors.length : 0;
-      html += `${ctx.foundStream ? `<div class="rw-found">Found this event's stream automatically${ctx.foundStream.source === 'webcast-field' ? '' : ' (from the event description)'} — filled in below.</div>` : ''}
+      html += `${ctx.foundStream ? `<div class="rw-found">Found this event's stream automatically${{'webcast-field': '', 'event-page-webcast': " (from the event's webcast section)", 'event-page': " (from the event page)"}[ctx.foundStream.source] || ' (from the event description)'} — filled in below.</div>` : ''}
       <div class="rw-auto-row">
         <button class="btn btn-secondary" onclick="rewatchAutoSync('${day}')">RETRY SYNC</button>
         <span class="rw-auto-note">Paste a YouTube link above and it syncs on its own. This retries if it didn't.</span>
@@ -2981,15 +3081,18 @@ function rewatchRender() {
 window.onload = () => {
   setBadge(true);
   loadSeasons(); // always load — uses hardcoded list instantly
-  document.getElementById('teamInput').addEventListener('keydown', e => {
-    if (e.key === 'Enter') scoutTeams();
-  });
+  const legacyInput = document.getElementById('teamInput');
+  if (legacyInput && legacyInput.type !== 'hidden') {
+    legacyInput.addEventListener('keydown', e => { if (e.key === 'Enter') scoutTeams(); });
+  }
+  const detailInput = document.getElementById('detailTeamInput');
+  if (detailInput) detailInput.addEventListener('keydown', e => { if (e.key === 'Enter') runDetailedScout(); });
   // Load saved theme
   const savedTheme = localStorage.getItem('vex_theme') || 'dark-grey';
   applyTheme(savedTheme);
   // Restore last viewed tab
   const savedTab = localStorage.getItem('vex_active_tab');
-  if (savedTab && ['quickscout','scout','skills','tournament','rewatch','simulator'].includes(savedTab)) {
+  if (savedTab && ['scout','skills','tournament','rewatch','simulator'].includes(savedTab)) {
     switchTab(savedTab);
   }
   // Position tab indicator after layout settles
@@ -4480,6 +4583,7 @@ function renderMatchRow(m, focusTeamId) {
         <div class="match-score">${oppScoreCell(m.played)}</div>
       </div>
       <div class="match-outcome ${outcomeClass}">${outcome}</div>
+      ${m.played ? `<button class="match-play" title="Watch this match" onclick="event.stopPropagation();jumpToMatch('${tournamentEventId}', ${JSON.stringify(tournamentEventName || '').replace(/"/g, '&quot;')}, '${m.raw ? m.raw.id : m.id}', '${tournamentFocusTeamNumber || ''}')">▶</button>` : ''}
     </div>`;
 }
 
@@ -5029,12 +5133,12 @@ function detailScoutFromTournament(teamNumber) {
 function multiScoutFromTournament(teamNumber) {
   const list = new Set(selectedTournamentTeams);
   if (teamNumber) list.add(teamNumber);
-  const input = document.getElementById('teamInput');
+  const input = document.getElementById('detailTeamInput');
   if (input) input.value = [...list].join(', ');
-  const g = document.getElementById('scoutGradeSelect');
+  const g = document.getElementById('detailGradeSelect');
   if (g && tournamentGrade) { g.value = tournamentGrade; g.dispatchEvent(new Event('change', { bubbles: true })); }
-  switchTab('quickscout');
-  scoutTeams();
+  switchTab('scout');
+  runDetailedScout();
 }
 
 function tournamentNav(active) {
@@ -5634,61 +5738,42 @@ function positionTabIndicator() {
 window.addEventListener('resize', positionTabIndicator);
 
 function clearScoutResults() {
-  document.getElementById('teamInput').value = '';
-  document.getElementById('resultsGrid').innerHTML = '';
-  document.getElementById('resultsLabel').style.display = 'none';
-  document.getElementById('compareNotice').style.display = 'none';
+  // Those elements lived in the old Multi Scout panel; guard so this is safe
+  ['teamInput', 'detailTeamInput'].forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
+  ['resultsGrid', 'detailResults'].forEach(id => { const e = document.getElementById(id); if (e) e.innerHTML = ''; });
+  ['resultsLabel', 'compareNotice'].forEach(id => { const e = document.getElementById(id); if (e) e.style.display = 'none'; });
   showError('');
 }
 
+// Kept as a shim: Multi Scout was folded into Scout, which handles one team or
+// many. Every old caller (skills compare, tournament compare, etc.) still works
+// — they set a team list and call this, and it lands in the right place now.
 async function scoutTeams() {
-  if (scoutInProgress) return; // prevent overlapping/spammed scouts
-  const input = document.getElementById('teamInput').value.trim();
-  if (!input) return;
-
-  // Auto-switch to QuickScout so the user sees the results
-  switchTab('quickscout');
-
-  scoutInProgress = true;
-  const seasonId = document.getElementById('seasonSelect').value || null;
-  const gradeLevel = document.getElementById('scoutGradeSelect').value || 'High School';
-
-  showError('');
-  const teamNumbers = input.split(/[\s,]+/).map(t => t.toUpperCase().trim()).filter(Boolean);
-  const grid = document.getElementById('resultsGrid');
-  grid.innerHTML = '';
-  document.getElementById('resultsLabel').style.display = 'none';
-  document.getElementById('compareNotice').style.display = 'none';
-  setLoading(true);
-
-  try {
-    for (let i = 0; i < teamNumbers.length; i++) {
-      const num = teamNumbers[i];
-      setLoading(true, `SCOUTING ${num}... (${i+1}/${teamNumbers.length})`);
-      try {
-        const card = await buildTeamCard(num, seasonId, gradeLevel);
-        grid.appendChild(card);
-      } catch(e) {
-        const errCard = document.createElement('div');
-        errCard.className = 'team-card';
-        errCard.innerHTML = `<div class="card-header"><div>
-          <div class="team-number">${num}</div>
-          <div class="team-name" style="color:#ff4444;">Team not found</div>
-          <div class="team-location" style="color:#884444;">${e.message}</div>
-        </div></div>`;
-        grid.appendChild(errCard);
-      }
-    }
-
-    document.getElementById('resultsLabel').style.display = 'flex';
-    if (teamNumbers.length > 1) {
-      document.getElementById('compareNotice').style.display = 'block';
-      document.getElementById('compareNotice').textContent = `${teamNumbers.length} teams scouted · scroll to compare`;
-    }
-  } finally {
-    setLoading(false);
-    scoutInProgress = false;
+  const legacy = document.getElementById('teamInput');
+  const target = document.getElementById('detailTeamInput');
+  if (!target) return;
+  if (legacy && legacy.value.trim()) {
+    target.value = legacy.value.trim();
+    legacy.value = '';
   }
+  if (!target.value.trim()) return;
+
+  // Carry across whichever season/grade the calling tab had chosen
+  const sSeason = document.getElementById('seasonSelect');
+  const dSeason = document.getElementById('detailSeasonSelect');
+  if (sSeason && dSeason && sSeason.value) {
+    dSeason.value = sSeason.value;
+    dSeason.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  const sGrade = document.getElementById('scoutGradeSelect');
+  const dGrade = document.getElementById('detailGradeSelect');
+  if (sGrade && dGrade && sGrade.value) {
+    dGrade.value = sGrade.value;
+    dGrade.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  switchTab('scout');
+  return runDetailedScout();
 }
 
 // ── BUILD CARD ────────────────────────────────
@@ -6398,6 +6483,7 @@ function detailTogglePicker() {
 // Match schedule for one event, reusing the same row treatment as Tournament:
 // played matches show the result, upcoming ones are dimmed.
 function renderEventSchedule(d, eventId) {
+  const evName = (d.eventsList.find(e => String(e.id) === String(eventId)) || {}).name || '';
   const rows = [];
   for (const m of d.matches) {
     if (String(m.event?.id) !== String(eventId)) continue;
@@ -6420,7 +6506,7 @@ function renderEventSchedule(d, eventId) {
       else if (mine.score < (theirs.score ?? 0)) { cls = 'loss'; label = 'LOSS'; }
       else { cls = 'tie'; label = 'TIE'; }
     }
-    rows.push({ name: m.name || `Match ${m.matchnum || ''}`, num: m.matchnum || 0,
+    rows.push({ id: m.id, name: m.name || `Match ${m.matchnum || ''}`, num: m.matchnum || 0,
       myNums: nums(mine), oppNums: nums(theirs),
       myScore: played ? mine.score : '', oppScore: played ? (theirs.score ?? '') : '',
       cls, label, played, color: inRed ? 'red' : 'blue' });
@@ -6448,14 +6534,16 @@ function renderEventSchedule(d, eventId) {
             <div class="match-score">${r.oppScore}</div>
           </div>
           <div class="match-outcome ${r.cls}">${r.label}</div>
+          <button class="match-play" title="Watch this match" onclick="event.stopPropagation();jumpToMatch('${eventId}', ${JSON.stringify(evName || '').replace(/"/g, '&quot;')}, '${r.id}', '${d.team.number}')">▶</button>
         </div>`).join('')}
     </div>
   </div>`;
 }
 
 async function runDetailedScout() {
-  const raw = (document.getElementById('detailTeamInput').value || '').trim().toUpperCase();
-  if (!raw) { showError('⚠ Enter a team number.'); return; }
+  const input = (document.getElementById('detailTeamInput').value || '').trim().toUpperCase();
+  if (!input) { showError('⚠ Enter a team number.'); return; }
+  const teams = [...new Set(input.split(/[\s,]+/).map(s => s.trim()).filter(Boolean))];
   showError('');
   const seasonId = document.getElementById('detailSeasonSelect').value || null;
   const grade = document.getElementById('detailGradeSelect').value || 'High School';
@@ -6463,6 +6551,41 @@ async function runDetailedScout() {
   const loadingEl = document.getElementById('detailLoading');
   const loadingText = document.getElementById('detailLoadingText');
   loadingEl.classList.add('active');
+
+  // Several teams → side-by-side comparison cards. One → the full profile.
+  if (teams.length > 1) {
+    if (loadingText) loadingText.textContent = `SCOUTING ${teams.length} TEAMS...`;
+    out.innerHTML = '';
+    try {
+      const grid = document.createElement('div');
+      grid.className = 'results-grid';
+      out.appendChild(grid);
+      let done = 0;
+      const cards = await sim_pool(teams, async num => {
+        try {
+          const card = await buildTeamCard(num, seasonId, grade);
+          done++;
+          if (loadingText) loadingText.textContent = `SCOUTING ${done}/${teams.length}...`;
+          return { num, card };
+        } catch (e) { return { num, error: e.message }; }
+      }, 4);
+      for (const c of cards) {
+        if (c && c.card) grid.appendChild(c.card);
+        else if (c) {
+          const bad = document.createElement('div');
+          bad.className = 'team-card';
+          bad.innerHTML = `<div class="card-header"><div><div class="team-number">${c.num}</div>
+            <div class="team-name" style="color:var(--text-muted);">${c.error || 'Not found'}</div></div></div>`;
+          grid.appendChild(bad);
+        }
+      }
+    } catch (e) {
+      showError('⚠ ' + e.message);
+    } finally { loadingEl.classList.remove('active'); }
+    return;
+  }
+
+  const raw = teams[0];
   if (loadingText) loadingText.textContent = `SCOUTING ${raw}...`;
   try {
     const d = await gatherTeamData(raw, seasonId, grade);
