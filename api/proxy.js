@@ -96,6 +96,66 @@ export default async function handler(req, res) {
     // Legacy endpoints (used for season skills standings) — public, no auth needed
     url = `https://events.vex.com/api${path.slice(7)}`;
     useAuth = false;
+  } else if (path.startsWith('streams:')) {
+    // ── Finding an event's stream link ───────────────────────────────────
+    // The RobotEvents API does NOT expose an event's description or its
+    // webcast section, so there is nothing in the API to read. The links are
+    // only on the event's public web page, which the browser can't fetch
+    // itself (no CORS). So we fetch the page here and pull the links out.
+    //
+    // Deliberately regex rather than a DOM parser: it needs no dependency and
+    // the page's markup changes more often than URL formats do.
+    const sku = path.slice(8).toUpperCase();
+    if (!/^RE-[A-Z0-9-]{3,40}$/.test(sku)) {
+      return res.status(400).json({ ok: false, reason: 'bad-sku' });
+    }
+    const cacheKey = 'streams:' + sku;
+    const hit = cache.get(cacheKey);
+    if (hit && hit.expires > Date.now()) {
+      res.setHeader('X-Cache', 'HIT');
+      return res.status(200).json(hit.data);
+    }
+    try {
+      const pageUrl = `https://www.robotevents.com/robot-competitions/vex-robotics-competition/${sku}.html`;
+      const r = await fetch(pageUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml',
+          'Accept-Language': 'en-US,en;q=0.9'
+        }
+      });
+      if (!r.ok) {
+        const out = { ok: false, reason: 'page-' + r.status, streams: [] };
+        return res.status(200).json(out);
+      }
+      const html = await r.text();
+
+      const found = [];
+      const seen = new Set();
+      const add = (url, source) => {
+        let u = url.replace(/&amp;/g, '&').replace(/[\\"'<>).,;]+$/, '');
+        if (seen.has(u)) return;
+        seen.add(u);
+        found.push({ url: u, source });
+      };
+
+      // Anything inside a webcast-ish block gets priority
+      const webcastBlock = html.match(/(?:id|class)="[^"]*webcast[^"]*"[\s\S]{0,4000}/i);
+      if (webcastBlock) {
+        const m = webcastBlock[0].match(/https?:\/\/(?:www\.)?(?:youtube\.com\/(?:watch\?v=|live\/|embed\/)|youtu\.be\/|player\.vimeo\.com\/video\/|vimeo\.com\/(?:event\/)?)[\w?=&\/-]+/gi) || [];
+        for (const u of m) add(u, 'webcast-section');
+      }
+      // Then anywhere on the page
+      const anywhere = html.match(/https?:\/\/(?:www\.)?(?:youtube\.com\/(?:watch\?v=|live\/|embed\/)|youtu\.be\/|player\.vimeo\.com\/video\/|vimeo\.com\/(?:event\/)?)[\w?=&\/-]+/gi) || [];
+      for (const u of anywhere) add(u, 'page');
+
+      const out = { ok: found.length > 0, streams: found.slice(0, 12) };
+      cache.set(cacheKey, { data: out, status: 200, expires: Date.now() + LONG_TTL_MS });
+      res.setHeader('Cache-Control', 'public, s-maxage=3600, stale-while-revalidate=3600');
+      return res.status(200).json(out);
+    } catch (err) {
+      return res.status(200).json({ ok: false, reason: 'fetch-failed', streams: [] });
+    }
   } else if (path.startsWith('youtube:')) {
     // ── Stream start lookup ──────────────────────────────────────────────
     // A livestream's `actualStartTime` is the wall-clock moment the broadcast
