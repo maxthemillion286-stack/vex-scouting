@@ -205,36 +205,33 @@ export default async function handler(req, res) {
       return res.status(200).json(hit.data);
     }
     try {
-      // The program lives in the SKU, and the public page lives under a
-      // program-specific path. Hardcoding the V5RC path meant every IQ, VEX U
-      // and drone event 404'd and reported "no stream found".
+      // Where the public event page actually lives is not stable. The API
+      // moved from robotevents.com to events.vex.com after the VEX/RECF
+      // split, program segments have been renamed (VRC → V5RC, VIQC → VIQRC),
+      // and the trailing .html is not always present. A single guess returns a
+      // clean 404 that looks exactly like "this event has no stream".
       //
-      // RobotEvents has also renamed programs over time (VRC → V5RC, VIQC →
-      // VIQRC) without necessarily renaming the URL segments, so a single
-      // guess is fragile. Try the most likely path first, then the others,
-      // and report which ones were attempted so a 404 is diagnosable.
-      const primary =
-        /-(VIQRC|VIQC)-/.test(sku) ? 'vex-iq-competition' :
-        /-(VURC|VEXU)-/.test(sku)  ? 'vex-u-robotics-competition' :
-        /-(ADC|VAIC)-/.test(sku)   ? 'aerial-drone-competition' :
-        'vex-robotics-competition';
-      const candidates = [...new Set([
-        primary,
-        'vex-robotics-competition',
-        'vex-iq-competition',
-        'vex-u-robotics-competition'
-      ])].slice(0, 3).map(p => `https://www.robotevents.com/robot-competitions/${p}/${sku}.html`);
+      // So try the plausible shapes at once and keep whichever serves a real
+      // page. Every attempt is recorded, so a miss says which URLs were tried
+      // rather than leaving it to guesswork.
+      const progs = [];
+      if (/-(VIQRC|VIQC)-/.test(sku)) progs.push('vex-iq-competition', 'viqrc');
+      else if (/-(VURC|VEXU)-/.test(sku)) progs.push('vex-u-robotics-competition', 'vurc');
+      else if (/-(ADC|VAIC)-/.test(sku)) progs.push('aerial-drone-competition', 'adc');
+      else progs.push('vex-robotics-competition', 'v5rc', 'vex-v5-robotics-competition');
 
-      // ── Getting the page at all is the hard part ─────────────────────────
-      // RobotEvents sits behind Cloudflare. A plain fetch from a serverless IP
-      // frequently comes back 200 with a challenge page: valid HTML, zero
-      // links. The old code trusted `r.ok`, scraped nothing, and reported
-      // "no stream" — indistinguishable from an event that genuinely has none.
-      //
-      // So: validate what comes back, and race several ways of asking. First
-      // strategy to return something that looks like a real event page wins.
-      // Googlebot usually does, because crawlers are whitelisted.
+      const urls = [];
+      for (const host of ['www.robotevents.com', 'events.vex.com']) {
+        for (const p of progs) {
+          urls.push(`https://${host}/robot-competitions/${p}/${sku}.html`);
+          urls.push(`https://${host}/robot-competitions/${p}/${sku}`);
+        }
+        urls.push(`https://${host}/${sku}.html`);
+      }
+
       const looksReal = (html, src) => {
+        // Under 500 chars is an error stub; the Cloudflare markers are a
+        // challenge page, which arrives as a 200 with no links in it.
         if (!html || html.length < 500) throw new Error(src + ':too-short');
         if (html.includes('id="challenge-running"') ||
             html.includes('Just a moment...') ||
@@ -244,39 +241,35 @@ export default async function handler(req, res) {
       const attempt = async (url, headers, ms, src) => {
         const resp = await fetch(url, { headers, signal: AbortSignal.timeout(ms) });
         if (!resp.ok) throw new Error(src + ':' + resp.status);
-        return looksReal(await resp.text(), src);
+        return { html: looksReal(await resp.text(), src), url, via: src };
       };
 
-      let rawHtml = null, pageUrl = null;
+      // Googlebot first — crawlers are whitelisted past Cloudflare — with a
+      // normal browser UA alongside. All candidates race together so a long
+      // list costs one round trip, not one per URL.
       const tried = [];
-      for (const cand of candidates) {
-        try {
-          rawHtml = await Promise.any([
-            attempt(cand, {
-              'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
-              'Referer': 'https://www.google.com/',
-              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
-            }, 9000, 'googlebot'),
-            attempt(cand, {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-              'Accept': 'text/html,application/xhtml+xml',
-              'Accept-Language': 'en-US,en;q=0.9'
-            }, 9000, 'standard'),
-            attempt(`https://corsproxy.io/?${encodeURIComponent(cand)}`, {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
-            }, 15000, 'corsproxy')
-          ]);
-          pageUrl = cand;
-          break;
-        } catch (aggregate) {
-          tried.push({ url: cand, errors: (aggregate.errors || []).map(e => e.message) });
-        }
-      }
+      const note = (u, e) => { tried.push(u.replace(/^https:\/\//, '') + ' ' + e.message); throw e; };
+      const race = [
+        // Googlebot on every candidate; a browser UA only on the two likeliest
+        // URLs, so a wide search doesn't become dozens of requests at once.
+        ...urls.map(u => attempt(u, {
+          'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+          'Referer': 'https://www.google.com/',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+        }, 9000, 'googlebot').catch(e => note(u, e))),
+        ...urls.slice(0, 2).map(u => attempt(u, {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml',
+          'Accept-Language': 'en-US,en;q=0.9'
+        }, 9000, 'standard').catch(e => note(u, e)))
+      ];
 
-      if (!rawHtml) {
-        // Every candidate failed. Report what was tried, so a 404 can be told
-        // apart from a Cloudflare block without guessing.
-        const out = { ok: false, reason: 'page-unreachable', tried, streams: [] };
+      let rawHtml = null, pageUrl = null, pageVia = null;
+      try {
+        const win = await Promise.any(race);
+        rawHtml = win.html; pageUrl = win.url; pageVia = win.via;
+      } catch (aggregate) {
+        const out = { ok: false, reason: 'page-unreachable', tried: tried.slice(0, 24), streams: [] };
         cache.set(cacheKey, { data: out, status: 200, expires: Date.now() + SHORT_TTL_MS });
         return res.status(200).json(out);
       }
@@ -373,7 +366,7 @@ export default async function handler(req, res) {
         // Which URL actually served the page, so a wrong-path guess shows up
         // in the debug panel instead of looking like "no stream published".
         pageUrl,
-        tried: tried.length ? tried : undefined,
+        pageVia,
         // Surfaced so the UI can distinguish "no stream published" from
         // "we found a channel but couldn't search it" — very different fixes.
         channels: channels.map(c => c.url).slice(0, 4),
@@ -387,6 +380,21 @@ export default async function handler(req, res) {
     } catch (err) {
       return res.status(200).json({ ok: false, reason: 'fetch-failed', detail: err.message, streams: [] });
     }
+  } else if (path === 'diag') {
+    // ── Server-side diagnostics for the in-app debug page ─────────────────
+    // Reports only whether things are CONFIGURED, never their values. A key
+    // that leaks through a debug endpoint is worse than the bug it diagnoses.
+    return res.status(200).json({
+      ok: true,
+      time: new Date().toISOString(),
+      region: process.env.VERCEL_REGION || null,
+      env: process.env.VERCEL_ENV || null,
+      commit: (process.env.VERCEL_GIT_COMMIT_SHA || '').slice(0, 7) || null,
+      robotEventsTokens: getTokens().length,
+      youtubeKey: !!process.env.YOUTUBE_API_KEY,
+      cacheEntries: cache.size,
+      node: process.version
+    });
   } else if (path.startsWith('vimeo:')) {
     // ── Vimeo, without the paid API ──────────────────────────────────────
     // A Vimeo "event" is a recurring live channel; each broadcast session
