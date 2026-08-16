@@ -2251,6 +2251,50 @@ function rwMergePublished(eid, local) {
   return out;
 }
 
+// ── Debug report (?debug=1) ────────────────────────────────────────────────
+// One place to collect everything worth seeing when something misbehaves.
+// DevTools are blocked on this site, so diagnostics have to live in the page.
+// Add to vsDebug as new subsystems need visibility.
+const vsDebug = {
+  errors: [],        // last few failed API calls
+  apiCalls: 0,
+  diag: null,        // server-side config, filled by vsLoadDiag()
+  jumper: null       // last auto-find result
+};
+
+function vsNote(kind, detail) {
+  vsDebug.errors.push({ at: new Date().toISOString().slice(11, 19), kind, detail: String(detail).slice(0, 300) });
+  if (vsDebug.errors.length > 12) vsDebug.errors.shift();
+}
+
+// Server config: whether tokens and the YouTube key are present, never values.
+async function vsLoadDiag() {
+  try {
+    const r = await fetch(`${BASE}?path=diag`);
+    vsDebug.diag = r.ok ? await r.json() : { ok: false, http: r.status };
+  } catch (e) { vsDebug.diag = { ok: false, threw: String(e && e.message || e) }; }
+}
+
+function vsDebugReport() {
+  const sw = navigator.serviceWorker && navigator.serviceWorker.controller;
+  return {
+    page: {
+      url: location.pathname + location.search,
+      online: navigator.onLine,
+      viewport: `${window.innerWidth}x${window.innerHeight}`,
+      serviceWorker: sw ? (sw.scriptURL || '').split('/').pop() : 'none',
+      at: new Date().toISOString()
+    },
+    server: vsDebug.diag,
+    jumper: vsDebug.jumper,
+    apiCalls: vsDebug.apiCalls,
+    recentErrors: vsDebug.errors
+  };
+}
+
+const rwDebugOn = () => /[?&]debug=1/.test(location.search);
+if (typeof window !== 'undefined' && /[?&]debug=1/.test(location.search)) vsLoadDiag();
+
 function rwParseSource(url) {
   const s = (url || '').trim();
   if (!s) return null;
@@ -2285,9 +2329,6 @@ function rwParseSource(url) {
 // both need them after the async lookup settles.
 let rwStreamPool = [];
 let rwStreamReason = null;
-// Raw result of the last auto-find, rendered only under ?debug=1.
-let rwStreamDebug = null;
-const rwDebugOn = () => /[?&]debug=1/.test(location.search);
 
 // Which of the found videos belongs to a given day.
 //
@@ -2623,7 +2664,7 @@ async function rewatchSelectEvent(eventId) {
     let webcast = null, webcastRaw = '', ctxWebcastSource = null;
     rwStreamPool = [];
     rwStreamReason = null;
-    rwStreamDebug = null;
+    vsDebug.jumper = null;
     try {
       const ev = await apiGet('/events', { 'id[]': [eventId] });
       const e0 = ev[0] || {};
@@ -2649,7 +2690,7 @@ async function rewatchSelectEvent(eventId) {
             const j = await s.json();
             // Kept so ?debug=1 can show exactly what came back. DevTools are
             // blocked on this site, so the diagnostic has to live in the page.
-            rwStreamDebug = { sku: e0.sku, start: e0.start, end: e0.end, http: s.status, body: j };
+            vsDebug.jumper = { sku: e0.sku, start: e0.start, end: e0.end, http: s.status, body: j };
             const list = (j.streams || []).filter(x => /youtube|youtu\.be|vimeo/i.test(x.url));
             // Keep the whole list: a multi-day event usually broadcasts one
             // video per day, and picking a single "best" one would anchor
@@ -2664,11 +2705,13 @@ async function rewatchSelectEvent(eventId) {
             }
           } else {
             rwStreamReason = 'fetch-failed';
-            rwStreamDebug = { sku: e0.sku, http: s.status, body: null };
+            vsDebug.jumper = { sku: e0.sku, http: s.status, body: null };
+            vsNote('autofind', 'HTTP ' + s.status);
           }
         } catch (e) {
           rwStreamReason = 'fetch-failed';
-          rwStreamDebug = { sku: e0.sku, threw: String(e && e.message || e) };
+          vsDebug.jumper = { sku: e0.sku, threw: String(e && e.message || e) };
+          vsNote('autofind', e && e.message || e);
         }
       }
     } catch (e) {}
@@ -3252,13 +3295,13 @@ function rewatchRender() {
     if (why) html += `<div class="rw-hint rw-miss">Auto-find found nothing: ${why} Add the link by hand below — it still syncs itself once pasted.</div>`;
   }
 
-  // Raw auto-find result, shown only with ?debug=1 on the URL. Not a security
-  // boundary — just keeps a wall of JSON away from ordinary users.
-  if (rwDebugOn() && rwStreamDebug) {
+  // Diagnostics, shown only with ?debug=1 on the URL. Not a security boundary
+  // — it just keeps a wall of JSON away from ordinary users.
+  if (rwDebugOn()) {
     html += `<div class="rw-debug">
-      <div class="rw-debug-head">auto-find debug — copy this</div>
-      <textarea readonly rows="12" onclick="this.select()">${
-        JSON.stringify(rwStreamDebug, null, 2).replace(/</g, '&lt;')
+      <div class="rw-debug-head">debug</div>
+      <textarea readonly rows="16" onclick="this.select()" id="rwDebugOut">${
+        JSON.stringify(vsDebugReport(), null, 2).replace(/</g, '&lt;')
       }</textarea>
     </div>`;
   }
@@ -3579,11 +3622,14 @@ async function apiGet(endpoint, params = {}) {
       }
 
       // Other errors (404, 400, etc.) — don't retry, throw immediately
+      vsNote('api', path + ' → ' + res.status);
       throw new Error(`API error ${res.status}`);
     }
+    vsNote('api', path + ' → gave up after retries: ' + (lastErr && lastErr.message));
     throw lastErr || new Error('Request failed after retries');
   }
 
+  vsDebug.apiCalls++;
   const data = await fetchPage(1);
   let results = data.data || [];
   if (data.meta && data.meta.last_page > 1) {
