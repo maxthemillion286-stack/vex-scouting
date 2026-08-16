@@ -1620,6 +1620,10 @@
 
   .rw-found { font-family: var(--body); font-size: 12px; color: #4ccf6a; margin-bottom: 8px; }
   .rw-miss { font-family: var(--body); font-size: 12px; color: var(--text-muted); margin-bottom: 8px; }
+  .rw-debug { border: 1px solid var(--accent); padding: 12px; margin-bottom: 16px; }
+  .rw-debug-head { font-family: var(--mono); font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: var(--accent); margin-bottom: 8px; }
+  .rw-debug textarea { width: 100%; background: var(--card); border: 1px solid var(--border); color: var(--text);
+    font-family: var(--mono); font-size: 11px; padding: 10px; outline: none; resize: vertical; }
 
   /* The overlap with "EVENT (NAME OR SKU)" is fixed at the source by the
      static-label rules above — the label no longer reaches up out of its row.
@@ -2281,6 +2285,9 @@ function rwParseSource(url) {
 // both need them after the async lookup settles.
 let rwStreamPool = [];
 let rwStreamReason = null;
+// Raw result of the last auto-find, rendered only under ?debug=1.
+let rwStreamDebug = null;
+const rwDebugOn = () => /[?&]debug=1/.test(location.search);
 
 // Which of the found videos belongs to a given day.
 //
@@ -2616,6 +2623,7 @@ async function rewatchSelectEvent(eventId) {
     let webcast = null, webcastRaw = '', ctxWebcastSource = null;
     rwStreamPool = [];
     rwStreamReason = null;
+    rwStreamDebug = null;
     try {
       const ev = await apiGet('/events', { 'id[]': [eventId] });
       const e0 = ev[0] || {};
@@ -2639,9 +2647,9 @@ async function rewatchSelectEvent(eventId) {
           const s = await fetch(qs);
           if (s.ok) {
             const j = await s.json();
-            // Logged so a failure can be diagnosed from the console without
-            // guessing which of the several stages came up empty.
-            console.log('[jumper] auto-find', e0.sku, j);
+            // Kept so ?debug=1 can show exactly what came back. DevTools are
+            // blocked on this site, so the diagnostic has to live in the page.
+            rwStreamDebug = { sku: e0.sku, start: e0.start, end: e0.end, http: s.status, body: j };
             const list = (j.streams || []).filter(x => /youtube|youtu\.be|vimeo/i.test(x.url));
             // Keep the whole list: a multi-day event usually broadcasts one
             // video per day, and picking a single "best" one would anchor
@@ -2656,11 +2664,11 @@ async function rewatchSelectEvent(eventId) {
             }
           } else {
             rwStreamReason = 'fetch-failed';
-            console.log('[jumper] auto-find HTTP', s.status);
+            rwStreamDebug = { sku: e0.sku, http: s.status, body: null };
           }
         } catch (e) {
           rwStreamReason = 'fetch-failed';
-          console.log('[jumper] auto-find threw', e);
+          rwStreamDebug = { sku: e0.sku, threw: String(e && e.message || e) };
         }
       }
     } catch (e) {}
@@ -3242,6 +3250,17 @@ function rewatchRender() {
       'fetch-failed': "Couldn't reach this event's page to look for a stream link."
     }[rwStreamReason];
     if (why) html += `<div class="rw-hint rw-miss">Auto-find found nothing: ${why} Add the link by hand below — it still syncs itself once pasted.</div>`;
+  }
+
+  // Raw auto-find result, shown only with ?debug=1 on the URL. Not a security
+  // boundary — just keeps a wall of JSON away from ordinary users.
+  if (rwDebugOn() && rwStreamDebug) {
+    html += `<div class="rw-debug">
+      <div class="rw-debug-head">auto-find debug — copy this</div>
+      <textarea readonly rows="12" onclick="this.select()">${
+        JSON.stringify(rwStreamDebug, null, 2).replace(/</g, '&lt;')
+      }</textarea>
+    </div>`;
   }
 
   if (multiDay) {
