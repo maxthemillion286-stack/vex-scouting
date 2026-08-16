@@ -998,13 +998,48 @@
     .pick-team { font-size: 14px; }
     .sched-row { grid-template-columns: 56px 1fr 52px 44px; gap: 6px; padding: 8px 10px; }
     .bo-row { grid-template-columns: 34px 1fr 76px; gap: 8px; padding: 10px; }
+    /* Mobile selects are shorter (6px padding vs 12px), so the caret's
+       bottom offset has to shrink with them or it floats above the arrow row. */
+    #tab-simulator .select-wrap::after,
+    #tab-rewatch .select-wrap::after,
+    #tab-scout .select-wrap::after,
+    #tab-tournament .select-wrap::after,
+    #tab-skills .select-wrap::after { bottom: 9px; }
   }
 
-  /* ── Text cleanliness: labels flow above inputs inside the Simulator (no overlap) ── */
-  #tab-simulator .input-wrap { display: flex; flex-direction: column; align-items: stretch; }
-  #tab-simulator .input-label { position: static; top: auto; left: auto; display: block; margin: 0 0 5px; }
-  #tab-simulator .select-wrap::after { top: auto; bottom: 13px; transform: none; }
-  #tab-simulator .controls-row { align-items: flex-end; row-gap: 14px; }
+  /* ── Text cleanliness: labels flow above inputs, never overlapping ──
+     The global .input-label is position:absolute; top:-18px, which lifts it
+     into whatever sits above the input. That is fine for a single row with
+     clear space over it, but as soon as a .controls-row wraps onto a second
+     line — or another element (the Jumper's "or watch a whole event" divider)
+     sits directly above — the label lands on top of that content.
+
+     Putting the label back in flow inside the wrap fixes it at the source:
+     the wrap becomes a column, the label takes up its own height, and the row
+     grows to fit instead of stealing space above itself. Applied to every tab
+     panel, so no tab can regress to the overlapping version. */
+  #tab-simulator .input-wrap,
+  #tab-rewatch .input-wrap,
+  #tab-scout .input-wrap,
+  #tab-tournament .input-wrap,
+  #tab-skills .input-wrap { display: flex; flex-direction: column; align-items: stretch; }
+  #tab-simulator .input-label,
+  #tab-rewatch .input-label,
+  #tab-scout .input-label,
+  #tab-tournament .input-label,
+  #tab-skills .input-label { position: static; top: auto; left: auto; display: block; margin: 0 0 5px; }
+  /* The dropdown caret is centred on the whole wrap, so it has to be re-anchored
+     to the bottom once the label starts occupying part of that height. */
+  #tab-simulator .select-wrap::after,
+  #tab-rewatch .select-wrap::after,
+  #tab-scout .select-wrap::after,
+  #tab-tournament .select-wrap::after,
+  #tab-skills .select-wrap::after { top: auto; bottom: 13px; transform: none; }
+  #tab-simulator .controls-row,
+  #tab-rewatch .controls-row,
+  #tab-scout .controls-row,
+  #tab-tournament .controls-row,
+  #tab-skills .controls-row { align-items: flex-end; row-gap: 14px; }
   #tab-simulator .sim-season-row { align-items: flex-end; }
 
   /* ── Strengths & weaknesses as a described bullet list ── */
@@ -1580,8 +1615,12 @@
 
   .rw-found { font-family: var(--body); font-size: 12px; color: #4ccf6a; margin-bottom: 8px; }
 
+  /* The overlap with "EVENT (NAME OR SKU)" is fixed at the source by the
+     static-label rules above — the label no longer reaches up out of its row.
+     This is just breathing room so the divider reads as a separator rather
+     than as part of the row beneath it. */
   .rw-or-row { font-family: var(--mono); font-size: 10px; letter-spacing: 2px; color: var(--text-muted);
-    margin: 16px 0 10px; display: flex; align-items: center; gap: 10px; }
+    margin: 22px 0 10px; display: flex; align-items: center; gap: 10px; }
   .rw-or-row::after { content: ''; flex: 1; height: 1px; background: var(--border); }
 
   .match-play {
