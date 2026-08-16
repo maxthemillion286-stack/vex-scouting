@@ -1291,6 +1291,9 @@
     width: 1px; height: 1px; margin: 0; padding: 0; border: 0;
   }
   .select-wrap.cs-enhanced::after { display: none; }  /* native arrow no longer needed */
+  /* Safety net for a select hidden AFTER it was enhanced — enhanceSelect can
+     only check at enhance time, and the .cs wrapper has no `hidden` of its own. */
+  .cs:has(> select[hidden]) { display: none; }
   .cs-bar {
     display: flex; align-items: center; gap: 10px; width: 100%;
     background: var(--card2); border: 1px solid var(--border); color: var(--text);
@@ -2129,6 +2132,16 @@ function csCloseAll(except) {
 
 function enhanceSelect(select) {
   if (!select || select.dataset.csDone) return;
+  // A select carrying `hidden` itself is a shim, not UI — the Multi Scout
+  // compatibility inputs at the top of <body> are the case that matters.
+  // Enhancing one builds a .cs wrapper that does NOT inherit `hidden`, so the
+  // native select stays invisible while a working dropdown bar renders in its
+  // place, above the header, belonging to no tab.
+  //
+  // Deliberately `select.hidden` and not `closest('[hidden]')`: Skills hides
+  // the WRAPPER of #stateSelect and #subregionSelect until a region is picked,
+  // and those must still be enhanced so they match everything else when shown.
+  if (select.hidden) return;
   select.dataset.csDone = '1';
 
   const wrap = document.createElement('div');
