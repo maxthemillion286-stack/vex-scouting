@@ -128,12 +128,40 @@ export default async function handler(req, res) {
         const out = { ok: false, reason: 'page-' + r.status, streams: [] };
         return res.status(200).json(out);
       }
-      const html = await r.text();
+      const rawHtml = await r.text();
+
+      // ── Decode BEFORE matching, not after ────────────────────────────────
+      // Two ways a perfectly good URL used to get lost here:
+      //
+      //   1. `&amp;` — in markup, `?v=ABC&amp;t=90` is a single URL, but the
+      //      regex sees `&`, `a`, `m`, `p`, `;` and stops dead at the `;`,
+      //      because `;` is not in the character class. Decoding afterwards
+      //      was too late: the match had already been truncated to `?v=ABC&`.
+      //
+      //   2. `https:\/\/...` — inside the inline JSON blobs the page embeds,
+      //      slashes are backslash-escaped. `\/` never matches `\/` in the
+      //      pattern's literal `//`, so those URLs were skipped entirely —
+      //      and on many event pages the JSON blob is the ONLY place the
+      //      webcast link appears.
+      //
+      // Normalising the whole document up front means the matcher only ever
+      // sees plain URLs, and one code path handles every source on the page.
+      const html = rawHtml
+        .replace(/\\\//g, '/')        // escaped slashes in inline JSON
+        .replace(/\\u0026/gi, '&')    // JSON-escaped ampersand
+        .replace(/&amp;/gi, '&')      // HTML-entity ampersand
+        .replace(/&#0*38;/g, '&')     // numeric-entity ampersand
+        .replace(/&#x0*26;/gi, '&');  // hex-entity ampersand
+
+      const STREAM_URL_RE = /https?:\/\/(?:www\.)?(?:youtube\.com\/(?:watch\?v=|live\/|embed\/)|youtu\.be\/|player\.vimeo\.com\/video\/|vimeo\.com\/(?:event\/)?)[\w?=&\/-]+/gi;
 
       const found = [];
       const seen = new Set();
       const add = (url, source) => {
-        let u = url.replace(/&amp;/g, '&').replace(/[\\"'<>).,;]+$/, '');
+        // Entities are already gone; this only trims punctuation the URL
+        // picked up from the markup around it (quotes, a closing paren, a
+        // sentence-ending period).
+        let u = url.replace(/[\\"'<>).,;]+$/, '');
         if (seen.has(u)) return;
         seen.add(u);
         found.push({ url: u, source });
@@ -142,11 +170,11 @@ export default async function handler(req, res) {
       // Anything inside a webcast-ish block gets priority
       const webcastBlock = html.match(/(?:id|class)="[^"]*webcast[^"]*"[\s\S]{0,4000}/i);
       if (webcastBlock) {
-        const m = webcastBlock[0].match(/https?:\/\/(?:www\.)?(?:youtube\.com\/(?:watch\?v=|live\/|embed\/)|youtu\.be\/|player\.vimeo\.com\/video\/|vimeo\.com\/(?:event\/)?)[\w?=&\/-]+/gi) || [];
+        const m = webcastBlock[0].match(STREAM_URL_RE) || [];
         for (const u of m) add(u, 'webcast-section');
       }
       // Then anywhere on the page
-      const anywhere = html.match(/https?:\/\/(?:www\.)?(?:youtube\.com\/(?:watch\?v=|live\/|embed\/)|youtu\.be\/|player\.vimeo\.com\/video\/|vimeo\.com\/(?:event\/)?)[\w?=&\/-]+/gi) || [];
+      const anywhere = html.match(STREAM_URL_RE) || [];
       for (const u of anywhere) add(u, 'page');
 
       const out = { ok: found.length > 0, streams: found.slice(0, 12) };
