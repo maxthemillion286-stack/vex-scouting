@@ -10,6 +10,10 @@
 //   - The response carries X-Token-Count so the frontend can scale its
 //     request concurrency to match the available rate-limit headroom.
 
+// Scraping the event page (racing three strategies) and then searching YouTube
+// can exceed Vercel's 10s default. Raise it or auto-find dies on slow pages.
+export const config = { maxDuration: 60 };
+
 const cache = new Map(); // path -> { data, status, expires }
 const DEFAULT_TTL_MS = 60 * 1000;       // 1 min for general data
 const LONG_TTL_MS = 5 * 60 * 1000;      // 5 min for stable data
@@ -79,6 +83,85 @@ function slimSeasonSkills(data) {
   return Array.isArray(data) ? out : { ...data, data: out };
 }
 
+// The player config is the only unauthenticated place Vimeo exposes a
+// broadcast's schedule, duration and live status. Purely a nice-to-have: if it
+// fails we still have the clip id, which is what actually matters for playback.
+async function vimeoClipDetails(configUrl, ua) {
+  if (!configUrl) return {};
+  try {
+    const r = await fetch(configUrl, { headers: { 'User-Agent': ua }, signal: AbortSignal.timeout(8000) });
+    if (!r.ok) return {};
+    const d = await r.json();
+    const v = d.video || {};
+    const live = v.live_event || null;
+    return {
+      hash: (String(v.embed_code || '').match(/\/video\/\d+\?h=([a-z0-9]+)/i) || [])[1] || v.unlisted_hash || null,
+      title: v.title || null,
+      // 0 while a stream is live or pending — it only settles once archived.
+      duration: v.duration ?? null,
+      // 'pending' | 'streaming' | 'ended', or absent for an ordinary upload.
+      liveStatus: (live && live.status) || null,
+      // SCHEDULED, not actual. Vimeo does not publish the actual start for
+      // free, so anything derived from this is an estimate.
+      scheduledStart: (live && live.ingest && live.ingest.scheduled_start_time) || null
+    };
+  } catch (e) { return {}; }
+}
+
+// ── Channel → the videos it broadcast during an event ──────────────────────
+// A handle (@name) or /c/ vanity URL has to be resolved to a channel ID first;
+// /channel/ID URLs already carry it. Then ask for that channel's completed,
+// live and upcoming broadcasts, with completed ones bounded to the event's
+// dates (±1 day for timezone slop and streams that start the night before).
+async function resolveChannel(channelUrl, startISO, endISO, ytKey) {
+  const yt = async (qs) => {
+    const r = await fetch('https://www.googleapis.com/youtube/v3/' + qs + '&key=' + encodeURIComponent(ytKey),
+      { signal: AbortSignal.timeout(8000) });
+    return r.ok ? r.json() : null;
+  };
+
+  let channelId = (channelUrl.match(/\/channel\/([\w-]+)/) || [])[1] || null;
+  if (!channelId) {
+    const handle = (channelUrl.match(/\/(?:@|c\/|user\/)([\w.-]+)/) || [])[1];
+    if (!handle) return [];
+    const j = await yt('search?part=snippet&type=channel&maxResults=1&q=' + encodeURIComponent(handle));
+    channelId = j && j.items && j.items[0] && j.items[0].id && j.items[0].id.channelId;
+    if (!channelId) return [];
+  }
+
+  const startMs = Date.parse(startISO);
+  const endMs = Date.parse(endISO || startISO);
+  if (isNaN(startMs)) return [];
+  const after = new Date(startMs - 86400000).toISOString();
+  const before = new Date((isNaN(endMs) ? startMs : endMs) + 2 * 86400000).toISOString();
+
+  const runs = await Promise.all(['completed', 'live', 'upcoming'].map(async (type) => {
+    let qs = 'search?part=snippet&type=video&order=date&maxResults=10' +
+             '&channelId=' + encodeURIComponent(channelId) + '&eventType=' + type;
+    // A live or upcoming broadcast has no meaningful publishedAt window yet,
+    // so only the finished ones get date-bounded.
+    if (type === 'completed') qs += '&publishedAfter=' + after + '&publishedBefore=' + before;
+    const j = await yt(qs);
+    return (j && j.items) || [];
+  }));
+
+  const out = [];
+  const seen = new Set();
+  for (const item of runs.flat()) {
+    const id = item.id && item.id.videoId;
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push({
+      url: 'https://www.youtube.com/watch?v=' + id,
+      title: (item.snippet && item.snippet.title) || '',
+      publishedAt: (item.snippet && item.snippet.publishedAt) || null
+    });
+  }
+  // Oldest first, so day 1 of the event lines up with the first video.
+  out.sort((a, b) => Date.parse(a.publishedAt || 0) - Date.parse(b.publishedAt || 0));
+  return out;
+}
+
 function slimForPath(path, data) {
   if (path.startsWith('legacy:/seasons/') && path.includes('/skills')) return slimSeasonSkills(data);
   return data;
@@ -109,26 +192,94 @@ export default async function handler(req, res) {
     if (!/^RE-[A-Z0-9-]{3,40}$/.test(sku)) {
       return res.status(400).json({ ok: false, reason: 'bad-sku' });
     }
-    const cacheKey = 'streams:' + sku;
+    // The event's date window, passed by the client (which already has the
+    // event loaded). Without it a channel search returns whatever that channel
+    // uploaded most recently, which has nothing to do with this event.
+    const startISO = typeof req.query.start === 'string' ? req.query.start : '';
+    const endISO = typeof req.query.end === 'string' ? req.query.end : startISO;
+
+    const cacheKey = 'streams:' + sku + '|' + startISO.slice(0, 10);
     const hit = cache.get(cacheKey);
     if (hit && hit.expires > Date.now()) {
       res.setHeader('X-Cache', 'HIT');
       return res.status(200).json(hit.data);
     }
     try {
-      const pageUrl = `https://www.robotevents.com/robot-competitions/vex-robotics-competition/${sku}.html`;
-      const r = await fetch(pageUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml',
-          'Accept-Language': 'en-US,en;q=0.9'
+      // The program lives in the SKU, and the public page lives under a
+      // program-specific path. Hardcoding the V5RC path meant every IQ, VEX U
+      // and drone event 404'd and reported "no stream found".
+      //
+      // RobotEvents has also renamed programs over time (VRC → V5RC, VIQC →
+      // VIQRC) without necessarily renaming the URL segments, so a single
+      // guess is fragile. Try the most likely path first, then the others,
+      // and report which ones were attempted so a 404 is diagnosable.
+      const primary =
+        /-(VIQRC|VIQC)-/.test(sku) ? 'vex-iq-competition' :
+        /-(VURC|VEXU)-/.test(sku)  ? 'vex-u-robotics-competition' :
+        /-(ADC|VAIC)-/.test(sku)   ? 'aerial-drone-competition' :
+        'vex-robotics-competition';
+      const candidates = [...new Set([
+        primary,
+        'vex-robotics-competition',
+        'vex-iq-competition',
+        'vex-u-robotics-competition'
+      ])].slice(0, 3).map(p => `https://www.robotevents.com/robot-competitions/${p}/${sku}.html`);
+
+      // ── Getting the page at all is the hard part ─────────────────────────
+      // RobotEvents sits behind Cloudflare. A plain fetch from a serverless IP
+      // frequently comes back 200 with a challenge page: valid HTML, zero
+      // links. The old code trusted `r.ok`, scraped nothing, and reported
+      // "no stream" — indistinguishable from an event that genuinely has none.
+      //
+      // So: validate what comes back, and race several ways of asking. First
+      // strategy to return something that looks like a real event page wins.
+      // Googlebot usually does, because crawlers are whitelisted.
+      const looksReal = (html, src) => {
+        if (!html || html.length < 500) throw new Error(src + ':too-short');
+        if (html.includes('id="challenge-running"') ||
+            html.includes('Just a moment...') ||
+            html.includes('cf-browser-verification')) throw new Error(src + ':cloudflare');
+        return html;
+      };
+      const attempt = async (url, headers, ms, src) => {
+        const resp = await fetch(url, { headers, signal: AbortSignal.timeout(ms) });
+        if (!resp.ok) throw new Error(src + ':' + resp.status);
+        return looksReal(await resp.text(), src);
+      };
+
+      let rawHtml = null, pageUrl = null;
+      const tried = [];
+      for (const cand of candidates) {
+        try {
+          rawHtml = await Promise.any([
+            attempt(cand, {
+              'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+              'Referer': 'https://www.google.com/',
+              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+            }, 9000, 'googlebot'),
+            attempt(cand, {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+              'Accept': 'text/html,application/xhtml+xml',
+              'Accept-Language': 'en-US,en;q=0.9'
+            }, 9000, 'standard'),
+            attempt(`https://corsproxy.io/?${encodeURIComponent(cand)}`, {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+            }, 15000, 'corsproxy')
+          ]);
+          pageUrl = cand;
+          break;
+        } catch (aggregate) {
+          tried.push({ url: cand, errors: (aggregate.errors || []).map(e => e.message) });
         }
-      });
-      if (!r.ok) {
-        const out = { ok: false, reason: 'page-' + r.status, streams: [] };
+      }
+
+      if (!rawHtml) {
+        // Every candidate failed. Report what was tried, so a 404 can be told
+        // apart from a Cloudflare block without guessing.
+        const out = { ok: false, reason: 'page-unreachable', tried, streams: [] };
+        cache.set(cacheKey, { data: out, status: 200, expires: Date.now() + SHORT_TTL_MS });
         return res.status(200).json(out);
       }
-      const rawHtml = await r.text();
 
       // ── Decode BEFORE matching, not after ────────────────────────────────
       // Two ways a perfectly good URL used to get lost here:
@@ -154,8 +305,22 @@ export default async function handler(req, res) {
         .replace(/&#x0*26;/gi, '&');  // hex-entity ampersand
 
       const STREAM_URL_RE = /https?:\/\/(?:www\.)?(?:youtube\.com\/(?:watch\?v=|live\/|embed\/)|youtu\.be\/|player\.vimeo\.com\/video\/|vimeo\.com\/(?:event\/)?)[\w?=&\/-]+/gi;
+      // Channel and handle URLs — not jumpable on their own, resolved below.
+      const CHANNEL_URL_RE = /https?:\/\/(?:www\.)?youtube\.com\/(?:@[\w.-]+|channel\/[\w-]+|c\/[\w-]+|user\/[\w-]+)/gi;
 
       const found = [];
+      const channels = [];
+      const seenCh = new Set();
+      const addChannel = (url, source) => {
+        const u = url.replace(/[\\"'<>).,;]+$/, '');
+        // The site's own header/footer link to VEX's channels on every page;
+        // treating those as the event's webcast would send everyone to the
+        // wrong video.
+        if (/\/(@?vexrobotics|@?recf|@?roboticseducation)/i.test(u)) return;
+        if (seenCh.has(u)) return;
+        seenCh.add(u);
+        channels.push({ url: u, source });
+      };
       const seen = new Set();
       const add = (url, source) => {
         // Entities are already gone; this only trims punctuation the URL
@@ -172,17 +337,143 @@ export default async function handler(req, res) {
       if (webcastBlock) {
         const m = webcastBlock[0].match(STREAM_URL_RE) || [];
         for (const u of m) add(u, 'webcast-section');
+        for (const u of (webcastBlock[0].match(CHANNEL_URL_RE) || [])) addChannel(u, 'webcast-section');
       }
       // Then anywhere on the page
       const anywhere = html.match(STREAM_URL_RE) || [];
       for (const u of anywhere) add(u, 'page');
+      for (const u of (html.match(CHANNEL_URL_RE) || [])) addChannel(u, 'page');
 
-      const out = { ok: found.length > 0, streams: found.slice(0, 12) };
-      cache.set(cacheKey, { data: out, status: 200, expires: Date.now() + LONG_TTL_MS });
+      // ── Channels have to be resolved into actual videos ──────────────────
+      // Plenty of events publish "watch on our channel" rather than a link to
+      // the broadcast itself. A channel URL can't be jumped into, so the old
+      // code found nothing usable and fell back to asking the user. Ask
+      // YouTube which videos that channel put out during the event instead.
+      //
+      // Only when no direct video turned up: `search` costs 100 quota units a
+      // call against a 10,000/day default, so this stays a fallback.
+      if (!found.length && channels.length) {
+        const ytKey = process.env.YOUTUBE_API_KEY;
+        if (ytKey && startISO && endISO) {
+          for (const ch of channels.slice(0, 2)) {
+            const vids = await resolveChannel(ch.url, startISO, endISO, ytKey);
+            for (const v of vids) {
+              add(v.url, ch.source === 'webcast-section' ? 'channel-webcast' : 'channel');
+              const rec = found[found.length - 1];
+              if (rec && rec.url === v.url) { rec.title = v.title; rec.publishedAt = v.publishedAt; }
+            }
+            if (found.length) break;
+          }
+        }
+      }
+
+      const out = {
+        ok: found.length > 0,
+        streams: found.slice(0, 12),
+        // Which URL actually served the page, so a wrong-path guess shows up
+        // in the debug panel instead of looking like "no stream published".
+        pageUrl,
+        tried: tried.length ? tried : undefined,
+        // Surfaced so the UI can distinguish "no stream published" from
+        // "we found a channel but couldn't search it" — very different fixes.
+        channels: channels.map(c => c.url).slice(0, 4),
+        reason: found.length ? undefined
+              : channels.length ? (process.env.YOUTUBE_API_KEY ? 'channel-no-videos' : 'channel-needs-yt-key')
+              : 'no-links-on-page'
+      };
+      cache.set(cacheKey, { data: out, status: 200, expires: Date.now() + (found.length ? LONG_TTL_MS : SHORT_TTL_MS) });
       res.setHeader('Cache-Control', 'public, s-maxage=3600, stale-while-revalidate=3600');
       return res.status(200).json(out);
     } catch (err) {
-      return res.status(200).json({ ok: false, reason: 'fetch-failed', streams: [] });
+      return res.status(200).json({ ok: false, reason: 'fetch-failed', detail: err.message, streams: [] });
+    }
+  } else if (path.startsWith('vimeo:')) {
+    // ── Vimeo, without the paid API ──────────────────────────────────────
+    // A Vimeo "event" is a recurring live channel; each broadcast session
+    // becomes its own clip. Nothing here needs a key — it all comes off the
+    // public embed page and the player config it names:
+    //
+    //   • which clip the event is showing right now
+    //   • that clip's unlisted `h=` hash, which is the ONLY way to pin one
+    //     specific recording (the event embed ignores ?video= and always
+    //     serves whatever is currently featured, so yesterday's day would
+    //     silently start playing today's footage)
+    //   • the broadcast's SCHEDULED start, duration and live status
+    //
+    // What is NOT available: the actual moment the broadcast began. That sits
+    // behind Vimeo's paid tier. Scheduled start is the closest free proxy for
+    // it, and it is only as accurate as the event running on time.
+    const arg = path.slice(6);
+    const [kind, id] = arg.includes('=') ? arg.split('=') : ['event', arg];
+    if (!/^\d{6,15}$/.test(id || '')) {
+      return res.status(400).json({ ok: false, reason: 'bad-id' });
+    }
+    const vKey = 'vimeo:' + kind + ':' + id;
+    const vHit = cache.get(vKey);
+    if (vHit && vHit.expires > Date.now()) {
+      res.setHeader('X-Cache', 'HIT');
+      return res.status(200).json(vHit.data);
+    }
+    const VUA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0 Safari/537.36';
+    try {
+      let clipId = kind === 'clip' ? id : null;
+      let out = { ok: false, reason: 'no-clip' };
+
+      if (kind === 'event') {
+        const er = await fetch(`https://vimeo.com/event/${id}/embed`, {
+          headers: { 'User-Agent': VUA, 'Accept': 'text/html' },
+          signal: AbortSignal.timeout(9000)
+        });
+        if (!er.ok) return res.status(200).json({ ok: false, reason: 'event-' + er.status });
+        const ehtml = await er.text();
+        clipId = (ehtml.match(/player\.vimeo\.com\/video\/(\d+)\//) || [])[1] || null;
+        if (!clipId) {
+          const miss = { ok: false, reason: 'no-clip-attached', eventId: id };
+          cache.set(vKey, { data: miss, status: 200, expires: Date.now() + SHORT_TTL_MS });
+          return res.status(200).json(miss);
+        }
+        // The config URL carries a short-lived signature, so it has to come
+        // from the embed HTML rather than be rebuilt.
+        const cfgUrl = ((ehtml.match(/data-config-url="([^"]+)"/) || [])[1] || '')
+          .replace(/&amp;/g, '&').replace(/&quot;/g, '"');
+        out = { ...(await vimeoClipDetails(cfgUrl, VUA)) };
+      }
+
+      // The hash pins this specific clip. Prefer the one in the config; fall
+      // back to the clip's own page. Anchored to the requested id, because a
+      // Vimeo page also lists related clips' player URLs and grabbing one of
+      // those would pin the wrong recording with nothing on screen to say so.
+      let hash = out.hash || null;
+      if (!hash && clipId) {
+        try {
+          const cr = await fetch(`https://vimeo.com/${clipId}`, {
+            headers: { 'User-Agent': VUA, 'Accept': 'text/html' },
+            signal: AbortSignal.timeout(9000)
+          });
+          if (cr.ok) {
+            const anchored = new RegExp('/video/' + clipId + '\\?h=([a-z0-9]+)', 'i');
+            hash = ((await cr.text()).match(anchored) || [])[1] || null;
+          }
+        } catch (e) {}
+      }
+
+      const body = {
+        ok: !!clipId,
+        eventId: kind === 'event' ? id : null,
+        videoId: clipId,
+        hash: hash || null,
+        title: out.title || null,
+        duration: out.duration ?? null,
+        liveStatus: out.liveStatus || null,
+        scheduledStart: out.scheduledStart || null
+      };
+      // The featured clip flips when a broadcast starts or ends, so an event
+      // lookup is only briefly true; a resolved clip's hash is permanent.
+      cache.set(vKey, { data: body, status: 200,
+        expires: Date.now() + (kind === 'clip' ? LONG_TTL_MS : SHORT_TTL_MS) });
+      return res.status(200).json(body);
+    } catch (err) {
+      return res.status(200).json({ ok: false, reason: 'vimeo-failed', detail: err.message });
     }
   } else if (path.startsWith('youtube:')) {
     // ── Stream start lookup ──────────────────────────────────────────────
