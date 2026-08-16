@@ -1612,11 +1612,14 @@
   .rw-auto-working { font-family: var(--mono); font-size: 11px; color: var(--text-muted); }
   .rw-auto-fail { font-family: var(--body); font-size: 12px; color: var(--text-dim); display: block; margin: 6px 0; }
   .rw-auto-tag { font-family: var(--mono); font-size: 10px; color: #4ccf6a; letter-spacing: 0.5px; margin-bottom: 8px; }
+  /* Amber, not green: an estimate should not read the same as a verified sync. */
+  .rw-auto-approx { color: #d6a83a; line-height: 1.5; }
   .rw-or { font-family: var(--mono); font-size: 10px; letter-spacing: 2px; color: var(--text-muted);
     margin: 14px 0 10px; display: flex; align-items: center; gap: 10px; }
   .rw-or::after { content: ''; flex: 1; height: 1px; background: var(--border); }
 
   .rw-found { font-family: var(--body); font-size: 12px; color: #4ccf6a; margin-bottom: 8px; }
+  .rw-miss { font-family: var(--body); font-size: 12px; color: var(--text-muted); margin-bottom: 8px; }
 
   /* The overlap with "EVENT (NAME OR SKU)" is fixed at the source by the
      static-label rules above — the label no longer reaches up out of its row.
@@ -2211,6 +2214,39 @@ document.addEventListener('click', () => csCloseAll(null));
 // Works out which platform a pasted link belongs to and pulls the pieces needed
 // to embed it. Vimeo needs more than an id: unlisted clips carry a privacy hash,
 // and an "event" link is a channel whose featured clip changes between days.
+// ── Published anchors ──────────────────────────────────────────────────────
+// Anchoring is per-video and one-off, so it only ever needs doing once — but
+// localStorage keeps it on one device in one browser. anchors.json is the
+// shared copy: anchor an event yourself, export it, commit the file, and
+// everyone else gets a working jumper without touching anything.
+//
+// Fetched once per page load, never blocking: a missing or malformed file just
+// means nobody has published anchors yet, which is the normal starting state.
+let rwPublished = null;
+let rwPublishedPromise = null;
+function rwLoadPublished() {
+  if (rwPublishedPromise) return rwPublishedPromise;
+  rwPublishedPromise = fetch('/anchors.json', { cache: 'no-cache' })
+    .then(r => (r.ok ? r.json() : null))
+    .then(j => { rwPublished = (j && typeof j === 'object') ? (j.events || j) : {}; return rwPublished; })
+    .catch(() => { rwPublished = {}; return rwPublished; });
+  return rwPublishedPromise;
+}
+
+// Published anchors are the baseline; anything saved locally wins over them.
+// That way a published anchor that's slightly off can be corrected on the spot
+// without waiting for a redeploy, and the correction sticks for that person.
+function rwMergePublished(eid, local) {
+  const shared = (rwPublished && rwPublished[String(eid)]) || null;
+  if (!shared) return local || {};
+  const out = {};
+  for (const [day, cal] of Object.entries(shared)) {
+    out[day] = { ...cal, published: true };
+  }
+  for (const [day, cal] of Object.entries(local || {})) out[day] = cal;
+  return out;
+}
+
 function rwParseSource(url) {
   const s = (url || '').trim();
   if (!s) return null;
@@ -2240,6 +2276,52 @@ function rwParseSource(url) {
 }
 
 // Back-compat: existing callers just want "is this a usable link".
+// Streams the proxy found for the current event, best-first, plus why it came
+// back empty when it did. Module-level because the picker below and the render
+// both need them after the async lookup settles.
+let rwStreamPool = [];
+let rwStreamReason = null;
+
+// Which of the found videos belongs to a given day.
+//
+// When the proxy resolved a channel it hands back publishedAt for each video,
+// so the day can be matched by date directly. Otherwise fall back to position:
+// the list is oldest-first, so the Nth day gets the Nth video.
+function rwPickStreamForDay(pool, dayKey, dayIndex) {
+  if (!pool || !pool.length) return null;
+  const dated = pool.filter(s => s.publishedAt);
+  if (dated.length) {
+    const exact = dated.find(s => String(s.publishedAt).slice(0, 10) === dayKey);
+    if (exact) return exact.url;
+    // A broadcast that began the evening before still covers that day.
+    const target = Date.parse(dayKey + 'T12:00:00Z');
+    if (!isNaN(target)) {
+      const near = dated
+        .map(s => ({ url: s.url, gap: Math.abs(Date.parse(s.publishedAt) - target) }))
+        .sort((a, b) => a.gap - b.gap)[0];
+      if (near && near.gap < 36 * 3600 * 1000) return near.url;
+    }
+  }
+  return (pool[dayIndex] || pool[0]).url;
+}
+
+// Resolve a Vimeo event URL into the specific clip it is showing, plus the
+// hash that pins it. Without the hash the embed always plays whichever clip is
+// currently featured, so a past day would quietly start showing today's stream.
+// Also carries back the broadcast's scheduled start, which is the only free
+// timing signal Vimeo publishes.
+async function rwResolveVimeo(src) {
+  if (!src || src.platform !== 'vimeo') return null;
+  const q = src.eventId ? 'event=' + src.eventId : (src.id ? 'clip=' + src.id : null);
+  if (!q) return null;
+  try {
+    const r = await fetch(`${BASE}?path=${encodeURIComponent('vimeo:' + q)}`);
+    if (!r.ok) return null;
+    const j = await r.json();
+    return j && j.ok ? j : null;
+  } catch (e) { return null; }
+}
+
 function rwParseVideoId(url) {
   const p = rwParseSource(url);
   return p ? (p.id || p.eventId) : null;
@@ -2532,6 +2614,8 @@ async function rewatchSelectEvent(eventId) {
 
     // Try the event's own webcast link before asking the user for one
     let webcast = null, webcastRaw = '', ctxWebcastSource = null;
+    rwStreamPool = [];
+    rwStreamReason = null;
     try {
       const ev = await apiGet('/events', { 'id[]': [eventId] });
       const e0 = ev[0] || {};
@@ -2544,22 +2628,36 @@ async function rewatchSelectEvent(eventId) {
       } else if (e0.sku) {
         // The API carries no description or webcast section, so the links only
         // exist on the event's public page. Have the proxy read it for us.
+        //
+        // The event's dates go along for the ride: if the page links a channel
+        // rather than a video, the proxy searches that channel, and without a
+        // date window it would return whatever was uploaded most recently.
         try {
-          const s = await fetch(`${BASE}?path=${encodeURIComponent('streams:' + e0.sku)}`);
+          const qs = `${BASE}?path=${encodeURIComponent('streams:' + e0.sku)}` +
+            (e0.start ? `&start=${encodeURIComponent(e0.start)}` : '') +
+            (e0.end ? `&end=${encodeURIComponent(e0.end)}` : '');
+          const s = await fetch(qs);
           if (s.ok) {
             const j = await s.json();
-            const best = (j.streams || []).find(x => /youtube|youtu\.be/i.test(x.url)) || (j.streams || [])[0];
+            const list = (j.streams || []).filter(x => /youtube|youtu\.be|vimeo/i.test(x.url));
+            // Keep the whole list: a multi-day event usually broadcasts one
+            // video per day, and picking a single "best" one would anchor
+            // every day to day 1's video.
+            rwStreamPool = list;
+            rwStreamReason = j.reason || null;
+            const best = list.find(x => /youtube|youtu\.be/i.test(x.url)) || list[0];
             if (best) {
               webcastRaw = best.url;
               webcast = rwParseVideoId(best.url);
-              ctxWebcastSource = best.source === 'webcast-section' ? 'event-page-webcast' : 'event-page';
+              ctxWebcastSource = /webcast/.test(best.source || '') ? 'event-page-webcast' : 'event-page';
             }
           }
         } catch (e) {}
       }
     } catch (e) {}
 
-    const cal = rwLoadCal(eventId);
+    await rwLoadPublished();
+    const cal = rwMergePublished(eventId, rwLoadCal(eventId));
     ctx.eventId = eventId;
     ctx.matches = matches;
     ctx.cal = cal;
@@ -2575,10 +2673,16 @@ async function rewatchSelectEvent(eventId) {
     // didn't request anything.
     if (webcastRaw && !anyCal) {
       ctx.foundStream = { url: webcastRaw, source: ctxWebcastSource };
-      const days = [...new Set(matches.filter(m => m.t !== null).map(m => rwDayKey(m.t)))];
-      for (const d of days) {
+      const days = [...new Set(matches.filter(m => m.t !== null).map(m => rwDayKey(m.t)))].sort();
+      // One video per day is the normal shape for a multi-day event. Pair them
+      // up in order and fall back to the first link when there are fewer
+      // videos than days — auto-sync rejects a mismatch anyway, since a match
+      // can't sit before its own stream started.
+      for (let i = 0; i < days.length; i++) {
+        const d = days[i];
         if (ctx.cal && ctx.cal[d]) continue;
-        await rwTryAutoSync(d, webcastRaw, { quiet: true });
+        const forDay = rwPickStreamForDay(rwStreamPool, d, i) || webcastRaw;
+        await rwTryAutoSync(d, forDay, { quiet: true });
       }
       // Even if auto-sync couldn't run (Vimeo, or no API key), the link is
       // found — prefill it so anchoring is one scrub, not a hunt for the URL.
@@ -2675,6 +2779,83 @@ window.onYouTubeIframeAPIReady = function () {
   if (rwYTPending) { const p = rwYTPending; rwYTPending = null; rwMountCalPlayer(p.videoId, p.start); }
 };
 
+// Mount (or re-point) the scrubbing player inside the calibration form.
+//
+// Two platforms, two SDKs, neither needing a key. YouTube's IFrame API returns
+// the position synchronously; Vimeo's player.js returns a Promise. Both are
+// funnelled through rwCalCurrentTime() below so the anchor button doesn't care.
+window.rwVimeoPlayer = null;
+let rwVimeoSdk = null;
+function rwLoadVimeoSdk() {
+  if (window.Vimeo && window.Vimeo.Player) return Promise.resolve(window.Vimeo);
+  if (rwVimeoSdk) return rwVimeoSdk;
+  rwVimeoSdk = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://player.vimeo.com/api/player.js';
+    s.async = true;
+    s.addEventListener('load', () => {
+      // `load` fires once the body has run — but a blocked script can be
+      // served as an empty 200, which looks like success and would throw
+      // `undefined.Player` at the call site instead.
+      if (window.Vimeo && window.Vimeo.Player) resolve(window.Vimeo);
+      else { rwVimeoSdk = null; s.remove(); reject(new Error('vimeo-sdk-empty')); }
+    });
+    s.addEventListener('error', () => {
+      // Drop the tag as well as the promise: leaving a failed one in the DOM
+      // poisons the retry, which would attach to an element whose error has
+      // already fired and hang forever.
+      rwVimeoSdk = null; s.remove(); reject(new Error('vimeo-sdk-failed'));
+    });
+    document.head.appendChild(s);
+  });
+  return rwVimeoSdk;
+}
+
+async function rwMountVimeoCalPlayer(src, start) {
+  const host = document.getElementById('rwCalPlayer');
+  if (!host) return;
+  let Vimeo;
+  try { Vimeo = await rwLoadVimeoSdk(); }
+  catch (e) { showError('⚠ Could not load the Vimeo player — type the time by hand below.'); return; }
+
+  // Only a hashed clip URL pins one recording; the event embed always serves
+  // whichever clip is featured right now, so a past day would drift onto the
+  // current broadcast. Resolve the clip first when we only have an event id.
+  let videoId = src.id, hash = src.hash;
+  if (!videoId || !hash) {
+    const r = await rwResolveVimeo(src);
+    if (r) { videoId = videoId || r.videoId; hash = hash || r.hash; }
+  }
+
+  host.innerHTML = '<div id="rwCalPlayerInner"></div>';
+  const opts = { autopause: false };
+  if (videoId && hash) { opts.id = Number(videoId); opts.h = hash; }
+  else if (videoId) { opts.id = Number(videoId); }
+  else if (src.eventId) { opts.url = `https://vimeo.com/event/${src.eventId}/embed`; }
+  else return;
+
+  try {
+    window.rwVimeoPlayer = new Vimeo.Player('rwCalPlayerInner', opts);
+    if (start) window.rwVimeoPlayer.setCurrentTime(start).catch(() => {});
+  } catch (e) {
+    showError('⚠ Could not start the Vimeo player — type the time by hand below.');
+  }
+}
+
+// Where is the scrubbing player right now, whichever platform it is?
+// Returns null when nothing is loaded, so callers can tell "not ready" from 0.
+async function rwCalCurrentTime() {
+  if (window.rwVimeoPlayer && window.rwVimeoPlayer.getCurrentTime) {
+    try { return Math.floor((await window.rwVimeoPlayer.getCurrentTime()) || 0); }
+    catch (e) { return null; }
+  }
+  if (window.rwCalPlayer && window.rwCalPlayer.getCurrentTime) {
+    const t = window.rwCalPlayer.getCurrentTime();
+    return typeof t === 'number' ? Math.floor(t) : null;
+  }
+  return null;
+}
+
 // Mount (or re-point) the scrubbing player inside the calibration form
 function rwMountCalPlayer(videoId, start) {
   const host = document.getElementById('rwCalPlayer');
@@ -2695,8 +2876,9 @@ function rwMountCalPlayer(videoId, start) {
 
 // Load whatever's in the link box into the scrubbing player
 function rwPreviewVideo() {
-  const vid = rwParseVideoId((document.getElementById('rwVideoInput') || {}).value || '');
-  if (!vid) { showError('\u26a0 Paste a YouTube link first.'); return; }
+  const raw = (document.getElementById('rwVideoInput') || {}).value || '';
+  const src = rwParseSource(raw);
+  if (!src) { showError('⚠ Paste a YouTube or Vimeo link first.'); return; }
   showError('');
   const ctx = window._rwCtx;
   // Start near an existing anchor if we have one, so you land in the right area
@@ -2704,23 +2886,30 @@ function rwPreviewVideo() {
   const cal = ctx && ctx.cal && ctx.calDay ? ctx.cal[ctx.calDay] : null;
   if (cal && cal.anchors && cal.anchors.length) start = cal.anchors[cal.anchors.length - 1].videoSec;
   document.getElementById('rwCalPlayerWrap').style.display = '';
-  rwMountCalPlayer(vid, start);
+  if (src.platform === 'vimeo') {
+    window.rwCalPlayer = null;      // the other platform's player is gone
+    rwMountVimeoCalPlayer(src, start);
+  } else {
+    window.rwVimeoPlayer = null;
+    rwMountCalPlayer(src.id, start);
+  }
 }
 
 // Grab the player's current position straight into the timestamp box
-function rwUseCurrentTime() {
-  if (!window.rwCalPlayer || !window.rwCalPlayer.getCurrentTime) { showError('\u26a0 Load the video first, then scrub to a match.'); return; }
-  const t = Math.floor(window.rwCalPlayer.getCurrentTime() || 0);
+async function rwUseCurrentTime() {
+  const t = await rwCalCurrentTime();
+  if (t === null) { showError('\u26a0 Load the video first, then scrub to a match.'); return; }
   const box = document.getElementById('rwAnchorTime');
   if (box) box.value = rwFmtClock(t);
   showError('');
 }
 
 // Scrub-and-set in one action: read the player, anchor the chosen match, done.
-function rwSetAnchorHere(day) {
-  if (!window.rwCalPlayer || !window.rwCalPlayer.getCurrentTime) { showError('\u26a0 Load the video first, then scrub to a match.'); return; }
+async function rwSetAnchorHere(day) {
+  const t = await rwCalCurrentTime();
+  if (t === null) { showError('\u26a0 Load the video first, then scrub to a match.'); return; }
   const box = document.getElementById('rwAnchorTime');
-  if (box) box.value = rwFmtClock(Math.floor(window.rwCalPlayer.getCurrentTime() || 0));
+  if (box) box.value = rwFmtClock(t);
   rewatchCalibrate(day);
 }
 
@@ -2828,9 +3017,37 @@ async function rwTryAutoSync(day, linkText, { quiet = false } = {}) {
   };
   if (!srcInfo) { if (!quiet) showError('⚠ Paste the stream link first.'); return false; }
   if (srcInfo.platform !== 'youtube') {
-    // Vimeo's start-time data sits behind their paid API, so there's nothing
-    // to read. Anchoring one match by hand is the only route there.
-    return fail("Auto-sync only works for YouTube — Vimeo doesn't publish a broadcast start time. Set one anchor below and the rest follow.");
+    // Vimeo does not publish the moment a broadcast actually began — that sits
+    // behind their paid tier. What IS public is the SCHEDULED start, so offer
+    // an anchor derived from it rather than nothing, clearly marked as an
+    // estimate. It is exact only if the stream went live on time, so the
+    // earlier/later nudge controls stay the way to correct it.
+    const vinfo = await rwResolveVimeo(srcInfo);
+    if (vinfo && vinfo.scheduledStart) {
+      const startMs = Date.parse(vinfo.scheduledStart);
+      const anchor = rwAnchorForDay(ctx, day) ||
+        ctx.matches.filter(m => m.t !== null && rwDayKey(m.t) === day).sort((a, b) => a.t - b.t)[0];
+      if (!isNaN(startMs) && anchor) {
+        const secs = Math.round((anchor.t - startMs) / 1000);
+        if (secs >= 0) {
+          ctx.videoId = vinfo.videoId || srcInfo.id;
+          ctx.cal = ctx.cal || {};
+          ctx.cal[day] = {
+            videoId: vinfo.videoId || srcInfo.id, platform: 'vimeo',
+            eventId: srcInfo.eventId || vinfo.eventId || null,
+            hash: vinfo.hash || srcInfo.hash || null,
+            day, auto: true, approx: true, savedAt: Date.now(),
+            anchors: [{ matchId: anchor.id || 'auto', name: anchor.name, matchMs: anchor.t, videoSec: secs }]
+          };
+          rwSaveCal(ctx.eventId, ctx.cal);
+          ctx.calDay = null;
+          if (!quiet) showError('');
+          rewatchRender();
+          return true;
+        }
+      }
+    }
+    return fail("Vimeo doesn't publish when a broadcast actually started, and this one lists no scheduled time either. Set one anchor below and the rest follow.");
   }
   const vid = srcInfo.id;
   if (!quiet && status) status.innerHTML = '<span class="rw-auto-working">Reading the broadcast start time…</span>';
@@ -3024,7 +3241,9 @@ function rewatchRender() {
 
     if (cal && !formOpen) {
       const anchors = (cal.anchors || []).slice().sort((a, b) => a.matchMs - b.matchMs);
-      html += `${cal.auto ? '<div class="rw-auto-tag">✓ auto-synced from the broadcast start time</div>' : ''}
+      html += `${cal.auto ? (cal.approx
+        ? '<div class="rw-auto-tag rw-auto-approx">≈ synced from Vimeo\'s <strong>scheduled</strong> start — Vimeo doesn\'t publish the real one, so if the stream went live late, nudge with earlier/later below and every match follows.</div>'
+        : '<div class="rw-auto-tag">✓ auto-synced from the broadcast start time</div>') : ''}${cal.published ? '<div class="rw-auto-tag">✓ using a published anchor — no setup needed</div>' : ''}
       <div class="rw-anchors">
         ${anchors.map(a => `<span class="rw-anchor-tag">${a.name} @ ${rwFmtClock(a.videoSec)}
           <button title="remove" onclick="rewatchRemoveAnchor('${day}','${a.matchId}')">×</button></span>`).join('')}
@@ -3055,7 +3274,16 @@ function rewatchRender() {
         ? ctx.allMatches.filter(m => m.t !== null && dayKeyOf(m.t) === day)
         : dayMatches.filter(m => m.t !== null);
       const existing = (cal && cal.anchors) ? cal.anchors.length : 0;
-      html += `${ctx.foundStream ? `<div class="rw-found">Found this event's stream automatically${{'webcast-field': '', 'event-page-webcast': " (from the event's webcast section)", 'event-page': " (from the event page)"}[ctx.foundStream.source] || ' (from the event description)'} — filled in below.</div>` : ''}
+      html += `${ctx.foundStream ? `<div class="rw-found">Found this event's stream automatically${{'webcast-field': '', 'event-page-webcast': " (from the event's webcast section)", 'event-page': " (from the event page)"}[ctx.foundStream.source] || ' (from the event description)'} — filled in below.</div>` : (
+        // Say WHY nothing was found. "Add a stream" on an event that plainly
+        // has one reads as a bug; naming the cause makes it actionable.
+        {
+          'page-unreachable': "<div class=\"rw-miss\">Couldn't read this event's page to look for a stream — paste the link below.</div>",
+          'channel-needs-yt-key': "<div class=\"rw-miss\">This event links a YouTube channel rather than a video. Finding the broadcast on it needs YOUTUBE_API_KEY set on the server — paste the link below for now.</div>",
+          'channel-no-videos': "<div class=\"rw-miss\">This event links a YouTube channel, but no broadcast from it lines up with these dates — paste the link below.</div>",
+          'no-links-on-page': "<div class=\"rw-miss\">No stream link is published on this event's page — paste one below.</div>"
+        }[rwStreamReason] || ''
+      )}
       <div class="rw-auto-row">
         <button class="btn btn-secondary" onclick="rewatchAutoSync('${day}')">RETRY SYNC</button>
         <span class="rw-auto-note">Paste a YouTube link above and it syncs on its own. This retries if it didn't.</span>
