@@ -2639,20 +2639,29 @@ async function rewatchSelectEvent(eventId) {
           const s = await fetch(qs);
           if (s.ok) {
             const j = await s.json();
+            // Logged so a failure can be diagnosed from the console without
+            // guessing which of the several stages came up empty.
+            console.log('[jumper] auto-find', e0.sku, j);
             const list = (j.streams || []).filter(x => /youtube|youtu\.be|vimeo/i.test(x.url));
             // Keep the whole list: a multi-day event usually broadcasts one
             // video per day, and picking a single "best" one would anchor
             // every day to day 1's video.
             rwStreamPool = list;
-            rwStreamReason = j.reason || null;
+            rwStreamReason = j.reason || (list.length ? null : 'no-links-on-page');
             const best = list.find(x => /youtube|youtu\.be/i.test(x.url)) || list[0];
             if (best) {
               webcastRaw = best.url;
               webcast = rwParseVideoId(best.url);
               ctxWebcastSource = /webcast/.test(best.source || '') ? 'event-page-webcast' : 'event-page';
             }
+          } else {
+            rwStreamReason = 'fetch-failed';
+            console.log('[jumper] auto-find HTTP', s.status);
           }
-        } catch (e) {}
+        } catch (e) {
+          rwStreamReason = 'fetch-failed';
+          console.log('[jumper] auto-find threw', e);
+        }
       }
     } catch (e) {}
 
@@ -3218,6 +3227,21 @@ function rewatchRender() {
         </a>
       </div>`;
     }
+  }
+
+  // Why auto-find came up empty, shown ONCE above the day list rather than
+  // buried inside the calibration form. The form only opens after you press
+  // "+ ADD STREAM", which is precisely too late to explain why you're being
+  // asked to add one.
+  if (!Object.keys(calAll).length && rwStreamReason) {
+    const why = {
+      'page-unreachable': "Couldn't read this event's page on RobotEvents, so there was nothing to search for a stream link.",
+      'channel-needs-yt-key': 'This event links a YouTube channel rather than a specific video. Searching that channel needs YOUTUBE_API_KEY set on the server.',
+      'channel-no-videos': "This event links a YouTube channel, but no broadcast on it lines up with these dates.",
+      'no-links-on-page': "No stream link is published on this event's RobotEvents page.",
+      'fetch-failed': "Couldn't reach this event's page to look for a stream link."
+    }[rwStreamReason];
+    if (why) html += `<div class="rw-hint rw-miss">Auto-find found nothing: ${why} Add the link by hand below — it still syncs itself once pasted.</div>`;
   }
 
   if (multiDay) {
