@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<title>Anchor Tool</title>
+<!--
+  VEX Scout — anchoring tool. NOT part of the deployed site.
+
+  Run this locally (see RUNNING, below). It produces the contents of
+  anchors.json, which is what every visitor's Jumper reads. Nothing here ships
+  to users and nothing here is reachable from the app.
+
+  WHY IT LIVES OUTSIDE THE SITE
+  Anchors become public by being committed to the repo, so the thing that
+  actually protects them is GitHub write access — not this file being hidden.
+  Keeping the tool off the deployed site means the public bundle carries no
+  publishing code at all, and no visitor is ever shown a control that looks
+  like it changes what others see.
+
+  RUNNING
+  It needs the /api/proxy route for RobotEvents data, so point it at a running
+  instance. Either:
+    • vercel dev, then open http://localhost:3000/anchor-tool.html
+    • or open the file directly and set PROXY below to your deployed origin,
+      e.g. 'https://your-app.vercel.app/api/proxy'
+
+  DO NOT deploy this file. Add it to .vercelignore:
+      anchor-tool.html
+-->
+<style>
+  :root {
+    --bg:#0e0e0f; --card:#161618; --border:#2a2a2e; --text:#e8e8ea;
+    --muted:#8a8a92; --accent:#e0562d; --ok:#4ccf6a; --warn:#d6a83a;
+    --mono:'SF Mono',Menlo,Consolas,monospace;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:24px; background:var(--bg); color:var(--text);
+    font-family:var(--mono); font-size:14px; line-height:1.5; }
+  .wrap { max-width:1000px; margin:0 auto; }
+  h1 { font-size:16px; letter-spacing:3px; text-transform:uppercase; color:var(--accent); margin:0 0 4px; }
+  .sub { color:var(--muted); font-size:12px; margin-bottom:24px; }
+  fieldset { border:1px solid var(--border); background:var(--card); padding:16px; margin:0 0 16px; }
+  legend { font-size:11px; letter-spacing:2px; text-transform:uppercase; color:var(--muted); padding:0 8px; }
+  label { display:block; font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--muted); margin-bottom:5px; }
+  input, select, textarea { width:100%; background:var(--bg); border:1px solid var(--border);
+    color:var(--text); font-family:var(--mono); font-size:14px; padding:10px 12px; outline:none; }
+  input:focus, select:focus, textarea:focus { border-color:var(--accent); }
+  textarea { resize:vertical; font-size:11px; }
+  button { font-family:var(--mono); font-size:12px; letter-spacing:2px; text-transform:uppercase;
+    padding:10px 18px; border:1px solid var(--border); background:transparent; color:var(--text);
+    cursor:pointer; white-space:nowrap; }
+  button:hover { border-color:var(--accent); }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button:disabled { opacity:.4; cursor:not-allowed; }
+  .row { display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; margin-bottom:12px; }
+  .row > div { flex:1; min-width:160px; }
+  .msg { font-size:12px; margin:8px 0; min-height:18px; }
+  .msg.err { color:var(--accent); }
+  .msg.ok { color:var(--ok); }
+  .msg.warn { color:var(--warn); }
+  #player { width:100%; aspect-ratio:16/9; background:#000; border:1px solid var(--border); margin-bottom:12px; }
+  #player iframe { width:100%; height:100%; border:0; }
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  th { text-align:left; font-size:10px; letter-spacing:1px; color:var(--muted); padding:6px; border-bottom:1px solid var(--border); }
+  td { padding:6px; border-bottom:1px solid var(--border); }
+  .day-done { color:var(--ok); }
+  .day-todo { color:var(--muted); }
+  .hint { font-size:11px; color:var(--muted); line-height:1.6; }
+  code { background:var(--bg); padding:1px 5px; border:1px solid var(--border); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Anchor Tool</h1>
+  <div class="sub">Local only. Produces anchors.json — never deployed.</div>
+
+  <fieldset>
+    <legend>1 · Event</legend>
+    <div class="row">
+      <div style="flex:3;">
+        <label>Event SKU</label>
+        <input id="sku" placeholder="RE-V5RC-24-1234" autocomplete="off">
+      </div>
+      <button class="primary" id="loadBtn">Load</button>
+    </div>
+    <div class="msg" id="evMsg"></div>
+    <table id="dayTable" style="display:none;">
+      <thead><tr><th>Day</th><th>Matches</th><th>Status</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </fieldset>
+
+  <fieldset id="anchorFs" style="display:none;">
+    <legend>2 · Anchor <span id="dayLabel"></span></legend>
+    <div class="row">
+      <div style="flex:3;">
+        <label>Stream link (YouTube or Vimeo)</label>
+        <input id="link" placeholder="https://www.youtube.com/watch?v=… or https://vimeo.com/event/…" autocomplete="off">
+      </div>
+      <button id="findBtn">Auto-find</button>
+      <button id="loadVidBtn">Load video</button>
+    </div>
+    <div class="msg" id="vidMsg"></div>
+    <div id="player"></div>
+    <div class="hint" style="margin-bottom:12px;">
+      Scrub to the moment robots start moving in the match you pick below, then press Set anchor.
+      One anchor per video is all that's needed — the rest is arithmetic.
+    </div>
+    <div class="row">
+      <div style="flex:3;">
+        <label>This is…</label>
+        <select id="matchSel"></select>
+      </div>
+      <div style="max-width:130px;">
+        <label>At (auto)</label>
+        <input id="ts" placeholder="0:00" autocomplete="off">
+      </div>
+      <button class="primary" id="setBtn">Set anchor</button>
+    </div>
+    <div class="msg" id="anchorMsg"></div>
+  </fieldset>
+
+  <fieldset>
+    <legend>3 · anchors.json</legend>
+    <div class="hint" style="margin-bottom:10px;">
+      Paste your existing <code>anchors.json</code> here first so this event is merged into it
+      rather than replacing it. Then copy the result back over the file and commit.
+    </div>
+    <textarea id="json" rows="14" spellcheck="false"></textarea>
+    <div class="row" style="margin-top:10px;">
+      <button id="mergeBtn">Merge this event in</button>
+      <button id="copyBtn">Copy all</button>
+      <div class="msg" id="jsonMsg" style="flex:2;"></div>
+    </div>
+  </fieldset>
+</div>
+
+<script>
+// Point this at a running instance of the app's proxy.
+const PROXY = (location.protocol === 'file:')
+  ? 'https://REPLACE-ME.vercel.app/api/proxy'   // set this if opening the file directly
+  : '/api/proxy';
+
+const $ = id => document.getElementById(id);
+const say = (el, text, cls) => { const n = $(el); n.textContent = text; n.className = 'msg ' + (cls || ''); };
+
+let EVENT = null;        // { id, sku, name, start, end }
+let MATCHES = [];        // { id, name, t }
+let DAYS = [];           // ['2026-03-07', ...]
+let currentDay = null;
+let ytPlayer = null, vimeoPlayer = null;
+
+// ── proxy helpers ─────────────────────────────────────────────────────────
+async function api(path, params = {}) {
+  const qs = new URLSearchParams({ per_page: 250, ...params });
+  const r = await fetch(`${PROXY}?path=${encodeURIComponent(path + '?' + qs)}`);
+  if (!r.ok) throw new Error('proxy ' + r.status);
+  const j = await r.json();
+  return j.data || j;
+}
+
+// Same day bucketing the app uses: local calendar date of the match.
+const dayKey = ms => {
+  if (ms === null || ms === undefined) return 'unknown';
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+};
+const fmtClock = sec => {
+  sec = Math.max(0, Math.round(sec));
+  const h = Math.floor(sec/3600), m = Math.floor((sec%3600)/60), s = sec%60;
+  return h > 0 ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
+               : `${m}:${String(s).padStart(2,'0')}`;
+};
+const parseClock = v => {
+  const t = String(v || '').trim();
+  if (!t) return null;
+  const parts = t.split(':');
+  if (parts.some(p => !/^\d+$/.test(p.trim())) || parts.length > 3) return null;
+  return parts.map(Number).reverse().reduce((a, v, i) => a + v * 60 ** i, 0);
+};
+
+function parseSource(url) {
+  const s = (url || '').trim();
+  if (!s) return null;
+  if (/vimeo\.com/i.test(s)) {
+    const eventId = (s.match(/vimeo\.com\/event\/(\d+)/i) || [])[1] || null;
+    const id = (s.match(/[?&]video=(\d+)/) || [])[1]
+            || (s.match(/\/video\/(\d+)/) || [])[1]
+            || (s.match(/vimeo\.com\/(\d+)/i) || [])[1] || null;
+    const hash = (s.match(/[?&]h=(\w+)/) || [])[1] || null;
+    if (!eventId && !id) return null;
+    return { platform:'vimeo', id, eventId, hash };
+  }
+  if (/^[\w-]{11}$/.test(s)) return { platform:'youtube', id:s };
+  const m = s.match(/(?:v=|youtu\.be\/|\/embed\/|\/live\/)([\w-]{11})/);
+  return m ? { platform:'youtube', id:m[1] } : null;
+}
+
+// ── 1 · load the event ────────────────────────────────────────────────────
+$('loadBtn').onclick = async () => {
+  const sku = $('sku').value.trim().toUpperCase();
+  if (!sku) return say('evMsg', 'Enter an event SKU.', 'err');
+  say('evMsg', 'Loading…');
+  try {
+    const evs = await api('/events', { 'sku[]': sku });
+    const e = (evs || [])[0];
+    if (!e) return say('evMsg', 'No event with that SKU.', 'err');
+    EVENT = { id: e.id, sku: e.sku, name: e.name, start: e.start, end: e.end };
+
+    const divs = (e.divisions && e.divisions.length) ? e.divisions : [{ id: 1 }];
+    const all = [];
+    for (const d of divs) {
+      const ms = await api(`/events/${e.id}/divisions/${d.id}/matches`);
+      for (const m of ms || []) {
+        const t = m.started || m.scheduled;
+        all.push({ id: m.id, name: m.name, t: t ? Date.parse(t) : null });
+      }
+    }
+    MATCHES = all.filter(m => m.t !== null).sort((a, b) => a.t - b.t);
+    DAYS = [...new Set(MATCHES.map(m => dayKey(m.t)))].sort();
+    if (!DAYS.length) return say('evMsg', 'That event has no dated matches yet.', 'warn');
+
+    say('evMsg', `${EVENT.name} — ${MATCHES.length} dated matches across ${DAYS.length} day(s). Event id ${EVENT.id}.`, 'ok');
+    renderDays();
+  } catch (err) {
+    say('evMsg', 'Failed: ' + err.message, 'err');
+  }
+};
+
+const anchors = {};   // dayKey -> { videoId, platform, eventId, hash, anchors:[…] }
+
+function renderDays() {
+  const tb = $('dayTable').querySelector('tbody');
+  tb.innerHTML = '';
+  for (const d of DAYS) {
+    const n = MATCHES.filter(m => dayKey(m.t) === d).length;
+    const done = !!anchors[d];
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${d}</td><td>${n}</td>
+      <td class="${done ? 'day-done' : 'day-todo'}">${done ? '✓ anchored' : 'not set'}</td>
+      <td style="text-align:right;"><button data-day="${d}">${done ? 'Redo' : 'Anchor'}</button></td>`;
+    tr.querySelector('button').onclick = () => pickDay(d);
+    tb.appendChild(tr);
+  }
+  $('dayTable').style.display = '';
+}
+
+function pickDay(d) {
+  currentDay = d;
+  $('dayLabel').textContent = '— ' + d;
+  $('anchorFs').style.display = '';
+  const sel = $('matchSel');
+  sel.innerHTML = MATCHES.filter(m => dayKey(m.t) === d)
+    .map(m => `<option value="${m.id}">${m.name}</option>`).join('');
+  say('anchorMsg', '');
+  $('anchorFs').scrollIntoView({ behavior:'smooth', block:'start' });
+}
+
+// ── 2 · find and load the video ───────────────────────────────────────────
+$('findBtn').onclick = async () => {
+  if (!EVENT) return say('vidMsg', 'Load an event first.', 'err');
+  say('vidMsg', 'Asking the proxy to read the event page…');
+  try {
+    const q = `${PROXY}?path=${encodeURIComponent('streams:' + EVENT.sku)}` +
+      `&start=${encodeURIComponent(EVENT.start || '')}&end=${encodeURIComponent(EVENT.end || '')}`;
+    const j = await (await fetch(q)).json();
+    const list = j.streams || [];
+    if (!list.length) return say('vidMsg', 'Nothing found: ' + (j.reason || 'unknown') + '. Paste the link by hand.', 'warn');
+    // Prefer the day being anchored when the proxy dated the results.
+    const dated = list.filter(s => s.publishedAt);
+    const exact = dated.find(s => String(s.publishedAt).slice(0,10) === currentDay);
+    const pick = exact || list[DAYS.indexOf(currentDay)] || list[0];
+    $('link').value = pick.url;
+    say('vidMsg', `Found ${list.length} link(s); using ${pick.url}`, 'ok');
+  } catch (err) {
+    say('vidMsg', 'Auto-find failed: ' + err.message, 'err');
+  }
+};
+
+$('loadVidBtn').onclick = async () => {
+  const src = parseSource($('link').value);
+  if (!src) return say('vidMsg', "That doesn't look like a YouTube or Vimeo link.", 'err');
+  ytPlayer = vimeoPlayer = null;
+  $('player').innerHTML = '';
+  say('vidMsg', 'Loading player…');
+  try {
+    if (src.platform === 'youtube') await mountYouTube(src.id);
+    else await mountVimeo(src);
+    say('vidMsg', 'Player ready — scrub to the match, then Set anchor.', 'ok');
+  } catch (err) {
+    say('vidMsg', 'Player failed: ' + err.message, 'err');
+  }
+};
+
+function loadScript(src, check) {
+  if (check()) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src; s.async = true;
+    s.onload = () => check() ? resolve() : (s.remove(), reject(new Error('script loaded but empty')));
+    s.onerror = () => { s.remove(); reject(new Error('script blocked')); };
+    document.head.appendChild(s);
+  });
+}
+
+async function mountYouTube(videoId) {
+  await loadScript('https://www.youtube.com/iframe_api', () => !!(window.YT && window.YT.Player));
+  // onYouTubeIframeAPIReady fires after the script evaluates; the poll below
+  // covers the case where it already fired for an earlier mount.
+  await new Promise(r => {
+    const t = setInterval(() => { if (window.YT && window.YT.Player) { clearInterval(t); r(); } }, 60);
+    setTimeout(() => { clearInterval(t); r(); }, 6000);
+  });
+  $('player').innerHTML = '<div id="ytHost"></div>';
+  ytPlayer = new YT.Player('ytHost', { videoId, playerVars:{ rel:0 } });
+}
+
+async function mountVimeo(src) {
+  await loadScript('https://player.vimeo.com/api/player.js', () => !!(window.Vimeo && window.Vimeo.Player));
+  let { id, hash, eventId } = src;
+  // Only a hashed clip URL pins one recording — the event embed always serves
+  // whichever clip is featured now, so a past day would drift onto the current
+  // broadcast. Resolve through the proxy when we only have an event id.
+  if (!id || !hash) {
+    try {
+      const q = eventId ? 'event=' + eventId : 'clip=' + id;
+      const j = await (await fetch(`${PROXY}?path=${encodeURIComponent('vimeo:' + q)}`)).json();
+      if (j && j.ok) { id = id || j.videoId; hash = hash || j.hash; }
+    } catch (e) {}
+  }
+  $('player').innerHTML = '<div id="vmHost"></div>';
+  const opts = {};
+  if (id && hash) { opts.id = Number(id); opts.h = hash; }
+  else if (id) { opts.id = Number(id); }
+  else if (eventId) { opts.url = `https://vimeo.com/event/${eventId}/embed`; }
+  else throw new Error('no clip to play');
+  vimeoPlayer = new Vimeo.Player('vmHost', opts);
+  if (!hash) say('vidMsg', 'Warning: no clip hash resolved — this may play whichever clip is featured now, not this day.', 'warn');
+  window._vimeoMeta = { id, hash, eventId };
+}
+
+async function currentTime() {
+  if (vimeoPlayer) { try { return Math.floor(await vimeoPlayer.getCurrentTime() || 0); } catch (e) { return null; } }
+  if (ytPlayer && ytPlayer.getCurrentTime) {
+    const t = ytPlayer.getCurrentTime();
+    return typeof t === 'number' ? Math.floor(t) : null;
+  }
+  return null;
+}
+
+// Keep the timestamp box mirroring the player so you can see what will be saved.
+setInterval(async () => {
+  if (document.activeElement === $('ts')) return;   // don't fight a manual edit
+  const t = await currentTime();
+  if (t !== null) $('ts').value = fmtClock(t);
+}, 1000);
+
+// ── 3 · set the anchor ────────────────────────────────────────────────────
+$('setBtn').onclick = async () => {
+  if (!currentDay) return say('anchorMsg', 'Pick a day first.', 'err');
+  const src = parseSource($('link').value);
+  if (!src) return say('anchorMsg', 'Load a video first.', 'err');
+
+  let secs = parseClock($('ts').value);
+  if (secs === null) secs = await currentTime();
+  if (secs === null) return say('anchorMsg', 'No timestamp — load the video or type one.', 'err');
+
+  const m = MATCHES.find(x => String(x.id) === $('matchSel').value);
+  if (!m) return say('anchorMsg', 'Pick which match that is.', 'err');
+
+  const meta = (src.platform === 'vimeo' && window._vimeoMeta) || {};
+  anchors[currentDay] = {
+    videoId: src.platform === 'vimeo' ? String(meta.id || src.id || '') : src.id,
+    platform: src.platform,
+    eventId: src.platform === 'vimeo' ? String(meta.eventId || src.eventId || '') || null : null,
+    hash: src.platform === 'vimeo' ? (meta.hash || src.hash || null) : null,
+    anchors: [{ matchId: m.id, name: m.name, matchMs: m.t, videoSec: secs }]
+  };
+  const startedAt = new Date(m.t - secs * 1000);
+  say('anchorMsg', `✓ ${m.name} at ${fmtClock(secs)} — implies the broadcast began ${startedAt.toLocaleString()}.`, 'ok');
+  renderDays();
+};
+
+// ── 4 · merge into anchors.json ───────────────────────────────────────────
+$('mergeBtn').onclick = () => {
+  if (!EVENT) return say('jsonMsg', 'Load an event first.', 'err');
+  if (!Object.keys(anchors).length) return say('jsonMsg', 'No anchors set yet.', 'err');
+
+  let doc;
+  const raw = $('json').value.trim();
+  if (raw) {
+    try { doc = JSON.parse(raw); }
+    catch (e) { return say('jsonMsg', 'The JSON above is malformed — fix or clear it.', 'err'); }
+  } else {
+    doc = { events: {} };
+  }
+  if (!doc.events || typeof doc.events !== 'object') doc.events = {};
+
+  // Merge per day so re-anchoring one day of an event leaves the others alone.
+  doc.events[String(EVENT.id)] = { ...(doc.events[String(EVENT.id)] || {}), ...anchors };
+  $('json').value = JSON.stringify(doc, null, 2);
+  const n = Object.keys(doc.events).length;
+  say('jsonMsg', `Merged ${Object.keys(anchors).length} day(s) for event ${EVENT.id}. File now covers ${n} event(s).`, 'ok');
+};
+
+$('copyBtn').onclick = async () => {
+  const v = $('json').value;
+  if (!v.trim()) return say('jsonMsg', 'Nothing to copy.', 'err');
+  try { await navigator.clipboard.writeText(v); say('jsonMsg', 'Copied — paste over anchors.json and commit.', 'ok'); }
+  catch (e) { $('json').select(); say('jsonMsg', 'Selected — copy manually.', 'warn'); }
+};
+
+$('sku').addEventListener('keydown', e => { if (e.key === 'Enter') $('loadBtn').click(); });
+</script>
+</body>
+</html>

@@ -1,0 +1,18 @@
+{
+  "_readme": [
+    "Published Jumper anchors. One anchor per video is all it takes: the",
+    "recording runs in real time, so streamStart = matchTime - videoSec and",
+    "every other match on that video follows by arithmetic.",
+    "",
+    "To add an event, use anchor-tool.html (run locally, never deployed):",
+    "load the SKU, anchor each day, then merge and copy the result over",
+    "this file and commit.",
+    "",
+    "Keys under 'events' are RobotEvents event IDs. Inside each, keys are",
+    "local calendar days (YYYY-MM-DD) — a two-day event with a separate",
+    "broadcast per day needs two.",
+    "",
+    "A visitor's own locally saved anchor overrides whatever is published here."
+  ],
+  "events": {}
+}
