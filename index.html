@@ -2258,7 +2258,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v15';
+const APP_BUILD = 'v16';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -2608,10 +2608,39 @@ async function rewatchLoadEvent() {
 // proxy tries relays and then falls back to a YouTube search. Awaiting that
 // before rendering left the whole event blank for seconds. This returns a
 // promise the caller can render around.
+// ── Per-event memo ─────────────────────────────────────────────────────────
+// Loading the Jumper asked the API for the same event three times and for
+// every division's matches twice, because the steps were written independently
+// and each fetched what it needed. The proxy caches, but the client still paid
+// a round trip each time — on venue wifi that is seconds of dead time.
+//
+// Scoped to one event id and cleared when the event changes, so it can never
+// serve another event's data.
+let rwMemoKey = null;
+let rwMemo = {};
+function rwMemoReset(eventId) {
+  if (rwMemoKey !== String(eventId)) { rwMemoKey = String(eventId); rwMemo = {}; }
+}
+function rwMemoed(key, fn) {
+  if (!(key in rwMemo)) rwMemo[key] = fn().catch(e => { delete rwMemo[key]; throw e; });
+  return rwMemo[key];
+}
+const rwEventDetail = eventId => rwMemoed('ev', () => apiGet('/events', { 'id[]': [eventId] }));
+// Every division's matches, fetched once and shared by both callers.
+const rwAllDivisionMatches = eventId => rwMemoed('divm', async () => {
+  const evd = await rwEventDetail(eventId);
+  const divs = (evd[0]?.divisions?.length ? evd[0].divisions : [{ id: 1 }]);
+  const out = [];
+  await sim_pool(divs, async d => {
+    try { out.push(...(await apiGet(`/events/${eventId}/divisions/${d.id}/matches`) || [])); } catch (e) {}
+  }, sim_poolSize());
+  return out;
+});
+
 async function rwAutoFindStream(eventId) {
   let webcast = null, webcastRaw = '', ctxWebcastSource = null;
   try {
-    const ev = await apiGet('/events', { 'id[]': [eventId] });
+    const ev = await rwEventDetail(eventId);
     const e0 = ev[0] || {};
     // Look everywhere the API gives us first — it costs nothing.
     const found = rwFindWebcasts(e0).filter(c => c.kind === 'direct');
@@ -2674,6 +2703,9 @@ async function rwAutoFindStream(eventId) {
 
 async function rewatchSelectEvent(eventId) {
   const ctx = window._rwCtx; if (!ctx) return;
+  // Scope the memo to this event, so switching events can never reuse the
+  // previous one's matches.
+  rwMemoReset(eventId);
   const loading = document.getElementById('rwLoading');
   const status = t => { const el = document.getElementById('rwLoadingText'); if (el) el.textContent = t; };
   loading.classList.add('active');
@@ -2686,14 +2718,9 @@ async function rewatchSelectEvent(eventId) {
       // Whole-event mode: pull every division's matches instead of one team's
       raw = [];
       try {
-        const evd = await apiGet('/events', { 'id[]': [eventId] });
-        const divs = (evd[0]?.divisions?.length ? evd[0].divisions : [{ id: 1 }]);
-        await sim_pool(divs, async d => {
-          try {
-            const ms = await apiGet(`/events/${eventId}/divisions/${d.id}/matches`);
-            for (const m of ms) if (m) { m.event = m.event || { id: eventId }; raw.push(m); }
-          } catch (e) {}
-        }, sim_poolSize());
+        for (const m of await rwAllDivisionMatches(eventId)) {
+          if (m) { m.event = m.event || { id: eventId }; raw.push(m); }
+        }
       } catch (e) {}
     }
     const teamId = ctx.team ? String(ctx.team.id) : null;
@@ -2738,12 +2765,8 @@ async function rewatchSelectEvent(eventId) {
     status('FINDING FIRST MATCH...');
     ctx.dayAnchors = {};
     try {
-      const evDetail = await apiGet('/events', { 'id[]': [eventId] });
-      const divisions = (evDetail[0]?.divisions?.length ? evDetail[0].divisions : [{ id: 1 }]);
-      const allEv = [];
-      await sim_pool(divisions, async div => {
-        try { allEv.push(...await apiGet(`/events/${eventId}/divisions/${div.id}/matches`)); } catch (e) {}
-      }, sim_poolSize());
+      // Shared with the whole-event loader above — fetched once, not twice.
+      const allEv = await rwAllDivisionMatches(eventId);
       const isQ = m => { const n = (m.name || '').toUpperCase().trim(); return /^Q\s*\d/.test(n) || n.startsWith('QUAL') || m.round === 2; };
       // Keep EVERY match at the event, not just this team's — you can then
       // anchor on Qualifier #1 (easy to find at the head of the stream) even
@@ -3414,7 +3437,13 @@ function rewatchRender() {
   for (const day of days) {
     const cal = calAll[day] || null;
     const dayMatches = byDay[day];
-    const formOpen = ctx.calDay === day || (!cal && !multiDay && days.length === 1);
+    // The anchoring form stays SHUT until "+ ADD STREAM" is pressed.
+    //
+    // It used to spring open on any single-day event with no stream, putting a
+    // player, a match picker and three buttons in front of someone who only
+    // wanted to watch matches — and who, most of the time, was about to have
+    // the stream found for them anyway. Opening is now always a deliberate act.
+    const formOpen = ctx.calDay === day;
 
     html += `<div class="rw-block">
       <div class="rw-day-head">
