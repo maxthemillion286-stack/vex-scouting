@@ -18,7 +18,7 @@ export const config = { maxDuration: 60 };
 // Bumped whenever the streams lookup changes. Surfaced in `diag` and in every
 // streams response so the debug page can prove WHICH proxy is actually live —
 // a stale cached reply is otherwise indistinguishable from a fresh failure.
-const PROXY_BUILD = 'v16';
+const PROXY_BUILD = 'v18';
 // A failed stream lookup is expensive (page race + a YouTube search), and the
 // answer rarely changes within a session. Cache the miss too, or every revisit
 // pays the full cost again.
@@ -384,6 +384,7 @@ async function resolveChannel(channelUrl, startISO, endISO, ytKey, eventName) {
       title: v.title,
       publishedAt: v.actualStartTime || v.publishedAt,
       actualStartTime: v.actualStartTime || null,
+      durationSec: v.durationSec ?? null,
       grade: gotGrade || null
     });
   }
@@ -556,6 +557,7 @@ async function searchYouTubeByName(name, startISO, endISO, ytKey) {
       actualStartTime: v.actualStartTime || null,
       match: sc.overlap + '/' + want.length,
       score: sc.best,
+      durationSec: v.durationSec ?? null,
       grade: gotGrade || null
     });
   }
@@ -756,6 +758,7 @@ export default async function handler(req, res) {
                 rec.title = v.title;
                 rec.publishedAt = v.publishedAt;
                 rec.actualStartTime = v.actualStartTime || null;
+                rec.durationSec = v.durationSec ?? null;
               }
             }
             if (found.length) break;
@@ -779,6 +782,9 @@ export default async function handler(req, res) {
             // Carried through so the client can sync immediately rather than
             // spending another round trip asking for what we already fetched.
             rec.actualStartTime = v.actualStartTime || null;
+            // Duration tells the client which segment covers a given match when
+            // an organiser streams a day in several parts.
+            rec.durationSec = v.durationSec ?? null;
           }
         }
       }
