@@ -2258,7 +2258,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v16';
+const APP_BUILD = 'v18';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -2374,6 +2374,27 @@ let rwAutoFindPending = false;
 // When the proxy resolved a channel it hands back publishedAt for each video,
 // so the day can be matched by date directly. Otherwise fall back to position:
 // the list is oldest-first, so the Nth day gets the Nth video.
+// Turn the videos found for one day into ordered segments.
+//
+// Anchoring is unnecessary here: YouTube told us exactly when each broadcast
+// began, so a match's position is (matchTime - segmentStart) with no reference
+// match needed.
+function rwSegmentsForDay(pool, day) {
+  return (pool || [])
+    .filter(s => s.actualStartTime && rwDayKey(Date.parse(s.actualStartTime)) === day)
+    .map(s => {
+      const src = rwParseSource(s.url);
+      return src && src.id ? {
+        videoId: src.id,
+        platform: src.platform || 'youtube',
+        startMs: Date.parse(s.actualStartTime),
+        durationSec: s.durationSec ?? null
+      } : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.startMs - b.startMs);
+}
+
 function rwPickStreamForDay(pool, dayKey, dayIndex) {
   if (!pool || !pool.length) return null;
   const dated = pool.filter(s => s.publishedAt);
@@ -2492,12 +2513,59 @@ function rwSaveCal(eid, calByDay) {
 // The stream covering a given match — strictly the one calibrated for that
 // match's own day. Never borrow another day's stream: at a multi-day event that
 // would compute a timestamp hours past the end of the wrong video.
+// Which video covers this moment, when a day was streamed in several parts?
+//
+// Organisers routinely break a day into segments — six separate broadcasts for
+// one event is a real case — so "one video per day" silently fails: the first
+// video gets picked, the day's first match predates it, and the offset comes
+// out negative. Each match has to resolve to the segment that was actually
+// recording at the time.
+function rwPickSegment(segments, t) {
+  if (!segments || !segments.length) return null;
+  const segs = segments.slice().sort((a, b) => a.startMs - b.startMs);
+  // The segment actually running at that moment. 10 min of slack on the end,
+  // because duration is unknown for a stream still live and can trail the
+  // last match slightly.
+  for (let i = segs.length - 1; i >= 0; i--) {
+    const s = segs[i];
+    if (t < s.startMs) continue;
+    const end = s.durationSec ? s.startMs + (s.durationSec + 600) * 1000 : Infinity;
+    if (t <= end) return s;
+  }
+  // Falls in a gap between segments — the nearest one that had already begun
+  // is the best guess, and better than refusing to play anything.
+  const before = segs.filter(s => s.startMs <= t);
+  if (before.length) return before[before.length - 1];
+  // Slightly before the first segment: organisers routinely start recording a
+  // minute or two into the first match, so treat a near miss as "start of the
+  // first video" rather than refusing to play it.
+  if (t >= segs[0].startMs - 15 * 60 * 1000) return segs[0];
+  return null;
+}
+
 function rwCalForMatch(m, calByDay) {
   if (!calByDay) return null;
   const keys = Object.keys(calByDay);
   if (!keys.length) return null;
   const day = rwDayKey(m.t);
-  if (calByDay[day]) return calByDay[day];
+  if (calByDay[day]) {
+    const c = calByDay[day];
+    // A multi-segment day resolves to whichever part was recording, presented
+    // as an ordinary single-video calibration so every caller downstream —
+    // offsets, the embed, the watch link — needs no special case.
+    if (c.segments && c.segments.length > 1) {
+      const seg = rwPickSegment(c.segments, m.t);
+      if (!seg) return null;   // before the first segment: genuinely not filmed
+      return {
+        ...c,
+        videoId: seg.videoId,
+        platform: seg.platform || c.platform || 'youtube',
+        hash: seg.hash || null,
+        anchors: [{ matchId: 'seg', name: 'segment start', matchMs: seg.startMs, videoSec: 0 }]
+      };
+    }
+    return c;
+  }
   // Only matches with no timestamp at all fall back, and only when there's
   // exactly one stream to fall back to.
   if (day === 'unknown' && keys.length === 1) return calByDay[keys[0]];
@@ -2840,6 +2908,21 @@ async function rewatchSelectEvent(eventId) {
       for (let i = 0; i < days.length; i++) {
         const d = days[i];
         if (ctx.cal && ctx.cal[d]) continue;
+
+        // Several broadcasts covering this day? Record them all as segments.
+        // Each match then resolves to the part that was recording at the time,
+        // which is the only thing that works when a day is streamed in pieces.
+        const segs = rwSegmentsForDay(rwStreamPool, d);
+        if (segs.length > 1) {
+          ctx.cal[d] = {
+            videoId: segs[0].videoId, platform: segs[0].platform, day: d,
+            auto: true, savedAt: Date.now(), segments: segs,
+            anchors: [{ matchId: 'seg', name: 'segment start', matchMs: segs[0].startMs, videoSec: 0 }]
+          };
+          rwSaveCal(ctx.eventId, ctx.cal);
+          continue;
+        }
+
         const forDay = rwPickStreamForDay(rwStreamPool, d, i) || webcastRaw;
         // Auto-find already fetched this video's actualStartTime, batched with
         // the others into a single 1-unit call. Pass it through so sync spends
@@ -2883,7 +2966,11 @@ function rwAnchorForDay(ctx, day) {
 // we extrapolate using the nearest pair's real rate.
 function rwOffsetFor(m, calByDay) {
   if (m.t === null || m.t === undefined) return null;
-  const cal = (calByDay && (calByDay.videoId || calByDay.anchors)) ? calByDay : rwCalForMatch(m, calByDay);
+  // A multi-segment day must be resolved per match, so it can't take the
+  // "already a cal object" short circuit.
+  const cal = (calByDay && (calByDay.videoId || calByDay.anchors) && !calByDay.segments)
+    ? calByDay
+    : rwCalForMatch(m, calByDay);
   if (!cal) return null;
   const A = (cal.anchors && cal.anchors.length)
     ? cal.anchors.slice().sort((a, b) => a.matchMs - b.matchMs)
@@ -3449,7 +3536,8 @@ function rewatchRender() {
       <div class="rw-day-head">
         <div class="detail-block-label" style="margin:0;">${multiDay ? rwDayLabel(day) : 'Stream'}</div>
         ${cal
-          ? `<span class="rw-cal-ok">✓ ${cal.videoId}</span>
+          ? `<span class="rw-cal-ok">✓ ${cal.segments && cal.segments.length > 1
+                ? `${cal.segments.length} stream segments` : cal.videoId}</span>
              <button class="draft-btn" onclick="rewatchClearCal('${day}')">RESET</button>`
           : `<button class="draft-btn" onclick="rewatchCalibrateDay('${day}')">${formOpen ? 'CANCEL' : '+ ADD STREAM'}</button>`}
       </div>`;
@@ -3458,7 +3546,10 @@ function rewatchRender() {
       const anchors = (cal.anchors || []).slice().sort((a, b) => a.matchMs - b.matchMs);
       html += `${cal.auto ? (cal.approx
         ? '<div class="rw-auto-tag rw-auto-approx">≈ synced from Vimeo\'s <strong>scheduled</strong> start — Vimeo doesn\'t publish the real one, so if the stream went live late, nudge with earlier/later below and every match follows.</div>'
-        : '<div class="rw-auto-tag">✓ auto-synced from the broadcast start time</div>') : ''}${cal.published ? '<div class="rw-auto-tag">✓ using a published anchor — no setup needed</div>' : ''}
+        : `<div class="rw-auto-tag">✓ auto-synced from the broadcast start time${
+            cal.segments && cal.segments.length > 1
+              ? ` — this day was streamed in ${cal.segments.length} parts, and each match opens the right one`
+              : ''}</div>`) : ''}${cal.published ? '<div class="rw-auto-tag">✓ using a published anchor — no setup needed</div>' : ''}
       <div class="rw-anchors">
         ${anchors.map(a => `<span class="rw-anchor-tag">${a.name} @ ${rwFmtClock(a.videoSec)}
           <button title="remove" onclick="rewatchRemoveAnchor('${day}','${a.matchId}')">×</button></span>`).join('')}
@@ -3551,7 +3642,14 @@ function rewatchRender() {
           <div class="rw-score">${played ? `${m.redScore}–${m.blueScore}` : '—'}</div>
           <div class="rw-action">${off !== null
             ? `<button class="rw-watch" onclick="rewatchJump('${m.id}')">▶ ${rwFmtClock(off)}</button>`
-            : `<span class="rw-noclock">${Object.keys(calAll).length ? 'no stream for this day' : ''}</span>`}</div>
+            : `<span class="rw-noclock">${
+                !Object.keys(calAll).length ? ''
+                : (calAll[day] && calAll[day].segments)
+                  // The day IS synced — this match just falls outside every
+                  // recorded segment, so saying "no stream for this day" would
+                  // be wrong and confusing.
+                  ? 'not in the stream'
+                  : 'no stream for this day'}</span>`}</div>
         </div>`;
       }
       html += `</div>`;
