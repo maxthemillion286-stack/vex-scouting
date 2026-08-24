@@ -18,7 +18,7 @@ export const config = { maxDuration: 60 };
 // Bumped whenever the streams lookup changes. Surfaced in `diag` and in every
 // streams response so the debug page can prove WHICH proxy is actually live —
 // a stale cached reply is otherwise indistinguishable from a fresh failure.
-const PROXY_BUILD = 'v15';
+const PROXY_BUILD = 'v16';
 // A failed stream lookup is expensive (page race + a YouTube search), and the
 // answer rarely changes within a session. Cache the miss too, or every revisit
 // pays the full cost again.
@@ -254,12 +254,14 @@ async function ytVideoDetails(ids, ytKey) {
   let anyOk = false;
   for (let i = 0; i < ids.length; i += 50) {
     const batch = ids.slice(i, i + 50);
-    const j = await ytGet('videos?part=snippet,liveStreamingDetails&maxResults=50&id=' +
+    const j = await ytGet('videos?part=snippet,liveStreamingDetails,contentDetails&maxResults=50&id=' +
       encodeURIComponent(batch.join(',')), 1, ytKey);
     if (j) anyOk = true;
     for (const it of (j && j.items) || []) {
       const d = it.liveStreamingDetails || {};
+      const cd = it.contentDetails || {};
       out.set(it.id, {
+        durationSec: iso8601Seconds(cd.duration),
         title: (it.snippet && it.snippet.title) || '',
         description: (it.snippet && it.snippet.description) || '',
         channelTitle: (it.snippet && it.snippet.channelTitle) || '',
@@ -274,6 +276,28 @@ async function ytVideoDetails(ids, ytKey) {
   // must not be treated as "none of these aired during the event" — that would
   // throw away every candidate over a transient blip.
   return anyOk ? out : null;
+}
+
+// YouTube reports duration as ISO-8601 ("PT1H41M57S").
+function iso8601Seconds(d) {
+  const m = /^P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(String(d || ''));
+  if (!m) return null;
+  return (+(m[1] || 0)) * 86400 + (+(m[2] || 0)) * 3600 + (+(m[3] || 0)) * 60 + (+(m[4] || 0));
+}
+
+// Is this plausibly an event broadcast at all?
+//
+// The remaining false positives are real videos ABOUT the same occasion — a
+// "Maker Faire Orange County 2025 Highlights" reel shares four words with
+// "Robotics is EZ @ 2025 Maker Faire Orange County" and airs the same weekend,
+// so neither name nor date separates them. What does: a competition stream is
+// a live broadcast running for hours, and a highlights reel is a short upload.
+// This costs nothing — contentDetails rides along on the details call we
+// already make.
+function looksLikeEventBroadcast(v) {
+  if (v.actualStartTime || v.scheduledStartTime) return true;   // an actual broadcast
+  if (v.durationSec === null || v.durationSec === undefined) return true;  // unknown: don't punish
+  return v.durationSec >= 20 * 60;   // an upload long enough to be a session
 }
 
 // When did this video actually air? Prefer the real start, fall back to the
@@ -349,6 +373,7 @@ async function resolveChannel(channelUrl, startISO, endISO, ytKey, eventName) {
     } : null);
     if (!v) continue;
     if (!airedDuringEvent(v, startMs, isNaN(endMs) ? startMs : endMs)) continue;
+    if (!looksLikeEventBroadcast(v)) continue;
     // A channel that broadcast both the high school and middle school days
     // would otherwise hand back whichever came first, and every match time
     // would be wrong with nothing on screen saying so.
@@ -386,7 +411,8 @@ function gradeOf(text) {
 // Words in almost every event name or stream title, carrying no evidence.
 // "Katy Regional Event" reduces to just "katy" — correctly too thin to search.
 const STOPWORDS = new Set([
-  'the','and','of','a','an','for','at','vs',
+  'the','and','of','a','an','for','at','vs','is','it','to','in','on','by','no','or','as','be','we',
+  'ms','hs','es','jr','sr','div','pm','am','st','nd','rd','th',
   'vex','v5rc','vrc','viqrc','viqc','vurc','vexu','robotics','robot','robots','competition',
   'tournament','tourney','event','events','meet','scrimmage','scrim','open','challenge',
   'regional','regionals','state','championship','championships','invitational','classic',
@@ -403,7 +429,9 @@ function nameTokens(name) {
   return String(name || '').toLowerCase()
     .replace(/[^a-z0-9\s]/g, ' ')
     .split(/\s+/)
-    .filter(t => t.length > 2 && !STOPWORDS.has(t));
+    // 2 characters are allowed: club names like "EZ" and "JR" are exactly the
+    // distinctive bit. Filler of that length is stopworded explicitly instead.
+    .filter(t => t.length >= 2 && !STOPWORDS.has(t));
 }
 
 // How well does a video title correspond to an event name?
@@ -437,6 +465,18 @@ function scoreTitle(want, title) {
   return { overlap, precision, recall, best };
 }
 
+// The event name as a search query: intact, minus the program boilerplate
+// RobotEvents appends to every event ("...: VEX V5 Robotics Competition :Push
+// Back"). Everything distinctive — club, venue, city — is deliberately kept.
+function searchQuery(name) {
+  return String(name || '')
+    .replace(/:\s*VEX\s+[^:]*Competition\s*:?[^:]*$/i, '')
+    .replace(/\((?:high|middle|elementary)\s*school\)/ig, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+    .slice(0, 120) || String(name || '').slice(0, 120);
+}
+
 // ── Find the event's broadcast by name ─────────────────────────────────────
 // 101 units: one search, plus one batched details call for every candidate.
 //
@@ -455,11 +495,18 @@ async function searchYouTubeByName(name, startISO, endISO, ytKey) {
   if (isNaN(startMs)) return [];
   const endMs = isNaN(Date.parse(endISO || startISO)) ? startMs : Date.parse(endISO || startISO);
 
-  // Search on the distinctive words rather than the full official name, which
-  // is padded with program boilerplate no stream title ever repeats.
-  const q = want.join(' ') + ' ' + (wantGrade === 'ms' ? 'middle school' : wantGrade === 'hs' ? 'high school' : '');
+  // Query with the event's own name, not the tokenised version.
+  //
+  // Tokens are for SCORING; they are the wrong thing to search with. Stopwords
+  // strip exactly the words an organiser puts in their stream title — the team
+  // or club name — leaving a query like "maker faire orange county" that
+  // returns the actual Maker Faire and never the VEX broadcast. Appending
+  // "middle school" made it worse, since those titles say "MS".
+  //
+  // YouTube's own ranking copes with the boilerplate; only the program suffix
+  // RobotEvents appends is worth removing, because no stream title repeats it.
   const j = await ytGet('search?part=snippet&type=video&maxResults=25&order=relevance' +
-    '&q=' + encodeURIComponent(q.trim()) +
+    '&q=' + encodeURIComponent(searchQuery(name)) +
     '&publishedAfter=' + new Date(startMs - 60 * 86400e3).toISOString() +
     '&publishedBefore=' + new Date(endMs + 7 * 86400e3).toISOString(), 100, ytKey);
   const items = (j && j.items) || [];
@@ -471,7 +518,10 @@ async function searchYouTubeByName(name, startISO, endISO, ytKey) {
     const id = it.id && it.id.videoId;
     const sn = it.snippet || {};
     if (!id) continue;
-    const sc = scoreTitle(want, (sn.title || '') + ' ' + (sn.channelTitle || ''));
+    // Score the TITLE alone. Folding in the channel name adds tokens the event
+    // name can never match ("KR", "Robotics Live"), which drags precision down
+    // and rejects correct videos — the query already found the right channel.
+    const sc = scoreTitle(want, sn.title || '');
     if (!sc) continue;
     shortlist.push({ id, sc });
   }
@@ -494,6 +544,8 @@ async function searchYouTubeByName(name, startISO, endISO, ytKey) {
     if (!v) continue;
     // The real test: did this video actually air while the event was running?
     if (!airedDuringEvent(v, startMs, endMs)) continue;
+    // ...and is it a broadcast rather than a clip about the same occasion?
+    if (!looksLikeEventBroadcast(v)) continue;
     // Grade veto, now against the full description rather than a snippet.
     const gotGrade = gradeOf(v.title + ' ' + v.description.slice(0, 400));
     if (wantGrade && gotGrade && gotGrade !== wantGrade) continue;
