@@ -1,4 +1,4 @@
-// VEX Scout Service Worker — v11
+// VEX Scout Service Worker — v13
 //
 // Built on the v3 network-first design (updates always appear immediately),
 // with three additions aimed at competition venues:
@@ -21,8 +21,8 @@
 //
 // Bump CACHE_NAME whenever index.html changes.
 
-const CACHE_NAME = 'vex-scout-v11';
-const API_CACHE = 'vex-scout-v11-api';
+const CACHE_NAME = 'vex-scout-v13';
+const API_CACHE = 'vex-scout-v13-api';
 
 // How long to wait for the network before showing the cached copy.
 const HTML_TIMEOUT_MS = 2500;
@@ -178,5 +178,11 @@ self.addEventListener('message', (event) => {
   const d = event.data;
   if (d === 'SKIP_WAITING' || (d && d.type === 'SKIP_WAITING')) {
     self.skipWaiting();
+  }
+  // The debug page asks which cache is live. A page can be controlled by an
+  // OLD worker long after a new sw.js is deployed, and that is invisible
+  // otherwise — it looks exactly like a fix that didn't work.
+  if (d && d.type === 'VERSION' && event.ports && event.ports[0]) {
+    event.ports[0].postMessage({ cache: CACHE_NAME });
   }
 });
