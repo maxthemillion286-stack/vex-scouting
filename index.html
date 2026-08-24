@@ -2303,6 +2303,13 @@ function rwParseSource(url) {
 
   // ── Vimeo ──
   if (/vimeo\.com/i.test(s)) {
+    // vimeo.com/<name> is a CHANNEL, not a clip — it has no id to seek into.
+    // Flag it so the caller can resolve it rather than storing it as a stream
+    // and failing to sync with no explanation.
+    if (/vimeo\.com\/(?!event\/|video\/|channels\/|groups\/|ondemand\/|\d)[a-z0-9]/i.test(s) &&
+        !/\/\d{6,}/.test(s)) {
+      return { platform: 'vimeo', kind: 'channel', channelUrl: s.split(/[?#]/)[0], id: null, eventId: null, hash: null };
+    }
     const eventId = s.match(/vimeo\.com\/event\/(\d+)/i)?.[1] || null;
     const videoId =
       s.match(/[?&]video=(\d+)/)?.[1] ||
@@ -2697,7 +2704,13 @@ async function rewatchSelectEvent(eventId) {
             // Kept so ?debug=1 can show exactly what came back. DevTools are
             // blocked on this site, so the diagnostic has to live in the page.
             vsDebug.jumper = { sku: e0.sku, start: e0.start, end: e0.end, http: s.status, body: j };
-            const list = (j.streams || []).filter(x => /youtube|youtu\.be|vimeo/i.test(x.url));
+            // Channel URLs can't be seeked, so they must not be treated as a
+            // found stream. The proxy resolves them where it can; anything
+            // still unresolved is filtered out here rather than filled into
+            // the box to fail later.
+            const list = (j.streams || []).filter(x =>
+              /youtube|youtu\.be|vimeo/i.test(x.url) &&
+              !(rwParseSource(x.url) || {}).kind);
             // Keep the whole list: a multi-day event usually broadcasts one
             // video per day, and picking a single "best" one would anchor
             // every day to day 1's video.
@@ -3083,6 +3096,12 @@ async function rwTryAutoSync(day, linkText, { quiet = false } = {}) {
   };
   if (!srcInfo) { if (!quiet) showError('⚠ Paste the stream link first.'); return false; }
   if (srcInfo.platform !== 'youtube') {
+    // A channel link has no clip to seek into. Say so plainly — the old
+    // behaviour was to store it, fail, and leave you pressing RETRY SYNC on
+    // something that could never work.
+    if (srcInfo.kind === 'channel') {
+      return fail('That Vimeo link is a channel, not a broadcast. Open it, pick the video for this day, and paste that link (it will look like vimeo.com/123456789 or vimeo.com/event/123456).');
+    }
     // Vimeo does not publish the moment a broadcast actually began — that sits
     // behind their paid tier. What IS public is the SCHEDULED start, so offer
     // an anchor derived from it rather than nothing, clearly marked as an
