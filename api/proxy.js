@@ -205,29 +205,24 @@ export default async function handler(req, res) {
       return res.status(200).json(hit.data);
     }
     try {
-      // Where the public event page actually lives is not stable. The API
-      // moved from robotevents.com to events.vex.com after the VEX/RECF
-      // split, program segments have been renamed (VRC → V5RC, VIQC → VIQRC),
-      // and the trailing .html is not always present. A single guess returns a
-      // clean 404 that looks exactly like "this event has no stream".
+      // CONFIRMED page shape, taken from a live event (Aug 2026):
+      //   https://events.vex.com/robot-competitions/vex-robotics-competition/RE-V5RC-25-0209.html
+      // ...with the stream links inside a #webcast section on that page.
       //
-      // So try the plausible shapes at once and keep whichever serves a real
-      // page. Every attempt is recorded, so a miss says which URLs were tried
-      // rather than leaving it to guesswork.
+      // events.vex.com is the public front end; the API moved there too during
+      // the VEX/RECF split, and robotevents.com now serves clean 404s for these
+      // SKUs — which is exactly what made this look like "no stream published".
+      // The extra candidates cover a program-segment rename and a lingering
+      // redirect; they cost nothing, since every URL races in parallel.
       const progs = [];
       if (/-(VIQRC|VIQC)-/.test(sku)) progs.push('vex-iq-competition', 'viqrc');
       else if (/-(VURC|VEXU)-/.test(sku)) progs.push('vex-u-robotics-competition', 'vurc');
       else if (/-(ADC|VAIC)-/.test(sku)) progs.push('aerial-drone-competition', 'adc');
       else progs.push('vex-robotics-competition', 'v5rc', 'vex-v5-robotics-competition');
 
-      const urls = [];
-      for (const host of ['www.robotevents.com', 'events.vex.com']) {
-        for (const p of progs) {
-          urls.push(`https://${host}/robot-competitions/${p}/${sku}.html`);
-          urls.push(`https://${host}/robot-competitions/${p}/${sku}`);
-        }
-        urls.push(`https://${host}/${sku}.html`);
-      }
+      const urls = progs.map(p => `https://events.vex.com/robot-competitions/${p}/${sku}.html`);
+      urls.push(`https://events.vex.com/robot-competitions/${progs[0]}/${sku}`);
+      urls.push(`https://www.robotevents.com/robot-competitions/${progs[0]}/${sku}.html`);
 
       const looksReal = (html, src) => {
         // Under 500 chars is an error stub; the Cloudflare markers are a
@@ -269,7 +264,7 @@ export default async function handler(req, res) {
         const win = await Promise.any(race);
         rawHtml = win.html; pageUrl = win.url; pageVia = win.via;
       } catch (aggregate) {
-        const out = { ok: false, reason: 'page-unreachable', tried: tried.slice(0, 24), streams: [] };
+        const out = { ok: false, reason: 'page-unreachable', tried: tried.slice(0, 40), streams: [] };
         cache.set(cacheKey, { data: out, status: 200, expires: Date.now() + SHORT_TTL_MS });
         return res.status(200).json(out);
       }
@@ -326,7 +321,12 @@ export default async function handler(req, res) {
       };
 
       // Anything inside a webcast-ish block gets priority
-      const webcastBlock = html.match(/(?:id|class)="[^"]*webcast[^"]*"[\s\S]{0,4000}/i);
+      // The event page anchors its stream section as #webcast. Attributes may
+      // be double-quoted, single-quoted or bare, and the id can sit on the
+      // heading rather than the container, so take a generous window after the
+      // first mention rather than trying to parse the element.
+      const webcastBlock = html.match(/(?:id|class|name)\s*=\s*["']?[^"'>\s]*webcast[^"'>\s]*["']?[\s\S]{0,6000}/i)
+                        || html.match(/webcast[\s\S]{0,6000}/i);
       if (webcastBlock) {
         const m = webcastBlock[0].match(STREAM_URL_RE) || [];
         for (const u of m) add(u, 'webcast-section');
