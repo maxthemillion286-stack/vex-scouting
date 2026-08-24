@@ -18,11 +18,13 @@ export const config = { maxDuration: 60 };
 // Bumped whenever the streams lookup changes. Surfaced in `diag` and in every
 // streams response so the debug page can prove WHICH proxy is actually live —
 // a stale cached reply is otherwise indistinguishable from a fresh failure.
-const PROXY_BUILD = 'v13';
+const PROXY_BUILD = 'v15';
 // A failed stream lookup is expensive (page race + a YouTube search), and the
 // answer rarely changes within a session. Cache the miss too, or every revisit
 // pays the full cost again.
-const NEG_TTL_MS = 10 * 60 * 1000;
+const NEG_TTL_MS = 60 * 60 * 1000;          // a live event might publish later
+const NEG_TTL_PAST_MS = 24 * 60 * 60 * 1000; // a finished event never will
+const STREAM_TTL_MS = 24 * 60 * 60 * 1000;   // a found stream doesn't move
 
 const cache = new Map(); // path -> { data, status, expires }
 const DEFAULT_TTL_MS = 60 * 1000;       // 1 min for general data
@@ -146,7 +148,6 @@ const BROWSER_HEADERS = {
 
 const RELAYS = [
   u => ({ url: 'https://r.jina.ai/' + u, src: 'jina' }),
-  u => ({ url: 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u), src: 'allorigins' }),
   u => ({ url: 'https://corsproxy.io/?url=' + encodeURIComponent(u), src: 'corsproxy' })
 ];
 
@@ -172,12 +173,12 @@ async function fetchPageRacing(urls, { relayCount = 2, tried = [] } = {}) {
   };
 
   const race = [
-    ...urls.map(u => attempt(u, BROWSER_HEADERS, 6000, 'direct').catch(e => note(short(u), e))),
+    ...urls.map(u => attempt(u, BROWSER_HEADERS, 5000, 'direct').catch(e => note(short(u), e))),
     // Relays only for the likeliest URLs — they are doing us a favour, and a
     // wide fan-out across all candidates would be rude and slow.
     ...urls.slice(0, relayCount).flatMap(u => RELAYS.map(mk => {
       const { url: ru, src } = mk(u);
-      return attempt(ru, { 'User-Agent': BROWSER_HEADERS['User-Agent'], 'Accept': 'text/html,*/*' }, 12000, src, u)
+      return attempt(ru, { 'User-Agent': BROWSER_HEADERS['User-Agent'], 'Accept': 'text/html,*/*' }, 7000, src, u)
         .catch(e => note(short(u) + ' via ' + src, e));
     }))
   ];
@@ -215,85 +216,164 @@ async function resolveVimeoChannel(channelUrl, startISO, endISO, tried) {
   return out.slice(0, 12);
 }
 
-// ── Channel → the videos it broadcast during an event ──────────────────────
-// A handle (@name) or /c/ vanity URL has to be resolved to a channel ID first;
-// /channel/ID URLs already carry it. Then ask for that channel's completed,
-// live and upcoming broadcasts, with completed ones bounded to the event's
-// dates (±1 day for timezone slop and streams that start the night before).
-async function resolveChannel(channelUrl, startISO, endISO, ytKey, eventName) {
-  const yt = async (qs) => {
-    const r = await fetch('https://www.googleapis.com/youtube/v3/' + qs + '&key=' + encodeURIComponent(ytKey),
-      { signal: AbortSignal.timeout(8000) });
-    return r.ok ? r.json() : null;
-  };
+// ══════════════════════════════════════════════════════════════════════════
+// YouTube
+//
+// Quota is the binding constraint. The default allowance is 10,000 units/day
+// and search.list costs 100 of them, so a naive implementation runs dry after
+// ~100 lookups. The cheap endpoints cost 1 unit each and do most of the work:
+//
+//   search.list        100     unavoidable for "find by name"
+//   channels.list        1     handle/ID → uploads playlist
+//   playlistItems.list   1     up to 50 recent uploads
+//   videos.list          1     up to 50 videos AT ONCE, with live details
+//
+// The old channel resolver spent 400 units (one search for the handle, three
+// more for completed/live/upcoming). The version below does the same job for
+// 3 — a 130x reduction — by listing the channel's uploads playlist instead.
+let ytUnitsUsed = 0;   // per-instance, surfaced in diag for monitoring
 
-  let channelId = (channelUrl.match(/\/channel\/([\w-]+)/) || [])[1] || null;
+async function ytGet(path, cost, ytKey) {
+  ytUnitsUsed += cost;
+  try {
+    const r = await fetch('https://www.googleapis.com/youtube/v3/' + path + '&key=' + encodeURIComponent(ytKey),
+      { signal: AbortSignal.timeout(8000) });
+    return r.ok ? await r.json() : null;
+  } catch (e) { return null; }
+}
+
+// Details for up to 50 videos in ONE request, for one unit.
+//
+// This is what makes date filtering trustworthy. A livestream's `publishedAt`
+// is when the broadcast was CREATED, which is routinely days or weeks before
+// it airs — filtering on it silently discards streams that were scheduled
+// early. `actualStartTime` is when it really began, and it is also exactly
+// what auto-sync needs, so fetching it here means no second round trip later.
+async function ytVideoDetails(ids, ytKey) {
+  const out = new Map();
+  let anyOk = false;
+  for (let i = 0; i < ids.length; i += 50) {
+    const batch = ids.slice(i, i + 50);
+    const j = await ytGet('videos?part=snippet,liveStreamingDetails&maxResults=50&id=' +
+      encodeURIComponent(batch.join(',')), 1, ytKey);
+    if (j) anyOk = true;
+    for (const it of (j && j.items) || []) {
+      const d = it.liveStreamingDetails || {};
+      out.set(it.id, {
+        title: (it.snippet && it.snippet.title) || '',
+        description: (it.snippet && it.snippet.description) || '',
+        channelTitle: (it.snippet && it.snippet.channelTitle) || '',
+        publishedAt: (it.snippet && it.snippet.publishedAt) || null,
+        actualStartTime: d.actualStartTime || null,
+        scheduledStartTime: d.scheduledStartTime || null,
+        isLiveBroadcast: !!(d.actualStartTime || d.scheduledStartTime)
+      });
+    }
+  }
+  // null means the CALL failed, which is different from "no such video" and
+  // must not be treated as "none of these aired during the event" — that would
+  // throw away every candidate over a transient blip.
+  return anyOk ? out : null;
+}
+
+// When did this video actually air? Prefer the real start, fall back to the
+// scheduled one, then to the upload time.
+const airTime = v => Date.parse(v.actualStartTime || v.scheduledStartTime || v.publishedAt || 0);
+
+// Did it air during the event? Generous by a day either side: streams often
+// begin the evening before, and timezones drift the boundary.
+function airedDuringEvent(v, startMs, endMs) {
+  const t = airTime(v);
+  if (isNaN(t)) return false;
+  return t >= startMs - 36 * 3600e3 && t <= (endMs || startMs) + 36 * 3600e3;
+}
+
+// ── Channel → the videos it broadcast during an event ──────────────────────
+// Three units total: resolve the channel, list its uploads, fetch live details.
+async function resolveChannel(channelUrl, startISO, endISO, ytKey, eventName) {
+  let channelId = (channelUrl.match(/\/channel\/(UC[\w-]+)/) || [])[1] || null;
+
   if (!channelId) {
     const handle = (channelUrl.match(/\/(?:@|c\/|user\/)([\w.-]+)/) || [])[1];
     if (!handle) return [];
-    const j = await yt('search?part=snippet&type=channel&maxResults=1&q=' + encodeURIComponent(handle));
-    channelId = j && j.items && j.items[0] && j.items[0].id && j.items[0].id.channelId;
+    // forHandle/forUsername are 1 unit; the old search-for-a-channel was 100.
+    for (const q of [`channels?part=contentDetails&forHandle=@${encodeURIComponent(handle)}`,
+                     `channels?part=contentDetails&forUsername=${encodeURIComponent(handle)}`]) {
+      const j = await ytGet(q, 1, ytKey);
+      const item = j && j.items && j.items[0];
+      if (item) {
+        channelId = item.id;
+        var uploads = item.contentDetails && item.contentDetails.relatedPlaylists &&
+                      item.contentDetails.relatedPlaylists.uploads;
+        break;
+      }
+    }
     if (!channelId) return [];
   }
 
+  // Every channel's uploads playlist id is its channel id with UC → UU.
+  let uploadsId = (typeof uploads !== 'undefined' && uploads) ||
+                  (channelId.startsWith('UC') ? 'UU' + channelId.slice(2) : null);
+  if (!uploadsId) return [];
+
+  const j = await ytGet('playlistItems?part=snippet&maxResults=50&playlistId=' +
+    encodeURIComponent(uploadsId), 1, ytKey);
+  const items = (j && j.items) || [];
+  if (!items.length) return [];
+
   const startMs = Date.parse(startISO);
-  const endMs = Date.parse(endISO || startISO);
   if (isNaN(startMs)) return [];
-  const after = new Date(startMs - 86400000).toISOString();
-  const before = new Date((isNaN(endMs) ? startMs : endMs) + 2 * 86400000).toISOString();
+  const endMs = Date.parse(endISO || startISO);
 
-  const runs = await Promise.all(['completed', 'live', 'upcoming'].map(async (type) => {
-    let qs = 'search?part=snippet&type=video&order=date&maxResults=10' +
-             '&channelId=' + encodeURIComponent(channelId) + '&eventType=' + type;
-    // A live or upcoming broadcast has no meaningful publishedAt window yet,
-    // so only the finished ones get date-bounded.
-    if (type === 'completed') qs += '&publishedAfter=' + after + '&publishedBefore=' + before;
-    const j = await yt(qs);
-    return (j && j.items) || [];
-  }));
+  // Cheap pre-filter on upload time before spending a unit on details. Wide,
+  // because a scheduled broadcast is created well before it airs.
+  const nearby = items.filter(it => {
+    const t = Date.parse((it.snippet && it.snippet.publishedAt) || 0);
+    return !isNaN(t) && t >= startMs - 60 * 86400e3 && t <= (isNaN(endMs) ? startMs : endMs) + 7 * 86400e3;
+  }).slice(0, 50);
+  if (!nearby.length) return [];
 
-  const out = [];
-  const seen = new Set();
+  const ids = nearby.map(it => it.snippet && it.snippet.resourceId && it.snippet.resourceId.videoId).filter(Boolean);
+  const details = await ytVideoDetails(ids, ytKey);
+  const byId = new Map(nearby.map(it => [it.snippet && it.snippet.resourceId && it.snippet.resourceId.videoId, it.snippet || {}]));
+
   const wantGrade = gradeOf(eventName);
-  for (const item of runs.flat()) {
-    const id = item.id && item.id.videoId;
-    if (!id || seen.has(id)) continue;
-    const title = (item.snippet && item.snippet.title) || '';
-    // Same grade veto as the name search: a channel that broadcast both the
-    // high school and middle school days would otherwise hand back whichever
-    // came first, and every match time would be wrong.
-    const gotGrade = gradeOf(title);
+  const out = [];
+  for (const id of ids) {
+    const sn = byId.get(id) || {};
+    // A failed details call falls back to the playlist snippet rather than
+    // discarding the whole channel.
+    const v = (details && details.get(id)) || (details === null ? {
+      title: sn.title || '', description: sn.description || '',
+      publishedAt: sn.publishedAt || null, actualStartTime: null
+    } : null);
+    if (!v) continue;
+    if (!airedDuringEvent(v, startMs, isNaN(endMs) ? startMs : endMs)) continue;
+    // A channel that broadcast both the high school and middle school days
+    // would otherwise hand back whichever came first, and every match time
+    // would be wrong with nothing on screen saying so.
+    const gotGrade = gradeOf(v.title + ' ' + v.description.slice(0, 400));
     if (wantGrade && gotGrade && gotGrade !== wantGrade) continue;
-    seen.add(id);
     out.push({
       url: 'https://www.youtube.com/watch?v=' + id,
-      title,
-      publishedAt: (item.snippet && item.snippet.publishedAt) || null,
+      title: v.title,
+      publishedAt: v.actualStartTime || v.publishedAt,
+      actualStartTime: v.actualStartTime || null,
       grade: gotGrade || null
     });
   }
   // Oldest first, so day 1 of the event lines up with the first video.
   out.sort((a, b) => Date.parse(a.publishedAt || 0) - Date.parse(b.publishedAt || 0));
-  return out;
+  return out.slice(0, 12);
 }
 
-// ── Last resort: ask YouTube for the event by name ─────────────────────────
-// Plenty of events publish no webcast link at all — the stream exists, it just
-// was never added to the event page. Searching YouTube for the event name
-// within its date window finds those.
-//
-// The danger is a confident wrong answer: a search always returns something.
-// So results are scored against the event name and anything weakly matched is
-// discarded — better to find nothing than to send everyone to a stranger's
-// video and have the timings silently make no sense.
 // Grade level is NOT a scoring word — it's a veto.
 //
 // Most venues run high school one day and middle school the next, under
 // near-identical names. If "high"/"middle"/"school" were merely scored, the two
 // would look almost the same and an HS event could quietly match the MS
 // broadcast: worse than finding nothing, because every match time would be
-// wrong with no sign anything had gone astray. So grade is extracted
-// separately and a conflict rejects the video outright.
+// wrong with no sign anything had gone astray.
 function gradeOf(text) {
   const t = String(text || '').toLowerCase();
   if (/\b(?:middle\s*school|ms\b|m\.s\.|viqrc?\s*ms)\b/.test(t)) return 'ms';
@@ -303,10 +383,8 @@ function gradeOf(text) {
   return null;
 }
 
-// Words that appear in almost every event name or stream title and therefore
-// carry no evidence. "Katy Regional Event" reduces to just "katy" — one word,
-// which is correctly too thin to search on. Grade words are here too: they are
-// handled by gradeOf() as a veto instead of being scored.
+// Words in almost every event name or stream title, carrying no evidence.
+// "Katy Regional Event" reduces to just "katy" — correctly too thin to search.
 const STOPWORDS = new Set([
   'the','and','of','a','an','for','at','vs',
   'vex','v5rc','vrc','viqrc','viqc','vurc','vexu','robotics','robot','robots','competition',
@@ -328,6 +406,45 @@ function nameTokens(name) {
     .filter(t => t.length > 2 && !STOPWORDS.has(t));
 }
 
+// How well does a video title correspond to an event name?
+//
+// Measured in BOTH directions, because a stream title is usually a shortened
+// event name, not a copy of it. "Katy Cypress Showdown High School" is streamed
+// as "Cypress Showdown - HS Field 1": only two of the event's three distinctive
+// words appear, so a one-directional 80% rule rejected it — and rejected most
+// real events, which carry venue prefixes, ordinals and organiser in-jokes that
+// no stream title repeats.
+//
+// Precision (how much of the TITLE the event explains) catches the shortened
+// case; recall (how much of the EVENT the title covers) catches the padded one.
+// Taking the better of the two accepts both without accepting noise, because a
+// video about something else shares no distinctive words at all.
+//
+// The date window does the heavy lifting for near-misses: two events at the
+// same venue read almost identically by name, and it is airing on the right day
+// that tells them apart — see airedDuringEvent.
+function scoreTitle(want, title) {
+  const got = nameTokens(title);
+  if (!got.length) return null;
+  const gotSet = new Set(got);
+  const overlap = want.filter(t => gotSet.has(t)).length;
+  // Two distinctive words in common, always. One is a coincidence.
+  if (overlap < 2) return null;
+  const precision = overlap / got.length;
+  const recall = overlap / want.length;
+  const best = Math.max(precision, recall);
+  if (best < 0.8) return null;
+  return { overlap, precision, recall, best };
+}
+
+// ── Find the event's broadcast by name ─────────────────────────────────────
+// 101 units: one search, plus one batched details call for every candidate.
+//
+// The details call is what makes this reliable. search.list can only filter on
+// publishedAt — the moment a broadcast was CREATED — so a stream scheduled two
+// weeks ahead of the event falls outside any sane window and is never seen.
+// Searching wide and then filtering on actualStartTime fixes that, and costs
+// a single extra unit.
 async function searchYouTubeByName(name, startISO, endISO, ytKey) {
   const want = nameTokens(name);
   // Nothing distinctive left to match on — a search would be a coin flip.
@@ -336,50 +453,62 @@ async function searchYouTubeByName(name, startISO, endISO, ytKey) {
 
   const startMs = Date.parse(startISO);
   if (isNaN(startMs)) return [];
-  const endMs = Date.parse(endISO || startISO);
-  const after = new Date(startMs - 2 * 86400000).toISOString();
-  const before = new Date((isNaN(endMs) ? startMs : endMs) + 3 * 86400000).toISOString();
+  const endMs = isNaN(Date.parse(endISO || startISO)) ? startMs : Date.parse(endISO || startISO);
 
-  const qs = 'search?part=snippet&type=video&order=date&maxResults=15' +
-    '&q=' + encodeURIComponent(name) +
-    '&publishedAfter=' + after + '&publishedBefore=' + before +
-    '&key=' + encodeURIComponent(ytKey);
-  let items = [];
-  try {
-    const r = await fetch('https://www.googleapis.com/youtube/v3/' + qs, { signal: AbortSignal.timeout(8000) });
-    if (!r.ok) return [];
-    items = ((await r.json()).items) || [];
-  } catch (e) { return []; }
+  // Search on the distinctive words rather than the full official name, which
+  // is padded with program boilerplate no stream title ever repeats.
+  const q = want.join(' ') + ' ' + (wantGrade === 'ms' ? 'middle school' : wantGrade === 'hs' ? 'high school' : '');
+  const j = await ytGet('search?part=snippet&type=video&maxResults=25&order=relevance' +
+    '&q=' + encodeURIComponent(q.trim()) +
+    '&publishedAfter=' + new Date(startMs - 60 * 86400e3).toISOString() +
+    '&publishedBefore=' + new Date(endMs + 7 * 86400e3).toISOString(), 100, ytKey);
+  const items = (j && j.items) || [];
+  if (!items.length) return [];
 
-  const scored = [];
+  // Score on the search snippet first, so only plausible videos cost a unit.
+  const shortlist = [];
   for (const it of items) {
     const id = it.id && it.id.videoId;
-    const title = (it.snippet && it.snippet.title) || '';
+    const sn = it.snippet || {};
     if (!id) continue;
+    const sc = scoreTitle(want, (sn.title || '') + ' ' + (sn.channelTitle || ''));
+    if (!sc) continue;
+    shortlist.push({ id, sc });
+  }
+  if (!shortlist.length) return [];
 
-    // Veto on a grade mismatch. A video that states no grade is left alone —
-    // plenty of streams simply don't say — but one that states the OTHER
-    // grade is the wrong broadcast, however well the rest of the name lines up.
-    const gotGrade = gradeOf(title + ' ' + ((it.snippet && it.snippet.description) || ''));
+  const details = await ytVideoDetails(shortlist.map(x => x.id), ytKey);
+  // If the details call itself failed, fall back to what the search gave us.
+  // Less precise — publishedAt is when a broadcast was created, not when it
+  // aired — but far better than discarding every candidate.
+  const snippets = new Map(items.map(it => [it.id && it.id.videoId, it.snippet || {}]));
+  const degraded = details === null;
+
+  const scored = [];
+  for (const { id, sc } of shortlist) {
+    const sn = snippets.get(id) || {};
+    const v = (details && details.get(id)) || (degraded ? {
+      title: sn.title || '', description: sn.description || '',
+      publishedAt: sn.publishedAt || null, actualStartTime: null, scheduledStartTime: null
+    } : null);
+    if (!v) continue;
+    // The real test: did this video actually air while the event was running?
+    if (!airedDuringEvent(v, startMs, endMs)) continue;
+    // Grade veto, now against the full description rather than a snippet.
+    const gotGrade = gradeOf(v.title + ' ' + v.description.slice(0, 400));
     if (wantGrade && gotGrade && gotGrade !== wantGrade) continue;
-
-    const got = new Set(nameTokens(title + ' ' + ((it.snippet && it.snippet.channelTitle) || '')));
-    const hits = want.filter(t => got.has(t)).length;
-    // 80% of the distinctive words, and never fewer than two. A search always
-    // returns something, so the bar has to be high enough that "something" is
-    // rejected when it isn't actually this event.
-    if (hits < 2 || hits / want.length < 0.8) continue;
     scored.push({
       url: 'https://www.youtube.com/watch?v=' + id,
-      title,
-      publishedAt: (it.snippet && it.snippet.publishedAt) || null,
-      match: hits + '/' + want.length,
+      title: v.title,
+      publishedAt: v.actualStartTime || v.publishedAt,
+      actualStartTime: v.actualStartTime || null,
+      match: sc.overlap + '/' + want.length,
+      score: sc.best,
       grade: gotGrade || null
     });
   }
   // Best match first, then oldest, so day 1 leads when several tie.
-  scored.sort((a, b) =>
-    (parseInt(b.match) - parseInt(a.match)) ||
+  scored.sort((a, b) => (b.score - a.score) ||
     (Date.parse(a.publishedAt || 0) - Date.parse(b.publishedAt || 0)));
   return scored.slice(0, 6);
 }
@@ -455,14 +584,16 @@ export default async function handler(req, res) {
       ];
 
       const tried = [];
+      // An unreachable page is NOT the end of the lookup. events.vex.com blocks
+      // datacenter IPs and the relays are blocked too, so this is the normal
+      // case rather than the exception — bailing out here meant the YouTube
+      // search below never ran at all, which is why nothing was ever found.
       let rawHtml = null, pageUrl = null, pageVia = null;
       try {
         const win = await fetchPageRacing(urls, { relayCount: 2, tried });
         rawHtml = win.html; pageUrl = win.url; pageVia = win.via;
       } catch (aggregate) {
-        const out = { ok: false, reason: 'page-unreachable', build: PROXY_BUILD, tried: tried.slice(0, 40), streams: [] };
-        cache.set(cacheKey, { data: out, status: 200, expires: Date.now() + SHORT_TTL_MS });
-        return res.status(200).json(out);
+        rawHtml = '';
       }
 
       // ── Decode BEFORE matching, not after ────────────────────────────────
@@ -569,23 +700,34 @@ export default async function handler(req, res) {
             for (const v of vids) {
               add(v.url, ch.source === 'webcast-section' ? 'channel-webcast' : 'channel');
               const rec = found[found.length - 1];
-              if (rec && rec.url === v.url) { rec.title = v.title; rec.publishedAt = v.publishedAt; }
+              if (rec && rec.url === v.url) {
+                rec.title = v.title;
+                rec.publishedAt = v.publishedAt;
+                rec.actualStartTime = v.actualStartTime || null;
+              }
             }
             if (found.length) break;
           }
         }
       }
 
-      // Still nothing: the page simply doesn't list a stream. Search YouTube
-      // for the event by name, scored so a weak match is dropped rather than
-      // presented as the answer.
+      // Still nothing — either the page lists no stream, or (more often) it
+      // could not be fetched at all. Search YouTube for the event by name,
+      // scored so a weak match is dropped rather than presented as the answer.
       let searched = false;
       if (!found.length && evName && process.env.YOUTUBE_API_KEY) {
         searched = true;
         for (const v of await searchYouTubeByName(evName, startISO, endISO, process.env.YOUTUBE_API_KEY)) {
           add(v.url, 'yt-search');
           const rec = found[found.length - 1];
-          if (rec && rec.url === v.url) { rec.title = v.title; rec.publishedAt = v.publishedAt; rec.match = v.match; }
+          if (rec && rec.url === v.url) {
+            rec.title = v.title;
+            rec.publishedAt = v.publishedAt;
+            rec.match = v.match;
+            // Carried through so the client can sync immediately rather than
+            // spending another round trip asking for what we already fetched.
+            rec.actualStartTime = v.actualStartTime || null;
+          }
         }
       }
 
@@ -595,19 +737,30 @@ export default async function handler(req, res) {
         streams: found.slice(0, 12),
         // Which URL actually served the page, so a wrong-path guess shows up
         // in the debug panel instead of looking like "no stream published".
-        pageUrl,
-        pageVia,
+        pageUrl: pageUrl || null,
+        pageVia: pageVia || null,
+        tried: pageUrl ? undefined : tried.slice(0, 12),
         // Surfaced so the UI can distinguish "no stream published" from
         // "we found a channel but couldn't search it" — very different fixes.
         channels: channels.map(c => c.url).slice(0, 4),
         reason: found.length ? undefined
               : channels.length ? (process.env.YOUTUBE_API_KEY ? 'channel-no-videos' : 'channel-needs-yt-key')
-              : searched ? 'no-link-and-no-yt-match'
+              : searched ? (pageUrl ? 'no-link-and-no-yt-match' : 'page-blocked-and-no-yt-match')
+              : !pageUrl ? 'page-unreachable'
               : !evName ? 'no-links-on-page'
               : 'no-links-and-no-yt-key'
       };
-      cache.set(cacheKey, { data: out, status: 200, expires: Date.now() + (found.length ? LONG_TTL_MS : NEG_TTL_MS) });
-      res.setHeader('Cache-Control', 'public, s-maxage=3600, stale-while-revalidate=3600');
+      // An event that finished can never gain a stream link, so a miss on a
+      // past event is cached hard. A miss on today's event is retried within
+      // the hour, because the broadcast may not have been published yet.
+      const eventOver = Date.parse(endISO || startISO) < Date.now() - 36 * 3600e3;
+      const ttl = found.length ? STREAM_TTL_MS : (eventOver ? NEG_TTL_PAST_MS : NEG_TTL_MS);
+      cache.set(cacheKey, { data: out, status: 200, expires: Date.now() + ttl });
+      // Edge caching matters more than the in-memory map: a serverless instance
+      // is short-lived, so without this every visitor pays the full cost again
+      // — and each miss on a streamless event is another 101 YouTube units.
+      const edge = Math.floor(ttl / 1000);
+      res.setHeader('Cache-Control', `public, s-maxage=${edge}, stale-while-revalidate=${edge}`);
       return res.status(200).json(out);
     } catch (err) {
       return res.status(200).json({ ok: false, reason: 'fetch-failed', detail: err.message, streams: [] });
@@ -626,7 +779,11 @@ export default async function handler(req, res) {
       youtubeKey: !!process.env.YOUTUBE_API_KEY,
       cacheEntries: cache.size,
       node: process.version,
-      build: PROXY_BUILD
+      build: PROXY_BUILD,
+      // YouTube units spent by THIS instance since it started. Instances are
+      // short-lived, so this is a sample rather than a daily total — but a
+      // large number here means something is looping.
+      ytUnitsThisInstance: ytUnitsUsed
     });
   } else if (path.startsWith('vimeo:')) {
     // ── Vimeo, without the paid API ──────────────────────────────────────
