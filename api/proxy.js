@@ -239,24 +239,59 @@ export default async function handler(req, res) {
         return { html: looksReal(await resp.text(), src), url, via: src };
       };
 
-      // Googlebot first — crawlers are whitelisted past Cloudflare — with a
-      // normal browser UA alongside. All candidates race together so a long
-      // list costs one round trip, not one per URL.
+      // A full, realistic browser header set. Sending only User-Agent is a
+      // giveaway — real Chrome always sends sec-ch-ua and the sec-fetch-*
+      // family, and a WAF scoring requests will fail anything missing them.
+      const browserHeaders = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+        'Sec-Ch-Ua': '"Not)A;Brand";v="99", "Google Chrome";v="127", "Chromium";v="127"',
+        'Sec-Ch-Ua-Mobile': '?0',
+        'Sec-Ch-Ua-Platform': '"Windows"',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Upgrade-Insecure-Requests': '1'
+      };
+
+      // Deliberately NO Googlebot user-agent. Claiming to be a crawler from a
+      // datacenter IP fails the reverse-DNS check every WAF runs, so it reads
+      // as an impostor and gets blocked harder than an honest browser string —
+      // which is what the 403s showed.
+      //
+      // events.vex.com blocks datacenter IPs outright, so the direct attempt
+      // may simply never succeed from a serverless function. The relays below
+      // fetch the page from their own (non-blocked) addresses and hand back
+      // the content. Each is independent, so one being down or rate-limited
+      // doesn't sink the lookup.
+      const relays = [
+        u => ({ url: 'https://r.jina.ai/' + u, src: 'jina' }),
+        u => ({ url: 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u), src: 'allorigins' }),
+        u => ({ url: 'https://corsproxy.io/?url=' + encodeURIComponent(u), src: 'corsproxy' })
+      ];
+
       const tried = [];
-      const note = (u, e) => { tried.push(u.replace(/^https:\/\//, '') + ' ' + e.message); throw e; };
+      const note = (label, e) => { tried.push(label + ' ' + e.message); throw e; };
+      const short = u => u.replace(/^https?:\/\//, '').slice(0, 90);
+
       const race = [
-        // Googlebot on every candidate; a browser UA only on the two likeliest
-        // URLs, so a wide search doesn't become dozens of requests at once.
-        ...urls.map(u => attempt(u, {
-          'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
-          'Referer': 'https://www.google.com/',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
-        }, 9000, 'googlebot').catch(e => note(u, e))),
-        ...urls.slice(0, 2).map(u => attempt(u, {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml',
-          'Accept-Language': 'en-US,en;q=0.9'
-        }, 9000, 'standard').catch(e => note(u, e)))
+        // Direct, honest browser identity — works if the IP isn't blocked.
+        ...urls.map(u => attempt(u, browserHeaders, 9000, 'direct')
+          .catch(e => note(short(u), e))),
+        // Through a relay. Only the two likeliest URLs, to keep the fan-out
+        // small and stay polite to services that are doing us a favour.
+        ...urls.slice(0, 2).flatMap(u => relays.map(mk => {
+          const { url: ru, src } = mk(u);
+          return attempt(ru, { 'User-Agent': browserHeaders['User-Agent'], 'Accept': 'text/html,*/*' }, 20000, src)
+            // Report the ORIGINAL url with the relay name, so the debug output
+            // says which page failed rather than which relay URL failed.
+            .then(r => ({ ...r, url: u }))
+            .catch(e => note(short(u) + ' via ' + src, e));
+        }))
       ];
 
       let rawHtml = null, pageUrl = null, pageVia = null;
