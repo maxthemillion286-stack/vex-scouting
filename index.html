@@ -2270,7 +2270,7 @@ function vsNote(kind, detail) {
 // Server config: whether tokens and the YouTube key are present, never values.
 async function vsLoadDiag() {
   try {
-    const r = await fetch(`${BASE}?path=diag`);
+    const r = await fetch(`${BASE}?path=diag&_t=${Date.now()}`, { cache: 'no-store' });
     vsDebug.diag = r.ok ? await r.json() : { ok: false, http: r.status };
   } catch (e) { vsDebug.diag = { ok: false, threw: String(e && e.message || e) }; }
 }
@@ -2286,6 +2286,8 @@ function vsDebugReport() {
       at: new Date().toISOString()
     },
     server: vsDebug.diag,
+    proxyBuild: (vsDebug.diag && vsDebug.diag.build) ||
+                (vsDebug.jumper && vsDebug.jumper.body && vsDebug.jumper.body.build) || 'unknown',
     jumper: vsDebug.jumper,
     apiCalls: vsDebug.apiCalls,
     recentErrors: vsDebug.errors
@@ -2682,9 +2684,13 @@ async function rewatchSelectEvent(eventId) {
         // rather than a video, the proxy searches that channel, and without a
         // date window it would return whatever was uploaded most recently.
         try {
+          // _t defeats every cache in the chain (service worker, browser,
+          // CDN). A stale auto-find answer is worse than none: it makes a
+          // fixed proxy look broken and sends debugging down the wrong path.
           const qs = `${BASE}?path=${encodeURIComponent('streams:' + e0.sku)}` +
             (e0.start ? `&start=${encodeURIComponent(e0.start)}` : '') +
-            (e0.end ? `&end=${encodeURIComponent(e0.end)}` : '');
+            (e0.end ? `&end=${encodeURIComponent(e0.end)}` : '') +
+            `&_t=${Date.now()}`;
           const s = await fetch(qs);
           if (s.ok) {
             const j = await s.json();
