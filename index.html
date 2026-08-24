@@ -2255,10 +2255,16 @@ function rwMergePublished(eid, local) {
 // One place to collect everything worth seeing when something misbehaves.
 // DevTools are blocked on this site, so diagnostics have to live in the page.
 // Add to vsDebug as new subsystems need visibility.
+// One release number across index.html, proxy.js and sw.js, so the debug page
+// can prove all three are the versions you just deployed. Bump all three
+// together; a mismatch means one of the files didn't land.
+const APP_BUILD = 'v13';
+
 const vsDebug = {
   errors: [],        // last few failed API calls
   apiCalls: 0,
   diag: null,        // server-side config, filled by vsLoadDiag()
+  swVersion: null,   // cache name reported by the running service worker
   jumper: null       // last auto-find result
 };
 
@@ -2268,6 +2274,21 @@ function vsNote(kind, detail) {
 }
 
 // Server config: whether tokens and the YouTube key are present, never values.
+// Ask the running service worker which cache it is using. That is the only
+// way to tell a deployed sw.js from a stale one still in control of the page.
+async function vsLoadSwVersion() {
+  try {
+    const sw = navigator.serviceWorker && navigator.serviceWorker.controller;
+    if (!sw) { vsDebug.swVersion = 'none'; return; }
+    vsDebug.swVersion = await new Promise((resolve) => {
+      const ch = new MessageChannel();
+      const t = setTimeout(() => resolve('no-reply'), 1500);
+      ch.port1.onmessage = (e) => { clearTimeout(t); resolve((e.data && e.data.cache) || 'unknown'); };
+      sw.postMessage({ type: 'VERSION' }, [ch.port2]);
+    });
+  } catch (e) { vsDebug.swVersion = 'error'; }
+}
+
 async function vsLoadDiag() {
   try {
     const r = await fetch(`${BASE}?path=diag&_t=${Date.now()}`, { cache: 'no-store' });
@@ -2278,6 +2299,13 @@ async function vsLoadDiag() {
 function vsDebugReport() {
   const sw = navigator.serviceWorker && navigator.serviceWorker.controller;
   return {
+    build: {
+      // These three must match. If they don't, the odd one out is the file
+      // that failed to deploy — which has cost us several rounds already.
+      app: APP_BUILD,
+      proxy: (vsDebug.diag && vsDebug.diag.build) || 'unknown',
+      serviceWorker: vsDebug.swVersion || 'asking…'
+    },
     page: {
       url: location.pathname + location.search,
       online: navigator.onLine,
@@ -2286,8 +2314,6 @@ function vsDebugReport() {
       at: new Date().toISOString()
     },
     server: vsDebug.diag,
-    proxyBuild: (vsDebug.diag && vsDebug.diag.build) ||
-                (vsDebug.jumper && vsDebug.jumper.body && vsDebug.jumper.body.build) || 'unknown',
     jumper: vsDebug.jumper,
     apiCalls: vsDebug.apiCalls,
     recentErrors: vsDebug.errors
@@ -2295,7 +2321,7 @@ function vsDebugReport() {
 }
 
 const rwDebugOn = () => /[?&]debug=1/.test(location.search);
-if (typeof window !== 'undefined' && /[?&]debug=1/.test(location.search)) vsLoadDiag();
+if (typeof window !== 'undefined' && /[?&]debug=1/.test(location.search)) { vsLoadDiag(); vsLoadSwVersion(); }
 
 function rwParseSource(url) {
   const s = (url || '').trim();
@@ -2697,6 +2723,9 @@ async function rewatchSelectEvent(eventId) {
           const qs = `${BASE}?path=${encodeURIComponent('streams:' + e0.sku)}` +
             (e0.start ? `&start=${encodeURIComponent(e0.start)}` : '') +
             (e0.end ? `&end=${encodeURIComponent(e0.end)}` : '') +
+            // The name lets the proxy search YouTube when the event page
+            // lists no link at all — which is the common case.
+            (e0.name ? `&name=${encodeURIComponent(e0.name)}` : '') +
             `&_t=${Date.now()}`;
           const s = await fetch(qs);
           if (s.ok) {
@@ -3314,7 +3343,9 @@ function rewatchRender() {
       'page-unreachable': "Couldn't read this event's page on RobotEvents, so there was nothing to search for a stream link.",
       'channel-needs-yt-key': 'This event links a YouTube channel rather than a specific video. Searching that channel needs YOUTUBE_API_KEY set on the server.',
       'channel-no-videos': "This event links a YouTube channel, but no broadcast on it lines up with these dates.",
-      'no-links-on-page': "No stream link is published on this event's RobotEvents page.",
+      'no-links-on-page': "No stream link is published on this event's page.",
+      'no-link-and-no-yt-match': "This event's page lists no stream, and nothing on YouTube matches its name and dates closely enough to trust.",
+      'no-links-and-no-yt-key': "This event's page lists no stream. Searching YouTube by name needs YOUTUBE_API_KEY set on the server.",
       'fetch-failed': "Couldn't reach this event's page to look for a stream link."
     }[rwStreamReason];
     if (why) html += `<div class="rw-hint rw-miss">Auto-find found nothing: ${why} Add the link by hand below — it still syncs itself once pasted.</div>`;
