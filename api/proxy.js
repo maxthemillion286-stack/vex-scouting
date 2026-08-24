@@ -18,7 +18,7 @@ export const config = { maxDuration: 60 };
 // Bumped whenever the streams lookup changes. Surfaced in `diag` and in every
 // streams response so the debug page can prove WHICH proxy is actually live —
 // a stale cached reply is otherwise indistinguishable from a fresh failure.
-const PROXY_BUILD = 'relay-2';
+const PROXY_BUILD = 'relay-3';
 
 const cache = new Map(); // path -> { data, status, expires }
 const DEFAULT_TTL_MS = 60 * 1000;       // 1 min for general data
@@ -112,6 +112,103 @@ async function vimeoClipDetails(configUrl, ua) {
       scheduledStart: (live && live.ingest && live.ingest.scheduled_start_time) || null
     };
   } catch (e) { return {}; }
+}
+
+
+// ── Fetching a page that doesn't want to be fetched ────────────────────────
+// events.vex.com blocks datacenter IPs, so a direct fetch from a serverless
+// function gets a 403 no matter how the request is dressed up. The relays
+// below fetch from their own (unblocked) addresses and hand back the content.
+//
+// Deliberately NO Googlebot user-agent: claiming to be a crawler from a
+// datacenter IP fails the reverse-DNS check every WAF runs, so it reads as an
+// impostor and gets blocked harder than an honest browser string.
+const BROWSER_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Cache-Control': 'no-cache',
+  'Pragma': 'no-cache',
+  // Real Chrome always sends these; a request without them scores as a bot.
+  'Sec-Ch-Ua': '"Not)A;Brand";v="99", "Google Chrome";v="127", "Chromium";v="127"',
+  'Sec-Ch-Ua-Mobile': '?0',
+  'Sec-Ch-Ua-Platform': '"Windows"',
+  'Sec-Fetch-Dest': 'document',
+  'Sec-Fetch-Mode': 'navigate',
+  'Sec-Fetch-Site': 'none',
+  'Sec-Fetch-User': '?1',
+  'Upgrade-Insecure-Requests': '1'
+};
+
+const RELAYS = [
+  u => ({ url: 'https://r.jina.ai/' + u, src: 'jina' }),
+  u => ({ url: 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u), src: 'allorigins' }),
+  u => ({ url: 'https://corsproxy.io/?url=' + encodeURIComponent(u), src: 'corsproxy' })
+];
+
+function looksRealPage(html, src) {
+  // Under 500 chars is an error stub; the Cloudflare markers arrive as a 200
+  // with no links in it, which is worse than an error because it looks fine.
+  if (!html || html.length < 500) throw new Error(src + ':too-short');
+  if (html.includes('id="challenge-running"') ||
+      html.includes('Just a moment...') ||
+      html.includes('cf-browser-verification')) throw new Error(src + ':cloudflare');
+  return html;
+}
+
+// Race a set of candidate URLs, directly and through relays. Resolves with the
+// first response that looks like a real page; rejects with the attempt log.
+async function fetchPageRacing(urls, { relayCount = 2, tried = [] } = {}) {
+  const short = u => u.replace(/^https?:\/\//, '').slice(0, 90);
+  const note = (label, e) => { tried.push(label + ' ' + e.message); throw e; };
+  const attempt = async (url, headers, ms, src, reportAs) => {
+    const resp = await fetch(url, { headers, signal: AbortSignal.timeout(ms) });
+    if (!resp.ok) throw new Error(src + ':' + resp.status);
+    return { html: looksRealPage(await resp.text(), src), url: reportAs || url, via: src };
+  };
+
+  const race = [
+    ...urls.map(u => attempt(u, BROWSER_HEADERS, 9000, 'direct').catch(e => note(short(u), e))),
+    // Relays only for the likeliest URLs — they are doing us a favour, and a
+    // wide fan-out across all candidates would be rude and slow.
+    ...urls.slice(0, relayCount).flatMap(u => RELAYS.map(mk => {
+      const { url: ru, src } = mk(u);
+      return attempt(ru, { 'User-Agent': BROWSER_HEADERS['User-Agent'], 'Accept': 'text/html,*/*' }, 20000, src, u)
+        .catch(e => note(short(u) + ' via ' + src, e));
+    }))
+  ];
+  return Promise.any(race);
+}
+
+// ── A Vimeo channel/user page → the clips on it ────────────────────────────
+// A team's webcast link is often vimeo.com/<name>, which is a CHANNEL, not a
+// video: it can't be embedded or seeked. The clip ids are in the JSON the page
+// embeds, so pull them out and let the caller pick by date.
+async function resolveVimeoChannel(channelUrl, startISO, endISO, tried) {
+  let page;
+  try {
+    page = await fetchPageRacing([channelUrl, channelUrl + '/videos'], { relayCount: 2, tried });
+  } catch (e) { return []; }
+  const html = page.html.replace(/\\\//g, '/');
+
+  const out = [];
+  const seen = new Set();
+  // Clip ids appear as /video/NNNNNNNNN, "clip_id":NNNNNNNNN and similar.
+  for (const m of html.matchAll(/(?:\/videos?\/|"(?:clip_)?id"\s*:\s*)(\d{7,12})/g)) {
+    const id = m[1];
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push({ url: 'https://vimeo.com/' + id, videoId: id, title: null, publishedAt: null });
+  }
+  // A live event embedded on the channel page is a better answer than a clip,
+  // so surface those first.
+  for (const m of html.matchAll(/vimeo\.com\/event\/(\d{6,12})/g)) {
+    const id = m[1];
+    if (seen.has('e' + id)) continue;
+    seen.add('e' + id);
+    out.unshift({ url: 'https://vimeo.com/event/' + id, eventId: id, title: null, publishedAt: null });
+  }
+  return out.slice(0, 12);
 }
 
 // ── Channel → the videos it broadcast during an event ──────────────────────
@@ -230,79 +327,10 @@ export default async function handler(req, res) {
       urls.push(`https://events.vex.com/robot-competitions/${progs[0]}/${sku}`);
       urls.push(`https://www.robotevents.com/robot-competitions/${progs[0]}/${sku}.html`);
 
-      const looksReal = (html, src) => {
-        // Under 500 chars is an error stub; the Cloudflare markers are a
-        // challenge page, which arrives as a 200 with no links in it.
-        if (!html || html.length < 500) throw new Error(src + ':too-short');
-        if (html.includes('id="challenge-running"') ||
-            html.includes('Just a moment...') ||
-            html.includes('cf-browser-verification')) throw new Error(src + ':cloudflare');
-        return html;
-      };
-      const attempt = async (url, headers, ms, src) => {
-        const resp = await fetch(url, { headers, signal: AbortSignal.timeout(ms) });
-        if (!resp.ok) throw new Error(src + ':' + resp.status);
-        return { html: looksReal(await resp.text(), src), url, via: src };
-      };
-
-      // A full, realistic browser header set. Sending only User-Agent is a
-      // giveaway — real Chrome always sends sec-ch-ua and the sec-fetch-*
-      // family, and a WAF scoring requests will fail anything missing them.
-      const browserHeaders = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Cache-Control': 'no-cache',
-        'Pragma': 'no-cache',
-        'Sec-Ch-Ua': '"Not)A;Brand";v="99", "Google Chrome";v="127", "Chromium";v="127"',
-        'Sec-Ch-Ua-Mobile': '?0',
-        'Sec-Ch-Ua-Platform': '"Windows"',
-        'Sec-Fetch-Dest': 'document',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-Site': 'none',
-        'Sec-Fetch-User': '?1',
-        'Upgrade-Insecure-Requests': '1'
-      };
-
-      // Deliberately NO Googlebot user-agent. Claiming to be a crawler from a
-      // datacenter IP fails the reverse-DNS check every WAF runs, so it reads
-      // as an impostor and gets blocked harder than an honest browser string —
-      // which is what the 403s showed.
-      //
-      // events.vex.com blocks datacenter IPs outright, so the direct attempt
-      // may simply never succeed from a serverless function. The relays below
-      // fetch the page from their own (non-blocked) addresses and hand back
-      // the content. Each is independent, so one being down or rate-limited
-      // doesn't sink the lookup.
-      const relays = [
-        u => ({ url: 'https://r.jina.ai/' + u, src: 'jina' }),
-        u => ({ url: 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u), src: 'allorigins' }),
-        u => ({ url: 'https://corsproxy.io/?url=' + encodeURIComponent(u), src: 'corsproxy' })
-      ];
-
       const tried = [];
-      const note = (label, e) => { tried.push(label + ' ' + e.message); throw e; };
-      const short = u => u.replace(/^https?:\/\//, '').slice(0, 90);
-
-      const race = [
-        // Direct, honest browser identity — works if the IP isn't blocked.
-        ...urls.map(u => attempt(u, browserHeaders, 9000, 'direct')
-          .catch(e => note(short(u), e))),
-        // Through a relay. Only the two likeliest URLs, to keep the fan-out
-        // small and stay polite to services that are doing us a favour.
-        ...urls.slice(0, 2).flatMap(u => relays.map(mk => {
-          const { url: ru, src } = mk(u);
-          return attempt(ru, { 'User-Agent': browserHeaders['User-Agent'], 'Accept': 'text/html,*/*' }, 20000, src)
-            // Report the ORIGINAL url with the relay name, so the debug output
-            // says which page failed rather than which relay URL failed.
-            .then(r => ({ ...r, url: u }))
-            .catch(e => note(short(u) + ' via ' + src, e));
-        }))
-      ];
-
       let rawHtml = null, pageUrl = null, pageVia = null;
       try {
-        const win = await Promise.any(race);
+        const win = await fetchPageRacing(urls, { relayCount: 2, tried });
         rawHtml = win.html; pageUrl = win.url; pageVia = win.via;
       } catch (aggregate) {
         const out = { ok: false, reason: 'page-unreachable', build: PROXY_BUILD, tried: tried.slice(0, 40), streams: [] };
@@ -333,9 +361,16 @@ export default async function handler(req, res) {
         .replace(/&#0*38;/g, '&')     // numeric-entity ampersand
         .replace(/&#x0*26;/gi, '&');  // hex-entity ampersand
 
-      const STREAM_URL_RE = /https?:\/\/(?:www\.)?(?:youtube\.com\/(?:watch\?v=|live\/|embed\/)|youtu\.be\/|player\.vimeo\.com\/video\/|vimeo\.com\/(?:event\/)?)[\w?=&\/-]+/gi;
+      // Vimeo clip ids are NUMERIC. The old pattern accepted any word after
+      // vimeo.com/, so a team's channel — vimeo.com/ccisdrobotics — was
+      // captured as though it were a video, filled into the stream box, and
+      // then failed to sync because there is no clip there to seek.
+      const STREAM_URL_RE = /https?:\/\/(?:www\.)?(?:youtube\.com\/(?:watch\?v=|live\/|embed\/)|youtu\.be\/|player\.vimeo\.com\/video\/\d+|vimeo\.com\/(?:event\/)?\d+)[\w?=&\/-]*/gi;
       // Channel and handle URLs — not jumpable on their own, resolved below.
       const CHANNEL_URL_RE = /https?:\/\/(?:www\.)?youtube\.com\/(?:@[\w.-]+|channel\/[\w-]+|c\/[\w-]+|user\/[\w-]+)/gi;
+      // vimeo.com/<name> where <name> isn't numeric and isn't one of Vimeo's
+      // own sections. These are channels: real, common, and unusable as-is.
+      const VIMEO_CHANNEL_RE = /https?:\/\/(?:www\.)?vimeo\.com\/(?!event\/|video\/|channels\/|groups\/|ondemand\/|user\d|\d)([a-z0-9][\w.-]{2,40})/gi;
 
       const found = [];
       const channels = [];
@@ -372,11 +407,13 @@ export default async function handler(req, res) {
         const m = webcastBlock[0].match(STREAM_URL_RE) || [];
         for (const u of m) add(u, 'webcast-section');
         for (const u of (webcastBlock[0].match(CHANNEL_URL_RE) || [])) addChannel(u, 'webcast-section');
+        for (const u of (webcastBlock[0].match(VIMEO_CHANNEL_RE) || [])) addChannel(u, 'webcast-section');
       }
       // Then anywhere on the page
       const anywhere = html.match(STREAM_URL_RE) || [];
       for (const u of anywhere) add(u, 'page');
       for (const u of (html.match(CHANNEL_URL_RE) || [])) addChannel(u, 'page');
+      for (const u of (html.match(VIMEO_CHANNEL_RE) || [])) addChannel(u, 'page');
 
       // ── Channels have to be resolved into actual videos ──────────────────
       // Plenty of events publish "watch on our channel" rather than a link to
@@ -387,9 +424,20 @@ export default async function handler(req, res) {
       // Only when no direct video turned up: `search` costs 100 quota units a
       // call against a 10,000/day default, so this stays a fallback.
       if (!found.length && channels.length) {
+        // Vimeo first: it needs no API key, just the channel page.
+        for (const ch of channels.filter(c => /vimeo\.com/i.test(c.url)).slice(0, 2)) {
+          const vids = await resolveVimeoChannel(ch.url, startISO, endISO, tried);
+          for (const v of vids) {
+            add(v.url, ch.source === 'webcast-section' ? 'channel-webcast' : 'channel');
+            const rec = found[found.length - 1];
+            if (rec && rec.url === v.url) { rec.videoId = v.videoId || null; rec.eventId = v.eventId || null; }
+          }
+          if (found.length) break;
+        }
+
         const ytKey = process.env.YOUTUBE_API_KEY;
-        if (ytKey && startISO && endISO) {
-          for (const ch of channels.slice(0, 2)) {
+        if (!found.length && ytKey && startISO && endISO) {
+          for (const ch of channels.filter(c => /youtube\.com/i.test(c.url)).slice(0, 2)) {
             const vids = await resolveChannel(ch.url, startISO, endISO, ytKey);
             for (const v of vids) {
               add(v.url, ch.source === 'webcast-section' ? 'channel-webcast' : 'channel');
