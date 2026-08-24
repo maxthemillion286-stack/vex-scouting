@@ -10,9 +10,15 @@
 //   - The response carries X-Token-Count so the frontend can scale its
 //     request concurrency to match the available rate-limit headroom.
 
-// Scraping the event page (racing three strategies) and then searching YouTube
-// can exceed Vercel's 10s default. Raise it or auto-find dies on slow pages.
+// Scraping the event page (racing several strategies) and then searching
+// YouTube can exceed Vercel's 10s default. Raise it or auto-find dies on slow
+// pages.
 export const config = { maxDuration: 60 };
+
+// Bumped whenever the streams lookup changes. Surfaced in `diag` and in every
+// streams response so the debug page can prove WHICH proxy is actually live —
+// a stale cached reply is otherwise indistinguishable from a fresh failure.
+const PROXY_BUILD = 'relay-2';
 
 const cache = new Map(); // path -> { data, status, expires }
 const DEFAULT_TTL_MS = 60 * 1000;       // 1 min for general data
@@ -299,7 +305,7 @@ export default async function handler(req, res) {
         const win = await Promise.any(race);
         rawHtml = win.html; pageUrl = win.url; pageVia = win.via;
       } catch (aggregate) {
-        const out = { ok: false, reason: 'page-unreachable', tried: tried.slice(0, 40), streams: [] };
+        const out = { ok: false, reason: 'page-unreachable', build: PROXY_BUILD, tried: tried.slice(0, 40), streams: [] };
         cache.set(cacheKey, { data: out, status: 200, expires: Date.now() + SHORT_TTL_MS });
         return res.status(200).json(out);
       }
@@ -397,6 +403,7 @@ export default async function handler(req, res) {
 
       const out = {
         ok: found.length > 0,
+        build: PROXY_BUILD,
         streams: found.slice(0, 12),
         // Which URL actually served the page, so a wrong-path guess shows up
         // in the debug panel instead of looking like "no stream published".
@@ -428,7 +435,8 @@ export default async function handler(req, res) {
       robotEventsTokens: getTokens().length,
       youtubeKey: !!process.env.YOUTUBE_API_KEY,
       cacheEntries: cache.size,
-      node: process.version
+      node: process.version,
+      build: PROXY_BUILD
     });
   } else if (path.startsWith('vimeo:')) {
     // ── Vimeo, without the paid API ──────────────────────────────────────
