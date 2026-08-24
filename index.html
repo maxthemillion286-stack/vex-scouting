@@ -2258,7 +2258,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v13';
+const APP_BUILD = 'v15';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -2364,6 +2364,10 @@ function rwParseSource(url) {
 // both need them after the async lookup settles.
 let rwStreamPool = [];
 let rwStreamReason = null;
+// True while auto-find is still running. The days render immediately, so
+// without this the panel would show "no stream published" for a second before
+// the answer arrives — which reads as a failure that then contradicts itself.
+let rwAutoFindPending = false;
 
 // Which of the found videos belongs to a given day.
 //
@@ -2598,6 +2602,76 @@ async function rewatchLoadEvent() {
   }
 }
 
+// Find the event's stream, off the critical path.
+//
+// Reading the event page is slow: events.vex.com blocks datacenter IPs, so the
+// proxy tries relays and then falls back to a YouTube search. Awaiting that
+// before rendering left the whole event blank for seconds. This returns a
+// promise the caller can render around.
+async function rwAutoFindStream(eventId) {
+  let webcast = null, webcastRaw = '', ctxWebcastSource = null;
+  try {
+    const ev = await apiGet('/events', { 'id[]': [eventId] });
+    const e0 = ev[0] || {};
+    // Look everywhere the API gives us first — it costs nothing.
+    const found = rwFindWebcasts(e0).filter(c => c.kind === 'direct');
+    if (found.length) {
+      webcastRaw = found[0].url;
+      webcast = rwParseVideoId(found[0].url);
+      ctxWebcastSource = found[0].source;
+    } else if (e0.sku) {
+      try {
+        // _t defeats every cache in the chain (service worker, browser, CDN).
+        // A stale auto-find answer is worse than none: it makes a fixed proxy
+        // look broken and sends debugging down the wrong path.
+        const qs = `${BASE}?path=${encodeURIComponent('streams:' + e0.sku)}` +
+          (e0.start ? `&start=${encodeURIComponent(e0.start)}` : '') +
+          (e0.end ? `&end=${encodeURIComponent(e0.end)}` : '') +
+          // The name lets the proxy search YouTube when the event page lists
+          // no link, or can't be read at all — which is the common case.
+          (e0.name ? `&name=${encodeURIComponent(e0.name)}` : '') +
+          // Cache-bust ONLY when debugging. In normal use the CDN answer is
+          // exactly what we want: a repeat visit to the same event costs no
+          // function invocation and no YouTube quota at all.
+          (rwDebugOn() ? `&_t=${Date.now()}` : '');
+        const s = await fetch(qs);
+        if (s.ok) {
+          const j = await s.json();
+          // Kept so ?debug=1 can show exactly what came back — DevTools are
+          // blocked on this site, so the diagnostic has to live in the page.
+          vsDebug.jumper = { sku: e0.sku, start: e0.start, end: e0.end, http: s.status, body: j };
+          // Channel URLs can't be seeked, so they must not be treated as a
+          // found stream. The proxy resolves them where it can; anything still
+          // unresolved is dropped rather than filled in to fail later.
+          const list = (j.streams || []).filter(x =>
+            /youtube|youtu\.be|vimeo/i.test(x.url) &&
+            !(rwParseSource(x.url) || {}).kind);
+          // Keep the whole list: a multi-day event usually broadcasts one
+          // video per day, and a single "best" would anchor every day to day 1.
+          rwStreamPool = list;
+          rwStreamReason = j.reason || (list.length ? null : 'no-links-on-page');
+          const best = list.find(x => /youtube|youtu\.be/i.test(x.url)) || list[0];
+          if (best) {
+            webcastRaw = best.url;
+            webcast = rwParseVideoId(best.url);
+            ctxWebcastSource = /webcast/.test(best.source || '') ? 'event-page-webcast'
+                             : best.source === 'yt-search' ? 'yt-search' : 'event-page';
+          }
+        } else {
+          rwStreamReason = 'fetch-failed';
+          vsDebug.jumper = { sku: e0.sku, http: s.status, body: null };
+          vsNote('autofind', 'HTTP ' + s.status);
+        }
+      } catch (e) {
+        rwStreamReason = 'fetch-failed';
+        vsDebug.jumper = { sku: e0.sku, threw: String(e && e.message || e) };
+        vsNote('autofind', e && e.message || e);
+      }
+    }
+  } catch (e) {}
+  return webcastRaw ? { url: webcastRaw, videoId: webcast, source: ctxWebcastSource } : null;
+}
+
 async function rewatchSelectEvent(eventId) {
   const ctx = window._rwCtx; if (!ctx) return;
   const loading = document.getElementById('rwLoading');
@@ -2695,83 +2769,30 @@ async function rewatchSelectEvent(eventId) {
       ctx.allMatches.sort((a, b) => a.t - b.t);
     } catch (e) { ctx.allMatches = null; }
 
-    // Try the event's own webcast link before asking the user for one
-    let webcast = null, webcastRaw = '', ctxWebcastSource = null;
+    // Auto-find runs alongside the render instead of before it. The matches
+    // are already loaded; show them now and let the stream drop in when it
+    // arrives, rather than holding a blank panel for several seconds.
     rwStreamPool = [];
     rwStreamReason = null;
     vsDebug.jumper = null;
-    try {
-      const ev = await apiGet('/events', { 'id[]': [eventId] });
-      const e0 = ev[0] || {};
-      // Look everywhere the API gives us first
-      const found = rwFindWebcasts(e0).filter(c => c.kind === 'direct');
-      if (found.length) {
-        webcastRaw = found[0].url;
-        webcast = rwParseVideoId(found[0].url);
-        ctxWebcastSource = found[0].source;
-      } else if (e0.sku) {
-        // The API carries no description or webcast section, so the links only
-        // exist on the event's public page. Have the proxy read it for us.
-        //
-        // The event's dates go along for the ride: if the page links a channel
-        // rather than a video, the proxy searches that channel, and without a
-        // date window it would return whatever was uploaded most recently.
-        try {
-          // _t defeats every cache in the chain (service worker, browser,
-          // CDN). A stale auto-find answer is worse than none: it makes a
-          // fixed proxy look broken and sends debugging down the wrong path.
-          const qs = `${BASE}?path=${encodeURIComponent('streams:' + e0.sku)}` +
-            (e0.start ? `&start=${encodeURIComponent(e0.start)}` : '') +
-            (e0.end ? `&end=${encodeURIComponent(e0.end)}` : '') +
-            // The name lets the proxy search YouTube when the event page
-            // lists no link at all — which is the common case.
-            (e0.name ? `&name=${encodeURIComponent(e0.name)}` : '') +
-            `&_t=${Date.now()}`;
-          const s = await fetch(qs);
-          if (s.ok) {
-            const j = await s.json();
-            // Kept so ?debug=1 can show exactly what came back. DevTools are
-            // blocked on this site, so the diagnostic has to live in the page.
-            vsDebug.jumper = { sku: e0.sku, start: e0.start, end: e0.end, http: s.status, body: j };
-            // Channel URLs can't be seeked, so they must not be treated as a
-            // found stream. The proxy resolves them where it can; anything
-            // still unresolved is filtered out here rather than filled into
-            // the box to fail later.
-            const list = (j.streams || []).filter(x =>
-              /youtube|youtu\.be|vimeo/i.test(x.url) &&
-              !(rwParseSource(x.url) || {}).kind);
-            // Keep the whole list: a multi-day event usually broadcasts one
-            // video per day, and picking a single "best" one would anchor
-            // every day to day 1's video.
-            rwStreamPool = list;
-            rwStreamReason = j.reason || (list.length ? null : 'no-links-on-page');
-            const best = list.find(x => /youtube|youtu\.be/i.test(x.url)) || list[0];
-            if (best) {
-              webcastRaw = best.url;
-              webcast = rwParseVideoId(best.url);
-              ctxWebcastSource = /webcast/.test(best.source || '') ? 'event-page-webcast' : 'event-page';
-            }
-          } else {
-            rwStreamReason = 'fetch-failed';
-            vsDebug.jumper = { sku: e0.sku, http: s.status, body: null };
-            vsNote('autofind', 'HTTP ' + s.status);
-          }
-        } catch (e) {
-          rwStreamReason = 'fetch-failed';
-          vsDebug.jumper = { sku: e0.sku, threw: String(e && e.message || e) };
-          vsNote('autofind', e && e.message || e);
-        }
-      }
-    } catch (e) {}
-
+    // If every day already has an anchor — published or local — there is
+    // nothing to find, and searching would spend quota to answer a question
+    // nobody asked. anchors.json has to be loaded before this can be known;
+    // it's a small static file and usually already cached.
     await rwLoadPublished();
-    const cal = rwMergePublished(eventId, rwLoadCal(eventId));
+    const preCal = rwMergePublished(eventId, rwLoadCal(eventId));
+    const daysNeeded = [...new Set(matches.filter(m => m.t !== null).map(m => rwDayKey(m.t)))]
+      .filter(d => !preCal[d]);
+    rwAutoFindPending = daysNeeded.length > 0;
+    const autoFind = daysNeeded.length ? rwAutoFindStream(eventId) : Promise.resolve(null);
+
+    const cal = preCal;
     ctx.eventId = eventId;
     ctx.matches = matches;
     ctx.cal = cal;
     const anyCal = Object.values(cal || {})[0];
-    ctx.videoId = (anyCal && anyCal.videoId) || webcast || null;
-    ctx.autoWebcast = !!webcast && !anyCal;
+    ctx.videoId = (anyCal && anyCal.videoId) || null;
+    ctx.autoWebcast = false;
     ctx.calDay = null;
     rewatchRender();
 
@@ -2779,8 +2800,15 @@ async function rewatchSelectEvent(eventId) {
     // yet, sync it without being asked. Silent: a failure just leaves the
     // manual form in place rather than throwing an error at someone who
     // didn't request anything.
-    if (webcastRaw && !anyCal) {
-      ctx.foundStream = { url: webcastRaw, source: ctxWebcastSource };
+    // Now wait on auto-find, which has been running while the matches
+    // rendered. Nothing above this line blocks the first paint.
+    const af = await autoFind;
+    rwAutoFindPending = false;
+    if (af && af.url && !anyCal) {
+      const webcastRaw = af.url;
+      ctx.foundStream = { url: webcastRaw, source: af.source };
+      ctx.videoId = ctx.videoId || af.videoId || null;
+      ctx.autoWebcast = true;
       const days = [...new Set(matches.filter(m => m.t !== null).map(m => rwDayKey(m.t)))].sort();
       // One video per day is the normal shape for a multi-day event. Pair them
       // up in order and fall back to the first link when there are fewer
@@ -2790,12 +2818,19 @@ async function rewatchSelectEvent(eventId) {
         const d = days[i];
         if (ctx.cal && ctx.cal[d]) continue;
         const forDay = rwPickStreamForDay(rwStreamPool, d, i) || webcastRaw;
-        await rwTryAutoSync(d, forDay, { quiet: true });
+        // Auto-find already fetched this video's actualStartTime, batched with
+        // the others into a single 1-unit call. Pass it through so sync spends
+        // neither a round trip nor quota re-asking.
+        const pooled = rwStreamPool.find(x => x.url === forDay);
+        await rwTryAutoSync(d, forDay, {
+          quiet: true,
+          knownStart: (pooled && pooled.actualStartTime) || null
+        });
       }
-      // Even if auto-sync couldn't run (Vimeo, or no API key), the link is
-      // found — prefill it so anchoring is one scrub, not a hunt for the URL.
-      rewatchRender();
     }
+    // Re-render either way: on success the days are calibrated, and on failure
+    // the "looking…" note has to be replaced by the reason it found nothing.
+    rewatchRender();
   } catch (e) {
     showError('⚠ ' + e.message);
   } finally {
@@ -3115,7 +3150,7 @@ async function rewatchAutoSync(day) {
 // Attempt a sync. `quiet` mode is used when we're doing it on the user's behalf:
 // success re-renders as normal, failure leaves no error shouting at someone who
 // never asked for it — the manual anchor form is right there either way.
-async function rwTryAutoSync(day, linkText, { quiet = false } = {}) {
+async function rwTryAutoSync(day, linkText, { quiet = false, knownStart = null } = {}) {
   const ctx = window._rwCtx; if (!ctx) return false;
   const srcInfo = rwParseSource(linkText || '');
   const status = document.getElementById('rwAutoStatus');
@@ -3166,7 +3201,12 @@ async function rwTryAutoSync(day, linkText, { quiet = false } = {}) {
   const vid = srcInfo.id;
   if (!quiet && status) status.innerHTML = '<span class="rw-auto-working">Reading the broadcast start time…</span>';
 
-  const r = await rwFetchStreamStart(vid);
+  // Auto-find already fetched actualStartTime while searching, batched into a
+  // single 1-unit call. Reusing it skips a whole round trip AND the quota it
+  // would spend re-asking for something we were just told.
+  const r = knownStart
+    ? { ok: true, status: 'started', actualStartTime: knownStart }
+    : await rwFetchStreamStart(vid);
   if (!r || !r.ok) {
     const why = {
       'no-key': 'Auto-sync needs a YouTube API key configured on the server (YOUTUBE_API_KEY).',
@@ -3338,7 +3378,9 @@ function rewatchRender() {
   // buried inside the calibration form. The form only opens after you press
   // "+ ADD STREAM", which is precisely too late to explain why you're being
   // asked to add one.
-  if (!Object.keys(calAll).length && rwStreamReason) {
+  if (!Object.keys(calAll).length && rwAutoFindPending) {
+    html += `<div class="rw-hint">Looking for this event's stream…</div>`;
+  } else if (!Object.keys(calAll).length && rwStreamReason) {
     const why = {
       'page-unreachable': "Couldn't read this event's page on RobotEvents, so there was nothing to search for a stream link.",
       'channel-needs-yt-key': 'This event links a YouTube channel rather than a specific video. Searching that channel needs YOUTUBE_API_KEY set on the server.',
@@ -3346,7 +3388,9 @@ function rewatchRender() {
       'no-links-on-page': "No stream link is published on this event's page.",
       'no-link-and-no-yt-match': "This event's page lists no stream, and nothing on YouTube matches its name and dates closely enough to trust.",
       'no-links-and-no-yt-key': "This event's page lists no stream. Searching YouTube by name needs YOUTUBE_API_KEY set on the server.",
-      'fetch-failed': "Couldn't reach this event's page to look for a stream link."
+      'fetch-failed': "Couldn't reach this event's page to look for a stream link.",
+      'page-blocked-and-no-yt-match': "This event's page couldn't be read, and nothing on YouTube matches its name and dates closely enough to trust.",
+      'no-links-and-no-yt-key': "This event's page lists no stream. Searching YouTube by name needs YOUTUBE_API_KEY set on the server."
     }[rwStreamReason];
     if (why) html += `<div class="rw-hint rw-miss">Auto-find found nothing: ${why} Add the link by hand below — it still syncs itself once pasted.</div>`;
   }
