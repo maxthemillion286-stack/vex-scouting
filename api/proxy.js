@@ -18,7 +18,11 @@ export const config = { maxDuration: 60 };
 // Bumped whenever the streams lookup changes. Surfaced in `diag` and in every
 // streams response so the debug page can prove WHICH proxy is actually live —
 // a stale cached reply is otherwise indistinguishable from a fresh failure.
-const PROXY_BUILD = 'relay-3';
+const PROXY_BUILD = 'v13';
+// A failed stream lookup is expensive (page race + a YouTube search), and the
+// answer rarely changes within a session. Cache the miss too, or every revisit
+// pays the full cost again.
+const NEG_TTL_MS = 10 * 60 * 1000;
 
 const cache = new Map(); // path -> { data, status, expires }
 const DEFAULT_TTL_MS = 60 * 1000;       // 1 min for general data
@@ -168,12 +172,12 @@ async function fetchPageRacing(urls, { relayCount = 2, tried = [] } = {}) {
   };
 
   const race = [
-    ...urls.map(u => attempt(u, BROWSER_HEADERS, 9000, 'direct').catch(e => note(short(u), e))),
+    ...urls.map(u => attempt(u, BROWSER_HEADERS, 6000, 'direct').catch(e => note(short(u), e))),
     // Relays only for the likeliest URLs — they are doing us a favour, and a
     // wide fan-out across all candidates would be rude and slow.
     ...urls.slice(0, relayCount).flatMap(u => RELAYS.map(mk => {
       const { url: ru, src } = mk(u);
-      return attempt(ru, { 'User-Agent': BROWSER_HEADERS['User-Agent'], 'Accept': 'text/html,*/*' }, 20000, src, u)
+      return attempt(ru, { 'User-Agent': BROWSER_HEADERS['User-Agent'], 'Accept': 'text/html,*/*' }, 12000, src, u)
         .catch(e => note(short(u) + ' via ' + src, e));
     }))
   ];
@@ -216,7 +220,7 @@ async function resolveVimeoChannel(channelUrl, startISO, endISO, tried) {
 // /channel/ID URLs already carry it. Then ask for that channel's completed,
 // live and upcoming broadcasts, with completed ones bounded to the event's
 // dates (±1 day for timezone slop and streams that start the night before).
-async function resolveChannel(channelUrl, startISO, endISO, ytKey) {
+async function resolveChannel(channelUrl, startISO, endISO, ytKey, eventName) {
   const yt = async (qs) => {
     const r = await fetch('https://www.googleapis.com/youtube/v3/' + qs + '&key=' + encodeURIComponent(ytKey),
       { signal: AbortSignal.timeout(8000) });
@@ -250,19 +254,134 @@ async function resolveChannel(channelUrl, startISO, endISO, ytKey) {
 
   const out = [];
   const seen = new Set();
+  const wantGrade = gradeOf(eventName);
   for (const item of runs.flat()) {
     const id = item.id && item.id.videoId;
     if (!id || seen.has(id)) continue;
+    const title = (item.snippet && item.snippet.title) || '';
+    // Same grade veto as the name search: a channel that broadcast both the
+    // high school and middle school days would otherwise hand back whichever
+    // came first, and every match time would be wrong.
+    const gotGrade = gradeOf(title);
+    if (wantGrade && gotGrade && gotGrade !== wantGrade) continue;
     seen.add(id);
     out.push({
       url: 'https://www.youtube.com/watch?v=' + id,
-      title: (item.snippet && item.snippet.title) || '',
-      publishedAt: (item.snippet && item.snippet.publishedAt) || null
+      title,
+      publishedAt: (item.snippet && item.snippet.publishedAt) || null,
+      grade: gotGrade || null
     });
   }
   // Oldest first, so day 1 of the event lines up with the first video.
   out.sort((a, b) => Date.parse(a.publishedAt || 0) - Date.parse(b.publishedAt || 0));
   return out;
+}
+
+// ── Last resort: ask YouTube for the event by name ─────────────────────────
+// Plenty of events publish no webcast link at all — the stream exists, it just
+// was never added to the event page. Searching YouTube for the event name
+// within its date window finds those.
+//
+// The danger is a confident wrong answer: a search always returns something.
+// So results are scored against the event name and anything weakly matched is
+// discarded — better to find nothing than to send everyone to a stranger's
+// video and have the timings silently make no sense.
+// Grade level is NOT a scoring word — it's a veto.
+//
+// Most venues run high school one day and middle school the next, under
+// near-identical names. If "high"/"middle"/"school" were merely scored, the two
+// would look almost the same and an HS event could quietly match the MS
+// broadcast: worse than finding nothing, because every match time would be
+// wrong with no sign anything had gone astray. So grade is extracted
+// separately and a conflict rejects the video outright.
+function gradeOf(text) {
+  const t = String(text || '').toLowerCase();
+  if (/\b(?:middle\s*school|ms\b|m\.s\.|viqrc?\s*ms)\b/.test(t)) return 'ms';
+  if (/\b(?:high\s*school|hs\b|h\.s\.)\b/.test(t)) return 'hs';
+  if (/\b(?:elementary|es\b)\b/.test(t)) return 'es';
+  if (/\b(?:college|university|vex\s*u|vurc)\b/.test(t)) return 'u';
+  return null;
+}
+
+// Words that appear in almost every event name or stream title and therefore
+// carry no evidence. "Katy Regional Event" reduces to just "katy" — one word,
+// which is correctly too thin to search on. Grade words are here too: they are
+// handled by gradeOf() as a veto instead of being scored.
+const STOPWORDS = new Set([
+  'the','and','of','a','an','for','at','vs',
+  'vex','v5rc','vrc','viqrc','viqc','vurc','vexu','robotics','robot','robots','competition',
+  'tournament','tourney','event','events','meet','scrimmage','scrim','open','challenge',
+  'regional','regionals','state','championship','championships','invitational','classic',
+  'signature','league','qualifier','qualifiers','quals','finals','elims','elimination',
+  'presented','by','hosted','powered',
+  'high','school','schools','middle','elementary','college','university',
+  'live','livestream','stream','streaming','webcast','broadcast','replay','full',
+  'day','days','division','divisions','field','fields','matches','match','round','rounds',
+  'push','back','over','under','rapid','relay','season',
+  '2023','2024','2025','2026','2027','20242025','20252026'
+]);
+
+function nameTokens(name) {
+  return String(name || '').toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(t => t.length > 2 && !STOPWORDS.has(t));
+}
+
+async function searchYouTubeByName(name, startISO, endISO, ytKey) {
+  const want = nameTokens(name);
+  // Nothing distinctive left to match on — a search would be a coin flip.
+  if (want.length < 2) return [];
+  const wantGrade = gradeOf(name);
+
+  const startMs = Date.parse(startISO);
+  if (isNaN(startMs)) return [];
+  const endMs = Date.parse(endISO || startISO);
+  const after = new Date(startMs - 2 * 86400000).toISOString();
+  const before = new Date((isNaN(endMs) ? startMs : endMs) + 3 * 86400000).toISOString();
+
+  const qs = 'search?part=snippet&type=video&order=date&maxResults=15' +
+    '&q=' + encodeURIComponent(name) +
+    '&publishedAfter=' + after + '&publishedBefore=' + before +
+    '&key=' + encodeURIComponent(ytKey);
+  let items = [];
+  try {
+    const r = await fetch('https://www.googleapis.com/youtube/v3/' + qs, { signal: AbortSignal.timeout(8000) });
+    if (!r.ok) return [];
+    items = ((await r.json()).items) || [];
+  } catch (e) { return []; }
+
+  const scored = [];
+  for (const it of items) {
+    const id = it.id && it.id.videoId;
+    const title = (it.snippet && it.snippet.title) || '';
+    if (!id) continue;
+
+    // Veto on a grade mismatch. A video that states no grade is left alone —
+    // plenty of streams simply don't say — but one that states the OTHER
+    // grade is the wrong broadcast, however well the rest of the name lines up.
+    const gotGrade = gradeOf(title + ' ' + ((it.snippet && it.snippet.description) || ''));
+    if (wantGrade && gotGrade && gotGrade !== wantGrade) continue;
+
+    const got = new Set(nameTokens(title + ' ' + ((it.snippet && it.snippet.channelTitle) || '')));
+    const hits = want.filter(t => got.has(t)).length;
+    // 80% of the distinctive words, and never fewer than two. A search always
+    // returns something, so the bar has to be high enough that "something" is
+    // rejected when it isn't actually this event.
+    if (hits < 2 || hits / want.length < 0.8) continue;
+    scored.push({
+      url: 'https://www.youtube.com/watch?v=' + id,
+      title,
+      publishedAt: (it.snippet && it.snippet.publishedAt) || null,
+      match: hits + '/' + want.length,
+      grade: gotGrade || null
+    });
+  }
+  // Best match first, then oldest, so day 1 leads when several tie.
+  scored.sort((a, b) =>
+    (parseInt(b.match) - parseInt(a.match)) ||
+    (Date.parse(a.publishedAt || 0) - Date.parse(b.publishedAt || 0)));
+  return scored.slice(0, 6);
 }
 
 function slimForPath(path, data) {
@@ -300,6 +419,9 @@ export default async function handler(req, res) {
     // uploaded most recently, which has nothing to do with this event.
     const startISO = typeof req.query.start === 'string' ? req.query.start : '';
     const endISO = typeof req.query.end === 'string' ? req.query.end : startISO;
+    // Used only as a last resort, to search YouTube when the event page
+    // publishes no link at all.
+    const evName = typeof req.query.name === 'string' ? req.query.name.slice(0, 160) : '';
 
     const cacheKey = 'streams:' + sku + '|' + startISO.slice(0, 10);
     const hit = cache.get(cacheKey);
@@ -323,9 +445,14 @@ export default async function handler(req, res) {
       else if (/-(ADC|VAIC)-/.test(sku)) progs.push('aerial-drone-competition', 'adc');
       else progs.push('vex-robotics-competition', 'v5rc', 'vex-v5-robotics-competition');
 
-      const urls = progs.map(p => `https://events.vex.com/robot-competitions/${p}/${sku}.html`);
-      urls.push(`https://events.vex.com/robot-competitions/${progs[0]}/${sku}`);
-      urls.push(`https://www.robotevents.com/robot-competitions/${progs[0]}/${sku}.html`);
+      // Only two candidates. The first is the confirmed live shape; the second
+      // covers a lingering robotevents.com redirect. The earlier scattergun of
+      // five URLs multiplied the fan-out (and the wait) for no gain once the
+      // real URL was known.
+      const urls = [
+        `https://events.vex.com/robot-competitions/${progs[0]}/${sku}.html`,
+        `https://www.robotevents.com/robot-competitions/${progs[0]}/${sku}.html`
+      ];
 
       const tried = [];
       let rawHtml = null, pageUrl = null, pageVia = null;
@@ -438,7 +565,7 @@ export default async function handler(req, res) {
         const ytKey = process.env.YOUTUBE_API_KEY;
         if (!found.length && ytKey && startISO && endISO) {
           for (const ch of channels.filter(c => /youtube\.com/i.test(c.url)).slice(0, 2)) {
-            const vids = await resolveChannel(ch.url, startISO, endISO, ytKey);
+            const vids = await resolveChannel(ch.url, startISO, endISO, ytKey, evName);
             for (const v of vids) {
               add(v.url, ch.source === 'webcast-section' ? 'channel-webcast' : 'channel');
               const rec = found[found.length - 1];
@@ -446,6 +573,19 @@ export default async function handler(req, res) {
             }
             if (found.length) break;
           }
+        }
+      }
+
+      // Still nothing: the page simply doesn't list a stream. Search YouTube
+      // for the event by name, scored so a weak match is dropped rather than
+      // presented as the answer.
+      let searched = false;
+      if (!found.length && evName && process.env.YOUTUBE_API_KEY) {
+        searched = true;
+        for (const v of await searchYouTubeByName(evName, startISO, endISO, process.env.YOUTUBE_API_KEY)) {
+          add(v.url, 'yt-search');
+          const rec = found[found.length - 1];
+          if (rec && rec.url === v.url) { rec.title = v.title; rec.publishedAt = v.publishedAt; rec.match = v.match; }
         }
       }
 
@@ -462,9 +602,11 @@ export default async function handler(req, res) {
         channels: channels.map(c => c.url).slice(0, 4),
         reason: found.length ? undefined
               : channels.length ? (process.env.YOUTUBE_API_KEY ? 'channel-no-videos' : 'channel-needs-yt-key')
-              : 'no-links-on-page'
+              : searched ? 'no-link-and-no-yt-match'
+              : !evName ? 'no-links-on-page'
+              : 'no-links-and-no-yt-key'
       };
-      cache.set(cacheKey, { data: out, status: 200, expires: Date.now() + (found.length ? LONG_TTL_MS : SHORT_TTL_MS) });
+      cache.set(cacheKey, { data: out, status: 200, expires: Date.now() + (found.length ? LONG_TTL_MS : NEG_TTL_MS) });
       res.setHeader('Cache-Control', 'public, s-maxage=3600, stale-while-revalidate=3600');
       return res.status(200).json(out);
     } catch (err) {
