@@ -1,5 +1,10 @@
+# Never deploy these.
+#
+# anchor-tool.html publishes anchors and must stay off the public site — see
+# HANDOFF.md §6. The tests and node_modules are dead weight in a deploy.
 anchor-tool.html
-t*.mjs
-sanity.mjs
-dom*.mjs
-node_modules
+tests/
+node_modules/
+HANDOFF.md
+CLAUDE_CODE_PROMPT.md
+package.json
