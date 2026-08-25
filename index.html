@@ -2258,7 +2258,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v22';
+const APP_BUILD = 'v23';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -2403,12 +2403,50 @@ function rwSegmentsForDay(pool, day) {
     .sort((a, b) => a.startMs - b.startMs);
 }
 
+// Organisers label multi-day broadcasts in the title, and they do it far more
+// consistently than anything else about them: "Day 2", "Saturday", "Sun".
+// That matters because on a multi-day event EVERY video sits inside the same
+// 36-hour window, so the proximity rule below can land on either one, and the
+// index fallback at the end is frankly a guess. A label is neither.
+const RW_WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+function rwTitleDayLabel(title) {
+  const t = String(title || '').toLowerCase();
+  // "Day 2", "Day #2", "day2" — but not the "day" in "Field Day".
+  const n = t.match(/\bday\s*#?\s*(\d{1,2})\b/);
+  if (n) return { kind: 'n', n: +n[1] };
+  for (let i = 0; i < RW_WEEKDAYS.length; i++) {
+    const full = RW_WEEKDAYS[i];
+    // Word-bounded so "sun" can't match inside "Sunnyvale" and "sat" can't
+    // match inside "Saturday" twice.
+    if (new RegExp(`\\b(?:${full}|${full.slice(0, 3)})\\b`).test(t)) return { kind: 'w', w: i };
+  }
+  return null;
+}
+
+// Which video is labelled for this day? dayIndex is 0-based, titles are 1-based.
+function rwPickByDayLabel(pool, dayKey, dayIndex) {
+  const wd = new Date(dayKey + 'T12:00:00Z').getUTCDay();
+  for (const s of pool) {
+    const lab = rwTitleDayLabel(s.title);
+    if (!lab) continue;
+    if (lab.kind === 'n' && lab.n === dayIndex + 1) return s.url;
+    if (lab.kind === 'w' && !isNaN(wd) && lab.w === wd) return s.url;
+  }
+  return null;
+}
+
 function rwPickStreamForDay(pool, dayKey, dayIndex) {
   if (!pool || !pool.length) return null;
   const dated = pool.filter(s => s.publishedAt);
   if (dated.length) {
     const exact = dated.find(s => String(s.publishedAt).slice(0, 10) === dayKey);
     if (exact) return exact.url;
+  }
+  // Ranked above proximity deliberately: an explicit "Day 2" in the title beats
+  // an inference drawn from two timestamps a few hours apart.
+  const labelled = rwPickByDayLabel(pool, dayKey, dayIndex);
+  if (labelled) return labelled;
+  if (dated.length) {
     // A broadcast that began the evening before still covers that day.
     const target = Date.parse(dayKey + 'T12:00:00Z');
     if (!isNaN(target)) {

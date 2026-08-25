@@ -4,7 +4,17 @@ let pass=0, fail=0;
 const ok=(n,c,e)=>{c?(pass++,console.log('  ok   '+n)):(fail++,console.log('  FAIL '+n+(e?'\n         '+e:'')));};
 const html = fs.readFileSync(process.argv[2]||'../index.html','utf8');
 const src = html.match(/<script(?![^>]*src=)[^>]*>([\s\S]*?)<\/script>/)[1];
-const fn = src.match(/function rwPickStreamForDay\(pool, dayKey, dayIndex\)[\s\S]*?\n\}/)[0];
+// rwPickStreamForDay now delegates to the day-label reader, so both helpers
+// have to come across with it or the extraction throws on an undefined name.
+// Pulled from source rather than restated here, so this exercises the real
+// ranking instead of a copy that can drift from it.
+const grab = re => (src.match(re) || [''])[0];
+const fn = [
+  grab(/const RW_WEEKDAYS = \[[^\]]*\];/),
+  grab(/function rwTitleDayLabel\(title\)[\s\S]*?\n\}/),
+  grab(/function rwPickByDayLabel\(pool, dayKey, dayIndex\)[\s\S]*?\n\}/),
+  grab(/function rwPickStreamForDay\(pool, dayKey, dayIndex\)[\s\S]*?\n\}/)
+].join('\n');
 const rwPickStreamForDay = new Function(fn + '; return rwPickStreamForDay;')();
 
 console.log('t47 — per-day stream selection');

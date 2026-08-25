@@ -18,7 +18,7 @@ export const config = { maxDuration: 60 };
 // Bumped whenever the streams lookup changes. Surfaced in `diag` and in every
 // streams response so the debug page can prove WHICH proxy is actually live —
 // a stale cached reply is otherwise indistinguishable from a fresh failure.
-const PROXY_BUILD = 'v22';
+const PROXY_BUILD = 'v23';
 // A failed stream lookup is expensive (page race + a YouTube search), and the
 // answer rarely changes within a session. Cache the miss too, or every revisit
 // pays the full cost again.
@@ -421,7 +421,9 @@ function gradeOf(text) {
 const STOPWORDS = new Set([
   'the','and','of','a','an','for','at','vs','is','it','to','in','on','by','no','or','as','be','we',
   'ms','hs','es','jr','sr','div','pm','am','st','nd','rd','th',
-  'vex','v5rc','vrc','viqrc','viqc','vurc','vexu','robotics','robot','robots','competition',
+  // 'v5' and 'iq' survived as tokens because only the '…rc' forms were listed,
+  // so "VEX V5 Robotics Competition" left a v5 behind to dilute recall.
+  'vex','v5','v5rc','iq','vrc','viqrc','viqc','vurc','vexu','robotics','robot','robots','competition',
   'tournament','tourney','event','events','meet','scrimmage','scrim','open','challenge',
   'regional','regionals','state','championship','championships','invitational','classic',
   'signature','league','qualifier','qualifiers','quals','finals','elims','elimination',
@@ -463,14 +465,42 @@ function scoreTitle(want, title) {
   const got = nameTokens(title);
   if (!got.length) return null;
   const gotSet = new Set(got);
-  const overlap = want.filter(t => gotSet.has(t)).length;
-  // Two distinctive words in common, always. One is a coincidence.
-  if (overlap < 2) return null;
+  const shared = want.filter(t => gotSet.has(t));
+  const overlap = shared.length;
+  if (!overlap) return null;
   const precision = overlap / got.length;
   const recall = overlap / want.length;
   const best = Math.max(precision, recall);
   if (best < 0.8) return null;
-  return { overlap, precision, recall, best };
+
+  // Two words in common used to be required, always, on the grounds that one
+  // is a coincidence. Usually true — but it threw away the strongest matches
+  // there are: events whose distinctive content is a single rare word.
+  //
+  // Real rejection: "Excalibur Robotics Challenge 2025 PUSH BACK" streamed as
+  // "Excalibur Robotics Challenge 2025 PUSH BACK". Every other word in both is
+  // boilerplate this file already stopwords, so want=[excalibur,v5] against
+  // got=[excalibur] scored overlap 1 and was refused — an exact title match,
+  // on the right date, seven hours long, reported as "nothing matches closely
+  // enough to trust".
+  //
+  // So a lone word is accepted when it is genuinely rare: six characters or
+  // more and not a bare number. "excalibur" qualifies; "katy" does not, which
+  // keeps the case the STOPWORDS comment calls correctly too thin. The date
+  // window and looksLikeEventBroadcast still have to agree separately, and
+  // between them a wrong video would have to share a rare word AND air inside
+  // the event's 36-hour window AND run like a broadcast.
+  // Note precision, not `best`. With a single wanted word recall is 1.0 by
+  // construction, so `best` can never reject anything — "Excalibur plus nine
+  // unrelated words" would sail through on a recall of 1/1. Precision is the
+  // half that still means something: the shared word has to be most of what
+  // the TITLE says too, not just most of what the event name says.
+  if (overlap < 2) {
+    const solo = shared[0] || '';
+    if (solo.length < 6 || /^\d+$/.test(solo)) return null;
+    if (precision < 0.5) return null;
+  }
+  return { overlap, precision, recall, best, solo: overlap < 2 };
 }
 
 // The event name as a search query: intact, minus the program boilerplate
