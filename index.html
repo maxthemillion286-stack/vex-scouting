@@ -2258,7 +2258,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v23';
+const APP_BUILD = 'v24';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -2408,6 +2408,24 @@ function rwSegmentsForDay(pool, day) {
 // That matters because on a multi-day event EVERY video sits inside the same
 // 36-hour window, so the proximity rule below can land on either one, and the
 // index fallback at the end is frankly a guess. A label is neither.
+// The event's own first day, as YYYY-MM-DD. Set by auto-find from the API.
+//
+// Needed because the day list the Jumper renders is built from THIS TEAM's
+// matches, not from the event. A team that only plays Saturday produces a list
+// of one day at index 0 — and index 0 asked for the video labelled "Day 1",
+// which is Friday's. The event's own start date is the only thing that says
+// which ordinal a date really is.
+let rwEventStartDay = null;
+
+function rwEventDayOrdinal(dayKey, fallbackIndex) {
+  if (!rwEventStartDay) return fallbackIndex;
+  const a = Date.parse(rwEventStartDay + 'T12:00:00Z');
+  const b = Date.parse(dayKey + 'T12:00:00Z');
+  if (isNaN(a) || isNaN(b)) return fallbackIndex;
+  const n = Math.round((b - a) / 86400000);
+  return n >= 0 ? n : fallbackIndex;
+}
+
 const RW_WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 function rwTitleDayLabel(title) {
   const t = String(title || '').toLowerCase();
@@ -2424,15 +2442,26 @@ function rwTitleDayLabel(title) {
 }
 
 // Which video is labelled for this day? dayIndex is 0-based, titles are 1-based.
+//
+// Returns a url, or 'none' when the pool IS labelled and none of the labels is
+// this day. That distinction matters: falling through to a proximity guess in
+// that case is how a day ends up showing another day's recording, which §3
+// rates worse than finding nothing — every match time is then wrong with
+// nothing on screen saying so.
 function rwPickByDayLabel(pool, dayKey, dayIndex) {
+  const ord = rwEventDayOrdinal(dayKey, dayIndex);
   const wd = new Date(dayKey + 'T12:00:00Z').getUTCDay();
+  let anyLabelled = false;
   for (const s of pool) {
     const lab = rwTitleDayLabel(s.title);
     if (!lab) continue;
-    if (lab.kind === 'n' && lab.n === dayIndex + 1) return s.url;
+    anyLabelled = true;
+    if (lab.kind === 'n' && lab.n === ord + 1) return s.url;
     if (lab.kind === 'w' && !isNaN(wd) && lab.w === wd) return s.url;
   }
-  return null;
+  // Every video in the pool announces which day it is, and none of them is
+  // this one. That is an answer, not a gap.
+  return anyLabelled ? 'none' : null;
 }
 
 function rwPickStreamForDay(pool, dayKey, dayIndex) {
@@ -2445,6 +2474,7 @@ function rwPickStreamForDay(pool, dayKey, dayIndex) {
   // Ranked above proximity deliberately: an explicit "Day 2" in the title beats
   // an inference drawn from two timestamps a few hours apart.
   const labelled = rwPickByDayLabel(pool, dayKey, dayIndex);
+  if (labelled === 'none') return null;   // labelled pool, not this day
   if (labelled) return labelled;
   if (dated.length) {
     // A broadcast that began the evening before still covers that day.
@@ -2756,6 +2786,10 @@ async function rwAutoFindStream(eventId) {
   try {
     const ev = await rwEventDetail(eventId);
     const e0 = ev[0] || {};
+    // Recorded before anything else needs it: the "Day N" in a stream title is
+    // counted from the EVENT's first day, which is not the same as the first
+    // day this team happens to play.
+    rwEventStartDay = (typeof e0.start === 'string' && e0.start.slice(0, 10)) || null;
     // Look everywhere the API gives us first — it costs nothing.
     const found = rwFindWebcasts(e0).filter(c => c.kind === 'direct');
     if (found.length) {
@@ -3049,14 +3083,26 @@ async function rewatchSelectEvent(eventId) {
           continue;
         }
 
-        const forDay = rwPickStreamForDay(rwStreamPool, d, i) || webcastRaw;
+        const picked = rwPickStreamForDay(rwStreamPool, d, i);
+        // A populated pool that declines this day is a real answer: the event
+        // was streamed, but not on this day (or not under a title claiming it).
+        // Substituting the headline link here is exactly how a day ended up
+        // playing another day's recording, so don't.
+        if (!picked && rwStreamPool.length) {
+          rwAutoSyncFail[d] = "The streams found for this event are labelled for other days, so none of them covers this one.";
+          continue;
+        }
+        const forDay = picked || webcastRaw;
         // Auto-find already fetched this video's actualStartTime, batched with
         // the others into a single 1-unit call. Pass it through so sync spends
         // neither a round trip nor quota re-asking.
         const pooled = rwStreamPool.find(x => x.url === forDay);
         await rwTryAutoSync(d, forDay, {
           quiet: true,
-          knownStart: (pooled && pooled.actualStartTime) || null
+          knownStart: (pooled && pooled.actualStartTime) || null,
+          // The length of the video is a hard check on whether it is the right
+          // one at all — see rwTryAutoSync.
+          knownDuration: (pooled && pooled.durationSec) || null
         });
       }
     }
@@ -3386,7 +3432,7 @@ async function rewatchAutoSync(day) {
 // Attempt a sync. `quiet` mode is used when we're doing it on the user's behalf:
 // success re-renders as normal, failure leaves no error shouting at someone who
 // never asked for it — the manual anchor form is right there either way.
-async function rwTryAutoSync(day, linkText, { quiet = false, knownStart = null } = {}) {
+async function rwTryAutoSync(day, linkText, { quiet = false, knownStart = null, knownDuration = null } = {}) {
   const ctx = window._rwCtx; if (!ctx) return false;
   // Cleared up front so every return path is correct: any success below simply
   // leaves it cleared, and only fail() puts a reason back.
@@ -3471,6 +3517,18 @@ async function rwTryAutoSync(day, linkText, { quiet = false, knownStart = null }
   if (!anchor) return fail('No dated matches on this day to sync against.');
   const secs = Math.round((anchor.t - startMs) / 1000);
   if (secs < 0) return fail("These matches happened before this stream started — wrong day's video?");
+  // ...and the same test at the other end. A match that lands PAST the end of
+  // the recording proves this is the wrong video just as surely as one landing
+  // before the start — it is what a day-2 match anchored against the day-1
+  // broadcast looks like: about 24 hours into a seven-hour stream.
+  //
+  // Without this the offset was accepted and every row pointed at a timestamp
+  // the video does not contain, which reads as "the stream is broken" rather
+  // than "this is the wrong stream". An hour of slack covers a broadcast that
+  // ran long or a duration YouTube reports slightly short.
+  if (knownDuration && secs > knownDuration + 3600) {
+    return fail(`This day's matches fall about ${Math.round(secs / 3600)}h into a video only ${Math.round(knownDuration / 3600)}h long, so it is a different day's recording.`);
+  }
 
   ctx.videoId = vid;
   ctx.cal = ctx.cal || {};
