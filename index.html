@@ -2258,7 +2258,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v20';
+const APP_BUILD = 'v21';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -2724,7 +2724,32 @@ async function rwAutoFindStream(eventId) {
       webcastRaw = found[0].url;
       webcast = rwParseVideoId(found[0].url);
       ctxWebcastSource = found[0].source;
-    } else if (e0.sku) {
+    }
+
+    // How many days does this event actually cover?
+    const dayCount = (() => {
+      const s = Date.parse(e0.start), en = Date.parse(e0.end);
+      if (isNaN(s) || isNaN(en)) return 1;
+      return Math.max(1, Math.round((en - s) / 86400000) + 1);
+    })();
+
+    // A single link from the event description CANNOT cover a multi-day event.
+    // Organisers publish one broadcast per day and put one of them — usually
+    // the last — in the description, so applying it to every day anchors day 1
+    // against day 2's video. That yields a negative offset, auto-sync bails
+    // with "these matches happened before this stream started", and because
+    // auto-sync is quiet the day just sits there looking untouched.
+    //
+    // This used to be `else if`: finding ANY link in the description returned
+    // before the proxy was ever consulted, so rwStreamPool stayed empty and the
+    // per-day machinery in §4 had nothing to work with. That is the same shape
+    // as the bug in §11 — a path that returns before reaching the fallback that
+    // would have worked.
+    //
+    // Single-day events with a description link still cost nothing: the search
+    // only runs when one video demonstrably can't be enough.
+    const needPool = dayCount > 1 || !webcastRaw;
+    if (e0.sku && needPool) {
       try {
         // _t defeats every cache in the chain (service worker, browser, CDN).
         // A stale auto-find answer is worse than none: it makes a fixed proxy
@@ -2754,7 +2779,12 @@ async function rwAutoFindStream(eventId) {
           // Keep the whole list: a multi-day event usually broadcasts one
           // video per day, and a single "best" would anchor every day to day 1.
           rwStreamPool = list;
-          rwStreamReason = j.reason || (list.length ? null : 'no-links-on-page');
+          // Don't report a miss when the description already gave us a link:
+          // the search ran to look for the OTHER days, and coming back empty
+          // means "no more than the one we have", not "nothing at all".
+          rwStreamReason = (list.length || webcastRaw)
+            ? (list.length ? (j.reason || null) : null)
+            : (j.reason || 'no-links-on-page');
           const best = list.find(x => /youtube|youtu\.be/i.test(x.url)) || list[0];
           if (best) {
             webcastRaw = best.url;
