@@ -10,6 +10,10 @@ const src = html.match(/<script(?![^>]*src=)[^>]*>([\s\S]*?)<\/script>/)[1];
 // ranking instead of a copy that can drift from it.
 const grab = re => (src.match(re) || [''])[0];
 const fn = [
+  // rwEventStartDay is set from the API at runtime; null here means the
+  // ordinal falls back to the passed index, which is what these cases assume.
+  'let rwEventStartDay = null;',
+  grab(/function rwEventDayOrdinal\(dayKey, fallbackIndex\)[\s\S]*?\n\}/),
   grab(/const RW_WEEKDAYS = \[[^\]]*\];/),
   grab(/function rwTitleDayLabel\(title\)[\s\S]*?\n\}/),
   grab(/function rwPickByDayLabel\(pool, dayKey, dayIndex\)[\s\S]*?\n\}/),
