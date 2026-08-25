@@ -2258,7 +2258,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v24';
+const APP_BUILD = 'v25';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -2315,6 +2315,12 @@ function vsDebugReport() {
     },
     server: vsDebug.diag,
     jumper: vsDebug.jumper,
+    // The channel lookup that finds the OTHER days of a multi-day event. This
+    // report whitelists its keys rather than rendering everything on vsDebug,
+    // so a diagnostic that isn't named here is invisible — which is how a
+    // capture of a multi-day failure came back with no way to tell whether the
+    // lookup had run at all.
+    siblings: vsDebug.siblings,
     apiCalls: vsDebug.apiCalls,
     recentErrors: vsDebug.errors
   };

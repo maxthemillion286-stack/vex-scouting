@@ -18,7 +18,7 @@ export const config = { maxDuration: 60 };
 // Bumped whenever the streams lookup changes. Surfaced in `diag` and in every
 // streams response so the debug page can prove WHICH proxy is actually live —
 // a stale cached reply is otherwise indistinguishable from a fresh failure.
-const PROXY_BUILD = 'v24';
+const PROXY_BUILD = 'v25';
 // A failed stream lookup is expensive (page race + a YouTube search), and the
 // answer rarely changes within a session. Cache the miss too, or every revisit
 // pays the full cost again.
@@ -347,20 +347,48 @@ async function resolveChannel(channelUrl, startISO, endISO, ytKey, eventName) {
     (typeof channelId === 'string' && channelId.startsWith('UC') ? 'UU' + channelId.slice(2) : null);
   if (!uploadsId) return [];
 
-  const j = await ytGet('playlistItems?part=snippet&maxResults=50&playlistId=' +
-    encodeURIComponent(uploadsId), 1, ytKey);
-  const items = (j && j.items) || [];
-  if (!items.length) return [];
-
   const startMs = Date.parse(startISO);
   if (isNaN(startMs)) return [];
   const endMs = Date.parse(endISO || startISO);
+  const windowLo = startMs - 60 * 86400e3;
+
+  // Walk back through the uploads playlist until it predates the event.
+  //
+  // This used to read a single page of 50 and stop, which silently broke every
+  // PAST event on an active channel: a club that posts a couple of videos a
+  // week has pushed a February event off the end of that page long before
+  // August, so the broadcast existed, the channel was right, and the lookup
+  // still came back empty. Nothing said so — it read as "no stream published".
+  //
+  // The playlist is newest-first, so stopping as soon as a page ends older
+  // than the window costs nothing on recent events (one page, as before) and
+  // reaches back roughly a year on busy ones. Capped at six pages: six units
+  // against the 101 a name search costs, and a hard bound on a channel that
+  // uploads daily.
+  const items = [];
+  let pageToken = '';
+  for (let page = 0; page < 6; page++) {
+    const j = await ytGet('playlistItems?part=snippet&maxResults=50&playlistId=' +
+      encodeURIComponent(uploadsId) +
+      (pageToken ? '&pageToken=' + encodeURIComponent(pageToken) : ''), 1, ytKey);
+    const batch = (j && j.items) || [];
+    if (!batch.length) break;
+    for (const it of batch) items.push(it);
+    const times = batch
+      .map(it => Date.parse((it.snippet && it.snippet.publishedAt) || 0))
+      .filter(n => !isNaN(n));
+    // Everything from here back is older than anything we could want.
+    if (times.length && Math.min(...times) < windowLo) break;
+    pageToken = (j && j.nextPageToken) || '';
+    if (!pageToken) break;
+  }
+  if (!items.length) return [];
 
   // Cheap pre-filter on upload time before spending a unit on details. Wide,
   // because a scheduled broadcast is created well before it airs.
   const nearby = items.filter(it => {
     const t = Date.parse((it.snippet && it.snippet.publishedAt) || 0);
-    return !isNaN(t) && t >= startMs - 60 * 86400e3 && t <= (isNaN(endMs) ? startMs : endMs) + 7 * 86400e3;
+    return !isNaN(t) && t >= windowLo && t <= (isNaN(endMs) ? startMs : endMs) + 7 * 86400e3;
   }).slice(0, 50);
   if (!nearby.length) return [];
 
