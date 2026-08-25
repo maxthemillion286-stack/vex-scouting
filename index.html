@@ -2258,7 +2258,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v18';
+const APP_BUILD = 'v19';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -3833,6 +3833,16 @@ async function apiGet(endpoint, params = {}) {
 
       // 429 = rate limited, 5xx = server error → retry with backoff
       if (res.status === 429 || res.status >= 500) {
+        // Capture WHAT the server said, not just that it failed. A bare
+        // "API error 500" is unactionable; the proxy puts the real reason in
+        // the body, and reading it here is the only way it reaches the debug
+        // panel — DevTools are blocked on this site.
+        if (res.status >= 500) {
+          try {
+            const body = await res.clone().text();
+            vsNote('api5xx', path + ' → ' + res.status + ' ' + body.slice(0, 200));
+          } catch (e) { vsNote('api5xx', path + ' → ' + res.status + ' (body unreadable)'); }
+        }
         // Check Retry-After header if present
         let waitMs = 1000 * Math.pow(2, attempt); // 1s, 2s, 4s, 8s, 16s
         const retryAfter = res.headers.get('Retry-After');
@@ -3848,9 +3858,17 @@ async function apiGet(endpoint, params = {}) {
         continue;
       }
 
-      // Other errors (404, 400, etc.) — don't retry, throw immediately
-      vsNote('api', path + ' → ' + res.status);
-      throw new Error(`API error ${res.status}`);
+      // Other errors (404, 400, etc.) — don't retry, throw immediately.
+      // Read the body: the proxy names what went wrong, and "API error 500"
+      // on its own is the least useful message it could possibly show.
+      let why = '';
+      try {
+        const b = await res.clone().json();
+        why = b && (b.message || b.error) ? ` — ${b.error || ''}${b.message ? ': ' + b.message : ''}` : '';
+        if (b && b.at) vsNote('api-trace', b.at);
+      } catch (e) {}
+      vsNote('api', path + ' → ' + res.status + why);
+      throw new Error(`API error ${res.status}${why}`);
     }
     vsNote('api', path + ' → gave up after retries: ' + (lastErr && lastErr.message));
     throw lastErr || new Error('Request failed after retries');

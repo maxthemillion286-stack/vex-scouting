@@ -1,0 +1,11 @@
+{
+  "name": "vex-scout",
+  "private": true,
+  "description": "Single-file scouting web app for VEX Robotics teams. See HANDOFF.md.",
+  "scripts": {
+    "test": "node tests/run-all.mjs"
+  },
+  "devDependencies": {
+    "jsdom": "^24.1.3"
+  }
+}
