@@ -2258,7 +2258,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v19';
+const APP_BUILD = 'v20';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -2368,6 +2368,14 @@ let rwStreamReason = null;
 // without this the panel would show "no stream published" for a second before
 // the answer arrives — which reads as a failure that then contradicts itself.
 let rwAutoFindPending = false;
+// Why auto-sync gave up, per day. Quiet syncs used to throw their reason away
+// (the `fail()` helper only wrote to the DOM when !quiet), so a stream that was
+// found but couldn't be synced produced NO output anywhere — the day just sat
+// there with "+ ADD STREAM" and no explanation, and the only place the "found
+// it" notice rendered was inside the form that button opens. That is the
+// silent-failure shape §11 warns about: it looked exactly like auto-find had
+// never run. The reason is now always recorded and always rendered.
+let rwAutoSyncFail = {};
 
 // Which of the found videos belongs to a given day.
 //
@@ -2865,6 +2873,7 @@ async function rewatchSelectEvent(eventId) {
     // arrives, rather than holding a blank panel for several seconds.
     rwStreamPool = [];
     rwStreamReason = null;
+    rwAutoSyncFail = {};
     vsDebug.jumper = null;
     // If every day already has an anchor — published or local — there is
     // nothing to find, and searching would spend quota to answer a question
@@ -2895,7 +2904,14 @@ async function rewatchSelectEvent(eventId) {
     // rendered. Nothing above this line blocks the first paint.
     const af = await autoFind;
     rwAutoFindPending = false;
-    if (af && af.url && !anyCal) {
+    // Deliberately NOT gated on `anyCal`. It used to be, and that meant one
+    // calibrated day switched auto-sync off for every OTHER day of the event:
+    // a two-day event with day 1 published got auto-find run (and its quota
+    // spent) for day 2, then dropped the result on the floor — no sync, and
+    // no "found it" notice either, because ctx.foundStream was never set.
+    // The per-day loop below already skips days that have a calibration, so
+    // this guard was both redundant and harmful.
+    if (af && af.url) {
       const webcastRaw = af.url;
       ctx.foundStream = { url: webcastRaw, source: af.source };
       ctx.videoId = ctx.videoId || af.videoId || null;
@@ -3262,9 +3278,16 @@ async function rewatchAutoSync(day) {
 // never asked for it — the manual anchor form is right there either way.
 async function rwTryAutoSync(day, linkText, { quiet = false, knownStart = null } = {}) {
   const ctx = window._rwCtx; if (!ctx) return false;
+  // Cleared up front so every return path is correct: any success below simply
+  // leaves it cleared, and only fail() puts a reason back.
+  delete rwAutoSyncFail[day];
   const srcInfo = rwParseSource(linkText || '');
   const status = document.getElementById('rwAutoStatus');
   const fail = (msg) => {
+    // Record the reason even when quiet. The caller renders it above the day
+    // list, so an auto-sync that couldn't work says why instead of leaving the
+    // day looking untouched.
+    rwAutoSyncFail[day] = msg;
     if (!quiet && status) status.innerHTML = `<span class="rw-auto-fail">${msg}</span>`;
     return false;
   };
@@ -3488,9 +3511,26 @@ function rewatchRender() {
   // buried inside the calibration form. The form only opens after you press
   // "+ ADD STREAM", which is precisely too late to explain why you're being
   // asked to add one.
-  if (!Object.keys(calAll).length && rwAutoFindPending) {
+  // Which real days still have no calibration. This used to test
+  // `!Object.keys(calAll).length` — "no day anywhere is calibrated" — so on a
+  // multi-day event a single synced day silenced the status line for all the
+  // others, and days that genuinely needed a stream explained nothing.
+  const rwUncal = days.filter(d => d !== 'unknown' && !calAll[d]);
+  const rwSyncWhy = rwUncal.map(d => rwAutoSyncFail[d]).filter(Boolean);
+
+  if (rwUncal.length && rwAutoFindPending) {
     html += `<div class="rw-hint">Looking for this event's stream…</div>`;
-  } else if (!Object.keys(calAll).length && rwStreamReason) {
+  } else if (rwUncal.length && ctx.foundStream) {
+    // Auto-find succeeded but the day is still uncalibrated, i.e. auto-sync
+    // couldn't finish. Both halves belong on screen: that the stream WAS
+    // found (otherwise this reads as auto-find being broken, which is the
+    // complaint that prompted this) and why syncing it didn't work.
+    html += `<div class="rw-hint">Found this event's stream automatically${
+      {'webcast-field': '', 'event-page-webcast': " (from the event's webcast section)", 'event-page': " (from the event page)"}[ctx.foundStream.source] || ' (from the event description)'
+    }, but couldn't line it up with the match times on its own.${
+      rwSyncWhy.length ? ` ${rwSyncWhy[0]}` : ''
+    } Open <strong>+ ADD STREAM</strong> below — the link is already filled in, so setting one anchor finishes it.</div>`;
+  } else if (rwUncal.length && rwStreamReason) {
     const why = {
       'page-unreachable': "Couldn't read this event's page on RobotEvents, so there was nothing to search for a stream link.",
       'channel-needs-yt-key': 'This event links a YouTube channel rather than a specific video. Searching that channel needs YOUTUBE_API_KEY set on the server.',
