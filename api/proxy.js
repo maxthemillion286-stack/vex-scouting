@@ -18,7 +18,7 @@ export const config = { maxDuration: 60 };
 // Bumped whenever the streams lookup changes. Surfaced in `diag` and in every
 // streams response so the debug page can prove WHICH proxy is actually live —
 // a stale cached reply is otherwise indistinguishable from a fresh failure.
-const PROXY_BUILD = 'v25';
+const PROXY_BUILD = 'v26';
 // A failed stream lookup is expensive (page race + a YouTube search), and the
 // answer rarely changes within a session. Cache the miss too, or every revisit
 // pays the full cost again.
@@ -524,11 +524,26 @@ function scoreTitle(want, title) {
   // half that still means something: the shared word has to be most of what
   // the TITLE says too, not just most of what the event name says.
   if (overlap < 2) {
-    const solo = shared[0] || '';
-    if (solo.length < 6 || /^\d+$/.test(solo)) return null;
+    if (!distinctiveWord(shared[0])) return null;
     if (precision < 0.5) return null;
   }
   return { overlap, precision, recall, best, solo: overlap < 2 };
+}
+
+// Is one word, on its own, enough to hang a match on?
+//
+// Five characters, not a bare number. Shared by the scorer and by the search
+// entry check below, which MUST agree: they disagreeing is what made the v23
+// fix unreachable for the events it was written for.
+//
+// Five rather than six because the VEX World Championship reduces to exactly
+// one token — "world" — every other word in it being programme boilerplate
+// this file already stopwords. Six characters excluded Worlds by one letter.
+// "katy" is four and still rejected, which keeps the case the STOPWORDS
+// comment calls correctly too thin.
+function distinctiveWord(tok) {
+  const t = String(tok || '');
+  return t.length >= 5 && !/^\d+$/.test(t);
 }
 
 // The event name as a search query: intact, minus the program boilerplate
@@ -554,7 +569,22 @@ function searchQuery(name) {
 async function searchYouTubeByName(name, startISO, endISO, ytKey) {
   const want = nameTokens(name);
   // Nothing distinctive left to match on — a search would be a coin flip.
-  if (want.length < 2) return [];
+  //
+  // This used to demand two tokens, which quietly made v23's single-rare-word
+  // rule in scoreTitle unreachable for the very events it was written for:
+  // "Excalibur Robotics Challenge" reduces to [excalibur] and the VEX World
+  // Championship to [world], so both returned here and the scorer was never
+  // called. The search cost nothing and found nothing because it never ran.
+  //
+  // Same shape as the three bugs before it: a path returning before it reaches
+  // the code that would have worked. The two checks now share distinctiveWord()
+  // precisely so they cannot drift apart again.
+  //
+  // Note the QUERY is not thin even when the token list is — searchQuery()
+  // keeps the whole event name, so "VEX Robotics World Championship" is what
+  // actually goes to YouTube. Only the scoring works on tokens.
+  if (!want.length) return [];
+  if (want.length === 1 && !distinctiveWord(want[0])) return [];
   const wantGrade = gradeOf(name);
 
   const startMs = Date.parse(startISO);
