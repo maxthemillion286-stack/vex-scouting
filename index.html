@@ -2258,7 +2258,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v21';
+const APP_BUILD = 'v22';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -2802,6 +2802,48 @@ async function rwAutoFindStream(eventId) {
         vsDebug.jumper = { sku: e0.sku, threw: String(e && e.message || e) };
         vsNote('autofind', e && e.message || e);
       }
+    }
+
+    // Still short of one video per day? Ask the channel.
+    //
+    // Whatever we have — a link from the event description, or a single hit
+    // from the name search — tells us the channel that broadcast this event,
+    // and the remaining days are almost always sitting on it. Without this the
+    // one known video gets reused for every day, which anchors day 1 against
+    // day 2's recording: the exact "it found the stream but nothing is
+    // jumpable" symptom, and why multi-day events never worked.
+    //
+    // Guarded on actually needing it, so a fully-covered event spends nothing.
+    // Costs 2-3 units against the name search's 101, and is more trustworthy:
+    // the channel is confirmed rather than inferred from a title.
+    const ytId = webcast || (rwParseSource(webcastRaw || '') || {}).id;
+    if (e0.sku && dayCount > 1 && rwStreamPool.length < dayCount &&
+        ytId && /^[A-Za-z0-9_-]{11}$/.test(ytId) && e0.start) {
+      try {
+        const sq = `${BASE}?path=${encodeURIComponent('siblings:' + ytId)}` +
+          `&start=${encodeURIComponent(e0.start)}` +
+          (e0.end ? `&end=${encodeURIComponent(e0.end)}` : '') +
+          (e0.name ? `&name=${encodeURIComponent(e0.name)}` : '') +
+          (rwDebugOn() ? `&_t=${Date.now()}` : '');
+        const sr = await fetch(sq);
+        if (sr.ok) {
+          const sj = await sr.json();
+          vsDebug.siblings = { videoId: ytId, http: sr.status, body: sj };
+          const sibs = (sj.streams || []).filter(x =>
+            /youtube|youtu\.be/i.test(x.url) && !(rwParseSource(x.url) || {}).kind);
+          if (sibs.length > rwStreamPool.length) {
+            // The channel listing is per-day and carries actualStartTime, so it
+            // supersedes a pool that couldn't cover the event. The known video
+            // is in there already — it came off the same channel.
+            rwStreamPool = sibs;
+            rwStreamReason = null;
+            const best = sibs.find(x => x.url === webcastRaw) || sibs[0];
+            webcastRaw = best.url;
+            webcast = rwParseVideoId(best.url);
+            ctxWebcastSource = 'yt-siblings';
+          }
+        }
+      } catch (e) { vsNote('siblings', e && e.message || e); }
     }
   } catch (e) {}
   return webcastRaw ? { url: webcastRaw, videoId: webcast, source: ctxWebcastSource } : null;
@@ -3556,7 +3598,7 @@ function rewatchRender() {
     // found (otherwise this reads as auto-find being broken, which is the
     // complaint that prompted this) and why syncing it didn't work.
     html += `<div class="rw-hint">Found this event's stream automatically${
-      {'webcast-field': '', 'event-page-webcast': " (from the event's webcast section)", 'event-page': " (from the event page)"}[ctx.foundStream.source] || ' (from the event description)'
+      {'webcast-field': '', 'event-page-webcast': " (from the event's webcast section)", 'event-page': " (from the event page)", 'yt-search': ' (found on YouTube by event name)', 'yt-siblings': " (from the event's YouTube channel)"}[ctx.foundStream.source] || ' (from the event description)'
     }, but couldn't line it up with the match times on its own.${
       rwSyncWhy.length ? ` ${rwSyncWhy[0]}` : ''
     } Open <strong>+ ADD STREAM</strong> below — the link is already filled in, so setting one anchor finishes it.</div>`;
@@ -3650,7 +3692,7 @@ function rewatchRender() {
         ? ctx.allMatches.filter(m => m.t !== null && dayKeyOf(m.t) === day)
         : dayMatches.filter(m => m.t !== null);
       const existing = (cal && cal.anchors) ? cal.anchors.length : 0;
-      html += `${ctx.foundStream ? `<div class="rw-found">Found this event's stream automatically${{'webcast-field': '', 'event-page-webcast': " (from the event's webcast section)", 'event-page': " (from the event page)"}[ctx.foundStream.source] || ' (from the event description)'} — filled in below.</div>` : (
+      html += `${ctx.foundStream ? `<div class="rw-found">Found this event's stream automatically${{'webcast-field': '', 'event-page-webcast': " (from the event's webcast section)", 'event-page': " (from the event page)", 'yt-search': ' (found on YouTube by event name)', 'yt-siblings': " (from the event's YouTube channel)"}[ctx.foundStream.source] || ' (from the event description)'} — filled in below.</div>` : (
         // Say WHY nothing was found. "Add a stream" on an event that plainly
         // has one reads as a bug; naming the cause makes it actionable.
         {

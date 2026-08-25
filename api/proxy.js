@@ -18,7 +18,7 @@ export const config = { maxDuration: 60 };
 // Bumped whenever the streams lookup changes. Surfaced in `diag` and in every
 // streams response so the debug page can prove WHICH proxy is actually live —
 // a stale cached reply is otherwise indistinguishable from a fresh failure.
-const PROXY_BUILD = 'v21';
+const PROXY_BUILD = 'v22';
 // A failed stream lookup is expensive (page race + a YouTube search), and the
 // answer rarely changes within a session. Cache the miss too, or every revisit
 // pays the full cost again.
@@ -265,6 +265,11 @@ async function ytVideoDetails(ids, ytKey) {
         title: (it.snippet && it.snippet.title) || '',
         description: (it.snippet && it.snippet.description) || '',
         channelTitle: (it.snippet && it.snippet.channelTitle) || '',
+        // Already in the snippet we're paying for. It's the cheapest lead there
+        // is to the OTHER days of a multi-day event: organisers put one
+        // broadcast in the event description and the rest sit on the same
+        // channel. See the `siblings:` route.
+        channelId: (it.snippet && it.snippet.channelId) || null,
         publishedAt: (it.snippet && it.snippet.publishedAt) || null,
         actualStartTime: d.actualStartTime || null,
         scheduledStartTime: d.scheduledStartTime || null,
@@ -992,6 +997,62 @@ async function handleRequest(req, res) {
       return res.status(200).json({ ok: false, reason: 'not-a-livestream' });
     } catch (err) {
       return res.status(200).json({ ok: false, reason: 'lookup-failed' });
+    }
+  } else if (path.startsWith('siblings:')) {
+    // ── The other days of a multi-day event ──────────────────────────────
+    //
+    // Organisers stream one broadcast PER DAY but publish only one of them in
+    // the event description — in practice the last. The client used to apply
+    // that single link to every day, so day 1 was anchored against day 2's
+    // video: a negative offset, auto-sync refusing, and no match jumpable.
+    //
+    // Given one video of the event we already know its channel (the snippet
+    // rides along on the details call we pay for anyway), and the rest of the
+    // days are almost always sitting on it. Resolving that channel costs 2-3
+    // units against the 101 a name search costs, and it is far more reliable:
+    // the channel is confirmed rather than guessed at from a title.
+    //
+    // resolveChannel() takes a channel URL and already parses /channel/UC…,
+    // so the id goes straight back in without a second code path — and its
+    // date window and grade veto (§3) apply unchanged.
+    const ytKey = process.env.YOUTUBE_API_KEY;
+    const videoId = path.slice(9);
+    const startISO = typeof req.query.start === 'string' ? req.query.start : '';
+    const endISO = typeof req.query.end === 'string' ? req.query.end : '';
+    const evName = typeof req.query.name === 'string' ? req.query.name : '';
+    if (!ytKey) return res.status(200).json({ ok: false, reason: 'no-key', streams: [] });
+    if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) {
+      return res.status(400).json({ ok: false, reason: 'bad-id', streams: [] });
+    }
+    if (!startISO) return res.status(200).json({ ok: false, reason: 'no-dates', streams: [] });
+    try {
+      const details = await ytVideoDetails([videoId], ytKey);
+      const me = details && details.get(videoId);
+      const channelId = me && me.channelId;
+      if (!channelId) {
+        return res.status(200).json({ ok: false, reason: 'no-channel', streams: [] });
+      }
+      const vids = await resolveChannel(
+        'https://www.youtube.com/channel/' + channelId, startISO, endISO, ytKey, evName);
+      const out = {
+        ok: vids.length > 0,
+        build: PROXY_BUILD,
+        channelId,
+        // Same shape as the `streams:` route, so the client merges the two
+        // without a special case.
+        streams: vids.map(v => ({ ...v, source: 'yt-siblings' })),
+        reason: vids.length ? undefined : 'channel-no-videos'
+      };
+      // A finished event's channel listing cannot change; cache it hard. One
+      // that is still running is retried within the hour, because the later
+      // days may not have been broadcast yet.
+      const eventOver = Date.parse(endISO || startISO) < Date.now() - 36 * 3600e3;
+      const ttl = out.ok ? STREAM_TTL_MS : (eventOver ? NEG_TTL_PAST_MS : NEG_TTL_MS);
+      const edge = Math.floor(ttl / 1000);
+      res.setHeader('Cache-Control', `public, s-maxage=${edge}, stale-while-revalidate=${edge}`);
+      return res.status(200).json(out);
+    } catch (err) {
+      return res.status(200).json({ ok: false, reason: 'lookup-failed', streams: [] });
     }
   } else {
     // Main authenticated v2 API

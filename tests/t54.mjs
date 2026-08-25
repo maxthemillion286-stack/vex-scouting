@@ -34,8 +34,13 @@ ok('the debug report surfaces the proxy build', /proxy: \(vsDebug\.diag && vsDeb
 
 // ── the service worker must not serve these from cache ───────────────────
 const sw = fs.readFileSync('../sw.js','utf8');
-ok('slow diagnostic lookups bypass the SW cache',
-   /path=\(\?:streams\|vimeo\|diag\)/.test(sw));
+// Asserted route-by-route rather than against one frozen alternation, so
+// adding another slow lookup doesn't fail this for the wrong reason. Every
+// route named here is on-demand and useless when stale — see HANDOFF.md §8.
+const swSlow = (sw.match(/path=\(\?:([a-z|]+)\)/) || [])[1] || '';
+for (const route of ['streams', 'vimeo', 'diag', 'siblings']) {
+  ok(`${route}: bypasses the SW cache`, swSlow.split('|').includes(route), swSlow);
+}
 ok('they are network-only, with an offline fallback',
    /event\.respondWith\(fetch\(request\)\.catch\(\(\) => offlineResponse\(request\)\)\)/.test(sw));
 ok('ordinary API calls still use network-first-with-timeout',

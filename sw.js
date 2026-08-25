@@ -1,4 +1,4 @@
-// VEX Scout Service Worker — v21
+// VEX Scout Service Worker — v22
 //
 // Built on the v3 network-first design (updates always appear immediately),
 // with three additions aimed at competition venues:
@@ -21,8 +21,8 @@
 //
 // Bump CACHE_NAME whenever index.html changes.
 
-const CACHE_NAME = 'vex-scout-v21';
-const API_CACHE = 'vex-scout-v21-api';
+const CACHE_NAME = 'vex-scout-v22';
+const API_CACHE = 'vex-scout-v22-api';
 
 // How long to wait for the network before showing the cached copy.
 const HTML_TIMEOUT_MS = 2500;
@@ -122,7 +122,7 @@ self.addEventListener('fetch', (event) => {
     // back a stale copy every time and make a fixed proxy look unchanged.
     // These are on-demand and useless when stale, so: network only.
     const q = url.search || '';
-    if (/path=(?:streams|vimeo|diag)/.test(decodeURIComponent(q))) {
+    if (/path=(?:streams|vimeo|diag|siblings)/.test(decodeURIComponent(q))) {
       event.respondWith(fetch(request).catch(() => offlineResponse(request)));
       return;
     }
