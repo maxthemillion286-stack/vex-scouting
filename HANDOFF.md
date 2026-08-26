@@ -365,6 +365,35 @@ several videos rather than all pointing at the first. If some rows say "not in
 the stream", check whether those matches really predate 17:17 UTC — that's
 correct behaviour, not a bug.
 
+### B2. Worlds and some championships are not on YouTube at all
+
+The VEX Robotics World Championship streams on **vexworlds.tv**, e.g.
+`https://www.vexworlds.tv/#/channels/jmhkmkbdwsh3fg4pfoqn`. Some other RECF-run
+events do the same.
+
+This matters more than it sounds. Several rounds went into tuning the YouTube
+scorer against Worlds because the app reported "nothing on YouTube matches its
+name and dates closely enough to trust" — a sentence that describes a near-miss.
+It was an absence. There was never anything on YouTube to find.
+
+As of v29 the app recognises a vexworlds.tv link (`rwParseSource` returns
+`platform: 'vexworldstv'`, `kind: 'unsupported'`) and says so plainly instead of
+"that doesn't look like a YouTube or Vimeo link". It cannot seek inside one.
+
+**Deliberately not implemented further.** The site is a hash-routed app and how
+it serves video has not been *observed* — the development sandbox's network
+policy refuses the host (`gateway answered 403 to CONNECT`), so nothing about it
+can be verified from here. Issue C below is already one integration written
+against expected rather than observed markup; guessing a second would add a
+second C.
+
+**Next step, and it needs a browser that can reach the site:** open a
+vexworlds.tv channel with DevTools on the Network tab and capture (a) the XHR
+that lists a channel's videos, (b) the response shape, and (c) whether any field
+gives a broadcast's real start time. Without (c) auto-sync can be no better than
+the Vimeo case in §5 — approximate at best, and honestly tagged as such. With
+it, a `vextv:` proxy route alongside `vimeo:` is straightforward.
+
 ### C. Vimeo has never been tested against a live event
 
 The player mount, clip/hash resolution and channel-page scraping are all written

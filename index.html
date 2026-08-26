@@ -2258,7 +2258,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v28';
+const APP_BUILD = 'v29';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -2358,6 +2358,32 @@ function rwParseSource(url) {
   if (/^[\w-]{11}$/.test(s)) return { platform: 'youtube', id: s };
   const m = s.match(/(?:v=|youtu\.be\/|\/embed\/|\/live\/|\/shorts\/)([\w-]{11})/);
   if (m) return { platform: 'youtube', id: m[1] };
+
+  // ── vexworlds.tv / VEX TV ──
+  //
+  // The World Championship and some other RECF-run events are not on YouTube
+  // at all — they stream on vexworlds.tv, e.g.
+  //   https://www.vexworlds.tv/#/channels/jmhkmkbdwsh3fg4pfoqn
+  //
+  // That is why no amount of improving the YouTube search ever found Worlds:
+  // there is nothing there to find. Recognised here so the app can say that
+  // plainly instead of "nothing matches closely enough to trust", which reads
+  // as a scoring problem and sent this down the wrong path repeatedly.
+  //
+  // NOT seekable yet, deliberately. The site is a hash-routed app and how it
+  // serves video has not been observed — and §10-C is already carrying one
+  // integration written against expected rather than observed markup. Guessing
+  // a second one would add another. Returning it as a known-but-unsupported
+  // source is honest; claiming to handle it would not be.
+  if (/vexworlds\.tv|vextv\.(?:vex)?robotics\.com/i.test(s)) {
+    return {
+      platform: 'vexworldstv',
+      kind: 'unsupported',
+      channelId: s.match(/#\/channels\/([a-z0-9]+)/i)?.[1] || null,
+      url: s.split(/[?]/)[0],
+      id: null
+    };
+  }
 
   // A bare number is most likely a Vimeo id
   if (/^\d{6,12}$/.test(s)) return { platform: 'vimeo', id: s, eventId: null, hash: null };
@@ -3514,6 +3540,9 @@ async function rwTryAutoSync(day, linkText, { quiet = false, knownStart = null, 
     return false;
   };
   if (!srcInfo) { if (!quiet) showError('⚠ Paste the stream link first.'); return false; }
+  if (srcInfo.platform === 'vexworldstv') {
+    return fail('That is a VEX TV / vexworlds.tv stream. The World Championship and some other RECF events are streamed there rather than on YouTube, and the Jumper cannot seek inside them — open the stream in a tab and use the match times below to find your match.');
+  }
   if (srcInfo.platform !== 'youtube') {
     // A channel link has no clip to seek into. Say so plainly — the old
     // behaviour was to store it, fail, and leave you pressing RETRY SYNC on
@@ -3770,10 +3799,10 @@ function rewatchRender() {
       'channel-needs-yt-key': 'This event links a YouTube channel rather than a specific video. Searching that channel needs YOUTUBE_API_KEY set on the server.',
       'channel-no-videos': "This event links a YouTube channel, but no broadcast on it lines up with these dates.",
       'no-links-on-page': "No stream link is published on this event's page.",
-      'no-link-and-no-yt-match': "This event's page lists no stream, and nothing on YouTube matches its name and dates closely enough to trust.",
+      'no-link-and-no-yt-match': "This event's page lists no stream, and nothing on YouTube matches its name and dates closely enough to trust. Championship events are often streamed on vexworlds.tv instead, which the Jumper can't read.",
       'no-links-and-no-yt-key': "This event's page lists no stream. Searching YouTube by name needs YOUTUBE_API_KEY set on the server.",
       'fetch-failed': "Couldn't reach this event's page to look for a stream link.",
-      'page-blocked-and-no-yt-match': "This event's page couldn't be read, and nothing on YouTube matches its name and dates closely enough to trust.",
+      'page-blocked-and-no-yt-match': "This event's page couldn't be read, and nothing on YouTube matches its name and dates closely enough to trust. Championship events are often streamed on vexworlds.tv instead, which the Jumper can't read.",
       'no-links-and-no-yt-key': "This event's page lists no stream. Searching YouTube by name needs YOUTUBE_API_KEY set on the server."
     }[rwStreamReason];
     if (why) html += `<div class="rw-hint rw-miss">Auto-find found nothing: ${why} Add the link by hand below — it still syncs itself once pasted.</div>`;
