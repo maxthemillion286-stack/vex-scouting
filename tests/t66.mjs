@@ -30,7 +30,11 @@ const fn = src.slice(src.indexOf('async function rwAutoFindStream'),
 
 console.log('t66 — description link does not short-circuit the pool');
 
-ok('rwAutoFindStream was found', fn.length > 200 && fn.length < 8000);
+// The upper bound only confirms the slice grabbed one function rather than
+// running off the end of the file — it is not a size policy. Raised as the
+// function gained the channel-expansion path; roughly half of it is comment,
+// which is the house style here and shouldn't trip a test.
+ok('rwAutoFindStream was found', fn.length > 200 && fn.length < 14000, `length ${fn.length}`);
 
 // ── 1. The two paths are no longer mutually exclusive ──
 ok('the proxy call is not an else-branch of the description check',

@@ -2258,7 +2258,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v26';
+const APP_BUILD = 'v27';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -2838,6 +2838,15 @@ async function rwAutoFindStream(eventId) {
           // The name lets the proxy search YouTube when the event page lists
           // no link, or can't be read at all — which is the common case.
           (e0.name ? `&name=${encodeURIComponent(e0.name)}` : '') +
+          // The release, so a deploy gets its own CDN entry.
+          //
+          // The edge caches this for 24 hours keyed by URL, and the URL used
+          // to be identical across releases — so a fixed lookup kept serving
+          // the previous release's answer for a day. Several rounds of real
+          // fixes looked like no change at all because of it. APP_BUILD and
+          // PROXY_BUILD are bumped together (t58 enforces it), so this is the
+          // proxy's version too.
+          `&b=${encodeURIComponent(APP_BUILD)}` +
           // Cache-bust ONLY when debugging. In normal use the CDN answer is
           // exactly what we want: a repeat visit to the same event costs no
           // function invocation and no YouTube quota at all.
@@ -2902,6 +2911,7 @@ async function rwAutoFindStream(eventId) {
           `&start=${encodeURIComponent(e0.start)}` +
           (e0.end ? `&end=${encodeURIComponent(e0.end)}` : '') +
           (e0.name ? `&name=${encodeURIComponent(e0.name)}` : '') +
+          `&b=${encodeURIComponent(APP_BUILD)}` +
           (rwDebugOn() ? `&_t=${Date.now()}` : '');
         const sr = await fetch(sq);
         if (sr.ok) {
