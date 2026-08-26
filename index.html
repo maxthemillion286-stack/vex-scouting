@@ -2261,7 +2261,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v32';
+const APP_BUILD = 'v33';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -2494,6 +2494,16 @@ function rwSegmentsForDay(pool, day) {
 // of one day at index 0 — and index 0 asked for the video labelled "Day 1",
 // which is Friday's. The event's own start date is the only thing that says
 // which ordinal a date really is.
+// How far before a broadcast's start a match may still count as being in it.
+//
+// Organisers routinely begin recording once play is under way, so the day's
+// first match can legitimately predate the video by a few minutes. §4 has
+// always described this for the multi-segment case; it is one constant now so
+// auto-sync and the segment picker cannot disagree about it — they did, and
+// auto-sync's hard refusal was throwing away whole days that the segment
+// picker would have accepted.
+const RW_PRESTART_GRACE_SEC = 15 * 60;
+
 let rwEventStartDay = null;
 
 // Every day the EVENT runs, as rwDayKey strings, oldest first. Built from all
@@ -2746,7 +2756,7 @@ function rwPickSegment(segments, t) {
   // Slightly before the first segment: organisers routinely start recording a
   // minute or two into the first match, so treat a near miss as "start of the
   // first video" rather than refusing to play it.
-  if (t >= segs[0].startMs - 15 * 60 * 1000) return segs[0];
+  if (t >= segs[0].startMs - RW_PRESTART_GRACE_SEC * 1000) return segs[0];
   return null;
 }
 
@@ -3665,11 +3675,48 @@ async function rwTryAutoSync(day, linkText, { quiet = false, knownStart = null, 
 
   // Anchor against this day's first match — any match works, since the offset
   // is fixed; using a real one keeps the display consistent with manual anchors.
-  const anchor = rwAnchorForDay(ctx, day) ||
+  let anchor = rwAnchorForDay(ctx, day) ||
     ctx.matches.filter(m => m.t !== null && rwDayKey(m.t) === day).sort((a, b) => a.t - b.t)[0];
   if (!anchor) return fail('No dated matches on this day to sync against.');
-  const secs = Math.round((anchor.t - startMs) / 1000);
-  if (secs < 0) return fail("These matches happened before this stream started — wrong day's video?");
+  let secs = Math.round((anchor.t - startMs) / 1000);
+
+  // The day's FIRST match starting before the broadcast did is normal, not a
+  // wrong video — and refusing it threw away the whole day.
+  //
+  // Observed on Bots @ Bristol day 2: the stream begins 13:04:23Z and the first
+  // qualification match is a few minutes earlier, because the organiser started
+  // recording once play was already under way. Auto-sync bailed with "these
+  // matches happened before this stream started", the day got no calibration,
+  // and every row read "no stream for this day" — while the correct video sat
+  // in the box. The pick was right the whole time; this was the last step.
+  //
+  // §4 already describes the intended behaviour for the segment case: a match
+  // up to fifteen minutes early still opens at 0:00. That grace was never
+  // applied here. Two ways out, in order:
+  //
+  //   1. Within the grace: clamp to 0:00. The match is on the recording, just
+  //      at the very start of it.
+  //   2. Beyond it: anchor on the first match that IS inside the stream. The
+  //      offset is linear, so any match inside gives the same mapping — and
+  //      the earlier ones then compute negative and correctly say "not in the
+  //      stream" per §4, rather than taking the day down with them.
+  //
+  // Only when NO match that day falls inside the recording is it genuinely the
+  // wrong video, and only then does this fail.
+  if (secs < 0) {
+    if (secs >= -RW_PRESTART_GRACE_SEC) {
+      secs = 0;
+    } else {
+      const inStream = ((ctx.allMatches && ctx.allMatches.length) ? ctx.allMatches : ctx.matches)
+        .filter(m => m.t !== null && rwDayKey(m.t) === day && m.t >= startMs)
+        .sort((a, b) => a.t - b.t);
+      if (!inStream.length) {
+        return fail("Every match on this day happened before this stream started, so it is a different day's recording.");
+      }
+      anchor = inStream[0];
+      secs = Math.round((anchor.t - startMs) / 1000);
+    }
+  }
   // ...and the same test at the other end. A match that lands PAST the end of
   // the recording proves this is the wrong video just as surely as one landing
   // before the start — it is what a day-2 match anchored against the day-1
