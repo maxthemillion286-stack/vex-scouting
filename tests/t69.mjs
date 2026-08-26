@@ -27,10 +27,10 @@ const grab = re => (src.match(re) || [''])[0];
 console.log('t69 — event-relative day ordinals and wrong-video refusal');
 
 // ── 1. The ordinal is measured from the event's start, not the array index ──
-const mk = startDay => new Function('startDay',
-  'let rwEventStartDay = startDay;\n' +
+const mk = (startDay, days) => new Function('startDay', 'days',
+  'let rwEventStartDay = startDay;\nlet rwEventDays = days || [];\n' +
   grab(/function rwEventDayOrdinal\(dayKey, fallbackIndex\)[\s\S]*?\n\}/) +
-  '\nreturn rwEventDayOrdinal;')(startDay);
+  '\nreturn rwEventDayOrdinal;')(startDay, days);
 
 const ordFri = mk('2026-02-13');
 ok('the event\'s first day is ordinal 0', ordFri('2026-02-13', 0) === 0);
@@ -39,19 +39,35 @@ ok('the event\'s second day is ordinal 1 even when it is the team\'s first',
 ok('a four-day event counts through', ordFri('2026-02-16', 0) === 3);
 ok('without an event start it falls back to the given index',
   mk(null)('2026-02-14', 0) === 0);
+
+// The event's own day list outranks the start date, and works without one.
+// This is what most day-2 columns were missing: with no start date the
+// ordinal fell back to the day's index within THIS TEAM's days, and a team
+// playing only Saturday has Saturday at index 0 — which asks for "Day 1".
+const twoDay = ['2026-02-13', '2026-02-14'];
+ok('the day list gives Saturday ordinal 1 with no start date at all',
+  mk(null, twoDay)('2026-02-14', 0) === 1, 'the reported "most day 2 events show day 1"');
+ok('the day list gives Friday ordinal 0', mk(null, twoDay)('2026-02-13', 0) === 0);
+ok('a four-day event indexes through the list',
+  mk(null, ['2026-05-05', '2026-05-06', '2026-05-07', '2026-05-08'])('2026-05-08', 0) === 3);
+ok('the day list wins over a disagreeing start date',
+  mk('2026-02-14', twoDay)('2026-02-14', 0) === 1);
+ok('a day outside the list still falls back to the start date',
+  mk('2026-02-13', twoDay)('2026-02-15', 0) === 2);
 ok('a date before the event start falls back rather than going negative',
   ordFri('2026-02-12', 7) === 7);
 ok('an unparseable day falls back', ordFri('not-a-date', 4) === 4);
 
 // ── 2. A labelled pool that does not cover this day says so ──
-const pick = startDay => new Function('startDay',
-  'let rwEventStartDay = startDay;\n' +
+const pick = (startDay, days) => new Function('startDay', 'days',
+  'let rwEventStartDay = startDay;\nlet rwEventDays = days || [];\n' +
+  grab(/function rwDayKey\(ms\)[\s\S]*?\n\}/) + '\n' +
   grab(/function rwEventDayOrdinal\(dayKey, fallbackIndex\)[\s\S]*?\n\}/) + '\n' +
   grab(/const RW_WEEKDAYS = \[[^\]]*\];/) + '\n' +
   grab(/function rwTitleDayLabel\(title\)[\s\S]*?\n\}/) + '\n' +
   grab(/function rwPickByDayLabel\(pool, dayKey, dayIndex\)[\s\S]*?\n\}/) + '\n' +
   grab(/function rwPickStreamForDay\(pool, dayKey, dayIndex\)[\s\S]*?\n\}/) +
-  '\nreturn rwPickStreamForDay;')(startDay);
+  '\nreturn rwPickStreamForDay;')(startDay, days);
 
 const bristol = [
   { url: 'D1', title: 'Bots @ Bristol Signature Event (Middle School) Day 1' },
