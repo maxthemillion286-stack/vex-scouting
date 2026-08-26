@@ -30,12 +30,14 @@ const grab = re => (src.match(re) || [''])[0];
 console.log('t73 — day 2 must not resolve to day 1');
 
 const pick = days => new Function('days',
-  'let rwEventStartDay = null;\nlet rwEventDays = days || [];\n' +
+  'let rwEventStartDay = null;\nlet rwEventDays = days || [];\nlet rwEventGrade = null;\n' +
+  grab(/function rwGradeOf\(text\)[\s\S]*?\n\}/) + '\n' +
   grab(/function rwDayKey\(ms\)[\s\S]*?\n\}/) + '\n' +
   grab(/function rwEventDayOrdinal\(dayKey, fallbackIndex\)[\s\S]*?\n\}/) + '\n' +
   grab(/const RW_WEEKDAYS = \[[^\]]*\];/) + '\n' +
   grab(/function rwTitleDayLabel\(title\)[\s\S]*?\n\}/) + '\n' +
   grab(/function rwPickByDayLabel\(pool, dayKey, dayIndex\)[\s\S]*?\n\}/) + '\n' +
+  grab(/function rwRankForDay\(cands, dayKey\)[\s\S]*?\n\}/) + '\n' +
   grab(/function rwPickStreamForDay\(pool, dayKey, dayIndex\)[\s\S]*?\n\}/) +
   '\nreturn rwPickStreamForDay;')(days);
 

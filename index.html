@@ -2261,7 +2261,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v33';
+const APP_BUILD = 'v34';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -2519,6 +2519,10 @@ let rwEventStartDay = null;
 // 0, which asks for the video labelled "Day 1".
 let rwEventDays = [];
 
+// The grade this event is run at, from its name. Used to tell two broadcasts
+// of the same day apart when a venue streams several grades over one weekend.
+let rwEventGrade = null;
+
 function rwEventDayOrdinal(dayKey, fallbackIndex) {
   // The event's own day list first.
   const i = rwEventDays.indexOf(dayKey);
@@ -2536,11 +2540,30 @@ function rwEventDayOrdinal(dayKey, fallbackIndex) {
 }
 
 const RW_WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+const RW_SPELLED_DAYS = ['one', 'two', 'three', 'four', 'five', 'six', 'seven'];
+
+// Grade from a title or an event name. Mirrors gradeOf() in the proxy, and is
+// used to tell two broadcasts of the SAME day apart — a club that runs middle
+// school and high school over one weekend publishes four videos, two of which
+// both say "Day 2".
+function rwGradeOf(text) {
+  const t = String(text || '').toLowerCase();
+  if (/\b(?:middle\s*school|ms|m\.s\.)\b/.test(t)) return 'ms';
+  if (/\b(?:high\s*school|hs|h\.s\.)\b/.test(t)) return 'hs';
+  if (/\b(?:elementary|es)\b/.test(t)) return 'es';
+  if (/\b(?:college|university|vex\s*u|vurc)\b/.test(t)) return 'u';
+  return null;
+}
+
 function rwTitleDayLabel(title) {
   const t = String(title || '').toLowerCase();
   // "Day 2", "Day #2", "day2" — but not the "day" in "Field Day".
+  // "Day 2 of 3" matches 2, which is what it means.
   const n = t.match(/\bday\s*#?\s*(\d{1,2})\b/);
   if (n) return { kind: 'n', n: +n[1] };
+  // "Day Two" spelled out — common enough on smaller channels.
+  const w = t.match(/\bday\s+(one|two|three|four|five|six|seven)\b/);
+  if (w) return { kind: 'n', n: RW_SPELLED_DAYS.indexOf(w[1]) + 1 };
   for (let i = 0; i < RW_WEEKDAYS.length; i++) {
     const full = RW_WEEKDAYS[i];
     // Word-bounded so "sun" can't match inside "Sunnyvale" and "sat" can't
@@ -2561,16 +2584,57 @@ function rwPickByDayLabel(pool, dayKey, dayIndex) {
   const ord = rwEventDayOrdinal(dayKey, dayIndex);
   const wd = new Date(dayKey + 'T12:00:00Z').getUTCDay();
   let anyLabelled = false;
+  // Collect EVERY video claiming this day, not the first one found.
+  //
+  // A club running two grades over one weekend publishes four broadcasts, and
+  // two of them say "Day 2" — Bristol does exactly this. Returning whichever
+  // happened to come first in the pool was a coin toss between the middle
+  // school and high school recording, and picking the wrong one is the §3
+  // failure: every match time wrong with nothing on screen to say so.
+  const claims = [];
   for (const s of pool) {
     const lab = rwTitleDayLabel(s.title);
     if (!lab) continue;
     anyLabelled = true;
-    if (lab.kind === 'n' && lab.n === ord + 1) return s.url;
-    if (lab.kind === 'w' && !isNaN(wd) && lab.w === wd) return s.url;
+    if ((lab.kind === 'n' && lab.n === ord + 1) ||
+        (lab.kind === 'w' && !isNaN(wd) && lab.w === wd)) claims.push(s);
   }
-  // Every video in the pool announces which day it is, and none of them is
-  // this one. That is an answer, not a gap.
-  return anyLabelled ? 'none' : null;
+  if (!claims.length) {
+    // Every video in the pool announces which day it is, and none of them is
+    // this one. That is an answer, not a gap.
+    return anyLabelled ? 'none' : null;
+  }
+  return rwRankForDay(claims, dayKey);
+}
+
+// Best of several candidates for one day.
+//
+// Used by BOTH the date tier and the label tier, because a venue running two
+// grades over a weekend produces videos that tie on either signal — Bristol
+// publishes four, and the middle school and high school day 2 broadcasts start
+// four minutes apart. Whichever tier matched first was returning array order,
+// which is a coin toss, and picking the wrong grade is the §3 failure: every
+// match time wrong with nothing on screen to say so.
+function rwRankForDay(cands, dayKey) {
+  if (!cands || !cands.length) return null;
+  if (cands.length === 1) return cands[0].url;
+  const scored = cands.map(s => {
+    let score = 0;
+    // 1. The grade the event is actually run at. Decisive when known: a middle
+    //    school event's day 2 is the middle school broadcast, whatever else
+    //    was streamed alongside it.
+    const g = rwGradeOf(s.title);
+    if (rwEventGrade && g) score += (g === rwEventGrade) ? 100 : -100;
+    // 2. Did it actually air on this day? A label can be wrong; a timestamp
+    //    rarely is.
+    const t = Date.parse(s.publishedAt);
+    if (!isNaN(t) && rwDayKey(t) === dayKey) score += 10;
+    // 3. Failing both, the longer recording is the competition day rather than
+    //    an opening ceremony or an awards clip.
+    score += Math.min(5, (s.durationSec || 0) / 7200);
+    return { url: s.url, score };
+  }).sort((a, b) => b.score - a.score);
+  return scored[0].url;
 }
 
 function rwPickStreamForDay(pool, dayKey, dayIndex) {
@@ -2585,11 +2649,14 @@ function rwPickStreamForDay(pool, dayKey, dayIndex) {
     // its local one — a 5pm Pacific start is already tomorrow in UTC — so the
     // day that owned a video failed to claim it and the next day claimed it
     // instead. Off by one, in the direction of showing the previous day.
-    const exact = dated.find(s => {
+    // Every video that aired on this day, then ranked — not the first one
+    // found. Two grades streamed the same day tie here, and array order was
+    // deciding between them.
+    const sameDay = dated.filter(s => {
       const t = Date.parse(s.publishedAt);
       return !isNaN(t) && rwDayKey(t) === dayKey;
     });
-    if (exact) return exact.url;
+    if (sameDay.length) return rwRankForDay(sameDay, dayKey);
   }
   // Ranked above proximity deliberately: an explicit "Day 2" in the title beats
   // an inference drawn from two timestamps a few hours apart.
@@ -2931,6 +2998,7 @@ async function rwAutoFindStream(eventId) {
     // counted from the EVENT's first day, which is not the same as the first
     // day this team happens to play.
     rwEventStartDay = (typeof e0.start === 'string' && e0.start.slice(0, 10)) || null;
+    rwEventGrade = rwGradeOf(e0.name || '');
     // Look everywhere the API gives us first — it costs nothing.
     const found = rwFindWebcasts(e0).filter(c => c.kind === 'direct');
     if (found.length) {

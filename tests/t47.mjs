@@ -16,11 +16,14 @@ const fn = [
   // Empty here, so the ordinal falls through to the passed index — which is
   // what these positional cases assume. t69 exercises it populated.
   'let rwEventDays = [];',
+  'let rwEventGrade = null;',
+  grab(/function rwGradeOf\(text\)[\s\S]*?\n\}/),
   grab(/function rwDayKey\(ms\)[\s\S]*?\n\}/),
   grab(/function rwEventDayOrdinal\(dayKey, fallbackIndex\)[\s\S]*?\n\}/),
   grab(/const RW_WEEKDAYS = \[[^\]]*\];/),
   grab(/function rwTitleDayLabel\(title\)[\s\S]*?\n\}/),
   grab(/function rwPickByDayLabel\(pool, dayKey, dayIndex\)[\s\S]*?\n\}/),
+  grab(/function rwRankForDay\(cands, dayKey\)[\s\S]*?\n\}/),
   grab(/function rwPickStreamForDay\(pool, dayKey, dayIndex\)[\s\S]*?\n\}/)
 ].join('\n');
 const rwPickStreamForDay = new Function(fn + '; return rwPickStreamForDay;')();
