@@ -18,7 +18,7 @@ export const config = { maxDuration: 60 };
 // Bumped whenever the streams lookup changes. Surfaced in `diag` and in every
 // streams response so the debug page can prove WHICH proxy is actually live —
 // a stale cached reply is otherwise indistinguishable from a fresh failure.
-const PROXY_BUILD = 'v26';
+const PROXY_BUILD = 'v27';
 // A failed stream lookup is expensive (page race + a YouTube search), and the
 // answer rarely changes within a session. Cache the miss too, or every revisit
 // pays the full cost again.
@@ -412,7 +412,10 @@ async function resolveChannel(channelUrl, startISO, endISO, ytKey, eventName) {
     // A channel that broadcast both the high school and middle school days
     // would otherwise hand back whichever came first, and every match time
     // would be wrong with nothing on screen saying so.
-    const gotGrade = gradeOf(v.title + ' ' + v.description.slice(0, 400));
+    // Title first, description only when the title is silent — same rule as
+    // the name search. This is the path that enumerates a channel, so it is
+    // the one where a description naming the other grade would drop a day.
+    const gotGrade = gradeOf(v.title) || gradeOf(v.description.slice(0, 400));
     if (wantGrade && gotGrade && gotGrade !== wantGrade) continue;
     out.push({
       url: 'https://www.youtube.com/watch?v=' + id,
@@ -601,7 +604,10 @@ async function searchYouTubeByName(name, startISO, endISO, ytKey) {
   //
   // YouTube's own ranking copes with the boilerplate; only the program suffix
   // RobotEvents appends is worth removing, because no stream title repeats it.
-  const j = await ytGet('search?part=snippet&type=video&maxResults=25&order=relevance' +
+  // 50 rather than 25: the cost is the same 100 units either way (search.list
+  // is priced per call, not per result), and a club that streams two grades
+  // across two days puts four near-identical titles in the running at once.
+  const j = await ytGet('search?part=snippet&type=video&maxResults=50&order=relevance' +
     '&q=' + encodeURIComponent(searchQuery(name)) +
     '&publishedAfter=' + new Date(startMs - 60 * 86400e3).toISOString() +
     '&publishedBefore=' + new Date(endMs + 7 * 86400e3).toISOString(), 100, ytKey);
@@ -642,8 +648,15 @@ async function searchYouTubeByName(name, startISO, endISO, ytKey) {
     if (!airedDuringEvent(v, startMs, endMs)) continue;
     // ...and is it a broadcast rather than a clip about the same occasion?
     if (!looksLikeEventBroadcast(v)) continue;
-    // Grade veto, now against the full description rather than a snippet.
-    const gotGrade = gradeOf(v.title + ' ' + v.description.slice(0, 400));
+    // The TITLE decides the grade; the description is consulted only when the
+    // title is silent.
+    //
+    // Reading both as one string let a description settle it, and descriptions
+    // routinely name the other grade — "our High School stream is here too" on
+    // a Middle School broadcast. Whichever pattern appeared first in the
+    // concatenation won, which is not a rule so much as a coin toss, and it
+    // decides whether a video is dropped outright.
+    const gotGrade = gradeOf(v.title) || gradeOf(v.description.slice(0, 400));
     if (wantGrade && gotGrade && gotGrade !== wantGrade) continue;
     scored.push({
       url: 'https://www.youtube.com/watch?v=' + id,
@@ -653,13 +666,19 @@ async function searchYouTubeByName(name, startISO, endISO, ytKey) {
       match: sc.overlap + '/' + want.length,
       score: sc.best,
       durationSec: v.durationSec ?? null,
-      grade: gotGrade || null
+      grade: gotGrade || null,
+      // The channel that broadcast it. This is the lead that finds the OTHER
+      // days without depending on the relevance ranking to have surfaced them.
+      channelId: v.channelId || null
     });
   }
   // Best match first, then oldest, so day 1 leads when several tie.
   scored.sort((a, b) => (b.score - a.score) ||
     (Date.parse(a.publishedAt || 0) - Date.parse(b.publishedAt || 0)));
-  return scored.slice(0, 6);
+  // 6 was too tight for a multi-day event that also runs several grades: four
+  // Bristol broadcasts (MS and HS, two days each) plus any near-miss fills it
+  // before the day that matters gets in.
+  return scored.slice(0, 16);
 }
 
 function slimForPath(path, data) {
@@ -721,7 +740,20 @@ async function handleRequest(req, res) {
     // publishes no link at all.
     const evName = typeof req.query.name === 'string' ? req.query.name.slice(0, 160) : '';
 
-    const cacheKey = 'streams:' + sku + '|' + startISO.slice(0, 10);
+    // PROXY_BUILD is part of the key so a deploy cannot serve answers computed
+    // by the previous one.
+    //
+    // This masked several rounds of real fixes. A found stream is cached for
+    // 24 hours with a matching CDN s-maxage, and the CDN is keyed by URL — a
+    // URL that does not change when the proxy does. So every improvement to
+    // the lookup shipped, and then the edge kept handing out the answer from
+    // before it, for a day. Testing right after a deploy is the worst case,
+    // and it is exactly when anyone tests. The body carried "build": "v24"
+    // through it all, which is the only reason it was catchable at all.
+    //
+    // ?debug=1 hid it too, since that path adds a cache-buster — so debug
+    // captures looked fresh while ordinary use was a day stale.
+    const cacheKey = 'streams:' + PROXY_BUILD + '|' + sku + '|' + startISO.slice(0, 10);
     const hit = cache.get(cacheKey);
     if (hit && hit.expires > Date.now()) {
       res.setHeader('X-Cache', 'HIT');
@@ -900,14 +932,66 @@ async function handleRequest(req, res) {
             // Duration tells the client which segment covers a given match when
             // an organiser streams a day in several parts.
             rec.durationSec = v.durationSec ?? null;
+            rec.channelId = v.channelId || null;
           }
         }
+      }
+
+      // ── Expand to the whole channel ────────────────────────────────────
+      //
+      // The relevance search is a good way to FIND an event and a poor way to
+      // enumerate it. Bots @ Bristol published four broadcasts — Middle School
+      // and High School, two days each — and the search returned only the one
+      // with the most views. The others existed, on the same channel, under
+      // near-identical titles; nothing was wrong with them.
+      //
+      // Once any one video is known, its channel is authoritative and complete.
+      // Listing it costs 2-3 units against the 101 already spent, needs no
+      // second round trip from the client, and is cached with the rest of this
+      // answer. So it runs whenever the search found something and the event
+      // could have more days than the search returned.
+      //
+      // resolveChannel applies the same date window and grade veto, so this
+      // widens what is found without loosening what is accepted.
+      const expandKey = process.env.YOUTUBE_API_KEY;
+      const seedChannel = found.map(f => f.channelId).find(Boolean);
+      const eventDays = Math.max(1, Math.round(
+        (Date.parse(endISO || startISO) - Date.parse(startISO)) / 86400e3) + 1);
+      let expanded = 0;
+      if (expandKey && seedChannel && startISO && found.length < eventDays * 2) {
+        try {
+          const sibs = await resolveChannel(
+            'https://www.youtube.com/channel/' + seedChannel, startISO, endISO, expandKey, evName);
+          for (const v of sibs) {
+            if (found.some(f => f.url === v.url)) continue;
+            add(v.url, 'yt-channel');
+            const rec = found[found.length - 1];
+            if (rec && rec.url === v.url) {
+              rec.title = v.title;
+              rec.publishedAt = v.publishedAt;
+              rec.actualStartTime = v.actualStartTime || null;
+              rec.durationSec = v.durationSec ?? null;
+              rec.grade = v.grade || null;
+              rec.channelId = seedChannel;
+              expanded++;
+            }
+          }
+        } catch (e) { /* the search result still stands on its own */ }
       }
 
       const out = {
         ok: found.length > 0,
         build: PROXY_BUILD,
-        streams: found.slice(0, 12),
+        streams: found.slice(0, 16),
+        // How the day list was arrived at. Several rounds went into guessing
+        // whether the channel expansion had run and what it returned; saying so
+        // costs a few bytes and answers it outright (§9).
+        expand: {
+          eventDays,
+          seedChannel: seedChannel || null,
+          added: expanded,
+          ran: !!(expandKey && seedChannel && startISO)
+        },
         // Which URL actually served the page, so a wrong-path guess shows up
         // in the debug panel instead of looking like "no stream published".
         pageUrl: pageUrl || null,
