@@ -2258,7 +2258,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v29';
+const APP_BUILD = 'v30';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -3827,6 +3827,21 @@ function rewatchRender() {
   for (const day of days) {
     const cal = calAll[day] || null;
     const dayMatches = byDay[day];
+    // The link that belongs to THIS day, never the event's headline link.
+    //
+    // The form used to fall back to ctx.foundStream.url — one url for the whole
+    // event, which is day 1's. So opening "+ ADD STREAM" on day 2 pre-filled
+    // day 1's broadcast, and RETRY SYNC or the paste handler then anchored
+    // day 2 against it. Reported as "the 2nd day has no stream, and when I
+    // click add stream it automatically sets it to the stream link from day 1"
+    // — the pre-fill was doing exactly that.
+    //
+    // An empty box is the correct answer when this day has no video. It says
+    // there is nothing for this day, which is true, instead of offering
+    // another day's recording as if it were this one's.
+    const dayLink = (cal && cal.videoId)
+      || rwPickStreamForDay(rwStreamPool, day, rwEventDayOrdinal(day, days.indexOf(day)))
+      || '';
     // The anchoring form stays SHUT until "+ ADD STREAM" is pressed.
     //
     // It used to spring open on any single-day event with no stream, putting a
@@ -3883,7 +3898,12 @@ function rewatchRender() {
         ? ctx.allMatches.filter(m => m.t !== null && dayKeyOf(m.t) === day)
         : dayMatches.filter(m => m.t !== null);
       const existing = (cal && cal.anchors) ? cal.anchors.length : 0;
-      html += `${ctx.foundStream ? `<div class="rw-found">Found this event's stream automatically${{'webcast-field': '', 'event-page-webcast': " (from the event's webcast section)", 'event-page': " (from the event page)", 'yt-search': ' (found on YouTube by event name)', 'yt-siblings': " (from the event's YouTube channel)"}[ctx.foundStream.source] || ' (from the event description)'} — filled in below.</div>` : (
+      // "Found it — filled in below" must only appear when something really was
+      // filled in FOR THIS DAY. It used to key off ctx.foundStream, which is
+      // the event's headline link, so day 2 announced a find it had not been
+      // given and then showed day 1's url underneath.
+      html += `${dayLink && ctx.foundStream ? `<div class="rw-found">Found this event's stream automatically${{'webcast-field': '', 'event-page-webcast': " (from the event's webcast section)", 'event-page': " (from the event page)", 'yt-search': ' (found on YouTube by event name)', 'yt-siblings': " (from the event's YouTube channel)"}[ctx.foundStream.source] || ' (from the event description)'} — filled in below.</div>`
+        : (!dayLink && rwStreamPool.length ? `<div class="rw-miss">${rwAutoSyncFail[day] || "No broadcast was found for this day. The other days of this event have one, so this day's recording is either published under a title that doesn't say which day it is, or wasn't streamed."} Paste its link below and it will sync itself.</div>` : (
         // Say WHY nothing was found. "Add a stream" on an event that plainly
         // has one reads as a bug; naming the cause makes it actionable.
         {
@@ -3892,7 +3912,7 @@ function rewatchRender() {
           'channel-no-videos': "<div class=\"rw-miss\">This event links a YouTube channel, but no broadcast from it lines up with these dates — paste the link below.</div>",
           'no-links-on-page': "<div class=\"rw-miss\">No stream link is published on this event's page — paste one below.</div>"
         }[rwStreamReason] || ''
-      )}
+      ))}
       <div class="rw-auto-row">
         <button class="btn btn-secondary" onclick="rewatchAutoSync('${day}')">RETRY SYNC</button>
         <span class="rw-auto-note">Paste a YouTube link above and it syncs on its own. This retries if it didn't.</span>
@@ -3902,11 +3922,11 @@ function rewatchRender() {
       <div class="rw-hint">Load the stream, scrub to <strong>any</strong> match — Qualifier #1 near the start of the video is usually easiest — pick which one it is, and click <strong>SET ANCHOR HERE</strong>. Every match becomes one click from then on.</div>
       <div class="controls-row">
         <div class="input-wrap" style="flex:2;min-width:220px;"><span class="input-label">STREAM LINK</span>
-          <input type="text" id="rwVideoInput" value="${(cal && cal.videoId) || (ctx.foundStream && ctx.foundStream.url) || ctx.videoId || ''}" placeholder="Paste a YouTube or Vimeo link — it syncs itself" autocomplete="off"
+          <input type="text" id="rwVideoInput" value="${dayLink}" placeholder="Paste a YouTube or Vimeo link — it syncs itself" autocomplete="off"
             oninput="rwOnLinkPasted('${day}', this.value)"></div>
         <button class="btn btn-secondary" onclick="rwPreviewVideo()">LOAD VIDEO</button>
       </div>
-      <div id="rwCalPlayerWrap" style="display:${(cal && cal.videoId) || ctx.videoId ? '' : 'none'};">
+      <div id="rwCalPlayerWrap" style="display:${dayLink ? '' : 'none'};">
         <div class="rw-scrub-hint">Scrub to the moment robots start moving, then pick which match it is and set the anchor.</div>
         <div class="rw-embed rw-cal-embed"><div id="rwCalPlayer"></div></div>
       </div>

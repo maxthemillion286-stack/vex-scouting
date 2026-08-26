@@ -18,7 +18,7 @@ export const config = { maxDuration: 60 };
 // Bumped whenever the streams lookup changes. Surfaced in `diag` and in every
 // streams response so the debug page can prove WHICH proxy is actually live —
 // a stale cached reply is otherwise indistinguishable from a fresh failure.
-const PROXY_BUILD = 'v29';
+const PROXY_BUILD = 'v30';
 // A failed stream lookup is expensive (page race + a YouTube search), and the
 // answer rarely changes within a session. Cache the miss too, or every revisit
 // pays the full cost again.
@@ -979,6 +979,76 @@ async function handleRequest(req, res) {
         } catch (e) { /* the search result still stands on its own */ }
       }
 
+      // ── One targeted search per day still missing ──────────────────────
+      //
+      // Asked for directly, more than once: "in the youtube search just search
+      // day 2". It is the right instinct. A search for the event name alone
+      // ranks by relevance, and relevance is mostly views — so on an event
+      // whose days are published under near-identical titles, the popular day
+      // wins and the other never appears. Naming the day in the query puts it
+      // first instead.
+      //
+      // Days are compared in the EVENT's own timezone, taken from the offset on
+      // its start date, rather than the server's UTC. A broadcast that begins
+      // at 5pm local is already tomorrow in UTC, and counting it as the next
+      // day is what makes a covered day look missing.
+      //
+      // Bounded hard, because each of these is another 100 units (§3): only
+      // when a day is genuinely uncovered, at most two, and never before the
+      // free channel listing above has had its go. The whole answer is then
+      // cached for 24h, so a second visitor pays nothing.
+      const tzOffMin = (() => {
+        const m = /([+-])(\d{2}):(\d{2})$/.exec(startISO || '');
+        if (m) return (m[1] === '-' ? -1 : 1) * (+m[2] * 60 + +m[3]);
+        return 0;
+      })();
+      const dayKeyLocal = ms => {
+        const d = new Date(ms + tzOffMin * 60000);
+        return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+      };
+      const eventDayKeys = [];
+      {
+        const s0 = Date.parse(startISO);
+        for (let i = 0; i < eventDays && i < 8; i++) {
+          const k = dayKeyLocal(s0 + i * 86400e3);
+          if (k) eventDayKeys.push(k);
+        }
+      }
+      const coveredDays = () => new Set(found
+        .map(f => (f.actualStartTime || f.publishedAt) ? dayKeyLocal(Date.parse(f.actualStartTime || f.publishedAt)) : null)
+        .filter(Boolean));
+      let targeted = 0;
+      //
+      // Gated on `searched`, so a link found on the event page still costs
+      // ZERO YouTube quota — §3's rule, and t60 counts real request costs to
+      // enforce it. The first draft of this ran unconditionally and turned the
+      // free page path into 200 units; the test caught it before it shipped.
+      // When the page yielded links there is no reason to buy more.
+      if (searched && expandKey && evName && eventDayKeys.length > 1) {
+        const have = coveredDays();
+        const missing = eventDayKeys.map((k, i) => ({ k, n: i + 1 })).filter(d => !have.has(d.k));
+        for (const miss of missing.slice(0, 2)) {
+          try {
+            const hits = await searchYouTubeByName(
+              `${searchQuery(evName)} Day ${miss.n}`, startISO, endISO, expandKey);
+            for (const v of hits) {
+              if (found.some(f => f.url === v.url)) continue;
+              add(v.url, 'yt-day-search');
+              const rec = found[found.length - 1];
+              if (rec && rec.url === v.url) {
+                rec.title = v.title;
+                rec.publishedAt = v.publishedAt;
+                rec.actualStartTime = v.actualStartTime || null;
+                rec.durationSec = v.durationSec ?? null;
+                rec.grade = v.grade || null;
+                rec.channelId = v.channelId || null;
+              }
+            }
+            targeted++;
+          } catch (e) { /* the days already found still stand */ }
+        }
+      }
+
       const out = {
         ok: found.length > 0,
         build: PROXY_BUILD,
@@ -990,7 +1060,13 @@ async function handleRequest(req, res) {
           eventDays,
           seedChannel: seedChannel || null,
           added: expanded,
-          ran: !!(expandKey && seedChannel && startISO)
+          ran: !!(expandKey && seedChannel && startISO),
+          // Which event days ended up with a broadcast, in the event's own
+          // timezone, and how many targeted per-day searches it took. This is
+          // the question every round of this has turned on.
+          eventDayKeys,
+          coveredDays: [...coveredDays()],
+          targetedSearches: targeted
         },
         // Which URL actually served the page, so a wrong-path guess shows up
         // in the debug panel instead of looking like "no stream published".
