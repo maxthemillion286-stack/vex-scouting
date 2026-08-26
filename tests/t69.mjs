@@ -28,7 +28,8 @@ console.log('t69 — event-relative day ordinals and wrong-video refusal');
 
 // ── 1. The ordinal is measured from the event's start, not the array index ──
 const mk = (startDay, days) => new Function('startDay', 'days',
-  'let rwEventStartDay = startDay;\nlet rwEventDays = days || [];\n' +
+  'let rwEventStartDay = startDay;\nlet rwEventDays = days || [];\nlet rwEventGrade = null;\n' +
+  grab(/function rwGradeOf\(text\)[\s\S]*?\n\}/) + '\n' +
   grab(/function rwEventDayOrdinal\(dayKey, fallbackIndex\)[\s\S]*?\n\}/) +
   '\nreturn rwEventDayOrdinal;')(startDay, days);
 
@@ -60,12 +61,14 @@ ok('an unparseable day falls back', ordFri('not-a-date', 4) === 4);
 
 // ── 2. A labelled pool that does not cover this day says so ──
 const pick = (startDay, days) => new Function('startDay', 'days',
-  'let rwEventStartDay = startDay;\nlet rwEventDays = days || [];\n' +
+  'let rwEventStartDay = startDay;\nlet rwEventDays = days || [];\nlet rwEventGrade = null;\n' +
+  grab(/function rwGradeOf\(text\)[\s\S]*?\n\}/) + '\n' +
   grab(/function rwDayKey\(ms\)[\s\S]*?\n\}/) + '\n' +
   grab(/function rwEventDayOrdinal\(dayKey, fallbackIndex\)[\s\S]*?\n\}/) + '\n' +
   grab(/const RW_WEEKDAYS = \[[^\]]*\];/) + '\n' +
   grab(/function rwTitleDayLabel\(title\)[\s\S]*?\n\}/) + '\n' +
   grab(/function rwPickByDayLabel\(pool, dayKey, dayIndex\)[\s\S]*?\n\}/) + '\n' +
+  grab(/function rwRankForDay\(cands, dayKey\)[\s\S]*?\n\}/) + '\n' +
   grab(/function rwPickStreamForDay\(pool, dayKey, dayIndex\)[\s\S]*?\n\}/) +
   '\nreturn rwPickStreamForDay;')(startDay, days);
 
