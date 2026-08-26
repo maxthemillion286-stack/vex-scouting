@@ -1379,6 +1379,9 @@
   .rw-embed { position: relative; padding-bottom: 56.25%; height: 0; background: #000; border: 1px solid var(--border); }
   .rw-embed iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
   .rw-fallback { display: inline-block; margin-top: 10px; font-family: var(--mono); font-size: 11px; color: var(--text-muted); text-decoration: none; letter-spacing: 0.5px; }
+  /* The position, for a stream we can compute into but not seek. Large on
+     purpose: it is the whole answer when there is no player to jump. */
+  .rw-vextv-time { font-family: var(--mono); font-size: 34px; letter-spacing: 2px; margin: 14px 0 4px; color: var(--accent, #4ea1ff); }
   .rw-fallback:hover { color: var(--accent-bright); }
 
   .rw-group-label { font-family: var(--mono); font-size: 9px; letter-spacing: 2px; color: var(--text-muted); margin: 14px 0 6px; }
@@ -2258,7 +2261,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v30';
+const APP_BUILD = 'v31';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -2587,6 +2590,13 @@ function rwParseVideoId(url) {
 // Build the embed src for whichever platform a day was calibrated with.
 // Both players take a start position in the URL, so a jump is just a re-render.
 function rwEmbedSrc(cal, seconds) {
+  // vexworlds.tv cannot be embedded or seeked from here. The video is HLS
+  // behind CloudFront signed URLs — they expire, and they are issued to the
+  // viewer's own session, so there is nothing stable to point an iframe at.
+  // null tells the caller to show the computed time and a link out instead,
+  // which is still most of the value: knowing a match is 3h12m in beats
+  // scrubbing a nine-hour stream blind.
+  if (cal.platform === 'vexworldstv') return null;
   if ((cal.platform || 'youtube') === 'vimeo') {
     // #t= is the documented way to open a Vimeo player at a position, and it
     // avoids pulling in the Player SDK just to seek.
@@ -2601,6 +2611,10 @@ function rwEmbedSrc(cal, seconds) {
 }
 
 function rwWatchUrl(cal, seconds) {
+  // No timestamp: the site's deep-link format for a position has not been
+  // observed, and inventing one would produce a link that silently opens at
+  // zero. The seconds are shown next to this link instead.
+  if (cal.platform === 'vexworldstv') return cal.url || 'https://www.vexworlds.tv/';
   if ((cal.platform || 'youtube') === 'vimeo') {
     if (cal.eventId && cal.videoId) return `https://vimeo.com/event/${cal.eventId}/video/${cal.videoId}#t=${seconds}s`;
     if (cal.eventId) return `https://vimeo.com/event/${cal.eventId}#t=${seconds}s`;
@@ -3541,7 +3555,7 @@ async function rwTryAutoSync(day, linkText, { quiet = false, knownStart = null, 
   };
   if (!srcInfo) { if (!quiet) showError('⚠ Paste the stream link first.'); return false; }
   if (srcInfo.platform === 'vexworldstv') {
-    return fail('That is a VEX TV / vexworlds.tv stream. The World Championship and some other RECF events are streamed there rather than on YouTube, and the Jumper cannot seek inside them — open the stream in a tab and use the match times below to find your match.');
+    return fail("That's a VEX TV stream, which doesn't publish when a broadcast began, so it can't sync itself. Set one anchor by hand and every other match still works out: open the stream, find any match, and enter its time below. The Jumper can't jump inside VEX TV, but it will tell you exactly how far in each match is.");
   }
   if (srcInfo.platform !== 'youtube') {
     // A channel link has no clip to seek into. Say so plainly — the old
@@ -3658,6 +3672,12 @@ function rewatchCalibrate(day) {
   cur.platform = srcInfo.platform;
   cur.hash = srcInfo.hash || null;
   cur.eventId = srcInfo.eventId || null;
+  // vexworlds.tv has no seekable id to store, so keep the page url instead.
+  // Anchoring still works: the arithmetic only needs one match's position, and
+  // the user reads that off their own player. What we cannot do is jump —
+  // see rwEmbedSrc.
+  cur.url = srcInfo.url || null;
+  if (srcInfo.platform === 'vexworldstv') cur.videoId = srcInfo.channelId || 'vextv';
   cur.anchors = (cur.anchors || []).filter(a => String(a.matchId) !== String(m.id));
   cur.anchors.push({ matchId: m.id, name: m.name, matchMs: m.t, videoSec: secs });
   cur.anchors.sort((a, b) => a.matchMs - b.matchMs);
@@ -3757,15 +3777,24 @@ function rewatchRender() {
     const m = ctx.matches.find(x => String(x.id) === String(ctx.playing.matchId));
     const pcal = m ? rwCalForMatch(m, calAll) : null;
     if (pcal) {
+      const embed = rwEmbedSrc(pcal, ctx.playing.off);
       html += `<div class="rw-block" id="rwPlayer">
         <div class="detail-block-label">${m ? m.name : 'Match'} · ${rwFmtClock(ctx.playing.off)}</div>
-        <div class="rw-embed">
-          <iframe src="${rwEmbedSrc(pcal, ctx.playing.off)}"
+        ${embed ? `<div class="rw-embed">
+          <iframe src="${embed}"
             title="Match video" frameborder="0" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
         </div>
         <a class="rw-fallback" href="${rwWatchUrl(pcal, ctx.playing.off)}" target="_blank" rel="noopener">
           Video not loading? Open on ${(pcal.platform || 'youtube') === 'vimeo' ? 'Vimeo' : 'YouTube'} at ${rwFmtClock(ctx.playing.off)} →
-        </a>
+        </a>`
+        // No embed for this platform. The arithmetic is still done and still
+        // useful — a nine-hour stream is a long way to scrub blind — so show
+        // the position large and send them to the stream to seek it.
+        : `<div class="rw-hint">This stream is on VEX TV, which can't be embedded or seeked from here. Open it and scrub to the time below.</div>
+        <div class="rw-vextv-time">${rwFmtClock(ctx.playing.off)}</div>
+        <a class="rw-fallback" href="${rwWatchUrl(pcal, ctx.playing.off)}" target="_blank" rel="noopener">
+          Open the VEX TV stream, then scrub to ${rwFmtClock(ctx.playing.off)} →
+        </a>`}
       </div>`;
     }
   }

@@ -59,13 +59,53 @@ ok('an empty string is still null', rwParseSource('') === null);
 // ── 3. Auto-sync refuses it with a reason, before the Vimeo branch ──
 const sync = src.slice(src.indexOf('async function rwTryAutoSync'), src.indexOf('function rewatchCalibrate'));
 ok('auto-sync handles it explicitly', /srcInfo\.platform === 'vexworldstv'/.test(sync));
-ok('it names the platform in the message', /VEX TV \/ vexworlds\.tv stream/.test(sync));
-ok('it explains what to do instead', /open the stream in a tab and use the match times/.test(sync));
+// Asserted on substance rather than exact phrasing, so improving the wording
+// isn't a test failure. What matters is that it names the platform, says why
+// it can't sync, and points at the manual anchor rather than reading as a
+// dead end — manual calibration is the whole reason this path stays open (§6).
+const vexMsg = (sync.match(/return fail\((["'])(?:(?!\1).)*VEX TV(?:(?!\1).)*\1\)/) || [''])[0];
+ok('the refusal goes through fail(), so the reason is recorded', vexMsg.length > 0, sync.slice(0, 200));
+ok('it names the platform', /VEX TV/.test(vexMsg));
+ok('it says why it cannot sync itself', /doesn't publish when a broadcast began|can't sync itself/.test(vexMsg));
+ok('it points at setting one anchor by hand', /anchor by hand|Set one anchor/i.test(vexMsg));
+ok('it is honest that jumping is not possible', /can't jump inside VEX TV/.test(vexMsg));
+ok('it promises the thing that still works — the offset',
+  /how far in each match is/.test(vexMsg));
 ok('it is checked before the Vimeo branch',
   sync.indexOf("=== 'vexworldstv'") < sync.indexOf("!== 'youtube'"),
   'otherwise it falls into Vimeo resolution and fails obscurely');
-ok('the refusal goes through fail(), so the reason is recorded',
-  /return fail\('That is a VEX TV/.test(sync));
+
+// ── 5. A hand-anchored VEX TV day still computes and still opens out ──
+const embed = new Function('return ' + src.slice(src.indexOf('function rwEmbedSrc'), src.indexOf('function rwWatchUrl')))();
+const watch = new Function('return ' + src.slice(src.indexOf('function rwWatchUrl'), src.indexOf('// Accepts 12542')))();
+
+const vexCal = { platform: 'vexworldstv', videoId: 'jmhkmkbdwsh3fg4pfoqn', url: REAL };
+ok('there is no embed for it — nothing stable to point an iframe at',
+  embed(vexCal, 1200) === null, 'CloudFront signed HLS expires and is per-viewer');
+ok('the watch link is the page we were given', watch(vexCal, 1200) === REAL);
+ok('a missing url still yields something openable',
+  watch({ platform: 'vexworldstv' }, 0) === 'https://www.vexworlds.tv/');
+ok('no invented timestamp is appended', !/[#?&]t=/.test(watch(vexCal, 1200)),
+  'a made-up deep-link format would silently open at zero');
+
+// YouTube and Vimeo must be untouched by all of this.
+ok('YouTube still embeds with a start', embed({ platform: 'youtube', videoId: 'abc' }, 90) === 'https://www.youtube.com/embed/abc?start=90&autoplay=1');
+ok('Vimeo still embeds with #t=', /#t=90s$/.test(embed({ platform: 'vimeo', videoId: '123', hash: 'h' }, 90)));
+ok('YouTube watch links still carry the time', /&t=90s$/.test(watch({ platform: 'youtube', videoId: 'abc' }, 90)));
+
+// The calibration form has to keep the url, since there is no seekable id.
+const calib = src.slice(src.indexOf('function rewatchCalibrate(day)'), src.indexOf('function rewatchClearCal'));
+ok('the page url is stored on the calibration', /cur\.url = srcInfo\.url \|\| null;/.test(calib));
+ok('the channel id stands in for a video id',
+  /if \(srcInfo\.platform === 'vexworldstv'\) cur\.videoId = srcInfo\.channelId \|\| 'vextv';/.test(calib));
+
+// The player block must not render a broken iframe when there is no embed.
+const player = src.slice(src.indexOf('// Player sits above the day list'), src.indexOf('// Why auto-find came up empty'));
+ok('the player branches on whether an embed exists', /const embed = rwEmbedSrc\(pcal, ctx\.playing\.off\);/.test(player));
+ok('no iframe is rendered without one', /\$\{embed \? `<div class="rw-embed">/.test(player));
+ok('the computed position is shown large instead', /rw-vextv-time/.test(player));
+ok('and it says why there is no player', /can't be embedded or seeked from here/.test(player));
+ok('the class it uses is actually styled', /\.rw-vextv-time \{/.test(idx));
 
 // ── 4. The miss message stops implying a near-miss ──
 ok('a YouTube miss mentions where championships actually stream',
