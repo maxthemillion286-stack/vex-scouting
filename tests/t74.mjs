@@ -179,5 +179,36 @@ ok('a failure still falls back to the manual anchor rather than throwing',
 
 console.log(`\nt74 extra: covered the BoxCast attempt`);
 
+
+// ── 8. A wrong channel must say WHICH days it holds ──
+// The first channel tried held 20 broadcasts, all Apr 23-24, against an event
+// running Apr 25-27. Refusing was right; refusing without saying so was a dead
+// end — it did not distinguish "this channel is wrong" from "the app is wrong",
+// and gave no way forward.
+ok('the days a channel covers are computed', /function rwVexDaysNote\(list\)/.test(src));
+ok('the refusal names them', /rwVexDaysNote\(list\)/.test(sync));
+ok('it also names the days the event needs', /This event runs \$\{rwEventDays\.join/.test(src));
+ok('it says to go and find the right channel', /Find the VEX TV channel for/.test(sync));
+ok('a channel with no dated broadcasts says that instead',
+  /lists no dated broadcasts/.test(src));
+
+const daysNote = new Function('list', 'rwEventDays', 'rwDayKey', `
+  const days = [...new Set((list || [])
+    .map(b => Date.parse(b.actualStartTime || ''))
+    .filter(t => !isNaN(t))
+    .map(t => rwDayKey(t)))].sort();
+  if (!days.length) return 'none';
+  return days.join(',');`);
+const dayKey = new Function('return ' + src.slice(src.indexOf('function rwDayKey'), src.indexOf('function rwDayLabel')))();
+ok('the real Worlds capture reduces to its two days',
+  daysNote([
+    { actualStartTime: '2026-04-23T13:15:00Z' },
+    { actualStartTime: '2026-04-23T13:15:00Z' },
+    { actualStartTime: '2026-04-24T13:15:00Z' }
+  ], [], dayKey).split(',').length === 2,
+  'twenty broadcasts, two distinct days');
+ok('an undated list reports none', daysNote([{}], [], dayKey) === 'none');
+ok('an empty list reports none', daysNote([], [], dayKey) === 'none');
+
 console.log(`\nt74: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

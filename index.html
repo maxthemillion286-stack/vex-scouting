@@ -2261,7 +2261,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v36';
+const APP_BUILD = 'v37';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -2540,6 +2540,24 @@ let rwEventGrade = null;
 // identical across all ten. The division name is the only thing that tells
 // them apart, and nine of the ten are the wrong field.
 let rwTeamDivision = null;
+
+// Which days a VEX TV channel's broadcasts actually cover, said out loud.
+//
+// A channel holds one slice of an event, and vexworlds.tv has many. The first
+// one tried held 20 broadcasts, all Apr 23-24, against an event running Apr
+// 25-27 — so the right answer was to refuse. But "different day's recording"
+// alone is a dead end: it does not say the channel is wrong rather than the
+// app, and it does not say which channel to go and find. Naming the days
+// turns a refusal into a next step.
+function rwVexDaysNote(list) {
+  const days = [...new Set((list || [])
+    .map(b => Date.parse(b.actualStartTime || ''))
+    .filter(t => !isNaN(t))
+    .map(t => rwDayKey(t)))].sort();
+  if (!days.length) return 'That VEX TV channel lists no dated broadcasts.';
+  const want = rwEventDays.length ? ` This event runs ${rwEventDays.join(', ')}.` : '';
+  return `That VEX TV channel covers ${days.join(', ')}.${want}`;
+}
 
 // Does a broadcast title name this team's division?
 function rwTitleMatchesDivision(title, division) {
@@ -3795,7 +3813,7 @@ async function rwTryAutoSync(day, linkText, { quiet = false, knownStart = null, 
               // failure exactly. A match past the end of a video is proof the
               // video is wrong, whichever platform it is on.
               if (b.durationSec && secs > b.durationSec + 3600) {
-                return fail(`The nearest VEX TV broadcast for this day runs ${Math.round(b.durationSec / 3600)}h, but this day's matches fall ${Math.round(secs / 3600)}h into it — so it is a different day's recording. Paste the broadcast for this day and it will sync.`);
+                return fail(`${rwVexDaysNote(list)} This day's matches fall ${Math.round(secs / 3600)}h into a ${Math.round(b.durationSec / 3600)}h recording, so that channel isn't the one covering this day. Find the VEX TV channel for ${rwDayLabel(day)} and paste that instead.`);
               }
               if (secs >= 0) {
                 ctx.cal = ctx.cal || {};
