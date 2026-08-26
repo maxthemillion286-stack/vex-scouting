@@ -387,12 +387,38 @@ can be verified from here. Issue C below is already one integration written
 against expected rather than observed markup; guessing a second would add a
 second C.
 
-**Next step, and it needs a browser that can reach the site:** open a
-vexworlds.tv channel with DevTools on the Network tab and capture (a) the XHR
-that lists a channel's videos, (b) the response shape, and (c) whether any field
-gives a broadcast's real start time. Without (c) auto-sync can be no better than
-the Vimeo case in §5 — approximate at best, and honestly tagged as such. With
-it, a `vextv:` proxy route alongside `vimeo:` is straightforward.
+**What a Network tab capture showed (Aug 2026), from request names only:**
+
+| Request | What it tells us |
+|---|---|
+| `broadcasts?q=timeframe%…` | an API listing broadcasts by timeframe — the enumeration endpoint |
+| `view?channel_id=…` | channel → broadcast resolution |
+| `all-byteranges.m3u8`, `English.m3u8` | video is **HLS**, not an embeddable iframe |
+| `webvtt?Policy=eyJTdGF0ZW…` | `eyJTdGF0ZW` decodes to `{"Statem…` — **CloudFront signed URLs**, with `Expires=` |
+
+The signed URLs are the constraint that decides the design. They expire, and
+they are issued against the viewer's own session, so there is nothing stable to
+store or to point an iframe at — and the proxy could not fetch one even if it
+had the URL. **An embed for VEX TV is not on the table.**
+
+**What v31 does with that.** A vexworlds.tv link can now be anchored by hand:
+`rewatchCalibrate` stores the page url (`cal.url`) and uses the channel id in
+place of a video id. `rwEmbedSrc` returns `null` for it, and the player block
+renders the computed position in large type with a link out, instead of a
+broken iframe. `rwWatchUrl` returns the page url with **no** invented `#t=` —
+the site's deep-link format for a position has not been observed, and a guessed
+one would silently open at zero.
+
+So the Jumper cannot jump inside VEX TV, but it will tell you a match is 3:12:44
+in, which is most of the value against a nine-hour stream.
+
+**Next step, to go further — needs a browser that can reach the site:** capture
+the Request URL *and* Response body of `broadcasts?q=…` and `view?channel_id=…`.
+The question that decides everything is whether either carries a broadcast's
+**real start time**. With it, `vextv:` auto-sync is straightforward. Without it,
+it can be no better than the Vimeo case in §5 — approximate, and tagged amber.
+Also worth checking: whether the site's URL changes when you seek, which is what
+would make a deep-link possible.
 
 ### C. Vimeo has never been tested against a live event
 
