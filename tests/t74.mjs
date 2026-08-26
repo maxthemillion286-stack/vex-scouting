@@ -121,7 +121,19 @@ ok('the per-broadcast channel is stored when auto-syncing',
 ok('saved calibrations are filtered on load', /return rwDropImpossible\(raw\.byDay \|\| raw\)/.test(src));
 ok('the duration is persisted so the check has something to read',
   /durationSec: knownDuration \|\| null/.test(src) && /durationSec: b\.durationSec \|\| null/.test(src));
-const dropper = new Function('return ' + src.slice(src.indexOf('function rwDropImpossible'), src.indexOf('function rwSaveCal')))();
+const dropper = new Function('RW_MAX_BROADCAST_SEC', 'return ' + src.slice(src.indexOf('function rwDropImpossible'), src.indexOf('function rwSaveCal')))(14 * 3600);
+// The ceiling must not depend on a stored duration. The first version of this
+// check only ran when cal.durationSec was present — which no OLD calibration
+// has, because the field shipped in the same release as the check. It skipped
+// exactly the anchors it was written to catch, and the Worlds anchor survived
+// v39 untouched.
+ok('a ceiling exists that needs no stored duration',
+  /const RW_MAX_BROADCAST_SEC = 14 \* 3600;/.test(src));
+ok('it is checked before the duration-dependent rule',
+  src.indexOf('worst > RW_MAX_BROADCAST_SEC') < src.indexOf('cal.durationSec && worst >'));
+ok('the stale Worlds anchor is dropped with NO duration recorded',
+  Object.keys(dropper({ d: { auto: true, anchors: [{ videoSec: 115327 }] } })).length === 0,
+  '32:02:07, saved before durations existed — the exact case that survived v39');
 const worldsStale = { '2026-04-25': { auto: true, durationSec: 26340, anchors: [{ videoSec: 115327 }] } };
 ok('the real stale Worlds anchor is dropped',
   Object.keys(dropper(worldsStale)).length === 0, '32:02:07 into a 7h19m recording');
@@ -132,8 +144,13 @@ ok('an hour of slack matches the live check',
 ok('a HAND-set anchor is never dropped, however odd',
   Object.keys(dropper({ d: { auto: false, durationSec: 100, anchors: [{ videoSec: 99999 }] } })).length === 1,
   '§6 keeps manual calibration as the user\'s own judgement');
-ok('a calibration with no known duration is kept',
-  Object.keys(dropper({ d: { auto: true, anchors: [{ videoSec: 99999 }] } })).length === 1);
+ok('a plausible anchor with no known duration is still kept',
+  Object.keys(dropper({ d: { auto: true, anchors: [{ videoSec: 4000 }] } })).length === 1);
+ok('a nine-hour offset is plausible and kept',
+  Object.keys(dropper({ d: { auto: true, anchors: [{ videoSec: 9 * 3600 } ] } })).length === 1,
+  'Bristol day 2 really is 9h44m long');
+ok('a fifteen-hour offset is not',
+  Object.keys(dropper({ d: { auto: true, anchors: [{ videoSec: 15 * 3600 }] } })).length === 0);
 ok('an empty store is handled', Object.keys(dropper({})).length === 0);
 ok('a null store is handled', Object.keys(dropper(null)).length === 0);
 ok('the watch link is the page we were given', watch(vexCal, 1200) === REAL);
@@ -239,6 +256,23 @@ ok('the real Worlds capture reduces to its two days',
   'twenty broadcasts, two distinct days');
 ok('an undated list reports none', daysNote([{}], [], dayKey) === 'none');
 ok('an empty list reports none', daysNote([], [], dayKey) === 'none');
+
+
+// ── 10. One paste calibrates every day the channel covers ──
+// Calibrating only the day whose form was open left the others reading "no
+// stream for this day" and demanded the same paste again for each — three
+// times at Worlds, with no way for the user to know it would have worked.
+ok('every event day is walked', /for \(const other of rwEventDays\)/.test(sync));
+ok('the day already being handled is skipped', /if \(other === day \|\| \(ctx\.cal && ctx\.cal\[other\]\)\) continue;/.test(sync));
+ok('an already-calibrated day is not overwritten', /ctx\.cal && ctx\.cal\[other\]/.test(sync));
+ok('each day picks its own broadcast', /rwPickStreamForDay\(list, other, rwEventDayOrdinal\(other, 0\)\)/.test(sync));
+ok('a day the listing does not cover is left alone', /if \(!ob \|\| isNaN\(oStart\)\) continue;/.test(sync));
+ok('the same pre-start grace applies to the extra days',
+  /if \(osecs < 0 && osecs >= -RW_PRESTART_GRACE_SEC\) osecs = 0;/.test(sync));
+ok('the absurd-offset ceiling applies to them too', /if \(osecs > RW_MAX_BROADCAST_SEC\) continue;/.test(sync));
+ok('and the past-the-end check', /if \(ob\.durationSec && osecs > ob\.durationSec \+ 3600\) continue;/.test(sync));
+ok('each extra day stores its own embed channel and duration',
+  /day: other, auto: true, savedAt: Date\.now\(\), durationSec: ob\.durationSec \|\| null,[\s\S]{0,80}embedChannel: ob\.channelId/.test(sync));
 
 console.log(`\nt74: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
