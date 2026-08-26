@@ -18,7 +18,7 @@ export const config = { maxDuration: 60 };
 // Bumped whenever the streams lookup changes. Surfaced in `diag` and in every
 // streams response so the debug page can prove WHICH proxy is actually live —
 // a stale cached reply is otherwise indistinguishable from a fresh failure.
-const PROXY_BUILD = 'v31';
+const PROXY_BUILD = 'v32';
 // A failed stream lookup is expensive (page race + a YouTube search), and the
 // answer rarely changes within a session. Cache the miss too, or every revisit
 // pays the full cost again.
@@ -1246,6 +1246,82 @@ async function handleRequest(req, res) {
     } catch (err) {
       return res.status(200).json({ ok: false, reason: 'lookup-failed' });
     }
+  } else if (path.startsWith('boxcast:')) {
+    // ── VEX TV is BoxCast ────────────────────────────────────────────────
+    //
+    // Confirmed from a broadcast object captured off vexworlds.tv:
+    //
+    //   { "id": "efkb0bx8283bgyqvm396",
+    //     "name": "Qualification Matches (Science)",
+    //     "starts_at": "2026-04-24T13:15:00Z",
+    //     "stops_at":  "2026-04-24T20:34:00Z",
+    //     "description": "V5RC (HS)",
+    //     "channel_id": "qualification-matches-science-pjiswvniyktygr4misw0",
+    //     "account_id": "jm81brqcwqhlenmnd1ub",
+    //     "preview": "https://recordings.boxcast.com/…" }
+    //
+    // starts_at is the thing that matters. It is the real broadcast start, in
+    // UTC, which is exactly what auto-sync needs — the same role
+    // actualStartTime plays for YouTube. stops_at gives the duration, so the
+    // past-the-end check in rwTryAutoSync works here too, and `description`
+    // carries the grade for the §3 veto.
+    //
+    // So VEX TV can sync itself. What it still cannot do is embed: the media
+    // is HLS behind CloudFront signed URLs (Policy/Signature/Expires on every
+    // asset above), issued per viewer. Times, yes. Jumping, no.
+    //
+    // The exact query shape of BoxCast's list endpoint has NOT been observed —
+    // the capture showed the request name, not its URL, and this sandbox's
+    // network policy refuses the host. So every candidate is recorded in
+    // `tried` with its status, the way §2 does for the event page. A wrong
+    // guess shows up as a diagnosable line rather than a silent empty answer.
+    const rest = 'https://rest.boxcast.com';
+    const chan = path.slice(8).replace(/[^\w-]/g, '').slice(0, 80);
+    if (!chan) return res.status(400).json({ ok: false, reason: 'bad-channel', broadcasts: [] });
+    const startISO = typeof req.query.start === 'string' ? req.query.start : '';
+    const endISO = typeof req.query.end === 'string' ? req.query.end : startISO;
+    const tried = [];
+    let list = null;
+    for (const u of [
+      `${rest}/channels/${encodeURIComponent(chan)}/broadcasts?l=100`,
+      `${rest}/broadcasts?q=${encodeURIComponent('channel_id:' + chan)}&l=100`
+    ]) {
+      try {
+        const r = await fetch(u, { headers: { 'Accept': 'application/json' }, signal: AbortSignal.timeout(9000) });
+        tried.push(`${u.replace(rest, '')} -> ${r.status}`);
+        if (!r.ok) continue;
+        const j = await r.json();
+        const arr = Array.isArray(j) ? j : (j && Array.isArray(j.broadcasts) ? j.broadcasts : null);
+        if (arr && arr.length) { list = arr; break; }
+      } catch (e) {
+        tried.push(`${u.replace(rest, '')} -> ${String(e && e.message || e).slice(0, 60)}`);
+      }
+    }
+    if (!list) {
+      return res.status(200).json({ ok: false, reason: 'no-broadcasts', tried, broadcasts: [] });
+    }
+    const sMs = Date.parse(startISO), eMs = Date.parse(endISO || startISO);
+    const within = b => {
+      const t = Date.parse(b.starts_at || 0);
+      if (isNaN(t) || isNaN(sMs)) return true;   // no window given: keep it
+      return t >= sMs - 36 * 3600e3 && t <= (isNaN(eMs) ? sMs : eMs) + 36 * 3600e3;
+    };
+    const out = list.filter(within).map(b => ({
+      id: b.id,
+      name: b.name || '',
+      // Named to match what the client already consumes for YouTube, so the
+      // per-day picker and auto-sync need no special case for this platform.
+      title: [b.name, b.description].filter(Boolean).join(' — '),
+      actualStartTime: b.starts_at || null,
+      publishedAt: b.starts_at || null,
+      durationSec: (b.starts_at && b.stops_at)
+        ? Math.max(0, Math.round((Date.parse(b.stops_at) - Date.parse(b.starts_at)) / 1000)) : null,
+      grade: gradeOf(`${b.name || ''} ${b.description || ''}`),
+      channelId: b.channel_id || chan,
+      url: `https://www.vexworlds.tv/#/broadcasts/${b.id}`
+    })).sort((a, b) => Date.parse(a.actualStartTime || 0) - Date.parse(b.actualStartTime || 0));
+    res.setHeader('Cache-Control', 'public, s-maxage=3600, stale-while-revalidate=3600');
+    return res.status(200).json({ ok: out.length > 0, build: PROXY_BUILD, tried, broadcasts: out });
   } else if (path.startsWith('siblings:')) {
     // ── The other days of a multi-day event ──────────────────────────────
     //

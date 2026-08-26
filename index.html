@@ -2261,7 +2261,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v31';
+const APP_BUILD = 'v32';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -2299,6 +2299,45 @@ async function vsLoadDiag() {
   } catch (e) { vsDebug.diag = { ok: false, threw: String(e && e.message || e) }; }
 }
 
+// Per-day: what was chosen, and every input that chose it.
+//
+// Written after five rounds of "day 2 shows day 1" that could not be settled
+// from a debug capture, because the capture showed what the PROXY returned and
+// nothing about what the client did with it. The bug was on the client side
+// each time. This makes the whole decision legible in one block.
+function vsDayAssignment() {
+  try {
+    const ctx = window._rwCtx;
+    if (!ctx || !ctx.matches) return null;
+    const days = [...new Set(ctx.matches.filter(m => m.t !== null).map(m => rwDayKey(m.t)))]
+      .filter(d => d !== 'unknown').sort();
+    return {
+      // Built from every division's matches. If this holds only the days THIS
+      // team plays, the ordinals below are wrong and that is the bug.
+      eventDays: rwEventDays,
+      eventStartDay: rwEventStartDay,
+      teamDays: days,
+      pool: (rwStreamPool || []).map(s => ({
+        title: s.title || null,
+        url: s.url,
+        startedLocalDay: s.publishedAt && !isNaN(Date.parse(s.publishedAt))
+          ? rwDayKey(Date.parse(s.publishedAt)) : null,
+        durationSec: s.durationSec ?? null,
+        label: typeof rwTitleDayLabel === 'function' ? rwTitleDayLabel(s.title) : null
+      })),
+      byDay: days.map((d, i) => ({
+        day: d,
+        ordinal: rwEventDayOrdinal(d, i),
+        wantsDayLabel: rwEventDayOrdinal(d, i) + 1,
+        calibrated: !!(ctx.cal && ctx.cal[d]),
+        calVideoId: (ctx.cal && ctx.cal[d] && ctx.cal[d].videoId) || null,
+        picked: rwPickStreamForDay(rwStreamPool, d, rwEventDayOrdinal(d, i)),
+        syncFail: rwAutoSyncFail[d] || null
+      }))
+    };
+  } catch (e) { return { error: String(e && e.message || e) }; }
+}
+
 function vsDebugReport() {
   const sw = navigator.serviceWorker && navigator.serviceWorker.controller;
   return {
@@ -2324,6 +2363,11 @@ function vsDebugReport() {
     // capture of a multi-day failure came back with no way to tell whether the
     // lookup had run at all.
     siblings: vsDebug.siblings,
+    // How each day resolved to a video, which is the question five rounds of
+    // this have turned on and none of them could answer from a capture. Every
+    // input to the decision is here: the event's day list, what the pool holds,
+    // and per day the ordinal, the label wanted, and the url actually chosen.
+    dayAssignment: vsDayAssignment(),
     apiCalls: vsDebug.apiCalls,
     recentErrors: vsDebug.errors
   };
