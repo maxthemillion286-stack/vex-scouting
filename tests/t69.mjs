@@ -102,8 +102,23 @@ const sync = src.slice(src.indexOf('async function rwTryAutoSync'), src.indexOf(
 ok('auto-sync accepts the video length', /knownDuration = null/.test(sync));
 ok('an offset past the end is refused', /secs > knownDuration \+ 3600/.test(sync));
 ok('the refusal explains itself in hours', /h into a video only/.test(sync));
-ok('the before-the-start check still stands',
-  /These matches happened before this stream started/.test(sync));
+// The hard refusal on ANY negative offset is deliberately gone. It was
+// throwing away whole days over the few minutes organisers take to start
+// recording — the Bristol day-2 failure. What replaced it still refuses a
+// genuinely wrong video, but only once no match on the day is inside it.
+ok('a small negative offset is absorbed, not refused',
+  /if \(secs >= -RW_PRESTART_GRACE_SEC\) \{\s*secs = 0;/.test(sync),
+  'a stream that started a minute into the first match is normal (§4)');
+ok('it gathers the matches that ARE inside the stream',
+  /\.filter\(m => m\.t !== null && rwDayKey\(m\.t\) === day && m\.t >= startMs\)/.test(sync));
+ok('and re-anchors on the earliest of them',
+  /anchor = inStream\[0\];[\s\S]{0,80}secs = Math\.round\(\(anchor\.t - startMs\) \/ 1000\);/.test(sync));
+ok('it looks across every division, not just this team',
+  /\(ctx\.allMatches && ctx\.allMatches\.length\) \? ctx\.allMatches : ctx\.matches\)\s*\n?\s*\.filter\(m => m\.t !== null && rwDayKey/.test(sync));
+ok('it still refuses when NO match on the day is inside the recording',
+  /Every match on this day happened before this stream started/.test(sync));
+ok('the grace is the shared constant, not a second literal',
+  /RW_PRESTART_GRACE_SEC/.test(sync) && !/secs >= -900/.test(sync));
 
 const beyond = new Function('secs', 'knownDuration',
   'return !!(knownDuration && secs > knownDuration + 3600);');

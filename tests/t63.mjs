@@ -11,6 +11,10 @@ const src = idx.match(/<script(?![^>]*src=)[^>]*>([\s\S]*?)<\/script>/)[1];
 const grab = re => src.match(re)[0];
 
 const env = new Function(
+  // Shared with rwTryAutoSync, so the segment picker and auto-sync cannot
+  // disagree about how early a match may start. Pulled from source rather than
+  // restated, so a change to it is exercised here too.
+  grab(/const RW_PRESTART_GRACE_SEC = [^;]+;/) + '\n' +
   grab(/function rwDayKey\(ms\)[\s\S]*?\n\}/) + '\n' +
   grab(/function rwPickSegment\(segments, t\)[\s\S]*?\n\}/) + '\n' +
   grab(/function rwCalForMatch\(m, calByDay\)[\s\S]*?\n\}/) + '\n' +
