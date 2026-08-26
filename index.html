@@ -2261,7 +2261,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v39';
+const APP_BUILD = 'v40';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -2511,6 +2511,13 @@ function rwSegmentsForDay(pool, day) {
 // auto-sync's hard refusal was throwing away whole days that the segment
 // picker would have accepted.
 const RW_PRESTART_GRACE_SEC = 15 * 60;
+
+// Longer than any competition broadcast. The longest in any capture is 9h44m
+// (Bristol day 2); a Worlds division day is about seven. An offset past this
+// is arithmetic against the wrong recording, and needs no stored duration to
+// recognise — which matters, because the calibrations most likely to be wrong
+// are the oldest ones, saved before durations were recorded at all.
+const RW_MAX_BROADCAST_SEC = 14 * 3600;
 
 let rwEventStartDay = null;
 
@@ -2883,10 +2890,26 @@ function rwDropImpossible(byDay) {
   if (!byDay || typeof byDay !== 'object') return {};
   const out = {};
   for (const [day, cal] of Object.entries(byDay)) {
-    if (!cal || !cal.auto || !cal.durationSec) { out[day] = cal; continue; }
+    if (!cal || !cal.auto) { out[day] = cal; continue; }
     const worst = (cal.anchors || []).reduce((n, a) => Math.max(n, a.videoSec || 0), 0);
-    // An hour of slack, matching the live check in rwTryAutoSync.
-    if (worst > cal.durationSec + 3600) continue;
+    // Beyond any broadcast that has ever existed. Checked FIRST, and without
+    // reference to a stored duration.
+    //
+    // The first version of this only ran when cal.durationSec was present —
+    // which no old calibration has, because the field was added in the same
+    // release as the check. It therefore skipped exactly the anchors it was
+    // written to catch, and the Worlds day-1 anchor survived v39 untouched:
+    // still "Qualifier #1 @ 32:02:07", still marking the day calibrated, still
+    // stopping auto-sync from ever running.
+    //
+    // A competition day does not run fourteen hours. The longest broadcast
+    // seen in any capture is 9h44m, and a Worlds division day is about seven.
+    // An offset past this is arithmetic against the wrong recording, whatever
+    // the recording was.
+    if (worst > RW_MAX_BROADCAST_SEC) continue;
+    // And the precise check when the length IS known, with the same hour of
+    // slack the live one uses.
+    if (cal.durationSec && worst > cal.durationSec + 3600) continue;
     out[day] = cal;
   }
   return out;
@@ -3824,6 +3847,37 @@ async function rwTryAutoSync(day, linkText, { quiet = false, knownStart = null, 
         vsDebug.boxcast = { channel: chan, http: r.status, body: j };
         const list = (j && j.broadcasts) || [];
         if (list.length) {
+          // One paste, every day it covers.
+          //
+          // The channel listing holds the whole event, so calibrating only the
+          // day the form happened to be open on left the others reading "no
+          // stream for this day" and demanded the same paste again for each —
+          // three times at Worlds, and the user has no way to know it would
+          // have worked. Days the listing does not cover are left alone, and
+          // the day actually asked for is still the one that reports back.
+          for (const other of rwEventDays) {
+            if (other === day || (ctx.cal && ctx.cal[other])) continue;
+            const oUrl = rwPickStreamForDay(list, other, rwEventDayOrdinal(other, 0));
+            const ob = list.find(x => x.url === oUrl);
+            const oStart = ob && Date.parse(ob.actualStartTime || '');
+            if (!ob || isNaN(oStart)) continue;
+            const oa = rwAnchorForDay(ctx, other) ||
+              ctx.matches.filter(m => m.t !== null && rwDayKey(m.t) === other).sort((x, y) => x.t - y.t)[0];
+            if (!oa) continue;
+            let osecs = Math.round((oa.t - oStart) / 1000);
+            if (osecs < 0 && osecs >= -RW_PRESTART_GRACE_SEC) osecs = 0;
+            if (osecs < 0) continue;
+            if (osecs > RW_MAX_BROADCAST_SEC) continue;
+            if (ob.durationSec && osecs > ob.durationSec + 3600) continue;
+            ctx.cal = ctx.cal || {};
+            ctx.cal[other] = {
+              videoId: ob.id || chan, platform: 'vexworldstv', url: ob.url || srcInfo.url,
+              day: other, auto: true, savedAt: Date.now(), durationSec: ob.durationSec || null,
+              embedChannel: ob.channelId || null,
+              anchors: [{ matchId: oa.id || 'auto', name: oa.name, matchMs: oa.t, videoSec: osecs }]
+            };
+          }
+
           const url = rwPickStreamForDay(list, day, rwEventDayOrdinal(day, 0));
           const b = list.find(x => x.url === url) || list[0];
           const bStart = b && Date.parse(b.actualStartTime || '');
