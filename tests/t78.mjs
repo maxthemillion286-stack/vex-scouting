@@ -19,9 +19,10 @@ const src = idx.match(/<script(?![^>]*src=)[^>]*>([\s\S]*?)<\/script>/)[1];
 const grab = re => (src.match(re) || [''])[0];
 
 // The real picker, with the event's day list and grade injectable.
-const mk = (days, grade) => new Function('days', 'grade',
-  'let rwEventStartDay = null;\nlet rwEventDays = days || [];\nlet rwEventGrade = grade || null;\n' +
+const mk = (days, grade, division) => new Function('days', 'grade', 'division',
+  'let rwEventStartDay = null;\nlet rwEventDays = days || [];\nlet rwEventGrade = grade || null;\nlet rwTeamDivision = division || null;\n' +
   grab(/function rwGradeOf\(text\)[\s\S]*?\n\}/) + '\n' +
+  grab(/function rwTitleMatchesDivision\(title, division\)[\s\S]*?\n\}/) + '\n' +
   grab(/function rwDayKey\(ms\)[\s\S]*?\n\}/) + '\n' +
   grab(/function rwEventDayOrdinal\(dayKey, fallbackIndex\)[\s\S]*?\n\}/) + '\n' +
   grab(/const RW_WEEKDAYS = \[[^\]]*\];/) + '\n' +
@@ -30,7 +31,7 @@ const mk = (days, grade) => new Function('days', 'grade',
   grab(/function rwPickByDayLabel\(pool, dayKey, dayIndex\)[\s\S]*?\n\}/) + '\n' +
   grab(/function rwRankForDay\(cands, dayKey\)[\s\S]*?\n\}/) + '\n' +
   grab(/function rwPickStreamForDay\(pool, dayKey, dayIndex\)[\s\S]*?\n\}/) +
-  '\nreturn rwPickStreamForDay;')(days, grade);
+  '\nreturn rwPickStreamForDay;')(days, grade, division);
 
 const rwGradeOf = new Function('return ' + grab(/function rwGradeOf\(text\)[\s\S]*?\n\}/))();
 const label = new Function('RW_WEEKDAYS', 'RW_SPELLED_DAYS', 'return ' +

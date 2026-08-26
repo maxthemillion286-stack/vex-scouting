@@ -2261,7 +2261,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v35';
+const APP_BUILD = 'v36';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -2317,6 +2317,10 @@ function vsDayAssignment() {
       eventDays: rwEventDays,
       eventStartDay: rwEventStartDay,
       teamDays: days,
+      // At Worlds this is the whole answer: ten broadcasts share a day, a
+      // grade and a start minute, and only the division separates them.
+      teamDivision: rwTeamDivision,
+      divisions: (ctx.divisions || []),
       pool: (rwStreamPool || []).map(s => ({
         title: s.title || null,
         url: s.url,
@@ -2527,6 +2531,26 @@ let rwEventDays = [];
 // of the same day apart when a venue streams several grades over one weekend.
 let rwEventGrade = null;
 
+// The division this team competes in, e.g. "Science". Set from its own matches
+// once every division's schedule is loaded.
+//
+// At Worlds this outranks everything else. Ten divisions stream in parallel,
+// every broadcast is called "Qualification Matches (X) — V5RC (HS)", and they
+// all begin the same minute — so date, grade, duration and day label are
+// identical across all ten. The division name is the only thing that tells
+// them apart, and nine of the ten are the wrong field.
+let rwTeamDivision = null;
+
+// Does a broadcast title name this team's division?
+function rwTitleMatchesDivision(title, division) {
+  if (!division) return null;                 // nothing to go on
+  const t = String(title || '').toLowerCase();
+  const d = String(division).toLowerCase().trim();
+  if (!d) return null;
+  // Word-bounded, so "Arts" doesn't match inside "Smarts".
+  return new RegExp(`\\b${d.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(t);
+}
+
 function rwEventDayOrdinal(dayKey, fallbackIndex) {
   // The event's own day list first.
   const i = rwEventDays.indexOf(dayKey);
@@ -2624,6 +2648,13 @@ function rwRankForDay(cands, dayKey) {
   if (cands.length === 1) return cands[0].url;
   const scored = cands.map(s => {
     let score = 0;
+    // 0. The team's division, above everything. At Worlds ten broadcasts share
+    //    a day, a grade, a duration and a start minute; the division name is
+    //    the only thing separating them, and getting it wrong means watching
+    //    another field entirely.
+    const dm = rwTitleMatchesDivision(s.title, rwTeamDivision);
+    if (dm === true) score += 1000;
+    else if (dm === false) score -= 1000;
     // 1. The grade the event is actually run at. Decisive when known: a middle
     //    school event's day 2 is the middle school broadcast, whatever else
     //    was streamed alongside it.
@@ -2715,13 +2746,29 @@ function rwParseVideoId(url) {
 // Build the embed src for whichever platform a day was calibrated with.
 // Both players take a start position in the URL, so a jump is just a re-render.
 function rwEmbedSrc(cal, seconds) {
-  // vexworlds.tv cannot be embedded or seeked from here. The video is HLS
-  // behind CloudFront signed URLs — they expire, and they are issued to the
-  // viewer's own session, so there is nothing stable to point an iframe at.
-  // null tells the caller to show the computed time and a link out instead,
-  // which is still most of the value: knowing a match is 3h12m in beats
-  // scrubbing a nine-hour stream blind.
-  if (cal.platform === 'vexworldstv') return null;
+  // VEX TV runs on BoxCast — confirmed, rest.boxcast.com answered 200 — and
+  // BoxCast publishes a public embed at boxcast.tv/view-embed/<broadcast id>.
+  //
+  // So it CAN be embedded, once a broadcast id is known. What was true before
+  // was narrower than what got said: the *media* is HLS behind per-viewer
+  // signed URLs, so there is nothing stable to point an iframe at directly.
+  // The embed page holds its own session and issues its own, which is exactly
+  // the problem it exists to solve.
+  //
+  // Only with a real broadcast id. A channel id names ten parallel divisions
+  // and is not a thing to play. No start parameter is appended: BoxCast's
+  // seek syntax has not been observed, and a made-up one opens silently at
+  // zero — so the computed position stays on screen next to the player.
+  if (cal.platform === 'vexworldstv') {
+    // The URL is the only thing that distinguishes a broadcast from a channel.
+    // Both ids are twenty lowercase alphanumerics — jmhkmkbdwsh3fg4pfoqn is a
+    // channel, efkb0bx8283bgyqvm396 is a broadcast — so shape cannot tell them
+    // apart, and embedding a channel would play whatever it currently features
+    // out of ten parallel divisions. Only /#/broadcasts/<id> is a thing to
+    // play, and auto-sync stores exactly that.
+    const m = String(cal.url || '').match(/#\/broadcasts\/([a-z0-9]+)/i);
+    return m ? `https://boxcast.tv/view-embed/${m[1]}` : null;
+  }
   if ((cal.platform || 'youtube') === 'vimeo') {
     // #t= is the documented way to open a Vimeo player at a position, and it
     // avoids pulling in the Player SDK just to seek.
@@ -2988,7 +3035,15 @@ const rwAllDivisionMatches = eventId => rwMemoed('divm', async () => {
   const divs = (evd[0]?.divisions?.length ? evd[0].divisions : [{ id: 1 }]);
   const out = [];
   await sim_pool(divs, async d => {
-    try { out.push(...(await apiGet(`/events/${eventId}/divisions/${d.id}/matches`) || [])); } catch (e) {}
+    try {
+      // Tag every match with the division it came from. The API returns the
+      // matches of a division without naming it, so this is the only place
+      // the association exists — and at Worlds it is the whole ballgame:
+      // ten divisions stream in parallel, and a team is in exactly one.
+      for (const m of (await apiGet(`/events/${eventId}/divisions/${d.id}/matches`) || [])) {
+        if (m) { m.__divId = d.id; m.__divName = d.name || null; out.push(m); }
+      }
+    } catch (e) {}
   }, sim_poolSize());
   return out;
 });
@@ -3223,7 +3278,8 @@ async function rewatchSelectEvent(eventId) {
         if (isNaN(ms)) continue;
         ctx.allMatches.push({
           id: m.id, name: m.name || `Match ${m.matchnum || ''}`, num: m.matchnum || 0,
-          round: m.round, t: ms, isQual: isQ(m), mine: mineIds.has(String(m.id))
+          round: m.round, t: ms, isQual: isQ(m), mine: mineIds.has(String(m.id)),
+          divName: m.__divName || null, divId: m.__divId || null
         });
         if (!isQ(m)) continue;
         const day = rwDayKey(ms);
@@ -3233,6 +3289,19 @@ async function rewatchSelectEvent(eventId) {
         }
       }
       ctx.allMatches.sort((a, b) => a.t - b.t);
+      // Which division is THIS team in? Whichever one its own matches sit in.
+      //
+      // At Worlds ten divisions stream in parallel — Science, Technology,
+      // Engineering, Arts, Math, Design, Research, Innovate, Spirit,
+      // Opportunity — all starting the same minute, all named identically
+      // apart from that word. Nothing else in a broadcast's title separates
+      // them, so without this the day picker is choosing between ten equally
+      // good candidates and nine of them are the wrong field.
+      const mineDiv = ctx.allMatches.find(m => m.mine && m.divName);
+      ctx.teamDivision = (mineDiv && mineDiv.divName) || null;
+      rwTeamDivision = ctx.teamDivision;
+      // Every division at this event, for the picker when we can't tell.
+      ctx.divisions = [...new Set(ctx.allMatches.map(m => m.divName).filter(Boolean))];
     } catch (e) { ctx.allMatches = null; }
 
     // The event's real day list, from every division's matches where we have
@@ -3715,6 +3784,19 @@ async function rwTryAutoSync(day, linkText, { quiet = false, knownStart = null, 
             if (a) {
               let secs = Math.round((a.t - bStart) / 1000);
               if (secs < 0 && secs >= -RW_PRESTART_GRACE_SEC) secs = 0;
+              // The same past-the-end test every other platform gets, which
+              // this path was missing.
+              //
+              // Worlds RE-V5RC-26-4026 runs Apr 25-27, and every broadcast on
+              // the channel is Apr 23-24. Nothing matched by date or label, so
+              // the 36-hour proximity rule handed Apr 25 an Apr 24 broadcast
+              // and the offset came out at 32:45:24 — into a recording seven
+              // hours long. It was displayed as a real answer, which is the §3
+              // failure exactly. A match past the end of a video is proof the
+              // video is wrong, whichever platform it is on.
+              if (b.durationSec && secs > b.durationSec + 3600) {
+                return fail(`The nearest VEX TV broadcast for this day runs ${Math.round(b.durationSec / 3600)}h, but this day's matches fall ${Math.round(secs / 3600)}h into it — so it is a different day's recording. Paste the broadcast for this day and it will sync.`);
+              }
               if (secs >= 0) {
                 ctx.cal = ctx.cal || {};
                 ctx.cal[day] = {
@@ -3998,14 +4080,22 @@ function rewatchRender() {
         ${embed ? `<div class="rw-embed">
           <iframe src="${embed}"
             title="Match video" frameborder="0" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
-        </div>
+        </div>${pcal.platform === 'vexworldstv'
+          // BoxCast embeds, but its seek syntax is unobserved, so the player
+          // opens at the start. The position has to stay on screen next to it
+          // or the embed is a downgrade on the plain timestamp it replaced.
+          ? `<div class="rw-hint">VEX TV plays here, but it can't be opened at a position — scrub to:</div>
+        <div class="rw-vextv-time">${rwFmtClock(ctx.playing.off)}</div>`
+          : ''}
         <a class="rw-fallback" href="${rwWatchUrl(pcal, ctx.playing.off)}" target="_blank" rel="noopener">
-          Video not loading? Open on ${(pcal.platform || 'youtube') === 'vimeo' ? 'Vimeo' : 'YouTube'} at ${rwFmtClock(ctx.playing.off)} →
+          ${pcal.platform === 'vexworldstv'
+            ? `Open on VEX TV and scrub to ${rwFmtClock(ctx.playing.off)} →`
+            : `Video not loading? Open on ${(pcal.platform || 'youtube') === 'vimeo' ? 'Vimeo' : 'YouTube'} at ${rwFmtClock(ctx.playing.off)} →`}
         </a>`
-        // No embed for this platform. The arithmetic is still done and still
-        // useful — a nine-hour stream is a long way to scrub blind — so show
-        // the position large and send them to the stream to seek it.
-        : `<div class="rw-hint">This stream is on VEX TV, which can't be embedded or seeked from here. Open it and scrub to the time below.</div>
+        // No embed to show. The arithmetic is still done and still useful — a
+        // nine-hour stream is a long way to scrub blind — so show the position
+        // large and send them to the stream to seek it.
+        : `<div class="rw-hint">This day is anchored to a VEX TV channel rather than one broadcast, so there is nothing to embed. Open the stream and scrub to the time below.</div>
         <div class="rw-vextv-time">${rwFmtClock(ctx.playing.off)}</div>
         <a class="rw-fallback" href="${rwWatchUrl(pcal, ctx.playing.off)}" target="_blank" rel="noopener">
           Open the VEX TV stream, then scrub to ${rwFmtClock(ctx.playing.off)} →
@@ -4065,6 +4155,17 @@ function rewatchRender() {
 
   if (multiDay) {
     html += `<div class="rw-hint rw-multiday">This event ran across ${days.filter(d => d !== 'unknown').length} days, so each day has its own stream. Calibrate them one at a time — a day is only clickable once its stream is set.</div>`;
+  }
+
+  // Which division this team is in, when the event has several.
+  //
+  // Worth stating plainly: at Worlds ten divisions stream side by side under
+  // titles that differ by one word, and the stream shown here is only right if
+  // it is this one. Saying so makes a wrong pick obvious instead of invisible.
+  if (ctx.divisions && ctx.divisions.length > 1) {
+    html += ctx.teamDivision
+      ? `<div class="rw-hint">This event has ${ctx.divisions.length} divisions and this team is in <strong>${ctx.teamDivision}</strong>, so that is the broadcast the Jumper looks for.</div>`
+      : `<div class="rw-hint rw-miss">This event has ${ctx.divisions.length} divisions (${ctx.divisions.join(', ')}) and each streams separately, but which one this team is in couldn't be read. Check the stream below is the right division before trusting the times.</div>`;
   }
 
   // ── One section per day: its stream, then its matches ──
