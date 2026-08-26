@@ -94,18 +94,48 @@ const vexCal = { platform: 'vexworldstv', videoId: 'jmhkmkbdwsh3fg4pfoqn', url: 
 // what was true: the MEDIA is per-viewer signed HLS, so nothing stable can be
 // pointed at directly — the embed page holds its own session, which is the
 // problem it exists to solve. It still cannot be opened at a position.
-ok('a known broadcast embeds through BoxCast',
-  embed({ platform: 'vexworldstv', videoId: 'efkb0bx8283bgyqvm396', url: 'https://www.vexworlds.tv/#/broadcasts/efkb0bx8283bgyqvm396' }, 1200)
-    === 'https://boxcast.tv/view-embed/efkb0bx8283bgyqvm396');
-ok('the broadcast id is read out of the url when present',
-  embed({ platform: 'vexworldstv', videoId: 'whatever', url: 'https://www.vexworlds.tv/#/broadcasts/ihw6kx3ipx1ot9b7aitr' }, 0)
-    === 'https://boxcast.tv/view-embed/ihw6kx3ipx1ot9b7aitr');
-ok('a CHANNEL still has no embed — it names ten parallel divisions',
+// view-embed takes a CHANNEL id, not a broadcast id. Passing the broadcast id
+// rendered a black box reading "Channel Not Found" — the error named the
+// parameter it wanted. Each broadcast carries its own channel_id, which at
+// Worlds is division- and day-specific and so identifies one recording.
+ok('a broadcast embeds through its OWN channel',
+  embed({ platform: 'vexworldstv', embedChannel: 'qualification-matches-science-pjiswvniyktygr4misw0' }, 1200)
+    === 'https://boxcast.tv/view-embed/qualification-matches-science-pjiswvniyktygr4misw0');
+ok('the broadcast id is no longer used as the embed parameter',
+  embed({ platform: 'vexworldstv', videoId: 'efkb0bx8283bgyqvm396', url: 'https://www.vexworlds.tv/#/broadcasts/efkb0bx8283bgyqvm396' }, 1200) === null,
+  'that produced "Channel Not Found"');
+ok('a pasted top-level channel has no embed — it fronts every division',
   embed({ platform: 'vexworldstv', videoId: 'jmhkmkbdwsh3fg4pfoqn', url: REAL }, 1200) === null,
-  'a channel is not a thing to play');
+  'it would show whichever field it currently features');
 ok('no start parameter is invented on the embed',
-  !/[?&#](t|start|startTime)=/.test(String(embed({ platform: 'vexworldstv', videoId: 'efkb0bx8283bgyqvm396', url: 'https://www.vexworlds.tv/#/broadcasts/efkb0bx8283bgyqvm396' }, 1200))),
+  !/[?&#](t|start|startTime)=/.test(String(embed({ platform: 'vexworldstv', embedChannel: 'abc' }, 1200))),
   'BoxCast seek syntax is unobserved; a guess opens silently at zero');
+ok('the per-broadcast channel is stored when auto-syncing',
+  /embedChannel: b\.channelId \|\| null/.test(src));
+
+// ── 9. A saved anchor that cannot be right is dropped on load ──
+// Auto-sync gained a past-the-end check, but nothing re-examined anchors
+// already in localStorage — so Worlds day 1 kept "Qualifier #1 @ 32:02:07"
+// against a seven-hour recording, and stayed marked calibrated, which stopped
+// auto-sync ever running again. A stale wrong answer that blocks the right one.
+ok('saved calibrations are filtered on load', /return rwDropImpossible\(raw\.byDay \|\| raw\)/.test(src));
+ok('the duration is persisted so the check has something to read',
+  /durationSec: knownDuration \|\| null/.test(src) && /durationSec: b\.durationSec \|\| null/.test(src));
+const dropper = new Function('return ' + src.slice(src.indexOf('function rwDropImpossible'), src.indexOf('function rwSaveCal')))();
+const worldsStale = { '2026-04-25': { auto: true, durationSec: 26340, anchors: [{ videoSec: 115327 }] } };
+ok('the real stale Worlds anchor is dropped',
+  Object.keys(dropper(worldsStale)).length === 0, '32:02:07 into a 7h19m recording');
+ok('a sound auto calibration is kept',
+  Object.keys(dropper({ d: { auto: true, durationSec: 26340, anchors: [{ videoSec: 4000 }] } })).length === 1);
+ok('an hour of slack matches the live check',
+  Object.keys(dropper({ d: { auto: true, durationSec: 3600, anchors: [{ videoSec: 7000 }] } })).length === 1);
+ok('a HAND-set anchor is never dropped, however odd',
+  Object.keys(dropper({ d: { auto: false, durationSec: 100, anchors: [{ videoSec: 99999 }] } })).length === 1,
+  '§6 keeps manual calibration as the user\'s own judgement');
+ok('a calibration with no known duration is kept',
+  Object.keys(dropper({ d: { auto: true, anchors: [{ videoSec: 99999 }] } })).length === 1);
+ok('an empty store is handled', Object.keys(dropper({})).length === 0);
+ok('a null store is handled', Object.keys(dropper(null)).length === 0);
 ok('the watch link is the page we were given', watch(vexCal, 1200) === REAL);
 ok('a missing url still yields something openable',
   watch({ platform: 'vexworldstv' }, 0) === 'https://www.vexworlds.tv/');

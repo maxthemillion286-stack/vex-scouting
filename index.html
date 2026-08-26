@@ -2261,7 +2261,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v38';
+const APP_BUILD = 'v39';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -2778,14 +2778,20 @@ function rwEmbedSrc(cal, seconds) {
   // seek syntax has not been observed, and a made-up one opens silently at
   // zero — so the computed position stays on screen next to the player.
   if (cal.platform === 'vexworldstv') {
-    // The URL is the only thing that distinguishes a broadcast from a channel.
-    // Both ids are twenty lowercase alphanumerics — jmhkmkbdwsh3fg4pfoqn is a
-    // channel, efkb0bx8283bgyqvm396 is a broadcast — so shape cannot tell them
-    // apart, and embedding a channel would play whatever it currently features
-    // out of ten parallel divisions. Only /#/broadcasts/<id> is a thing to
-    // play, and auto-sync stores exactly that.
-    const m = String(cal.url || '').match(/#\/broadcasts\/([a-z0-9]+)/i);
-    return m ? `https://boxcast.tv/view-embed/${m[1]}` : null;
+    // boxcast.tv/view-embed takes a CHANNEL id, not a broadcast id.
+    //
+    // Passing the broadcast id rendered a black box reading "Channel Not
+    // Found" — the error names the parameter it wanted, which is as clear a
+    // correction as one gets. Each broadcast carries its own `channel_id`,
+    // and at Worlds that is division- and day-specific
+    // ("qualification-matches-science-pjiswvniyktygr4misw0"), so it identifies
+    // one recording rather than a rotating feed.
+    //
+    // Only the per-broadcast channel. The top-level channel a user pastes
+    // (jmhkmkbdwsh3fg4pfoqn) fronts every division at once, so embedding it
+    // would show whichever field it currently features — the §3 failure with
+    // a picture attached.
+    return cal.embedChannel ? `https://boxcast.tv/view-embed/${cal.embedChannel}` : null;
   }
   if ((cal.platform || 'youtube') === 'vimeo') {
     // #t= is the documented way to open a Vimeo player at a position, and it
@@ -2857,8 +2863,33 @@ function rwLoadCal(eid) {
     if (!raw) return {};
     // Migrate the old single-stream format into the per-day shape
     if (raw.videoId && !raw.byDay) return { [rwDayKey(raw.anchorMs)]: raw };
-    return raw.byDay || raw;
+    return rwDropImpossible(raw.byDay || raw);
   } catch (e) { return {}; }
+}
+
+// Throw away saved AUTO calibrations that cannot be right.
+//
+// Auto-sync gained a past-the-end check, but nothing ever re-examined an
+// anchor already written to localStorage — so a bad one outlived every fix.
+// Observed at v38: Worlds day 1 still carrying "Qualifier #1 @ 32:02:07"
+// against a seven-hour recording, saved back when the check did not exist.
+// It also kept the day marked calibrated, so auto-sync never ran again and
+// the fixes could not even be tested. A stale wrong answer that blocks the
+// right one is the worst version of §3.
+//
+// Only auto ones. A hand-set anchor is the user's own judgement and stays,
+// however odd it looks — §6 keeps manual calibration deliberately.
+function rwDropImpossible(byDay) {
+  if (!byDay || typeof byDay !== 'object') return {};
+  const out = {};
+  for (const [day, cal] of Object.entries(byDay)) {
+    if (!cal || !cal.auto || !cal.durationSec) { out[day] = cal; continue; }
+    const worst = (cal.anchors || []).reduce((n, a) => Math.max(n, a.videoSec || 0), 0);
+    // An hour of slack, matching the live check in rwTryAutoSync.
+    if (worst > cal.durationSec + 3600) continue;
+    out[day] = cal;
+  }
+  return out;
 }
 function rwSaveCal(eid, calByDay) {
   try { localStorage.setItem(rwCalKey(eid), JSON.stringify(calByDay)); } catch (e) {}
@@ -3819,7 +3850,9 @@ async function rwTryAutoSync(day, linkText, { quiet = false, knownStart = null, 
                 ctx.cal = ctx.cal || {};
                 ctx.cal[day] = {
                   videoId: b.id || chan, platform: 'vexworldstv', url: b.url || srcInfo.url,
-                  day, auto: true, savedAt: Date.now(),
+                  day, auto: true, savedAt: Date.now(), durationSec: b.durationSec || null,
+                  // The broadcast's OWN channel, which is what view-embed wants.
+                  embedChannel: b.channelId || null,
                   anchors: [{ matchId: a.id || 'auto', name: a.name, matchMs: a.t, videoSec: secs }]
                 };
                 rwSaveCal(ctx.eventId, ctx.cal);
@@ -3958,6 +3991,8 @@ async function rwTryAutoSync(day, linkText, { quiet = false, knownStart = null, 
   ctx.cal = ctx.cal || {};
   ctx.cal[day] = {
     videoId: vid, platform: 'youtube', day, auto: true, savedAt: Date.now(),
+    // Kept so a saved anchor can be re-checked on load — see rwDropImpossible.
+    durationSec: knownDuration || null,
     anchors: [{ matchId: anchor.id || 'auto', name: anchor.name, matchMs: anchor.t, videoSec: secs }]
   };
   rwSaveCal(ctx.eventId, ctx.cal);
