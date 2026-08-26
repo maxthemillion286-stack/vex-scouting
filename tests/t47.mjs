@@ -13,6 +13,10 @@ const fn = [
   // rwEventStartDay is set from the API at runtime; null here means the
   // ordinal falls back to the passed index, which is what these cases assume.
   'let rwEventStartDay = null;',
+  // Empty here, so the ordinal falls through to the passed index — which is
+  // what these positional cases assume. t69 exercises it populated.
+  'let rwEventDays = [];',
+  grab(/function rwDayKey\(ms\)[\s\S]*?\n\}/),
   grab(/function rwEventDayOrdinal\(dayKey, fallbackIndex\)[\s\S]*?\n\}/),
   grab(/const RW_WEEKDAYS = \[[^\]]*\];/),
   grab(/function rwTitleDayLabel\(title\)[\s\S]*?\n\}/),

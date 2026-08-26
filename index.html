@@ -2258,7 +2258,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v27';
+const APP_BUILD = 'v28';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -2423,13 +2423,33 @@ function rwSegmentsForDay(pool, day) {
 // which ordinal a date really is.
 let rwEventStartDay = null;
 
+// Every day the EVENT runs, as rwDayKey strings, oldest first. Built from all
+// divisions' matches, so it is the event's real shape rather than one team's
+// slice of it.
+//
+// This is the authoritative source for "which day number is this", and it beats
+// the start date for two reasons. It cannot disagree about timezones, because
+// both sides come from rwDayKey. And it exists even when the API's start field
+// doesn't — which was the common case and the reason most day-2 columns showed
+// day 1: with no start date the ordinal fell back to the day's index within
+// THIS TEAM's days, and a team that only plays Saturday has Saturday at index
+// 0, which asks for the video labelled "Day 1".
+let rwEventDays = [];
+
 function rwEventDayOrdinal(dayKey, fallbackIndex) {
-  if (!rwEventStartDay) return fallbackIndex;
-  const a = Date.parse(rwEventStartDay + 'T12:00:00Z');
-  const b = Date.parse(dayKey + 'T12:00:00Z');
-  if (isNaN(a) || isNaN(b)) return fallbackIndex;
-  const n = Math.round((b - a) / 86400000);
-  return n >= 0 ? n : fallbackIndex;
+  // The event's own day list first.
+  const i = rwEventDays.indexOf(dayKey);
+  if (i >= 0) return i;
+  // Then the start date, for a day the match list doesn't cover.
+  if (rwEventStartDay) {
+    const a = Date.parse(rwEventStartDay + 'T12:00:00Z');
+    const b = Date.parse(dayKey + 'T12:00:00Z');
+    if (!isNaN(a) && !isNaN(b)) {
+      const n = Math.round((b - a) / 86400000);
+      if (n >= 0) return n;
+    }
+  }
+  return fallbackIndex;
 }
 
 const RW_WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
@@ -2474,7 +2494,18 @@ function rwPickStreamForDay(pool, dayKey, dayIndex) {
   if (!pool || !pool.length) return null;
   const dated = pool.filter(s => s.publishedAt);
   if (dated.length) {
-    const exact = dated.find(s => String(s.publishedAt).slice(0, 10) === dayKey);
+    // Both sides through rwDayKey, which reads a LOCAL date.
+    //
+    // This used to slice the first ten characters off the ISO string, i.e. the
+    // UTC date, and compare that to a day key built from getFullYear/getMonth/
+    // getDate. Those two disagree whenever a broadcast's UTC date differs from
+    // its local one — a 5pm Pacific start is already tomorrow in UTC — so the
+    // day that owned a video failed to claim it and the next day claimed it
+    // instead. Off by one, in the direction of showing the previous day.
+    const exact = dated.find(s => {
+      const t = Date.parse(s.publishedAt);
+      return !isNaN(t) && rwDayKey(t) === dayKey;
+    });
     if (exact) return exact.url;
   }
   // Ranked above proximity deliberately: an explicit "Day 2" in the title beats
@@ -2482,6 +2513,16 @@ function rwPickStreamForDay(pool, dayKey, dayIndex) {
   const labelled = rwPickByDayLabel(pool, dayKey, dayIndex);
   if (labelled === 'none') return null;   // labelled pool, not this day
   if (labelled) return labelled;
+
+  // Nothing labelled, but the broadcasts line up one per event day: take them
+  // in order. The k-th broadcast chronologically is the k-th day, which needs
+  // no title convention and no timezone reasoning at all. Only used when the
+  // counts agree, so a stray extra video can't shift everything by one.
+  const ord = rwEventDayOrdinal(dayKey, dayIndex);
+  if (dated.length && rwEventDays.length && dated.length === rwEventDays.length) {
+    const byTime = dated.slice().sort((a, b) => Date.parse(a.publishedAt) - Date.parse(b.publishedAt));
+    if (byTime[ord]) return byTime[ord].url;
+  }
   if (dated.length) {
     // A broadcast that began the evening before still covers that day.
     const target = Date.parse(dayKey + 'T12:00:00Z');
@@ -3027,6 +3068,15 @@ async function rewatchSelectEvent(eventId) {
       }
       ctx.allMatches.sort((a, b) => a.t - b.t);
     } catch (e) { ctx.allMatches = null; }
+
+    // The event's real day list, from every division's matches where we have
+    // them. Sorted and de-duplicated, so index 0 is genuinely day 1 of the
+    // event rather than day 1 of this team's schedule.
+    rwEventDays = [...new Set(
+      ((ctx.allMatches && ctx.allMatches.length ? ctx.allMatches : matches) || [])
+        .filter(m => m.t !== null && m.t !== undefined)
+        .map(m => rwDayKey(m.t))
+    )].filter(d => d !== 'unknown').sort();
 
     // Auto-find runs alongside the render instead of before it. The matches
     // are already loaded; show them now and let the stream drop in when it
