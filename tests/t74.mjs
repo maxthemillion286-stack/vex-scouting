@@ -88,8 +88,24 @@ const embed = new Function('return ' + src.slice(src.indexOf('function rwEmbedSr
 const watch = new Function('return ' + src.slice(src.indexOf('function rwWatchUrl'), src.indexOf('// Accepts 12542')))();
 
 const vexCal = { platform: 'vexworldstv', videoId: 'jmhkmkbdwsh3fg4pfoqn', url: REAL };
-ok('there is no embed for it — nothing stable to point an iframe at',
-  embed(vexCal, 1200) === null, 'CloudFront signed HLS expires and is per-viewer');
+// VEX TV CAN be embedded now. rest.boxcast.com answered 200, so the platform
+// is confirmed BoxCast, and BoxCast publishes a player at
+// boxcast.tv/view-embed/<broadcast id>. What was said before was broader than
+// what was true: the MEDIA is per-viewer signed HLS, so nothing stable can be
+// pointed at directly — the embed page holds its own session, which is the
+// problem it exists to solve. It still cannot be opened at a position.
+ok('a known broadcast embeds through BoxCast',
+  embed({ platform: 'vexworldstv', videoId: 'efkb0bx8283bgyqvm396', url: 'https://www.vexworlds.tv/#/broadcasts/efkb0bx8283bgyqvm396' }, 1200)
+    === 'https://boxcast.tv/view-embed/efkb0bx8283bgyqvm396');
+ok('the broadcast id is read out of the url when present',
+  embed({ platform: 'vexworldstv', videoId: 'whatever', url: 'https://www.vexworlds.tv/#/broadcasts/ihw6kx3ipx1ot9b7aitr' }, 0)
+    === 'https://boxcast.tv/view-embed/ihw6kx3ipx1ot9b7aitr');
+ok('a CHANNEL still has no embed — it names ten parallel divisions',
+  embed({ platform: 'vexworldstv', videoId: 'jmhkmkbdwsh3fg4pfoqn', url: REAL }, 1200) === null,
+  'a channel is not a thing to play');
+ok('no start parameter is invented on the embed',
+  !/[?&#](t|start|startTime)=/.test(String(embed({ platform: 'vexworldstv', videoId: 'efkb0bx8283bgyqvm396', url: 'https://www.vexworlds.tv/#/broadcasts/efkb0bx8283bgyqvm396' }, 1200))),
+  'BoxCast seek syntax is unobserved; a guess opens silently at zero');
 ok('the watch link is the page we were given', watch(vexCal, 1200) === REAL);
 ok('a missing url still yields something openable',
   watch({ platform: 'vexworldstv' }, 0) === 'https://www.vexworlds.tv/');
@@ -112,7 +128,28 @@ const player = src.slice(src.indexOf('// Player sits above the day list'), src.i
 ok('the player branches on whether an embed exists', /const embed = rwEmbedSrc\(pcal, ctx\.playing\.off\);/.test(player));
 ok('no iframe is rendered without one', /\$\{embed \? `<div class="rw-embed">/.test(player));
 ok('the computed position is shown large instead', /rw-vextv-time/.test(player));
-ok('and it says why there is no player', /can't be embedded or seeked from here/.test(player));
+ok('when it does embed, the position stays on screen beside it',
+  /VEX TV plays here, but it can't be opened at a position/.test(player),
+  'an embed that cannot seek is a downgrade without the timestamp');
+ok('the channel-only case still explains why there is no player',
+  /anchored to a VEX TV channel rather than one broadcast/.test(player));
+
+// ── 7. Division, which is the whole answer at Worlds ──
+ok('the team\'s division is read from its own matches',
+  /const mineDiv = ctx\.allMatches\.find\(m => m\.mine && m\.divName\)/.test(src));
+ok('every division match is tagged with its division name',
+  /m\.__divId = d\.id; m\.__divName = d\.name \|\| null;/.test(idx));
+ok('the ranking weights division above everything else',
+  /if \(dm === true\) score \+= 1000;[\s\S]{0,60}score -= 1000;/.test(src),
+  'ten Worlds broadcasts share a day, a grade and a start minute');
+ok('the division match is word-bounded', /\\\\b\$\{d\.replace/.test(src),
+  '"Arts" must not match inside "Smarts"');
+ok('an unknown division abstains rather than guessing',
+  /if \(!division\) return null;/.test(src));
+ok('the division is stated in the panel', /this team is in <strong>\$\{ctx\.teamDivision\}<\/strong>/.test(src));
+ok('an unreadable division warns instead of staying silent',
+  /couldn't be read\. Check the stream below is the right division/.test(src));
+ok('the debug report carries it', /teamDivision: rwTeamDivision/.test(src));
 ok('the class it uses is actually styled', /\.rw-vextv-time \{/.test(idx));
 
 // ── 4. The miss message stops implying a near-miss ──

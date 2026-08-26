@@ -17,7 +17,9 @@ const fn = [
   // what these positional cases assume. t69 exercises it populated.
   'let rwEventDays = [];',
   'let rwEventGrade = null;',
+  'let rwTeamDivision = null;',
   grab(/function rwGradeOf\(text\)[\s\S]*?\n\}/),
+  grab(/function rwTitleMatchesDivision\(title, division\)[\s\S]*?\n\}/),
   grab(/function rwDayKey\(ms\)[\s\S]*?\n\}/),
   grab(/function rwEventDayOrdinal\(dayKey, fallbackIndex\)[\s\S]*?\n\}/),
   grab(/const RW_WEEKDAYS = \[[^\]]*\];/),
