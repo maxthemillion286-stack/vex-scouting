@@ -2261,7 +2261,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v34';
+const APP_BUILD = 'v35';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -2363,6 +2363,10 @@ function vsDebugReport() {
     // capture of a multi-day failure came back with no way to tell whether the
     // lookup had run at all.
     siblings: vsDebug.siblings,
+    // The VEX TV / BoxCast lookup, including which candidate URLs were tried.
+    // Its query shape is the one thing still unconfirmed about that platform,
+    // so this block is what says whether the guess was right.
+    boxcast: vsDebug.boxcast,
     // How each day resolved to a video, which is the question five rounds of
     // this have turned on and none of them could answer from a capture. Every
     // input to the decision is here: the event's day list, what the pool holds,
@@ -3677,7 +3681,59 @@ async function rwTryAutoSync(day, linkText, { quiet = false, knownStart = null, 
   };
   if (!srcInfo) { if (!quiet) showError('⚠ Paste the stream link first.'); return false; }
   if (srcInfo.platform === 'vexworldstv') {
-    return fail("That's a VEX TV stream, which doesn't publish when a broadcast began, so it can't sync itself. Set one anchor by hand and every other match still works out: open the stream, find any match, and enter its time below. The Jumper can't jump inside VEX TV, but it will tell you exactly how far in each match is.");
+    // VEX TV is BoxCast, and BoxCast publishes starts_at — the real moment a
+    // broadcast began, which is the only thing auto-sync needs. So this does
+    // NOT have to be a manual-only platform, even though it can never be an
+    // embeddable one (the media is HLS behind per-viewer signed URLs).
+    //
+    // The channel's broadcast list comes back in the same shape the YouTube
+    // pool uses — actualStartTime, durationSec, grade, title — so the day
+    // picker chooses among them with no special case, grade veto and all.
+    const chan = srcInfo.channelId;
+    if (chan) {
+      try {
+        const q = `${BASE}?path=${encodeURIComponent('boxcast:' + chan)}` +
+          (rwEventDays.length ? `&start=${encodeURIComponent(rwEventDays[0])}T00:00:00Z` : '') +
+          (rwEventDays.length ? `&end=${encodeURIComponent(rwEventDays[rwEventDays.length - 1])}T23:59:59Z` : '') +
+          `&b=${encodeURIComponent(APP_BUILD)}` +
+          (rwDebugOn() ? `&_t=${Date.now()}` : '');
+        const r = await fetch(q);
+        const j = await r.json();
+        // Recorded whatever happens: the list endpoint's query shape is not
+        // yet confirmed, so `tried` in this body is what says whether the
+        // guess was right. Without it this would fail silently and look like
+        // the platform simply not working.
+        vsDebug.boxcast = { channel: chan, http: r.status, body: j };
+        const list = (j && j.broadcasts) || [];
+        if (list.length) {
+          const url = rwPickStreamForDay(list, day, rwEventDayOrdinal(day, 0));
+          const b = list.find(x => x.url === url) || list[0];
+          const bStart = b && Date.parse(b.actualStartTime || '');
+          if (b && !isNaN(bStart)) {
+            const a = rwAnchorForDay(ctx, day) ||
+              ctx.matches.filter(m => m.t !== null && rwDayKey(m.t) === day).sort((x, y) => x.t - y.t)[0];
+            if (a) {
+              let secs = Math.round((a.t - bStart) / 1000);
+              if (secs < 0 && secs >= -RW_PRESTART_GRACE_SEC) secs = 0;
+              if (secs >= 0) {
+                ctx.cal = ctx.cal || {};
+                ctx.cal[day] = {
+                  videoId: b.id || chan, platform: 'vexworldstv', url: b.url || srcInfo.url,
+                  day, auto: true, savedAt: Date.now(),
+                  anchors: [{ matchId: a.id || 'auto', name: a.name, matchMs: a.t, videoSec: secs }]
+                };
+                rwSaveCal(ctx.eventId, ctx.cal);
+                ctx.calDay = null;
+                if (!quiet) showError('');
+                rewatchRender();
+                return true;
+              }
+            }
+          }
+        }
+      } catch (e) { vsNote('boxcast', e && e.message || e); }
+    }
+    return fail("That's a VEX TV stream. Its broadcast list couldn't be read automatically, so set one anchor by hand and every other match still works out: open the stream, find any match, and enter its time below. The Jumper can't jump inside VEX TV, but it will tell you exactly how far in each match is.");
   }
   if (srcInfo.platform !== 'youtube') {
     // A channel link has no clip to seek into. Say so plainly — the old

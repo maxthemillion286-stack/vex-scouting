@@ -66,7 +66,15 @@ ok('auto-sync handles it explicitly', /srcInfo\.platform === 'vexworldstv'/.test
 const vexMsg = (sync.match(/return fail\((["'])(?:(?!\1).)*VEX TV(?:(?!\1).)*\1\)/) || [''])[0];
 ok('the refusal goes through fail(), so the reason is recorded', vexMsg.length > 0, sync.slice(0, 200));
 ok('it names the platform', /VEX TV/.test(vexMsg));
-ok('it says why it cannot sync itself', /doesn't publish when a broadcast began|can't sync itself/.test(vexMsg));
+// The reason had to change once the BoxCast capture arrived. VEX TV DOES
+// publish a broadcast start (starts_at) — the earlier message said it did not,
+// which was simply wrong. What can fail now is reading the channel's broadcast
+// list, and that is what it says.
+ok('it says why the automatic path did not work',
+  /broadcast list couldn't be read automatically/.test(vexMsg), vexMsg);
+ok('it no longer claims VEX TV publishes no start time',
+  !/doesn't publish when a broadcast began/.test(vexMsg),
+  'starts_at is right there in the captured broadcast object');
 ok('it points at setting one anchor by hand', /anchor by hand|Set one anchor/i.test(vexMsg));
 ok('it is honest that jumping is not possible', /can't jump inside VEX TV/.test(vexMsg));
 ok('it promises the thing that still works — the offset',
@@ -111,6 +119,28 @@ ok('the class it uses is actually styled', /\.rw-vextv-time \{/.test(idx));
 ok('a YouTube miss mentions where championships actually stream',
   (src.match(/streamed on vexworlds\.tv instead/g) || []).length >= 2,
   'both the blocked-page and no-link miss reasons need it');
+
+
+// ── 6. BoxCast is attempted before falling back to the manual anchor ──
+ok('the boxcast route is called for a VEX TV link',
+  /'boxcast:' \+ chan/.test(sync), 'VEX TV is BoxCast, and BoxCast publishes starts_at');
+ok('the event window is passed so other events are not returned',
+  /rwEventDays\[0\]/.test(sync) && /rwEventDays\[rwEventDays\.length - 1\]/.test(sync));
+ok('the broadcast list goes through the same day picker',
+  /rwPickStreamForDay\(list, day, rwEventDayOrdinal\(day, 0\)\)/.test(sync),
+  'so the grade veto and day ranking apply with no special case');
+ok('starts_at is what the anchor is computed from',
+  /Date\.parse\(b\.actualStartTime \|\| ''\)/.test(sync));
+ok('the same pre-start grace applies', /secs >= -RW_PRESTART_GRACE_SEC/.test(sync));
+ok('a saved VEX TV calibration keeps the page url', /platform: 'vexworldstv', url: b\.url \|\| srcInfo\.url/.test(sync));
+ok('the attempt is recorded for debugging',
+  /vsDebug\.boxcast = \{ channel: chan, http: r\.status, body: j \}/.test(sync),
+  'the list endpoint query shape is the one thing still unconfirmed');
+ok('the debug report renders it', /boxcast: vsDebug\.boxcast/.test(src));
+ok('a failure still falls back to the manual anchor rather than throwing',
+  /catch \(e\) \{ vsNote\('boxcast'/.test(sync));
+
+console.log(`\nt74 extra: covered the BoxCast attempt`);
 
 console.log(`\nt74: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
