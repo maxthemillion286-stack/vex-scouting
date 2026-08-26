@@ -50,7 +50,22 @@ ok('no API key is consulted, so this spends no quota',
   !/YOUTUBE_API_KEY/.test(route));
 
 // ── 2. Every candidate URL is recorded, because the query shape is unobserved ──
-ok('candidate urls are tried in turn', /for \(const u of \[/.test(route));
+// The query grammar is confirmed now, from a real request the site makes:
+//   ?q=timeframe:relevant timeframe:next&s=-starts_at&l=5&p=0
+// The endpoint was always right; the request was sending no q and no paging,
+// so BoxCast returned its default slice — a handful of broadcasts against a
+// whole championship week, which read as success.
+ok('the confirmed query grammar is used', /q=\$\{encodeURIComponent\('timeframe:past'\)\}&s=starts_at&l=100&p=\$\{p\}/.test(route));
+ok('finished broadcasts are paged through', /for \(let p = 0; p < 6; p\+\+\)/.test(route));
+ok('paging stops on a short page', /if \(n < 100\) break;/.test(route));
+ok('live and upcoming broadcasts are asked for too',
+  /timeframe:relevant timeframe:next/.test(route), "a running event's later days are not past yet");
+ok('the shape known to answer stays as a fallback',
+  /if \(!seen\.size\) await pull\(`\$\{chanBase\}\?l=100`\)/.test(route));
+ok('broadcasts are de-duplicated across queries', /if \(b && b\.id && !seen\.has\(b\.id\)\) seen\.set/.test(route));
+ok('how many each query returned is recorded, not just its status',
+  /\$\{arr\.length\} broadcasts/.test(route),
+  'a 200 returning five against a championship week is the failure that looked like success');
 ok('each attempt is recorded with its status', /tried\.push\(`\$\{u\.replace\(rest, ''\)\} -> \$\{r\.status\}`\)/.test(route));
 ok('a thrown attempt is recorded too', /tried\.push\(`\$\{u\.replace\(rest, ''\)\} -> \$\{String\(e/.test(route));
 ok('tried is returned on failure', /reason: 'no-broadcasts', tried/.test(route));

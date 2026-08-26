@@ -18,7 +18,7 @@ export const config = { maxDuration: 60 };
 // Bumped whenever the streams lookup changes. Surfaced in `diag` and in every
 // streams response so the debug page can prove WHICH proxy is actually live —
 // a stale cached reply is otherwise indistinguishable from a fresh failure.
-const PROXY_BUILD = 'v37';
+const PROXY_BUILD = 'v38';
 // A failed stream lookup is expensive (page race + a YouTube search), and the
 // answer rarely changes within a session. Cache the miss too, or every revisit
 // pays the full cost again.
@@ -1280,24 +1280,59 @@ async function handleRequest(req, res) {
     if (!chan) return res.status(400).json({ ok: false, reason: 'bad-channel', broadcasts: [] });
     const startISO = typeof req.query.start === 'string' ? req.query.start : '';
     const endISO = typeof req.query.end === 'string' ? req.query.end : startISO;
+    // The query grammar, confirmed from a real request the site makes:
+    //
+    //   /channels/<id>/broadcasts?q=timeframe%3Arelevant%20timeframe%3Anext
+    //                            &s=-starts_at&l=5&p=0
+    //
+    // So: `q` is space-separated field:value terms, `s` sorts (leading minus
+    // for descending), `l` limits and `p` pages.
+    //
+    // The endpoint was already right — it answered 200 — but the request sent
+    // no q and no paging, so BoxCast returned its default slice. Against a
+    // channel holding a whole championship that is a handful of broadcasts,
+    // and it is why the first attempt came back with Apr 23-24 for an event
+    // running Apr 25-27: not the wrong channel necessarily, just the wrong
+    // page of it.
+    //
+    // Asking for `timeframe:past` sorted oldest-first and paging through is
+    // what actually enumerates a finished event. The unfiltered form stays as
+    // a fallback, since it is the one shape known to answer.
     const tried = [];
-    let list = null;
-    for (const u of [
-      `${rest}/channels/${encodeURIComponent(chan)}/broadcasts?l=100`,
-      `${rest}/broadcasts?q=${encodeURIComponent('channel_id:' + chan)}&l=100`
-    ]) {
+    const seen = new Map();
+    const pull = async (u) => {
       try {
         const r = await fetch(u, { headers: { 'Accept': 'application/json' }, signal: AbortSignal.timeout(9000) });
-        tried.push(`${u.replace(rest, '')} -> ${r.status}`);
-        if (!r.ok) continue;
+        if (!r.ok) { tried.push(`${u.replace(rest, '')} -> ${r.status}`); return 0; }
         const j = await r.json();
         const arr = Array.isArray(j) ? j : (j && Array.isArray(j.broadcasts) ? j.broadcasts : null);
-        if (arr && arr.length) { list = arr; break; }
+        if (!arr) { tried.push(`${u.replace(rest, '')} -> ${r.status} (not a list)`); return 0; }
+        for (const b of arr) if (b && b.id && !seen.has(b.id)) seen.set(b.id, b);
+        // The count matters as much as the status. A 200 returning five
+        // broadcasts against a championship week is what the default slice
+        // looked like, and it read as success.
+        tried.push(`${u.replace(rest, '')} -> ${r.status}, ${arr.length} broadcasts`);
+        return arr.length;
       } catch (e) {
         tried.push(`${u.replace(rest, '')} -> ${String(e && e.message || e).slice(0, 60)}`);
+        return 0;
       }
+    };
+    const chanBase = `${rest}/channels/${encodeURIComponent(chan)}/broadcasts`;
+    // Page through the finished broadcasts. Capped at six pages of 100: enough
+    // for a championship week across every division, bounded against a channel
+    // that has been running for years.
+    for (let p = 0; p < 6; p++) {
+      const n = await pull(`${chanBase}?q=${encodeURIComponent('timeframe:past')}&s=starts_at&l=100&p=${p}`);
+      if (n < 100) break;
     }
-    if (!list) {
+    // Anything currently running or still to come — a live event's later days
+    // are not "past" yet.
+    await pull(`${chanBase}?q=${encodeURIComponent('timeframe:relevant timeframe:next')}&s=-starts_at&l=100&p=0`);
+    // The shape already known to answer, in case the q grammar is refused.
+    if (!seen.size) await pull(`${chanBase}?l=100`);
+    const list = [...seen.values()];
+    if (!list.length) {
       return res.status(200).json({ ok: false, reason: 'no-broadcasts', tried, broadcasts: [] });
     }
     const sMs = Date.parse(startISO), eMs = Date.parse(endISO || startISO);
