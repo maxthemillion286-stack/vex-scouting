@@ -40,12 +40,23 @@ const src = idx.match(/<script(?![^>]*src=)[^>]*>([\s\S]*?)<\/script>/)[1];
 console.log('t72 — cache versioning, channel enumeration, grade by title');
 
 // ── 1. A deploy gets its own cache entries, server and edge ──
-ok('the server cache key carries the build',
-  /const cacheKey = 'streams:' \+ PROXY_BUILD \+/.test(px), 'a deploy would reuse the last one');
-ok('the client puts the build in the streams URL',
-  /`&b=\$\{encodeURIComponent\(APP_BUILD\)\}`/.test(src), 'the CDN is keyed by URL — it must change');
-ok('the siblings URL carries it too',
-  (src.match(/&b=\$\{encodeURIComponent\(APP_BUILD\)\}/g) || []).length >= 2);
+// Keyed on the LOOKUP's version, not the release.
+//
+// v27 keyed it on PROXY_BUILD, which was right about the problem (a deploy
+// must be able to invalidate stale answers) and wrong about the cost: every
+// deploy then re-billed every event. A multi-day lookup is ~310 YouTube units
+// against a 10,000/day allowance, so six releases in an afternoon spent while
+// testing the same events exhausts it — and the symptom is every event on the
+// site quietly failing to auto-find at once.
+ok('the cache key is the lookup version the client sends, not the release',
+  /const cacheKey = 'streams:' \+ logic \+/.test(px));
+ok('that version is sanitised before use', /replace\(\/\[\^\\w\.-\]\/g, ''\)/.test(px));
+ok('it falls back rather than keying on undefined', /\|\| 'L0'/.test(px));
+ok('the client sends a deliberate lookup version', /const RW_STREAM_LOGIC = 'L\d+';/.test(src));
+ok('it is NOT the release number', !/&b=\$\{encodeURIComponent\(APP_BUILD\)\}/.test(src),
+  'that is what made every deploy re-bill every event');
+ok('every proxy lookup url carries it',
+  (src.match(/&b=\$\{encodeURIComponent\(RW_STREAM_LOGIC\)\}/g) || []).length >= 3);
 ok('the debug cache-buster is still debug-only',
   /rwDebugOn\(\) \? `&_t=\$\{Date\.now\(\)\}` : ''/.test(src),
   'busting on every request is the largest quota leak there is (§3)');
@@ -53,14 +64,15 @@ ok('caching itself is intact — this is versioning, not disabling',
   /s-maxage=\$\{edge\}/.test(px) && /STREAM_TTL_MS/.test(px));
 
 // The versioned key must actually differ across releases.
-const keyOf = new Function('PROXY_BUILD', 'sku', 'startISO',
-  "return 'streams:' + PROXY_BUILD + '|' + sku + '|' + startISO.slice(0, 10);");
-ok('two releases produce different keys',
-  keyOf('v26', 'RE-V5RC-25-0191', '2026-02-13') !== keyOf('v27', 'RE-V5RC-25-0191', '2026-02-13'));
-ok('the same release still hits its own cache',
-  keyOf('v27', 'RE-V5RC-25-0191', '2026-02-13') === keyOf('v27', 'RE-V5RC-25-0191', '2026-02-13'));
+const keyOf = new Function('logic', 'sku', 'startISO',
+  "return 'streams:' + logic + '|' + sku + '|' + startISO.slice(0, 10);");
+ok('bumping the lookup version invalidates',
+  keyOf('L1', 'RE-V5RC-25-0191', '2026-02-13') !== keyOf('L2', 'RE-V5RC-25-0191', '2026-02-13'));
+ok('a release that does NOT change the lookup reuses the cache',
+  keyOf('L1', 'RE-V5RC-25-0191', '2026-02-13') === keyOf('L1', 'RE-V5RC-25-0191', '2026-02-13'),
+  'this is the quota fix: six releases should not cost six searches per event');
 ok('different events still keep separate entries',
-  keyOf('v27', 'RE-V5RC-25-0191', '2026-02-13') !== keyOf('v27', 'RE-V5RC-25-0649', '2026-02-13'));
+  keyOf('L1', 'RE-V5RC-25-0191', '2026-02-13') !== keyOf('L1', 'RE-V5RC-25-0649', '2026-02-13'));
 
 // ── 2. The channel enumerates the event ──
 ok('the search carries the channel out with each hit', /channelId: v\.channelId \|\| null/.test(px));
