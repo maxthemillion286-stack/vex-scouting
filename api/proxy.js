@@ -18,7 +18,7 @@ export const config = { maxDuration: 60 };
 // Bumped whenever the streams lookup changes. Surfaced in `diag` and in every
 // streams response so the debug page can prove WHICH proxy is actually live —
 // a stale cached reply is otherwise indistinguishable from a fresh failure.
-const PROXY_BUILD = 'v40';
+const PROXY_BUILD = 'v41';
 // A failed stream lookup is expensive (page race + a YouTube search), and the
 // answer rarely changes within a session. Cache the miss too, or every revisit
 // pays the full cost again.
@@ -233,14 +233,44 @@ async function resolveVimeoChannel(channelUrl, startISO, endISO, tried) {
 // 3 — a 130x reduction — by listing the channel's uploads playlist instead.
 let ytUnitsUsed = 0;   // per-instance, surfaced in diag for monitoring
 
+// Why the last YouTube call failed, if it did. Reset per request.
+//
+// This existed as `return r.ok ? ... : null` — so a 403 quotaExceeded was
+// indistinguishable from a search that legitimately matched nothing, and the
+// route went on to report "nothing on YouTube matches its name and dates
+// closely enough to trust". That sentence describes a judgement. Running out
+// of quota is not a judgement; it means we never got to look.
+//
+// The §11 shape again, and the most expensive instance of it: every event on
+// the site fails at once, silently, and reads as a scoring problem.
+let ytLastError = null;
 async function ytGet(path, cost, ytKey) {
   ytUnitsUsed += cost;
   try {
     const r = await fetch('https://www.googleapis.com/youtube/v3/' + path + '&key=' + encodeURIComponent(ytKey),
       { signal: AbortSignal.timeout(8000) });
-    return r.ok ? await r.json() : null;
-  } catch (e) { return null; }
+    if (r.ok) return await r.json();
+    let reason = `http-${r.status}`;
+    try {
+      const body = await r.json();
+      const e = body && body.error;
+      const first = e && e.errors && e.errors[0];
+      // 403 quotaExceeded and 403 dailyLimitExceeded are the ones that matter:
+      // they are not "no results", they are "come back tomorrow".
+      if (first && first.reason) reason = first.reason;
+      else if (e && e.message) reason = String(e.message).slice(0, 120);
+    } catch (e2) {}
+    ytLastError = { status: r.status, reason };
+    return null;
+  } catch (e) {
+    ytLastError = { status: 0, reason: String((e && e.message) || e).slice(0, 120) };
+    return null;
+  }
 }
+
+// Did the last failure mean "we never got to look"?
+const ytOutOfQuota = () => !!(ytLastError &&
+  /quota|dailyLimit|rateLimit|userRateLimit/i.test(ytLastError.reason || ''));
 
 // Details for up to 50 videos in ONE request, for one unit.
 //
@@ -753,7 +783,21 @@ async function handleRequest(req, res) {
     //
     // ?debug=1 hid it too, since that path adds a cache-buster — so debug
     // captures looked fresh while ordinary use was a day stale.
-    const cacheKey = 'streams:' + PROXY_BUILD + '|' + sku + '|' + startISO.slice(0, 10);
+    // Keyed on the LOOKUP's version, which the client sends, not the release.
+    //
+    // Keying on PROXY_BUILD meant every deploy re-billed every event: a
+    // multi-day lookup is 101 units for the name search, ~9 for the channel
+    // listing and up to 202 more for targeted per-day searches — about 310
+    // against a daily allowance of 10,000, or roughly 32 events. Six releases
+    // in an afternoon while testing the same handful of events is enough to
+    // exhaust it, and the symptom is every event on the site quietly failing
+    // to auto-find at once.
+    //
+    // RW_STREAM_LOGIC is bumped deliberately, only when the lookup itself
+    // changes and old answers are genuinely wrong. Cosmetic and client-side
+    // releases now reuse the cache, which is what §3 assumes throughout.
+    const logic = (typeof req.query.b === 'string' ? req.query.b : '').replace(/[^\w.-]/g, '').slice(0, 12) || 'L0';
+    const cacheKey = 'streams:' + logic + '|' + sku + '|' + startISO.slice(0, 10);
     const hit = cache.get(cacheKey);
     if (hit && hit.expires > Date.now()) {
       res.setHeader('X-Cache', 'HIT');
@@ -1027,7 +1071,12 @@ async function handleRequest(req, res) {
       if (searched && expandKey && evName && eventDayKeys.length > 1) {
         const have = coveredDays();
         const missing = eventDayKeys.map((k, i) => ({ k, n: i + 1 })).filter(d => !have.has(d.k));
-        for (const miss of missing.slice(0, 2)) {
+        // One, not two. Each is another 100 units, and two of them made a
+        // multi-day lookup cost ~310 — a third of what a name search costs
+        // times three, for the days the free channel listing had already
+        // failed to cover. The listing is the reliable path; this is a
+        // long shot, and a long shot should not be the biggest line item.
+        for (const miss of missing.slice(0, 1)) {
           try {
             const hits = await searchYouTubeByName(
               `${searchQuery(evName)} Day ${miss.n}`, startISO, endISO, expandKey);
@@ -1076,7 +1125,12 @@ async function handleRequest(req, res) {
         // Surfaced so the UI can distinguish "no stream published" from
         // "we found a channel but couldn't search it" — very different fixes.
         channels: channels.map(c => c.url).slice(0, 4),
+        // What YouTube actually said, when it said anything. Absent on success.
+        ytError: ytLastError || undefined,
         reason: found.length ? undefined
+              // Quota first. It outranks every other explanation because it is
+              // not an explanation of the event at all — nothing was searched.
+              : ytOutOfQuota() ? 'yt-quota-exhausted'
               : channels.length ? (process.env.YOUTUBE_API_KEY ? 'channel-no-videos' : 'channel-needs-yt-key')
               : searched ? (pageUrl ? 'no-link-and-no-yt-match' : 'page-blocked-and-no-yt-match')
               : !pageUrl ? 'page-unreachable'
@@ -1088,6 +1142,18 @@ async function handleRequest(req, res) {
       // the hour, because the broadcast may not have been published yet.
       const eventOver = Date.parse(endISO || startISO) < Date.now() - 36 * 3600e3;
       const ttl = found.length ? STREAM_TTL_MS : (eventOver ? NEG_TTL_PAST_MS : NEG_TTL_MS);
+      // NEVER cache a miss that quota caused.
+      //
+      // A miss is cached for a day on the reasoning that a finished event
+      // cannot gain a stream. That reasoning holds for a real miss and is
+      // exactly wrong here: the event may well have a stream, we just could
+      // not look. Caching it would keep the event broken for 24 hours after
+      // the quota resets, and do it for every event visited while exhausted —
+      // turning one bad day into a permanent-looking outage.
+      if (!found.length && ytOutOfQuota()) {
+        res.setHeader('Cache-Control', 'no-store');
+        return res.status(200).json(out);
+      }
       cache.set(cacheKey, { data: out, status: 200, expires: Date.now() + ttl });
       // Edge caching matters more than the in-memory map: a serverless instance
       // is short-lived, so without this every visitor pays the full cost again

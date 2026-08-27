@@ -2261,7 +2261,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v40';
+const APP_BUILD = 'v41';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -2518,6 +2518,17 @@ const RW_PRESTART_GRACE_SEC = 15 * 60;
 // recognise — which matters, because the calibrations most likely to be wrong
 // are the oldest ones, saved before durations were recorded at all.
 const RW_MAX_BROADCAST_SEC = 14 * 3600;
+
+// The stream lookup's own version, used as the proxy cache key.
+//
+// NOT the release number. Keying the cache on APP_BUILD meant every deploy
+// re-billed every event's YouTube search — about 310 units for a multi-day
+// event against a 10,000/day allowance, so a handful of releases in an
+// afternoon exhausts it and every event silently stops auto-finding at once.
+//
+// Bump this ONLY when the lookup changes in a way that makes old answers
+// wrong. A cosmetic or client-side release should reuse what is cached.
+const RW_STREAM_LOGIC = 'L1';
 
 let rwEventStartDay = null;
 
@@ -3180,7 +3191,7 @@ async function rwAutoFindStream(eventId) {
           // fixes looked like no change at all because of it. APP_BUILD and
           // PROXY_BUILD are bumped together (t58 enforces it), so this is the
           // proxy's version too.
-          `&b=${encodeURIComponent(APP_BUILD)}` +
+          `&b=${encodeURIComponent(RW_STREAM_LOGIC)}` +
           // Cache-bust ONLY when debugging. In normal use the CDN answer is
           // exactly what we want: a repeat visit to the same event costs no
           // function invocation and no YouTube quota at all.
@@ -3245,7 +3256,7 @@ async function rwAutoFindStream(eventId) {
           `&start=${encodeURIComponent(e0.start)}` +
           (e0.end ? `&end=${encodeURIComponent(e0.end)}` : '') +
           (e0.name ? `&name=${encodeURIComponent(e0.name)}` : '') +
-          `&b=${encodeURIComponent(APP_BUILD)}` +
+          `&b=${encodeURIComponent(RW_STREAM_LOGIC)}` +
           (rwDebugOn() ? `&_t=${Date.now()}` : '');
         const sr = await fetch(sq);
         if (sr.ok) {
@@ -3836,7 +3847,7 @@ async function rwTryAutoSync(day, linkText, { quiet = false, knownStart = null, 
         const q = `${BASE}?path=${encodeURIComponent('boxcast:' + chan)}` +
           (rwEventDays.length ? `&start=${encodeURIComponent(rwEventDays[0])}T00:00:00Z` : '') +
           (rwEventDays.length ? `&end=${encodeURIComponent(rwEventDays[rwEventDays.length - 1])}T23:59:59Z` : '') +
-          `&b=${encodeURIComponent(APP_BUILD)}` +
+          `&b=${encodeURIComponent(RW_STREAM_LOGIC)}` +
           (rwDebugOn() ? `&_t=${Date.now()}` : '');
         const r = await fetch(q);
         const j = await r.json();
@@ -4236,6 +4247,7 @@ function rewatchRender() {
     } Open <strong>+ ADD STREAM</strong> below — the link is already filled in, so setting one anchor finishes it.</div>`;
   } else if (rwUncal.length && rwStreamReason) {
     const why = {
+      'yt-quota-exhausted': "YouTube's daily search quota is used up, so this event couldn't be looked for at all — this isn't a judgement about the event. It resets at midnight Pacific. Paste the link by hand below and it still syncs itself.",
       'page-unreachable': "Couldn't read this event's page on RobotEvents, so there was nothing to search for a stream link.",
       'channel-needs-yt-key': 'This event links a YouTube channel rather than a specific video. Searching that channel needs YOUTUBE_API_KEY set on the server.',
       'channel-no-videos': "This event links a YouTube channel, but no broadcast on it lines up with these dates.",
@@ -4359,6 +4371,7 @@ function rewatchRender() {
         // Say WHY nothing was found. "Add a stream" on an event that plainly
         // has one reads as a bug; naming the cause makes it actionable.
         {
+          'yt-quota-exhausted': "<div class=\"rw-miss\">YouTube's daily search quota is used up, so this event couldn't be looked for. It resets at midnight Pacific — paste the link below in the meantime.</div>",
           'page-unreachable': "<div class=\"rw-miss\">Couldn't read this event's page to look for a stream — paste the link below.</div>",
           'channel-needs-yt-key': "<div class=\"rw-miss\">This event links a YouTube channel rather than a video. Finding the broadcast on it needs YOUTUBE_API_KEY set on the server — paste the link below for now.</div>",
           'channel-no-videos': "<div class=\"rw-miss\">This event links a YouTube channel, but no broadcast from it lines up with these dates — paste the link below.</div>",

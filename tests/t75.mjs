@@ -72,7 +72,10 @@ ok('a day with nothing does NOT show the headline link',
 ok('the targeted search exists', /Day \$\{miss\.n\}/.test(px));
 ok('it only runs for days with no broadcast',
   /const missing = eventDayKeys\.map\(\(k, i\) => \(\{ k, n: i \+ 1 \}\)\)\.filter\(d => !have\.has\(d\.k\)\)/.test(px));
-ok('it is capped at two extra searches', /missing\.slice\(0, 2\)/.test(px));
+// Cut from two to one. Each is another 100 units, and two of them made a
+// multi-day lookup ~310 — the biggest line item, spent on the days the free
+// channel listing had already failed to cover.
+ok('it is capped at one extra search', /missing\.slice\(0, 1\)/.test(px));
 ok('it never runs when the page gave links for free',
   /if \(searched && expandKey && evName && eventDayKeys\.length > 1\)/.test(px),
   '§3: a link on the page must cost zero YouTube quota — t60 counts this');
