@@ -58,7 +58,7 @@ ok('it is NOT the release number', !/&b=\$\{encodeURIComponent\(APP_BUILD\)\}/.t
 ok('every proxy lookup url carries it',
   (src.match(/&b=\$\{encodeURIComponent\(RW_STREAM_LOGIC\)\}/g) || []).length >= 3);
 ok('the debug cache-buster is still debug-only',
-  /rwDebugOn\(\) \? `&_t=\$\{Date\.now\(\)\}` : ''/.test(src),
+  /\(\(rwDebugOn\(\) \|\| rwForceRefresh\) \? `&_t=\$\{Date\.now\(\)\}` : ''\)/.test(src),
   'busting on every request is the largest quota leak there is (§3)');
 ok('caching itself is intact — this is versioning, not disabling',
   /s-maxage=\$\{edge\}/.test(px) && /STREAM_TTL_MS/.test(px));

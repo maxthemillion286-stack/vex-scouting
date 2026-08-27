@@ -1378,6 +1378,14 @@
 
   .rw-embed { position: relative; padding-bottom: 56.25%; height: 0; background: #000; border: 1px solid var(--border); }
   .rw-embed iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+  .rw-checks { margin: 6px 0 10px; }
+  .rw-check { font-family: var(--mono); font-size: 11px; line-height: 1.55; padding: 3px 0; }
+  .rw-check-tag { display: inline-block; min-width: 42px; font-weight: 700; letter-spacing: 1px; }
+  .rw-check-pass .rw-check-tag { color: #35c46a; }
+  .rw-check-warn .rw-check-tag { color: #d8a01f; }
+  .rw-check-fail .rw-check-tag { color: #e0524a; }
+  .rw-check-info .rw-check-tag { color: var(--text-muted); }
+  .rw-debug-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 12px; }
   .rw-fallback { display: inline-block; margin-top: 10px; font-family: var(--mono); font-size: 11px; color: var(--text-muted); text-decoration: none; letter-spacing: 0.5px; }
   /* The position, for a stream we can compute into but not seek. Large on
      purpose: it is the whole answer when there is no player to jump. */
@@ -2261,7 +2269,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v41';
+const APP_BUILD = 'v42';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -2340,6 +2348,132 @@ function vsDayAssignment() {
       }))
     };
   } catch (e) { return { error: String(e && e.message || e) }; }
+}
+
+// The app's own verdict on why the Jumper is or isn't working.
+//
+// Written because the loop had become: ship a fix, hear "it didn't work",
+// ask for a capture, read the JSON, find the real cause was something else
+// entirely. Every round of that cost a release. The information was always in
+// the report — it just needed reading, and the person best placed to read it
+// is the code that produced it.
+//
+// Each line is a verdict, not a value. A FAIL says what to do about it, or
+// exactly what to send if it needs a human.
+function vsSelfCheck() {
+  const out = [];
+  const add = (state, text) => out.push({ state, text });
+  try {
+    const j = (vsDebug.jumper && vsDebug.jumper.body) || null;
+    const diag = vsDebug.diag || null;
+
+    // ── Is the code you're looking at the code that shipped? ──
+    const sw = vsDebug.swVersion || 'none';
+    const app = APP_BUILD;
+    const proxy = (diag && diag.build) || 'unknown';
+    if (proxy === 'unknown') add('warn', `App is ${app}. The proxy hasn't answered yet — reload if this persists.`);
+    else if (proxy !== app) add('fail', `App is ${app} but the proxy is ${proxy}. One of them didn't deploy. Wait a minute and reload; if it stays split, that's the bug.`);
+    else add('pass', `Build ${app} everywhere.`);
+    if (sw !== 'none' && !String(sw).includes(app)) {
+      add('fail', `A stale service worker (${sw}) is serving this page. Ctrl+Shift+R does NOT replace it — press HARD RESET.`);
+    }
+
+    // ── Was the answer freshly computed, or handed back from cache? ──
+    if (j && j.build && j.build !== app) {
+      add('fail', `The stream answer was computed by ${j.build}, not ${app} — you're seeing a cached result. Press RE-CHECK STREAMS.`);
+    }
+
+    // ── The things that stop everything ──
+    if (diag && diag.robotEventsTokens === 0) add('fail', 'No RobotEvents token is configured on the server. Nothing will load.');
+    if (diag && diag.youtubeKey === false) add('fail', 'YOUTUBE_API_KEY is not set on the server, so auto-find can never search YouTube.');
+
+    if (j && j.ytError) {
+      const q = /quota|dailyLimit|rateLimit/i.test(j.ytError.reason || '');
+      add('fail', q
+        ? `YouTube's daily quota is exhausted (${j.ytError.reason}). Nothing was searched — this is not a verdict about the event. It resets at midnight Pacific.`
+        : `YouTube returned ${j.ytError.status} ${j.ytError.reason}. That's a server or key problem, not a matching problem.`);
+    }
+
+    // ── What auto-find actually did ──
+    if (!j) add('warn', 'Auto-find has not run for this event yet.');
+    else if ((j.streams || []).length) {
+      const src = [...new Set((j.streams || []).map(s => s.source))].join(', ');
+      add('pass', `Auto-find returned ${j.streams.length} broadcast(s) via ${src}.`);
+      if (j.expand) add('info', `Channel expansion ${j.expand.ran ? `ran and added ${j.expand.added}` : 'did not run'}; days covered ${(j.expand.coveredDays || []).join(', ') || 'none'} of ${(j.expand.eventDayKeys || []).join(', ')}.`);
+    } else if (!j.ytError) {
+      add('fail', `Auto-find found nothing (${j.reason || 'no reason given'}). ${
+        j.reason === 'page-blocked-and-no-yt-match'
+          ? "The event page is blocked (normal) and YouTube had no confident match. If this event streams on vexworlds.tv, paste that channel — the Jumper can't discover VEX TV on its own."
+          : 'Send me this whole block.'}`);
+    }
+
+    // ── Day by day, which is where most of the trouble has been ──
+    const da = vsDayAssignment();
+    if (da && da.byDay) {
+      if (da.teamDivision) add('pass', `This team is in the ${da.teamDivision} division${da.divisions && da.divisions.length > 1 ? ` of ${da.divisions.length}` : ''}.`);
+      else if (da.divisions && da.divisions.length > 1) add('warn', `This event has ${da.divisions.length} divisions but this team's could not be read — the stream picked may be another field.`);
+      for (const d of da.byDay) {
+        if (d.calibrated) add('pass', `${d.day}: synced to ${d.calVideoId}.`);
+        else if (d.picked) add('warn', `${d.day}: a broadcast was picked but not synced${d.syncFail ? ` — ${d.syncFail}` : '.'}`);
+        else if (d.syncFail) add('fail', `${d.day}: ${d.syncFail}`);
+        else if ((da.pool || []).length) add('fail', `${d.day}: none of the ${da.pool.length} broadcast(s) found belongs to this day. Send me this block.`);
+        else add('warn', `${d.day}: no broadcast available to sync against.`);
+      }
+    }
+  } catch (e) {
+    add('fail', 'The self-check itself threw: ' + String((e && e.message) || e));
+  }
+  return out;
+}
+
+// Copy the whole report in one press, so reporting a problem is one action.
+function rwCopyDiag(btn) {
+  const el = document.getElementById('rwDebugOut');
+  const text = JSON.stringify({ selfCheck: vsSelfCheck(), report: vsDebugReport() }, null, 2);
+  const done = ok => { if (btn) { btn.textContent = ok ? 'COPIED' : 'SELECT & COPY'; setTimeout(() => { btn.textContent = 'COPY DIAGNOSTICS'; }, 2000); } };
+  try {
+    navigator.clipboard.writeText(text).then(() => done(true), () => { if (el) { el.value = text; el.select(); } done(false); });
+  } catch (e) { if (el) { el.value = text; el.select(); } done(false); }
+}
+
+// Force a fresh stream lookup, bypassing the proxy and CDN cache once.
+//
+// The cache is keyed on the lookup's version, not the release, so that a
+// deploy stops re-billing every event's YouTube search (§3). The cost of that
+// is exactly this: a fix ships and the answer you see is still yesterday's.
+// So the bust is a button rather than automatic — cheap when asked for,
+// nothing when not.
+let rwForceRefresh = false;
+function rwRecheckStreams() {
+  rwForceRefresh = true;
+  const ctx = window._rwCtx;
+  if (ctx && ctx.eventId) { rwMemoReset(ctx.eventId); rewatchSelectEvent(ctx.eventId); }
+  else location.reload();
+}
+
+// Unregister every service worker, drop every cache, reload.
+//
+// Ctrl+Shift+R bypasses the HTTP cache but NOT a service worker that has
+// already claimed the page — it can keep serving an old bundle through a hard
+// reload, which is exactly the "I reloaded and nothing changed" case, and it
+// is invisible unless you go looking.
+async function vsHardReset() {
+  try {
+    if (navigator.serviceWorker) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r => r.unregister().catch(() => {})));
+    }
+  } catch (e) {}
+  try {
+    if (window.caches) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k).catch(() => {})));
+    }
+  } catch (e) {}
+  // A changed query string defeats any remaining HTTP cache for the document.
+  const u = new URL(location.href);
+  u.searchParams.set('fresh', String(Date.now()));
+  location.replace(u.toString());
 }
 
 function vsDebugReport() {
@@ -3195,7 +3329,7 @@ async function rwAutoFindStream(eventId) {
           // Cache-bust ONLY when debugging. In normal use the CDN answer is
           // exactly what we want: a repeat visit to the same event costs no
           // function invocation and no YouTube quota at all.
-          (rwDebugOn() ? `&_t=${Date.now()}` : '');
+          ((rwDebugOn() || rwForceRefresh) ? `&_t=${Date.now()}` : '');
         const s = await fetch(qs);
         if (s.ok) {
           const j = await s.json();
@@ -3257,7 +3391,7 @@ async function rwAutoFindStream(eventId) {
           (e0.end ? `&end=${encodeURIComponent(e0.end)}` : '') +
           (e0.name ? `&name=${encodeURIComponent(e0.name)}` : '') +
           `&b=${encodeURIComponent(RW_STREAM_LOGIC)}` +
-          (rwDebugOn() ? `&_t=${Date.now()}` : '');
+          ((rwDebugOn() || rwForceRefresh) ? `&_t=${Date.now()}` : '');
         const sr = await fetch(sq);
         if (sr.ok) {
           const sj = await sr.json();
@@ -3848,7 +3982,7 @@ async function rwTryAutoSync(day, linkText, { quiet = false, knownStart = null, 
           (rwEventDays.length ? `&start=${encodeURIComponent(rwEventDays[0])}T00:00:00Z` : '') +
           (rwEventDays.length ? `&end=${encodeURIComponent(rwEventDays[rwEventDays.length - 1])}T23:59:59Z` : '') +
           `&b=${encodeURIComponent(RW_STREAM_LOGIC)}` +
-          (rwDebugOn() ? `&_t=${Date.now()}` : '');
+          ((rwDebugOn() || rwForceRefresh) ? `&_t=${Date.now()}` : '');
         const r = await fetch(q);
         const j = await r.json();
         // Recorded whatever happens: the list endpoint's query shape is not
@@ -4264,7 +4398,17 @@ function rewatchRender() {
   // Diagnostics, shown only with ?debug=1 on the URL. Not a security boundary
   // — it just keeps a wall of JSON away from ordinary users.
   if (rwDebugOn()) {
+    const checks = vsSelfCheck();
     html += `<div class="rw-debug">
+      <div class="rw-debug-head">self-check</div>
+      <div class="rw-checks">${checks.map(c =>
+        `<div class="rw-check rw-check-${c.state}"><span class="rw-check-tag">${c.state}</span> ${c.text}</div>`
+      ).join('')}</div>
+      <div class="rw-debug-actions">
+        <button class="draft-btn" onclick="rwCopyDiag(this)">COPY DIAGNOSTICS</button>
+        <button class="draft-btn" onclick="rwRecheckStreams()">RE-CHECK STREAMS</button>
+        <button class="draft-btn" onclick="vsHardReset()">HARD RESET</button>
+      </div>
       <div class="rw-debug-head">debug</div>
       <textarea readonly rows="16" onclick="this.select()" id="rwDebugOut">${
         JSON.stringify(vsDebugReport(), null, 2).replace(/</g, '&lt;')

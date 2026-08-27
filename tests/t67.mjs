@@ -62,8 +62,12 @@ ok('only for multi-day events', /dayCount > 1/.test(call));
 ok('only when the pool cannot already cover every day',
   /rwStreamPool\.length < dayCount/.test(call));
 ok('only with a real YouTube id', /\^\[A-Za-z0-9_-\]\{11\}\$/.test(call));
-ok('the cache-buster is debug-only here too',
-  /rwDebugOn\(\) \? `&_t=\$\{Date\.now\(\)\}` : ''/.test(call));
+// Never automatic: debug, or an explicit RE-CHECK STREAMS press. Busting on
+// every lookup defeated CDN caching, which is the largest quota leak there is
+// (§3) — but with the cache now keyed on the lookup version rather than the
+// release, a user needs SOME way to force a fresh answer after a fix ships.
+ok('the cache-buster is opt-in, never automatic',
+  /\(\(rwDebugOn\(\) \|\| rwForceRefresh\) \? `&_t=\$\{Date\.now\(\)\}` : ''\)/.test(call));
 
 const needSibs = new Function('dayCount', 'poolLen', 'ytId',
   "return !!(dayCount > 1 && poolLen < dayCount && ytId);");

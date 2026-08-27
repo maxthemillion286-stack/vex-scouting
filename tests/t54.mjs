@@ -27,7 +27,7 @@ const idx = fs.readFileSync('../index.html','utf8');
 // The buster is now DEBUG-ONLY: busting on every lookup defeated CDN caching,
 // which was the single largest source of wasted YouTube quota.
 ok('the streams lookup is cache-busted only when debugging',
-   /rwDebugOn\(\) \? `&_t=\$\{Date\.now\(\)\}` : ''/.test(idx));
+   /\(\(rwDebugOn\(\) \|\| rwForceRefresh\) \? `&_t=\$\{Date\.now\(\)\}` : ''\)/.test(idx));
 ok('the diag lookup is cache-busted', /path=diag&_t=\$\{Date\.now\(\)\}/.test(idx));
 ok('diag also asks the browser not to cache', /cache: 'no-store'/.test(idx));
 ok('the debug report surfaces the proxy build', /proxy: \(vsDebug\.diag && vsDebug\.diag\.build\)/.test(idx));
