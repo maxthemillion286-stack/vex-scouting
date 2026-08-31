@@ -98,5 +98,23 @@ ok('each step is independently guarded', (reset.match(/catch \(e\) \{\}/g) || []
 ok('it explains why Ctrl+Shift+R is not enough',
   /bypasses the HTTP cache but NOT a service worker/.test(src));
 
+
+// A skipped auto-find is not a fault. Auto-find is skipped once every day has
+// an anchor (§3) — the intended behaviour and the whole quota saving — so
+// reporting it as a warning beside a column of passes reads as a fault where
+// there is none, and the next real warning gets discounted with it.
+ok('a deliberately skipped auto-find reports as a pass',
+  /Auto-find was skipped because every day already has a stream/.test(fn));
+ok('it is only a pass when every day really is calibrated',
+  /byDay\.every\(d => d\.calibrated\)/.test(fn));
+ok('a genuinely absent auto-find is still a warning',
+  /else if \(!j\) add\('warn', 'Auto-find has not run/.test(fn));
+
+const skipped = new Function('byDay', "return !!(byDay && byDay.length && byDay.every(d => d.calibrated));");
+ok('two calibrated days count as done',
+  skipped([{ calibrated: true }, { calibrated: true }]) === true);
+ok('one uncalibrated day does not', skipped([{ calibrated: true }, { calibrated: false }]) === false);
+ok('an empty day list does not', skipped([]) === false);
+
 console.log(`\nt80: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

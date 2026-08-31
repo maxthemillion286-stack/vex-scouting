@@ -2269,7 +2269,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v42';
+const APP_BUILD = 'v43';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -2395,7 +2395,17 @@ function vsSelfCheck() {
     }
 
     // ── What auto-find actually did ──
-    if (!j) add('warn', 'Auto-find has not run for this event yet.');
+    // "Auto-find hasn't run" is only worth flagging when a day still needs it.
+    //
+    // Auto-find is skipped entirely once every day has an anchor (§3) — that is
+    // the intended behaviour and the whole quota saving, so reporting it as a
+    // warning next to a column of passes reads as a fault where there is none.
+    // A self-check that cries wolf on a working event is worse than no
+    // self-check, because the next real warning gets discounted too.
+    const daPre = vsDayAssignment();
+    const allDone = !!(daPre && daPre.byDay && daPre.byDay.length && daPre.byDay.every(d => d.calibrated));
+    if (!j && allDone) add('pass', 'Auto-find was skipped because every day already has a stream — intended, and it spends no quota.');
+    else if (!j) add('warn', 'Auto-find has not run for this event yet.');
     else if ((j.streams || []).length) {
       const src = [...new Set((j.streams || []).map(s => s.source))].join(', ');
       add('pass', `Auto-find returned ${j.streams.length} broadcast(s) via ${src}.`);
