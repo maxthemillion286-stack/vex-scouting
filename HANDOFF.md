@@ -281,8 +281,68 @@ proxy is at `api/proxy.js`.
 | t62 | Request de-duplication |
 | t63 | **Multi-segment days, with the six real timestamps** |
 | t64 | 500s explain themselves |
+| t65 | Auto-find reports itself; auto-sync runs per day |
+| t66 | A description link must not short-circuit the search |
+| t67 | `siblings:` — the other days of a multi-day event |
+| t68 | A single rare word is evidence; day labels beat index order |
+| t69 | Day ordinals come from the EVENT; a wrong video is refused |
+| t70 | Channel listing reaches back to the event |
+| t71 | The search's entry check and the scorer agree |
+| t72 | Cache versioning, channel enumeration, grade by title |
+| t73 | "Most day 2 events still show day 1" |
+| t74 | vexworlds.tv is recognised, and said so honestly |
+| t75 | The anchor form must not offer another day's recording |
+| t76 | VEX TV is BoxCast; the day assignment is legible |
+| t77 | A stream that starts a few minutes into the first match |
+| t78 | **Every multi-day shape that actually occurs, swept in one place** |
+| t79 | Running out of quota must not read as "nothing matches" |
+| t80 | The app diagnoses itself; a reload can be forced |
+| t81 | The Teams tab loads its own data, and never shows another event's |
+| t82 | **End to end in a real DOM — see below** |
+| t83 | Guarded storage; a boot no single step can cancel |
 | sanity | CSS braces balance, inline JS parses, tabs present |
 | tool_sanity | Same for anchor-tool.html |
+
+### t82 and `harness.mjs` — the app, driven
+
+Everything above reads `index.html` as **text**: regexes over the source, or a
+function pulled out with `new Function` and handed made-up arguments. That
+catches a great deal, and it caught nothing about the bug that prompted t82 —
+the Teams tab rendering a cache that the team-number route never filled. Both
+halves were individually correct. Only walking from one screen to the next
+shows the join.
+
+`tests/harness.mjs` loads the real `index.html` into jsdom, stubs the one thing
+that reaches the outside world (`fetch` → `/api/proxy`), and hands back the
+window plus a list of everything that threw. Tests then call the same handlers
+the buttons call.
+
+```js
+import { boot, settle, html } from './harness.mjs';
+const { win, errors } = await boot();              // or boot({ noStorage: true })
+win.switchTab('tournament');
+win.document.getElementById('tournamentInput').value = '66449A';
+await win.findTournament();
+await settle(win);                                  // let fetches land
+```
+
+`boot()` options: `noStorage` makes every `localStorage` access throw, as
+Safari private browsing and a managed school device do; `fail: { '/events': 500 }`
+makes matching requests fail; `empty: ['/skills']` answers them with `[]`.
+`router.seen` lists every path requested, which is usually the fastest way to
+see why a screen came back blank.
+
+Two bugs surfaced on its first run, neither visible in the source:
+
+* With site data blocked, `window.onload` threw on its second line and took
+  everything after it — no tab restore, no service worker, and no
+  `enhanceAllSelects()`, so all twelve dropdowns stayed raw native controls.
+  The page looked broken and said nothing.
+* The Bracket view was the only sub-view rendering no nav, so opening it meant
+  searching the event again to get anywhere else.
+
+Add to it whenever a bug turns out to live in the join between two screens
+rather than inside either one.
 
 **A caveat that matters:** jsdom has no layout engine. `getBoundingClientRect`
 returns zeroes, so t43 and t45 verify that the cascade resolves and that the

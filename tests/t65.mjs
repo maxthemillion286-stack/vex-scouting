@@ -41,7 +41,11 @@ ok('the record happens before the quiet check',
 ok('rwAutoSyncFail is declared', /let rwAutoSyncFail = \{\};/.test(src));
 ok('a fresh attempt clears the previous reason',
   /delete rwAutoSyncFail\[day\];/.test(src));
-ok('loading an event resets it', /rwAutoSyncFail = \{\};[\s\S]{0,80}vsDebug\.jumper = null;/.test(src));
+ok('loading an event resets it',
+  /function rwResetEventState\(\) \{[\s\S]*?rwAutoSyncFail = \{\};[\s\S]*?vsDebug\.jumper = null;[\s\S]*?\n\}/.test(src));
+ok('the reset runs before the first await, not a hundred lines in',
+  /rwMemoReset\(eventId\);\s*\n\s*rwResetEventState\(\);/.test(src),
+  'a request that fails below must not leave the last event\'s state on screen');
 
 // ── 3. The "found it" notice renders OUTSIDE the collapsed form ──
 const statusBlock = src.slice(
