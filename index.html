@@ -2269,7 +2269,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v43';
+const APP_BUILD = 'v44';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -5700,6 +5700,16 @@ async function findTournament() {
       }
       const team = teams[0];
 
+      // The grade dropdown defaults to High School. Searching a team number
+      // tells us the grade outright, so take it — otherwise a Middle School
+      // team opens its own event and the team list filters down to nothing.
+      const teamGrade = (team.grade || team.grade_level || team.gradeLevel || '').trim();
+      const gradeSel = document.getElementById('tournamentGradeSelect');
+      if (gradeSel && teamGrade && [...gradeSel.options].some(o => o.value === teamGrade)) {
+        gradeSel.value = teamGrade;
+        gradeSel.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+
       loadingText.textContent = `LOADING ${input.toUpperCase()}'S EVENTS...`;
       const params = { 'team[]': [team.id] };
       if (selectedSeason) params['season[]'] = [selectedSeason];
@@ -5783,9 +5793,18 @@ function toggleTournamentMultiSelectMode() {
   if (btn) btn.classList.toggle('active', tournamentMultiSelectMode);
   updateTournamentSelectionUI();
 }
-let tournamentTeamCache = []; // last-loaded teams (for re-sorting)
+// Teams for the event currently open. null means NOT LOADED YET — distinct
+// from [], which means loaded and genuinely empty. Every other sub-view
+// (matches, skills, awards) already uses that distinction to decide whether to
+// fetch; teams alone rendered whatever happened to be in the variable, which is
+// how arriving from a team-number search showed an empty list, and how the
+// PREVIOUS event's teams could appear under a new event's name.
+let tournamentTeamCache = null;
 let tournamentEventName = '';
 let tournamentGrade = 'High School';
+// How many teams the event has that the GRADE filter removed. An event that is
+// entirely the other grade is the ordinary reason the list looks empty.
+let tournamentTeamsOtherGrades = 0;
 
 // Tournament view state
 let tournamentEventId = null;
@@ -5798,6 +5817,7 @@ async function loadTournamentTeams(eventId, eventName, focusTeamId, focusTeamNum
   tournamentSkillsCache = null;
   tournamentAwardsCache = null;
   tournamentRolldownCache = null;
+  tournamentTeamCache = null;
   tournamentView = 'teams';
   tournamentEventId = eventId;
   tournamentEventName = eventName;
@@ -6603,10 +6623,17 @@ async function loadAndRenderTeamList() {
     }
 
     if (!filtered.length) {
-      resultsEl.innerHTML = `<div style="text-align:center;padding:40px;font-family:var(--mono);color:var(--text-muted);">No ${grade} teams found at this event.</div>`;
+      // Render through the normal path rather than a bare message: it keeps the
+      // nav (so this tab is not a dead end) and the GRADE dropdown, which is
+      // usually the cause — an event with only Middle School teams looks empty
+      // to the High School default.
+      tournamentTeamCache = [];
+      tournamentTeamsOtherGrades = teams.length;
+      renderTournamentTeams();
       loadingEl.classList.remove('active');
       return;
     }
+    tournamentTeamsOtherGrades = 0;
 
     const seasonId = document.getElementById('tournamentSeasonSelect')?.value;
     loadingText.textContent = 'LOADING WORLD SKILLS RANKINGS...';
@@ -6711,7 +6738,10 @@ function tournamentNav(active) {
 
 function tournamentGo(view) {
   tournamentView = view;
-  if (view === 'teams') return renderTournamentTeams();
+  // Load on demand, exactly like matches/skills/awards below. Entering an
+  // event by team number goes straight to that team's matches and never runs
+  // the team-list load, so this tab had nothing to render.
+  if (view === 'teams') return tournamentTeamCache ? renderTournamentTeams() : loadAndRenderTeamList();
   if (view === 'matches') return renderTournamentMatches();
   if (view === 'skills') return renderTournamentSkills();
   if (view === 'awards') return renderTournamentAwards();
@@ -7055,10 +7085,11 @@ function renderTournamentTeams() {
   const divFilter = document.getElementById('tournamentDivSelect')?.value || 'All';
 
   // Divisions present at this event (Worlds/signatures have several)
-  const divisions = [...new Set(tournamentTeamCache.map(t => t.divisionName).filter(Boolean))].sort();
+  const cache = tournamentTeamCache || [];
+  const divisions = [...new Set(cache.map(t => t.divisionName).filter(Boolean))].sort();
 
   // Sort teams
-  let teams = [...tournamentTeamCache];
+  let teams = [...cache];
   if (divFilter !== 'All' && divisions.length > 1) {
     teams = teams.filter(t => t.divisionName === divFilter);
   }
@@ -7104,8 +7135,9 @@ function renderTournamentTeams() {
             ${divisions.map(d => `<option value="${d}" ${divFilter===d?'selected':''}>${d}</option>`).join('')}
           </select>
         </div>` : ''}
-        <button class="btn btn-secondary" onclick="copyTournamentTeams('${teamNumbers.join(',')}')">COPY ALL</button>
-        ${teams.length <= 150
+        ${teams.length === 0 ? '' : `
+        <button class="btn btn-secondary" onclick="copyTournamentTeams('${teamNumbers.join(',')}')">COPY ALL</button>`}
+        ${teams.length === 0 ? '' : teams.length <= 150
           ? `<button class="btn btn-primary" onclick="scoutTournamentTeams('${teamNumbers.join(',')}', '${tournamentGrade}')">SCOUT ALL ${teams.length}</button>`
           : `<div class="scout-all-disabled" title="This event has ${teams.length} teams — too many to scout at once. Use multi-select to pick the teams you want.">SCOUT ALL DISABLED · ${teams.length} TEAMS</div>`
         }
@@ -7115,11 +7147,18 @@ function renderTournamentTeams() {
     ${tournamentNav('teams')}
     <div id="tournamentSelectionSlot"></div>
 
+    ${teams.length === 0 ? '' : `
     <div class="info-bar">
       <span class="info-icon" title="Click to scout one team. Shift+click to select multiple, then 'Compare Selected' to scout them together. On mobile, tap MULTI-SELECT to enable selecting multiple teams without Shift.">ⓘ</span>
       <span style="flex:1;">Click to scout · Shift+click to select multiple</span>
       <button class="multi-select-btn ${tournamentMultiSelectMode ? 'active' : ''}" id="tournamentMultiSelectBtn" onclick="toggleTournamentMultiSelectMode()">MULTI-SELECT</button>
-    </div>
+    </div>`}
+
+    ${teams.length === 0 ? `
+    <div style="text-align:center;padding:40px 20px;font-family:var(--mono);color:var(--text-muted);line-height:1.7;">
+      No ${tournamentGrade} teams are registered at this event.
+      ${tournamentTeamsOtherGrades ? `<br>It has ${tournamentTeamsOtherGrades} team${tournamentTeamsOtherGrades === 1 ? '' : 's'} in the other grade — switch GRADE at the top and search again.` : ''}
+    </div>` : ''}
 
     <div class="tournament-teams">
       ${teams.map(t => {
