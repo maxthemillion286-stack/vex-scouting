@@ -2038,6 +2038,32 @@
 <script>
 const BASE = '/api/proxy';
 
+// ── Storage that cannot take the page down with it ─────────────────────────
+//
+// Reading localStorage is not safe. Safari private browsing, "block all
+// cookies", and managed school devices — which is a lot of this app's actual
+// audience — throw a SecurityError on ANY access, not just on write. The boot
+// sequence read it twice with nothing around it, so on those browsers
+// window.onload threw at the theme line and everything after it never ran:
+// no tab restore, no service worker, and no enhanceAllSelects(), which left
+// all twelve dropdowns as raw unstyled native controls. The app looked broken
+// and nothing said why. §11 exactly.
+//
+// Storage is a convenience here — a remembered tab, a theme, a match cache.
+// Losing it should cost the convenience and nothing else.
+const lsGet = (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); return true; } catch (e) { return false; } };
+const lsRemove = (k) => { try { localStorage.removeItem(k); } catch (e) {} };
+// Drop every key we own that matches a prefix. Used when a quota write fails.
+const lsPurgePrefix = (prefix) => {
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(prefix)) localStorage.removeItem(key);
+    }
+  } catch (e) {}
+};
+
 // ═══════════════════════════════════════════════════════════════
 // CODE PROTECTION LAYER
 // Casual deterrents only; determined users can still inspect.
@@ -2269,7 +2295,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v44';
+const APP_BUILD = 'v45';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -3021,7 +3047,7 @@ function rwDayLabel(dayKey) {
 // Calibrations are an object keyed by day: { '2025-10-18': {videoId, ...}, ... }
 function rwLoadCal(eid) {
   try {
-    const raw = JSON.parse(localStorage.getItem(rwCalKey(eid)) || 'null');
+    const raw = JSON.parse(lsGet(rwCalKey(eid)) || 'null');
     if (!raw) return {};
     // Migrate the old single-stream format into the per-day shape
     if (raw.videoId && !raw.byDay) return { [rwDayKey(raw.anchorMs)]: raw };
@@ -3070,7 +3096,7 @@ function rwDropImpossible(byDay) {
   return out;
 }
 function rwSaveCal(eid, calByDay) {
-  try { localStorage.setItem(rwCalKey(eid), JSON.stringify(calByDay)); } catch (e) {}
+  lsSet(rwCalKey(eid), JSON.stringify(calByDay));
 }
 // The stream covering a given match — strictly the one calibrated for that
 // match's own day. Never borrow another day's stream: at a multi-day event that
@@ -3251,6 +3277,45 @@ let rwMemo = {};
 function rwMemoReset(eventId) {
   if (rwMemoKey !== String(eventId)) { rwMemoKey = String(eventId); rwMemo = {}; }
 }
+
+// Everything the Jumper knows about ONE event, cleared the instant a different
+// event is selected.
+//
+// These were reset — when they were reset at all — a hundred lines into
+// rewatchSelectEvent, after several awaits that can fail. A dropped request on
+// event B therefore left event A's division, day list, start day and grade
+// sitting in place, and the ranking that picks a broadcast weights division at
+// ±1000 and grade at ±100. §3 is explicit that a wrong video is worse than no
+// video, and this is a way to get one that looks right.
+//
+// rwEventStartDay and rwEventGrade were worse than late: they were written
+// ONLY inside rwAutoFindStream, which is skipped entirely when every day is
+// already anchored. Open a calibrated event after an uncalibrated one and the
+// day ordinals — and everything vsDayAssignment() reports — were computed from
+// the previous event's first day.
+function rwResetEventState() {
+  rwStreamPool = [];
+  rwStreamReason = null;
+  rwAutoSyncFail = {};
+  rwEventDays = [];
+  rwEventStartDay = null;
+  rwEventGrade = null;
+  rwTeamDivision = null;
+  vsDebug.jumper = null;
+  vsDebug.boxcast = null;
+}
+
+// Start day and grade, recorded for whoever needs them. Idempotent and memoed
+// per event, so calling it from both the selection path and auto-find costs
+// one request between them.
+async function rwRecordEventMeta(eventId) {
+  try {
+    const e0 = (await rwEventDetail(eventId))[0] || {};
+    rwEventStartDay = (typeof e0.start === 'string' && e0.start.slice(0, 10)) || null;
+    rwEventGrade = rwGradeOf(e0.name || '');
+    return e0;
+  } catch (e) { return {}; }
+}
 function rwMemoed(key, fn) {
   if (!(key in rwMemo)) rwMemo[key] = fn().catch(e => { delete rwMemo[key]; throw e; });
   return rwMemo[key];
@@ -3278,13 +3343,10 @@ const rwAllDivisionMatches = eventId => rwMemoed('divm', async () => {
 async function rwAutoFindStream(eventId) {
   let webcast = null, webcastRaw = '', ctxWebcastSource = null;
   try {
-    const ev = await rwEventDetail(eventId);
-    const e0 = ev[0] || {};
-    // Recorded before anything else needs it: the "Day N" in a stream title is
-    // counted from the EVENT's first day, which is not the same as the first
-    // day this team happens to play.
-    rwEventStartDay = (typeof e0.start === 'string' && e0.start.slice(0, 10)) || null;
-    rwEventGrade = rwGradeOf(e0.name || '');
+    // The "Day N" in a stream title is counted from the EVENT's first day,
+    // which is not the same as the first day this team happens to play. Shared
+    // with the selection path so a skipped auto-find still records it.
+    const e0 = await rwRecordEventMeta(eventId);
     // Look everywhere the API gives us first — it costs nothing.
     const found = rwFindWebcasts(e0).filter(c => c.kind === 'direct');
     if (found.length) {
@@ -3429,8 +3491,12 @@ async function rwAutoFindStream(eventId) {
 async function rewatchSelectEvent(eventId) {
   const ctx = window._rwCtx; if (!ctx) return;
   // Scope the memo to this event, so switching events can never reuse the
-  // previous one's matches.
+  // previous one's matches — and drop every per-event global with it, BEFORE
+  // the first await, so a failure below cannot leave the last event's answers
+  // on screen.
   rwMemoReset(eventId);
+  rwResetEventState();
+  const metaLoaded = rwRecordEventMeta(eventId);
   const loading = document.getElementById('rwLoading');
   const status = t => { const el = document.getElementById('rwLoadingText'); if (el) el.textContent = t; };
   loading.classList.add('active');
@@ -3543,10 +3609,10 @@ async function rewatchSelectEvent(eventId) {
     // Auto-find runs alongside the render instead of before it. The matches
     // are already loaded; show them now and let the stream drop in when it
     // arrives, rather than holding a blank panel for several seconds.
-    rwStreamPool = [];
-    rwStreamReason = null;
-    rwAutoSyncFail = {};
-    vsDebug.jumper = null;
+    // Start day and grade must be known before any day ordinal is computed —
+    // including on the manual-paste path, which runs whether or not auto-find
+    // does. (The per-event globals were already cleared at the top.)
+    await metaLoaded;
     // If every day already has an anchor — published or local — there is
     // nothing to find, and searching would spend quota to answer a question
     // nobody asked. anchors.json has to be loaded before this can be known;
@@ -4613,31 +4679,49 @@ function rewatchRender() {
   }
 }
 
+// Boot, one independently guarded step at a time.
+//
+// This was a single unguarded sequence, which meant the FIRST thing to throw
+// took everything after it with it — and the theme read near the top throws on
+// any browser with site data blocked. The visible result was every dropdown
+// left unstyled, because enhanceAllSelects() sits near the bottom. None of
+// these steps depends on the one before it, so none of them should be able to
+// cancel it. vsHardReset() already works this way; so does this now.
+function bootStep(what, fn) {
+  try { fn(); } catch (e) {
+    vsNote('boot', what + ': ' + (e && e.message ? e.message : e));
+    console.warn('[boot] ' + what + ' failed', e);
+  }
+}
+
 window.onload = () => {
-  setBadge(true);
-  loadSeasons(); // always load — uses hardcoded list instantly
-  const legacyInput = document.getElementById('teamInput');
-  if (legacyInput && legacyInput.type !== 'hidden') {
-    legacyInput.addEventListener('keydown', e => { if (e.key === 'Enter') scoutTeams(); });
-  }
-  const detailInput = document.getElementById('detailTeamInput');
-  if (detailInput) detailInput.addEventListener('keydown', e => { if (e.key === 'Enter') runDetailedScout(); });
+  bootStep('badge', () => setBadge(true));
+  bootStep('seasons', () => loadSeasons()); // always load — uses hardcoded list instantly
+  bootStep('enter-key handlers', () => {
+    const legacyInput = document.getElementById('teamInput');
+    if (legacyInput && legacyInput.type !== 'hidden') {
+      legacyInput.addEventListener('keydown', e => { if (e.key === 'Enter') scoutTeams(); });
+    }
+    const detailInput = document.getElementById('detailTeamInput');
+    if (detailInput) detailInput.addEventListener('keydown', e => { if (e.key === 'Enter') runDetailedScout(); });
+  });
   // Load saved theme
-  const savedTheme = localStorage.getItem('vex_theme') || 'dark-grey';
-  applyTheme(savedTheme);
+  bootStep('theme', () => applyTheme(lsGet('vex_theme') || 'dark-grey'));
   // Restore last viewed tab
-  const savedTab = localStorage.getItem('vex_active_tab');
-  if (savedTab && ['scout','skills','tournament','rewatch','simulator'].includes(savedTab)) {
-    switchTab(savedTab);
-  }
+  bootStep('restore tab', () => {
+    const savedTab = lsGet('vex_active_tab');
+    if (savedTab && ['scout','skills','tournament','rewatch','simulator'].includes(savedTab)) {
+      switchTab(savedTab);
+    }
+  });
   // Position tab indicator after layout settles
-  setTimeout(positionTabIndicator, 100);
+  bootStep('tab indicator', () => setTimeout(positionTabIndicator, 100));
 
   // Swap every native dropdown for the styled version
-  enhanceAllSelects();
+  bootStep('styled dropdowns', enhanceAllSelects);
 
   // ──── Register service worker for PWA ────
-  if ('serviceWorker' in navigator) {
+  if ('serviceWorker' in navigator) bootStep('service worker', () => {
     navigator.serviceWorker.register('/sw.js').then(reg => {
       // Check for updates every time the page loads
       reg.update();
@@ -4667,7 +4751,7 @@ window.onload = () => {
         window.location.reload();
       }
     });
-  }
+  });
 };
 
 // ── THEME ─────────────────────────────────────
@@ -4694,7 +4778,7 @@ function applyTheme(name) {
   if (el) el.classList.add('active');
 
   document.getElementById('themeDropdown').classList.remove('open');
-  localStorage.setItem('vex_theme', name);
+  lsSet('vex_theme', name);
 }
 
 // ── STATUS BADGE ──────────────────────────────
@@ -4948,13 +5032,13 @@ const SEASONS_LS_KEY = 'vex_seasons_v1';
 let _seasonUserPicked = false;
 function loadCachedSeasons() {
   try {
-    const raw = JSON.parse(localStorage.getItem(SEASONS_LS_KEY) || 'null');
+    const raw = JSON.parse(lsGet(SEASONS_LS_KEY) || 'null');
     if (raw && Array.isArray(raw.seasons) && raw.seasons.length) return raw.seasons;
   } catch (e) {}
   return null;
 }
 function saveCachedSeasons(seasons) {
-  try { localStorage.setItem(SEASONS_LS_KEY, JSON.stringify({ ts: Date.now(), seasons })); } catch (e) {}
+  lsSet(SEASONS_LS_KEY, JSON.stringify({ ts: Date.now(), seasons }));
 }
 
 function fillSeasonSelects(seasons) {
@@ -6165,6 +6249,7 @@ function renderMatchRow(m, focusTeamId) {
 
 // ──── Elimination bracket view ────
 async function renderBracketView() {
+  tournamentView = 'bracket';
   const resultsEl = document.getElementById('tournamentResults');
   const loadingEl = document.getElementById('tournamentLoading');
   const loadingText = document.getElementById('tournamentLoadingText');
@@ -6228,6 +6313,7 @@ async function renderBracketView() {
             <button class="btn btn-secondary" onclick="loadAndRenderTeamList()">SHOW ALL TEAMS</button>
           </div>
         </div>
+        ${tournamentNav('bracket')}
         <div style="text-align:center;padding:40px;font-family:var(--mono);color:var(--text-muted);">Elimination bracket not available — eliminations may not have started yet.</div>`;
       loadingEl.classList.remove('active');
       return;
@@ -6259,7 +6345,8 @@ async function renderBracketView() {
           ${tournamentFocusTeamId ? `<button class="btn btn-secondary" onclick="renderEventTeamMatchesView()">BACK TO ${tournamentFocusTeamNumber}'S MATCHES</button>` : ''}
           <button class="btn btn-secondary" onclick="loadAndRenderTeamList()">SHOW ALL TEAMS</button>
         </div>
-      </div>`;
+      </div>
+      ${tournamentNav('bracket')}`;
 
     const divNames = Object.keys(elimsByDivision);
     const showDivisionHeaders = divNames.length > 1;
@@ -7313,7 +7400,7 @@ function switchTab(tabName) {
   // Slide indicator under the active tab
   positionTabIndicator();
   // Save preference
-  localStorage.setItem('vex_active_tab', tabName);
+  lsSet('vex_active_tab', tabName);
   // Scroll to top of tab content
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -8849,14 +8936,14 @@ async function sim_teamMatchesCached(tid, seasonId) {
   // so re-opening the app at an event doesn't refetch the world.
   const lsKey = 'vex_tm2_' + k;
   try {
-    const raw = localStorage.getItem(lsKey);
+    const raw = lsGet(lsKey);
     if (raw) {
       const stored = JSON.parse(raw);
       if (Date.now() - stored.ts < 30 * 60000) {
         _teamMatchesCache.set(k, { ts: stored.ts, v: stored.v });
         return stored.v;
       }
-      localStorage.removeItem(lsKey);
+      lsRemove(lsKey);
     }
   } catch (e) { /* corrupt entry — fall through to network */ }
 
@@ -8876,17 +8963,8 @@ async function sim_teamMatchesCached(tid, seasonId) {
   })).filter(Boolean);
   _teamMatchesCache.set(k, { ts: Date.now(), v });
   if (_teamMatchesCache.size > 120) _teamMatchesCache.delete(_teamMatchesCache.keys().next().value);
-  try {
-    localStorage.setItem(lsKey, JSON.stringify({ ts: Date.now(), v }));
-  } catch (e) {
-    // Quota hit — purge our own entries and carry on without persisting
-    try {
-      for (let i = localStorage.length - 1; i >= 0; i--) {
-        const key = localStorage.key(i);
-        if (key && key.startsWith('vex_tm')) localStorage.removeItem(key);
-      }
-    } catch (e2) {}
-  }
+  // Quota hit — purge our own entries and carry on without persisting.
+  if (!lsSet(lsKey, JSON.stringify({ ts: Date.now(), v }))) lsPurgePrefix('vex_tm');
   return v;
 }
 
@@ -9238,7 +9316,7 @@ function simMode(mode) {
   document.querySelectorAll('.sim-subnav .sub-btn').forEach(b => b.classList.remove('active'));
   const btn = document.querySelector('.sim-subnav .sub-btn[data-mode="' + mode + '"]');
   if (btn) btn.classList.add('active');
-  try { localStorage.setItem('vex_sim_mode', mode); } catch (e) {}
+  lsSet('vex_sim_mode', mode);
 }
 
 // ═══════════════════════════════════════════════
@@ -9298,7 +9376,7 @@ async function runPickList() {
     // ── Live draft behavior: taken teams persist per event (or per manual list) ──
     const takenKey = 'vex_pick_taken_' + ((document.getElementById('simPickEventSku').value || '').trim().toUpperCase() || 'manual');
     let takenSet = new Set();
-    try { takenSet = new Set(JSON.parse(localStorage.getItem(takenKey) || '[]')); } catch (e) {}
+    try { takenSet = new Set(JSON.parse(lsGet(takenKey) || '[]')); } catch (e) {}
     ranked.forEach(r => { r.taken = takenSet.has(r.num); });
     window._pickCtx = { you: youT.displayNum, oppLabel, rows: ranked, takenKey, basis: 'season' };
     pickRender();
@@ -9317,7 +9395,7 @@ function pickToggle(idx) {
   const ctx = window._pickCtx;
   if (!ctx || !ctx.rows[idx]) return;
   ctx.rows[idx].taken = !ctx.rows[idx].taken;
-  try { localStorage.setItem(ctx.takenKey, JSON.stringify(ctx.rows.filter(r => r.taken).map(r => r.num))); } catch (e) {}
+  lsSet(ctx.takenKey, JSON.stringify(ctx.rows.filter(r => r.taken).map(r => r.num)));
   pickRender();
 }
 
@@ -9423,7 +9501,7 @@ async function pickLoadAndRank() {
         if (ranked.length) {
           const takenKey = 'vex_pick_taken_' + (resolved.event.sku || input).toUpperCase();
           let takenSet = new Set();
-          try { takenSet = new Set(JSON.parse(localStorage.getItem(takenKey) || '[]')); } catch (e) {}
+          try { takenSet = new Set(JSON.parse(lsGet(takenKey) || '[]')); } catch (e) {}
           ranked.forEach(r => { r.taken = takenSet.has(r.num); });
           window._pickCtx = { you, oppLabel, rows: ranked, takenKey, basis: 'event' };
           pickRender();
@@ -9928,7 +10006,7 @@ if (document.getElementById('bracketInputArea')) bracketBuildInput(16);
 // Restore last simulator sub-mode
 (function () {
   try {
-    let m = localStorage.getItem('vex_sim_mode');
+    let m = lsGet('vex_sim_mode');
     if (m === 'draft') m = 'pick'; // Draft Board merged into Pick List
     if (m && ['match', 'pick', 'bracket', 'escout'].includes(m)) {
       simMode(m);

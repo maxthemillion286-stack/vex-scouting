@@ -64,7 +64,11 @@ ok('the whole-event loader uses the shared fetch',
 ok('the anchor finder reuses the same result',
    /const allEv = await rwAllDivisionMatches\(eventId\);/.test(src));
 ok('auto-find reuses the memoised event detail',
-   /const ev = await rwEventDetail\(eventId\);/.test(src));
+   /const e0 = await rwRecordEventMeta\(eventId\);/.test(src) &&
+   /async function rwRecordEventMeta[\s\S]{0,300}await rwEventDetail\(eventId\)/.test(src),
+   'it reads the detail through the shared recorder, which is the same memo');
+ok('the recorder is also called on the selection path, so a skipped auto-find still records it',
+   /const metaLoaded = rwRecordEventMeta\(eventId\);/.test(src));
 
 console.log(`\nt62: ${pass} passed, ${fail} failed`);
 process.exit(fail?1:0);

@@ -26,7 +26,11 @@ ok('published anchors are still marked in the UI', /published anchor/.test(idx))
 
 // ── the manual fallback survives, since it only affects that one browser ──
 ok('manual calibration is still available to users', /rewatchCalibrate\(/.test(idx));
-ok('anchors still save to localStorage only', /localStorage\.setItem\(rwCalKey/.test(idx));
+ok('anchors still save to localStorage only, and to nowhere else',
+   /lsSet\(rwCalKey\(eid\)/.test(idx) && !/fetch\([^)]*anchors[^)]*method/i.test(idx));
+ok('that write goes through the guard, not a bare setItem',
+   !/localStorage\.setItem\(rwCalKey/.test(idx),
+   'a bare access throws when site data is blocked, taking the caller with it');
 
 // ── the tool itself ──────────────────────────────────────────────────────
 const tool = fs.readFileSync('../anchor-tool.html','utf8');
