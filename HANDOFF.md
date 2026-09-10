@@ -300,6 +300,7 @@ proxy is at `api/proxy.js`.
 | t81 | The Teams tab loads its own data, and never shows another event's |
 | t82 | **End to end in a real DOM — see below** |
 | t83 | Guarded storage; a boot no single step can cancel |
+| t84 | The RobotEvents link — URL shape, and the proxy's copy of it agreeing |
 | sanity | CSS braces balance, inline JS parses, tabs present |
 | tool_sanity | Same for anchor-tool.html |
 
@@ -352,6 +353,27 @@ layout changes in a real browser at a narrow width.
 Also: several older tests asserted on `doc.body.innerHTML`, which produces false
 positives because the app's own source sits inside a `<script>` tag. Scope
 assertions to a results element instead.
+
+---
+
+### The event's public page
+
+`reEventUrl(sku)` in `index.html` builds the link the RobotEvents button opens:
+
+```
+https://events.vex.com/robot-competitions/<program segment>/<SKU>.html
+```
+
+`events.vex.com`, **not** `robotevents.com` — both the API and the public site
+moved there in the VEX/RECF split, and §10-D records robotevents.com serving
+clean 404s for these SKUs afterwards. §2's warning is about the *proxy* being
+blocked from scraping that host; a link opens in the user's own browser, which
+is not blocked.
+
+The program segment must match the SKU's program or the page 404s.
+`api/proxy.js` derives the same mapping for scraping, so **two copies of it now
+exist** — t84 asserts they agree. Add a program to one and you must add it to
+the other.
 
 ---
 

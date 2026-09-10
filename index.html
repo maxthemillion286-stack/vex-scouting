@@ -1478,7 +1478,17 @@
   }
   .t-nav-btn:hover { color: var(--text); background: var(--card2); }
   .t-nav-btn.active { color: #fff; background: var(--accent); }
+  /* Deliberately NOT flex:1 — it leaves the event, so it should not look like
+     another view of it. Sits at the end and takes only the room it needs. */
+  .t-nav-link {
+    flex: 0 0 auto; background: transparent; border: 1px solid var(--border); cursor: pointer;
+    font-family: var(--display); font-size: 11px; font-weight: 600; letter-spacing: 1px;
+    text-transform: uppercase; color: var(--text-muted); padding: 8px 12px;
+    text-decoration: none; display: inline-flex; align-items: center; transition: all 0.2s;
+  }
+  .t-nav-link:hover { color: var(--text); background: var(--card2); border-color: var(--text-muted); }
   .t-empty { text-align: center; padding: 40px; font-family: var(--mono); font-size: 13px; color: var(--text-muted); }
+  .rw-eventlink { display: flex; margin: -4px 0 12px; }
 
   /* ── Event-wide match list ── */
   .t-match-row {
@@ -1519,6 +1529,8 @@
 
   @media (max-width: 700px) {
     .t-nav-btn { font-size: 10px; min-width: 62px; padding: 8px 6px; letter-spacing: 0.5px; }
+    /* Full width on its own row rather than a cramped stub beside the tabs. */
+    .t-nav-link { font-size: 10px; padding: 8px 6px; letter-spacing: 0.5px; flex: 1 0 100%; justify-content: center; }
     .t-match-row { grid-template-columns: 76px 1fr 76px 1fr; gap: 6px; padding: 8px 10px; }
     .t-match-side { font-size: 10px; }
     .t-match-score { font-size: 13px; }
@@ -2038,6 +2050,52 @@
 <script>
 const BASE = '/api/proxy';
 
+// ── The event's own page on RobotEvents ────────────────────────────────────
+//
+// Addressed by SKU, with a program segment that has to match the SKU's program
+// or the page 404s. api/proxy.js already derives this for scraping; the two
+// must agree, so t84 checks they still do.
+//
+// The host is events.vex.com, not robotevents.com: the API and the public site
+// both moved there in the VEX/RECF split, and §10-D records robotevents.com
+// serving clean 404s for these SKUs afterwards. Same site, current address.
+function reProgramSegment(sku) {
+  const s = String(sku || '').toUpperCase();
+  if (/-(VIQRC|VIQC)-/.test(s)) return 'vex-iq-competition';
+  if (/-(VURC|VEXU)-/.test(s)) return 'vex-u-robotics-competition';
+  if (/-(ADC|VAIC)-/.test(s)) return 'aerial-drone-competition';
+  return 'vex-robotics-competition';
+}
+function reEventUrl(sku) {
+  const s = String(sku || '').trim().toUpperCase();
+  if (!/^RE-[A-Z0-9]+-\d{2}-\d{3,5}$/.test(s)) return null;
+  return `https://events.vex.com/robot-competitions/${reProgramSegment(s)}/${s}.html`;
+}
+
+// Open it, from a button that may not know the SKU yet.
+//
+// A plain <a href> is used wherever the SKU is already known, because that is
+// the only form no popup blocker can touch. This is the fallback for the paths
+// that arrive without one (a deep link into the Jumper, say). The blank window
+// is opened FIRST, inside the click, and pointed at the page after the lookup
+// returns — open it after an await and mobile Safari swallows it.
+async function openEventPage(eventId, knownSku) {
+  let url = reEventUrl(knownSku);
+  if (url) { window.open(url, '_blank', 'noopener'); return; }
+  const w = window.open('', '_blank');
+  try {
+    const ev = await apiGet('/events', { 'id[]': [eventId] });
+    url = reEventUrl(ev[0] && ev[0].sku);
+  } catch (e) { url = null; }
+  if (!url) {
+    if (w) w.close();
+    showError('⚠ Could not work out this event\'s page address.');
+    return;
+  }
+  if (w) { w.opener = null; w.location = url; }
+  else window.open(url, '_blank', 'noopener');   // blocked — try the direct way
+}
+
 // ── Storage that cannot take the page down with it ─────────────────────────
 //
 // Reading localStorage is not safe. Safari private browsing, "block all
@@ -2295,7 +2353,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v45';
+const APP_BUILD = 'v46';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -4377,6 +4435,13 @@ function rewatchRender() {
     </div>
   </div>`;
 
+  // The event that's open, on RobotEvents. The chooser above already prints
+  // each event's SKU, so this is the one it belongs to.
+  if (ctx.eventId) {
+    const openEv = ctx.events.find(e => String(e.id) === String(ctx.eventId));
+    html += `<div class="rw-eventlink">${reEventLink(ctx.eventId, openEv && openEv.sku)}</div>`;
+  }
+
   if (!ctx.eventId) { out.innerHTML = html; return; }
 
   if (!ctx.matches.length) {
@@ -5762,7 +5827,7 @@ async function findTournament() {
       loadingText.textContent = 'LOOKING UP SKU...';
       const events = await apiGet('/events', { 'sku[]': [input.toUpperCase()] });
       if (events.length) {
-        await loadTournamentTeams(events[0].id, events[0].name);
+        await loadTournamentTeams(events[0].id, events[0].name, null, '', events[0].sku);
         loadingEl.classList.remove('active');
         return;
       }
@@ -5812,7 +5877,7 @@ async function findTournament() {
         <div class="tournament-list">
           <div class="tournament-list-label">${events.length} EVENT${events.length === 1 ? '' : 'S'} FOR ${input.toUpperCase()} — CLICK TO VIEW MATCHES</div>
           ${events.slice(0, 50).map(ev => `
-            <div class="tournament-item" onclick="loadTournamentTeams(${ev.id}, ${JSON.stringify(ev.name || 'Unnamed').replace(/"/g, '&quot;')}, ${team.id}, '${input.toUpperCase()}')">
+            <div class="tournament-item" onclick="loadTournamentTeams(${ev.id}, ${JSON.stringify(ev.name || 'Unnamed').replace(/"/g, '&quot;')}, ${team.id}, '${input.toUpperCase()}', '${reSkuAttr(ev.sku)}')">
               <div class="tournament-name">${ev.name || 'Unnamed'}</div>
               <div class="tournament-meta">${ev.sku || ''} · ${ev.start ? new Date(ev.start).toLocaleDateString() : ''} · ${ev.location?.region || ''}</div>
             </div>
@@ -5843,7 +5908,7 @@ async function findTournament() {
         <div class="tournament-list">
           <div class="tournament-list-label">FOUND ${events.length} EVENTS — PICK ONE</div>
           ${events.slice(0, 30).map(ev => `
-            <div class="tournament-item" onclick="loadTournamentTeams(${ev.id}, ${JSON.stringify(ev.name || 'Unnamed').replace(/"/g, '&quot;')})">
+            <div class="tournament-item" onclick="loadTournamentTeams(${ev.id}, ${JSON.stringify(ev.name || 'Unnamed').replace(/"/g, '&quot;')}, null, '', '${reSkuAttr(ev.sku)}')">
               <div class="tournament-name">${ev.name || 'Unnamed'}</div>
               <div class="tournament-meta">${ev.sku || ''} · ${ev.start ? new Date(ev.start).toLocaleDateString() : ''} · ${ev.location?.region || ''}</div>
             </div>
@@ -5855,7 +5920,7 @@ async function findTournament() {
 
     // Single match — load it directly
     const ev = events[0];
-    await loadTournamentTeams(ev.id, ev.name);
+    await loadTournamentTeams(ev.id, ev.name, null, '', ev.sku);
 
   } catch(e) {
     showError('⚠ ' + e.message);
@@ -5885,6 +5950,10 @@ function toggleTournamentMultiSelectMode() {
 // PREVIOUS event's teams could appear under a new event's name.
 let tournamentTeamCache = null;
 let tournamentEventName = '';
+// The SKU of the event on screen, so the RobotEvents button can be a real link
+// rather than a lookup. Per-event state: cleared in loadTournamentTeams with
+// everything else, so it can never address the previous event's page.
+let tournamentEventSku = null;
 let tournamentGrade = 'High School';
 // How many teams the event has that the GRADE filter removed. An event that is
 // entirely the other grade is the ordinary reason the list looks empty.
@@ -5895,13 +5964,14 @@ let tournamentEventId = null;
 let tournamentFocusTeamId = null;
 let tournamentFocusTeamNumber = '';
 
-async function loadTournamentTeams(eventId, eventName, focusTeamId, focusTeamNumber) {
+async function loadTournamentTeams(eventId, eventName, focusTeamId, focusTeamNumber, sku) {
   selectedTournamentTeams.clear();
   tournamentMatchCache = null;
   tournamentSkillsCache = null;
   tournamentAwardsCache = null;
   tournamentRolldownCache = null;
   tournamentTeamCache = null;
+  tournamentEventSku = sku || null;
   tournamentView = 'teams';
   tournamentEventId = eventId;
   tournamentEventName = eventName;
@@ -6732,6 +6802,7 @@ async function loadAndRenderTeamList() {
     const rankByTeamId = {};
     try {
       const evDetail = await apiGet('/events', { 'id[]': [eventId] });
+      if (!tournamentEventSku) tournamentEventSku = evDetail[0]?.sku || null;
       const divisions = (evDetail[0]?.divisions?.length ? evDetail[0].divisions : [{ id: 1, name: null }]);
       for (let d = 0; d < divisions.length; d++) {
         const div = divisions[d];
@@ -6820,8 +6891,28 @@ function tournamentNav(active) {
     ${btn('awards', 'Awards')}
     ${btn('bracket', 'Bracket')}
     ${tournamentFocusTeamNumber ? `<button class="t-nav-btn${active === 'team' ? ' active' : ''}" onclick="tournamentGo('team')">${tournamentFocusTeamNumber}</button>` : ''}
+    ${tournamentEventId ? reEventLink(tournamentEventId, tournamentEventSku) : ''}
   </div>`;
 }
+
+// One link, rendered the same way everywhere it appears. An <a> when the SKU is
+// known — nothing can block that — and a button that looks identical when it
+// still has to be looked up.
+function reEventLink(eventId, sku, cls) {
+  const url = reEventUrl(sku);
+  const klass = 't-nav-link' + (cls ? ' ' + cls : '');
+  const label = 'RobotEvents ↗';
+  const title = 'Open this event on RobotEvents in a new tab';
+  // Event ids are numeric; anything else has no business in an inline handler.
+  const id = String(eventId == null ? '' : eventId).replace(/[^0-9]/g, '');
+  if (url) return `<a class="${klass}" href="${url}" target="_blank" rel="noopener noreferrer" title="${title}">${label}</a>`;
+  if (!id) return '';
+  return `<button class="${klass}" onclick="openEventPage('${id}')" title="${title}">${label}</button>`;
+}
+
+// A SKU safe to drop into an inline handler. reEventUrl() validates again on
+// use, but the string literal is the injection point, so it narrows here too.
+const reSkuAttr = (sku) => String(sku || '').toUpperCase().replace(/[^A-Z0-9-]/g, '');
 
 function tournamentGo(view) {
   tournamentView = view;
@@ -6847,6 +6938,7 @@ async function renderTournamentMatches() {
     if (loadingText) loadingText.textContent = 'LOADING EVERY MATCH...';
     try {
       const evs = await apiGet('/events', { 'id[]': [tournamentEventId] });
+      if (!tournamentEventSku) tournamentEventSku = evs[0]?.sku || null;
       const divisions = (evs[0]?.divisions?.length ? evs[0].divisions : [{ id: 1 }]);
       const all = [];
       await sim_pool(divisions, async div => {

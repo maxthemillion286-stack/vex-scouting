@@ -70,7 +70,8 @@ console.log('t82 — end to end, in a real DOM');
   let h = html(win, 'tournamentResults');
   ok('a team number lists that team\'s events', /Bots @ Bristol/.test(h));
   ok('the row calls loadTournamentTeams with the focus team',
-    /loadTournamentTeams\(55001, [^)]*, 9001, '66449A'\)/.test(h));
+    /loadTournamentTeams\(55001, [^)]*, 9001, '66449A'/.test(h),
+    'the sku is now a fifth argument; the focus team is still the third and fourth');
   ok('the grade dropdown followed the team', d.getElementById('tournamentGradeSelect').value === 'High School');
 
   await win.loadTournamentTeams(55001, 'Bots @ Bristol Signature Event', 9001, '66449A');
@@ -202,6 +203,69 @@ console.log('t82 — end to end, in a real DOM');
     b.byDay.length === 1 && b.byDay[0].ordinal === 0,
     JSON.stringify(b.byDay && b.byDay.map(x => [x.day, x.ordinal])));
   ok('switching events raises nothing', errors.length === 0, errors.join('\n'));
+}
+
+// ── 9. The RobotEvents link, on every screen and always the right event ──
+{
+  const { win, errors } = await boot();
+  const d = win.document;
+  win.switchTab('tournament');
+  d.getElementById('tournamentInput').value = '66449A';
+  await win.findTournament();
+  await settle(win);
+  ok('the search result carries the sku into the click',
+    /loadTournamentTeams\(55001,[^)]*'RE-V5RC-25-0191'\)/.test(html(win, 'tournamentResults')));
+
+  await win.loadTournamentTeams(FIXTURES.event.id, FIXTURES.event.name, 9001, '66449A', FIXTURES.event.sku);
+  await settle(win, 150);
+  const href = h => (h.match(/<a class="t-nav-link"[^>]*href="([^"]+)"/) || [])[1] || null;
+  for (const view of ['teams', 'matches', 'skills', 'awards', 'bracket', 'team']) {
+    await win.tournamentGo(view);
+    await settle(win, 150);
+    const u = href(html(win, 'tournamentResults'));
+    ok(`${view}: links to the event page`,
+      u === 'https://events.vex.com/robot-competitions/vex-robotics-competition/RE-V5RC-25-0191.html', u);
+  }
+
+  // The Jumper's copy, on the event actually open.
+  win.switchTab('rewatch');
+  d.getElementById('rwTeamInput').value = '66449A';
+  await win.rewatchLoadTeam();
+  await settle(win, 200);
+  await win.rewatchSelectEvent(FIXTURES.event.id);
+  await settle(win, 400);
+  ok('the Jumper links to it too',
+    href(d.getElementById('rwResults').innerHTML) ===
+    'https://events.vex.com/robot-competitions/vex-robotics-competition/RE-V5RC-25-0191.html');
+  ok('nothing threw', errors.length === 0, errors.join('\n'));
+}
+
+// Arriving without a sku: a button that looks the same, which upgrades to a
+// real link once a view fetches the event detail — and never points at the
+// event before it.
+{
+  const { win } = await boot();
+  win.switchTab('tournament');
+  await win.loadTournamentTeams(FIXTURES.event.id, FIXTURES.event.name, 9001, '66449A');
+  await settle(win, 150);
+  await win.tournamentGo('team');
+  await settle(win, 150);
+  let h = html(win, 'tournamentResults');
+  ok('no sku yet → a button that resolves on click',
+    /<button class="t-nav-link" onclick="openEventPage\('55001'\)"/.test(h) && !/<a class="t-nav-link"/.test(h));
+
+  await win.tournamentGo('teams');
+  await settle(win, 250);
+  h = html(win, 'tournamentResults');
+  ok('once the detail is fetched it becomes a real link',
+    /<a class="t-nav-link"[^>]*RE-V5RC-25-0191/.test(h));
+
+  await win.loadTournamentTeams(FIXTURES.eventB.id, FIXTURES.eventB.name);
+  await settle(win, 250);
+  h = html(win, 'tournamentResults');
+  const u = (h.match(/<a class="t-nav-link"[^>]*href="([^"]+)"/) || [])[1] || '';
+  ok('a different event links to ITS page, not the previous one',
+    u.includes('RE-V5RC-25-0649') && !u.includes('RE-V5RC-25-0191'), u || '(still a button)');
 }
 
 console.log(`\nt82: ${pass} passed, ${fail} failed`);
