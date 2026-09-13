@@ -71,8 +71,10 @@ export function makeRouter(opts = {}) {
     if (/^\/events\/\d+\/teams/.test(path)) return { status: 200, body: j(FIXTURES.teams) };
     if (/^\/events\/\d+\/divisions\/(\d+)\/rankings/.test(path)) {
       const div = +path.match(/divisions\/(\d+)/)[1];
-      return { status: 200, body: j(FIXTURES.teams.slice(0, 2).map((t, i) => ({
-        rank: i + 1, wins: 5 - i, losses: i, ties: 0,
+      // Every team is ranked, so a test can see which ranks a filter removes.
+      return { status: 200, body: j(FIXTURES.teams.map((t, i) => ({
+        rank: FIXTURES.rankOf ? FIXTURES.rankOf(t) : i + 1,
+        wins: Math.max(0, 5 - i), losses: i, ties: 0,
         team: { id: t.id, name: t.number }, division: { name: div === 1 ? 'Alpha' : 'Beta' }
       }))) };
     }

@@ -127,42 +127,64 @@ ok('a team with no grade recorded changes nothing',
   pick('', OPTS, 'Middle School') === 'Middle School');
 
 // ── 7. Actually run the renderer ──
-// The checks above read the source; these run it. A minimal stand-in for the
-// document is enough — the function only reaches for #tournamentResults and the
-// two dropdowns it rebuilds itself.
-const body = src.slice(src.indexOf('function renderTournamentTeams()'),
-                       src.indexOf('function onTournamentTeamClick'));
-const results = { innerHTML: '' };
-const fakeDoc = { getElementById: id => (id === 'tournamentResults' ? results : null), querySelectorAll: () => [] };
-const run = (cacheArg, other, grade) => {
-  results.innerHTML = '';
-  new Function('document', 'tournamentTeamCache', 'tournamentTeamsOtherGrades', 'tournamentGrade',
-    'tournamentEventName', 'tournamentNav', 'tournamentMultiSelectMode',
-    'enhanceAllSelects', 'updateTournamentSelectionUI', 'tournamentUngraded',
-    'tournamentLiveBadge', 'tournamentEventId', 'reEventLink',
-    body + '\nrenderTournamentTeams();'
-  )(fakeDoc, cacheArg, other, grade, 'Bots @ Bristol', () => '<div class="t-nav">NAV</div>', false,
-    () => {}, () => {}, 0, () => '', 55001, () => '');
-  return results.innerHTML;
-};
+//
+// This used to pull renderTournamentTeams() out with `new Function` and inject
+// the globals it touches by hand. That broke on every release that gave the
+// function one more global to read — four times — and each break was the TEST
+// being stale, never the code. The harness runs the real page, so the list of
+// globals stops being this file's problem.
+{
+  const { boot, settle, html, FIXTURES } = await import('./harness.mjs');
 
-let h = run([], 12, 'High School');
-ok('rendered empty: says which grade it filtered on', /No High School teams are registered/.test(h));
-ok('rendered empty: points at the GRADE dropdown', /switch GRADE at the top/.test(h));
-ok('rendered empty: counts the teams in the other grade', /12 teams in the other grade/.test(h));
-ok('rendered empty: the nav survives, so it is not a dead end', /t-nav/.test(h));
-ok('rendered empty: does not offer SCOUT ALL 0', !/SCOUT ALL 0/.test(h));
-ok('rendered empty: does not offer COPY ALL', !/COPY ALL/.test(h));
-ok('rendered empty: drops the click-to-scout hint', !/Click to scout/.test(h));
+  // Loaded and empty: the state that used to render a bare grid with no
+  // explanation and no way back.
+  {
+    const keep = FIXTURES.teams;
+    FIXTURES.teams = [{ id: 9003, number: '12345B', team_name: 'Middle Bots', grade: 'Middle School' }];
+    const { win, stop } = await boot();
+    win.switchTab('tournament');
+    win.document.getElementById('tournamentGradeSelect').value = 'High School';
+    await win.loadTournamentTeams(55001, 'Bots @ Bristol', null, '', 'RE-V5RC-25-0191');
+    await settle(win, 300);
+    const h = html(win, 'tournamentResults');
+    ok('rendered empty: says which grade it filtered on', /No High School teams are registered/.test(h));
+    ok('rendered empty: points at the GRADE dropdown', /switch GRADE at the top/.test(h));
+    ok('rendered empty: counts the teams in the other grade', /1 team in the other grade/.test(h));
+    ok('rendered empty: the nav survives, so it is not a dead end', /t-nav/.test(h));
+    ok('rendered empty: does not offer SCOUT ALL 0', !/SCOUT ALL 0/.test(h));
+    ok('rendered empty: does not offer COPY ALL', !/COPY ALL/.test(h));
+    ok('rendered empty: drops the click-to-scout hint', !/Click to scout/.test(h));
+    stop();
+    FIXTURES.teams = keep;
+  }
 
-h = run([{ id: 1, number: '66449A', team_name: 'Test', eventRank: 3, wins: 5, losses: 1, ties: 0,
-           winRate: 83.3, worldSkills: 120, divisionName: null }], 0, 'High School');
-ok('rendered warm: the team is listed', /66449A/.test(h));
-ok('rendered warm: SCOUT ALL is offered', /SCOUT ALL 1/.test(h));
-ok('rendered warm: no empty-state message', !/are registered at this event/.test(h));
+  // Loaded and populated.
+  {
+    const { win, stop } = await boot();
+    win.switchTab('tournament');
+    await win.loadTournamentTeams(55001, 'Bots @ Bristol', null, '', 'RE-V5RC-25-0191');
+    await settle(win, 300);
+    const h = html(win, 'tournamentResults');
+    ok('rendered warm: the teams are listed', /66449A/.test(h));
+    ok('rendered warm: SCOUT ALL is offered', /SCOUT ALL \d/.test(h));
+    ok('rendered warm: no empty-state message', !/are registered at this event/.test(h));
+    stop();
+  }
 
-// The shape the bug produced. It must render, not throw.
-ok('a null cache renders instead of throwing', /No High School teams/.test(run(null, 0, 'High School')));
+  // The shape the original bug produced: the Teams tab reached with nothing
+  // loaded. It must load rather than render an empty grid.
+  {
+    const { win, stop } = await boot();
+    win.switchTab('tournament');
+    await win.loadTournamentTeams(55001, 'Bots @ Bristol', 9001, '66449A', 'RE-V5RC-25-0191');
+    await settle(win, 200);
+    await win.tournamentGo('teams');
+    await settle(win, 300);
+    ok('an unloaded Teams tab loads instead of rendering nothing',
+      /66449A/.test(html(win, 'tournamentResults')));
+    stop();
+  }
+}
 
 console.log(`\nt81: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
