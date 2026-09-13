@@ -258,7 +258,7 @@
     padding: 4px 10px; letter-spacing: 1px; transition: all 0.2s;
     display: flex; align-items: center; gap: 6px;
   }
-  .theme-btn:hover { border-color: var(--accent); color: var(--text); }
+  @media (hover: hover) { .theme-btn:hover { border-color: var(--accent); color: var(--text); } }
   .theme-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-bright); pointer-events: none; }
   .theme-dropdown {
     display: none; position: absolute; top: calc(100% + 6px); right: 0;
@@ -288,7 +288,7 @@
     width: 100%; text-align: left;
   }
   .theme-option * { pointer-events: none; }
-  .theme-option:hover { background: var(--card2); color: var(--text); }
+  @media (hover: hover) { .theme-option:hover { background: var(--card2); color: var(--text); } }
   .theme-option.active { color: var(--accent-bright); }
   .theme-option.active::before { content: '▸'; margin-right: -4px; }
   .tdot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex-shrink: 0; border: 1px solid rgba(0,0,0,0.2); }
@@ -321,10 +321,10 @@
 
   .btn { font-family: var(--display); font-size: 14px; font-weight: 600; letter-spacing: 3px; text-transform: uppercase; padding: 12px 24px; border: none; cursor: pointer; transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1); white-space: nowrap; }
   .btn-primary { background: var(--accent); color: #fff; }
-  .btn-primary:hover { background: var(--accent-bright); box-shadow: 0 0 24px var(--accent-glow); transform: translateY(-1px); }
+  @media (hover: hover) { .btn-primary:hover { background: var(--accent-bright); box-shadow: 0 0 24px var(--accent-glow); transform: translateY(-1px); } }
   .btn-primary:active { transform: scale(0.97) translateY(0); }
   .btn-secondary { background: transparent; color: var(--text-dim); border: 1px solid var(--border); font-size: 12px; padding: 12px 16px; }
-  .btn-secondary:hover { border-color: var(--accent); color: var(--text); box-shadow: 0 0 12px var(--accent-glow); }
+  @media (hover: hover) { .btn-secondary:hover { border-color: var(--accent); color: var(--text); box-shadow: 0 0 12px var(--accent-glow); } }
   .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
   .hint { font-family: var(--mono); font-size: 11px; color: var(--text-muted); margin-top: 10px; }
@@ -359,7 +359,7 @@
     transition: color 0.3s cubic-bezier(0.4, 0, 0.2, 1), background 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     position: relative;
   }
-  .tab-btn:hover { color: var(--text); background: var(--card); }
+  @media (hover: hover) { .tab-btn:hover { color: var(--text); background: var(--card); } }
   .tab-btn.active { color: var(--accent-bright); }
 
   /* Animated indicator that slides between active tabs */
@@ -414,7 +414,7 @@
   .stat-group:last-child { border-bottom: none; }
   .stat-group-label { font-family: var(--mono); font-size: 9px; color: var(--text-muted); letter-spacing: 3px; text-transform: uppercase; padding: 10px 20px 4px; }
   .stat-row { display: flex; align-items: center; padding: 8px 20px; gap: 12px; transition: background 0.1s; }
-  .stat-row:hover { background: var(--card2); }
+  @media (hover: hover) { .stat-row:hover { background: var(--card2); } }
   .stat-name { font-family: var(--body); font-size: 14px; font-weight: 600; color: var(--text-dim); flex: 1; }
   .stat-value { font-family: var(--mono); font-size: 16px; color: var(--text); letter-spacing: 1px; text-align: right; min-width: 70px; }
   .stat-value.highlight { color: var(--accent-bright); font-size: 18px; }
@@ -425,7 +425,7 @@
   .awards-list { padding: 10px 20px 14px; display: flex; flex-wrap: wrap; gap: 6px; }
   .award-tag { font-family: var(--mono); font-size: 10px; color: var(--accent); border: 1px solid var(--accent-dim); padding: 3px 8px; }
   .award-tag.award-clickable { cursor: pointer; transition: background 0.1s; }
-  .award-tag.award-clickable:hover { background: var(--card2); }
+  @media (hover: hover) { .award-tag.award-clickable:hover { background: var(--card2); } }
   .award-event { display: none; color: var(--text-muted); font-weight: normal; }
   .award-event.show { display: inline; }
   .no-awards { font-family: var(--mono); font-size: 11px; color: var(--text-muted); padding: 10px 20px 14px; }
@@ -454,7 +454,7 @@
   .skill-header-row > div:first-child, .skill-header-row > div:nth-child(2) { text-align: left; }
 
   .skill-row { transition: background 0.35s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.35s cubic-bezier(0.4, 0, 0.2, 1), transform 0.35s cubic-bezier(0.4, 0, 0.2, 1); position: relative; cursor: pointer; user-select: none; -webkit-user-select: none; }
-  .skill-row:hover { background: var(--card2); }
+  @media (hover: hover) { .skill-row:hover { background: var(--card2); } }
   .skill-row.selected { background: var(--card2); box-shadow: inset 4px 0 0 var(--accent-bright); }
   .skill-row.selected .skill-rank { color: var(--accent-bright); }
 
@@ -473,7 +473,7 @@
   .tournament-list { display: flex; flex-direction: column; gap: 1px; background: var(--border); border: 1px solid var(--border); margin-top: 16px; }
   .tournament-list-label { background: var(--card2); padding: 10px 16px; font-family: var(--mono); font-size: 10px; color: var(--text-muted); letter-spacing: 2px; }
   .tournament-item { background: var(--card); padding: 12px 16px; cursor: pointer; transition: background 0.15s; }
-  .tournament-item:hover { background: var(--card2); }
+  @media (hover: hover) { .tournament-item:hover { background: var(--card2); } }
   .tournament-name { font-family: var(--display); font-size: 14px; color: var(--text); font-weight: 600; }
   .tournament-meta { font-family: var(--mono); font-size: 11px; color: var(--text-muted); margin-top: 3px; }
 
@@ -487,13 +487,19 @@
   .tournament-rank-badge { display: flex; justify-content: flex-end; margin-top: 14px; font-family: var(--mono); font-size: 12px; letter-spacing: 1.5px; color: var(--text-muted); padding: 10px 14px; border: 1px solid var(--border); background: var(--card); }
   .tournament-rank-badge strong { color: var(--accent-bright); font-size: 15px; margin: 0 2px; }
 
+  /* Every :hover rule in this file is behind `@media (hover: hover)`.
+     A touch device has no hover, but it LATCHES the state onto the last thing
+     tapped and holds it until something else is tapped — so a team you opened
+     ten minutes ago is still lit up when you come back to the list. Reported as
+     "sometimes a team is randomly highlighted", and it is not random: it is
+     whatever you touched last. */
   .tournament-teams { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; margin-top: 12px; }
   .tournament-team-tag {
     display: flex; flex-direction: column; gap: 4px;
     background: var(--card); border: 1px solid var(--border); padding: 8px 12px;
     cursor: pointer; transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1); user-select: none; -webkit-user-select: none;
   }
-  .tournament-team-tag:hover { background: var(--card2); border-color: var(--accent); box-shadow: 0 0 12px var(--accent-glow); transform: translateY(-1px); }
+  @media (hover: hover) { .tournament-team-tag:hover { background: var(--card2); border-color: var(--accent); box-shadow: 0 0 12px var(--accent-glow); transform: translateY(-1px); } }
   .tournament-team-tag.selected { background: var(--card2); border-color: var(--accent-bright); box-shadow: inset 4px 0 0 var(--accent-bright); }
   .tournament-team-tag .tt-row1 { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
   .tournament-team-tag .tt-num { font-family: var(--display); font-size: 14px; color: var(--accent-bright); font-weight: 700; }
@@ -516,7 +522,7 @@
     font-family: var(--body); font-size: 11px; font-style: italic; font-weight: 600;
     cursor: help; flex-shrink: 0;
   }
-  .info-icon:hover { background: var(--accent-dim); color: var(--text); }
+  @media (hover: hover) { .info-icon:hover { background: var(--accent-dim); color: var(--text); } }
 
   /* Inline (i) for section labels */
   .section-info {
@@ -526,7 +532,7 @@
     font-family: var(--body); font-size: 9px; font-style: italic; font-weight: 600;
     cursor: help; margin-left: 6px; vertical-align: Mid;
   }
-  .section-info:hover { background: var(--accent-dim); color: var(--text); }
+  @media (hover: hover) { .section-info:hover { background: var(--accent-dim); color: var(--text); } }
 
   /* Section label with action button on the right */
   .section-label-row {
@@ -542,7 +548,7 @@
     transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
     text-transform: uppercase;
   }
-  .multi-select-btn:hover { border-color: var(--accent); color: var(--text); }
+  @media (hover: hover) { .multi-select-btn:hover { border-color: var(--accent); color: var(--text); } }
   .multi-select-btn.active {
     background: var(--accent); border-color: var(--accent); color: #fff;
     box-shadow: 0 0 12px var(--accent-glow);
@@ -576,7 +582,7 @@
   /* Matches that haven't been played yet: dimmed, with the prediction in place
      of a score. Hovering restores full contrast so they stay readable. */
   .match-row.upcoming { opacity: 0.5; background: transparent; border-style: dashed; transition: opacity 0.2s; }
-  .match-row.upcoming:hover { opacity: 0.85; }
+  @media (hover: hover) { .match-row.upcoming:hover { opacity: 0.85; } }
   .match-row.upcoming .match-score { color: var(--text-muted); }
   .match-row.pred-good { border-left: 4px solid rgba(68,221,68,0.45); }
   .match-row.pred-bad { border-left: 4px solid rgba(238,68,68,0.45); }
@@ -880,7 +886,7 @@
   .sim-vs { display: flex; align-items: center; justify-content: center; font-family: var(--display); font-size: 22px; font-weight: 700; color: var(--text-muted); letter-spacing: 2px; padding: 0 4px; }
   .sim-toggle { display: inline-flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 11px; letter-spacing: 1px; color: var(--text-muted); cursor: pointer; user-select: none; padding: 12px 4px; }
   .sim-toggle input { accent-color: var(--accent); width: 15px; height: 15px; cursor: pointer; }
-  .sim-toggle:hover { color: var(--text); }
+  @media (hover: hover) { .sim-toggle:hover { color: var(--text); } }
 
   /* Result blocks */
   .sim-result { margin-top: 28px; animation: fadeUp 0.4s ease; }
@@ -935,7 +941,7 @@
     font-family: var(--display); font-size: 13px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase;
     color: var(--text-muted); padding: 10px 12px; transition: all 0.25s;
   }
-  .sim-subnav .sub-btn:hover { color: var(--text); background: var(--card2); }
+  @media (hover: hover) { .sim-subnav .sub-btn:hover { color: var(--text); background: var(--card2); } }
   .sim-subnav .sub-btn.active { color: #fff; background: var(--accent); }
   .sim-mode { display: none; }
   .sim-mode.active { display: block; animation: fadeUp 0.3s ease; }
@@ -1061,7 +1067,7 @@
   .sim-event-picker { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
   .sim-event-pick-label { font-family: var(--mono); font-size: 10px; letter-spacing: 2px; color: var(--text-muted); margin-bottom: 2px; }
   .sim-event-item { border: 1px solid var(--border); background: var(--card); padding: 10px 14px; cursor: pointer; transition: all 0.2s; }
-  .sim-event-item:hover { border-color: var(--accent); background: var(--card2); }
+  @media (hover: hover) { .sim-event-item:hover { border-color: var(--accent); background: var(--card2); } }
   .sim-event-item .ei-name { font-family: var(--display); font-weight: 600; font-size: 14px; color: var(--text); }
   .sim-event-item .ei-meta { font-family: var(--mono); font-size: 11px; color: var(--text-muted); margin-top: 2px; }
 
@@ -1069,7 +1075,7 @@
   .bracket-size-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
   .bracket-size-row .bs-label { font-family: var(--mono); font-size: 10px; letter-spacing: 2px; color: var(--text-muted); margin-right: 4px; }
   .bracket-size-btn { font-family: var(--mono); font-size: 12px; padding: 7px 14px; border: 1px solid var(--border); background: var(--card); color: var(--text-muted); cursor: pointer; transition: all 0.2s; }
-  .bracket-size-btn:hover { color: var(--text); border-color: var(--accent-dim); }
+  @media (hover: hover) { .bracket-size-btn:hover { color: var(--text); border-color: var(--accent-dim); } }
   .bracket-size-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
   .bracket-input-match { display: flex; flex-direction: column; border: 1px solid var(--border); background: var(--card); position: relative; z-index: 1; }
   .bracket-input-seedlabel { font-family: var(--mono); font-size: 8px; color: var(--accent-bright); letter-spacing: 0.5px; padding: 3px 6px; background: var(--card2); border-bottom: 1px solid var(--border); }
@@ -1094,7 +1100,7 @@
 
   /* ── Draft board ── */
   .draft-btn { font-family: var(--mono); font-size: 10px; letter-spacing: 1px; padding: 6px 12px; border: 1px solid var(--border); background: transparent; color: var(--text-muted); cursor: pointer; transition: all 0.2s; }
-  .draft-btn:hover { border-color: var(--accent); color: var(--text); }
+  @media (hover: hover) { .draft-btn:hover { border-color: var(--accent); color: var(--text); } }
   .draft-btn.undo { border-style: dashed; }
   .pick-row.taken { opacity: 0.45; }
   .pick-row.taken .pick-team { text-decoration: line-through; }
@@ -1126,7 +1132,7 @@
   .md-rankrow strong { color: var(--accent-bright); font-size: 14px; }
   .md-row-time { font-family: var(--mono); font-size: 10px; color: var(--accent-bright); margin-top: 2px; letter-spacing: 0.5px; }
   .md-clickable { cursor: pointer; }
-  .md-clickable:hover { border-color: var(--accent-dim); }
+  @media (hover: hover) { .md-clickable:hover { border-color: var(--accent-dim); } }
   .md-chev { display: inline-block; transition: transform 0.2s; color: var(--text-muted); }
   .md-clickable.open .md-chev { transform: rotate(90deg); }
   .md-expand { border: 1px solid var(--border); border-top: none; background: var(--card); padding: 6px 16px 14px; margin-top: -4px; margin-bottom: 4px; }
@@ -1155,7 +1161,7 @@
     background: transparent; color: var(--text-muted);
     border: 1px solid var(--border); transition: all 0.2s; white-space: nowrap;
   }
-  .btn-detail:hover { color: var(--accent-bright); border-color: var(--accent); }
+  @media (hover: hover) { .btn-detail:hover { color: var(--accent-bright); border-color: var(--accent); } }
   .card-header-right { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
 
   /* Identity block: the team number is the headline, the name supports it. */
@@ -1188,7 +1194,7 @@
   .detail-grid { display: grid; grid-template-columns: 1fr 340px; gap: 16px; align-items: stretch; margin-bottom: 18px; }
   .detail-overview { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); }
   .ov-cell { background: var(--card); padding: 17px 18px; transition: background 0.2s; }
-  .ov-cell:hover { background: var(--card2); }
+  @media (hover: hover) { .ov-cell:hover { background: var(--card2); } }
   .ov-label { font-family: var(--mono); font-size: 9px; letter-spacing: 2px; color: var(--text-muted); }
   .ov-big { font-family: var(--display); font-size: 30px; font-weight: 700; color: var(--text); line-height: 1.05; margin-top: 7px; font-variant-numeric: tabular-nums; }
   .ov-cell:first-child .ov-big { color: var(--accent-bright); }
@@ -1234,7 +1240,7 @@
     font-family: var(--mono); font-size: 12px; letter-spacing: 0.5px;
     padding: 7px 12px; cursor: pointer; transition: all 0.2s; max-width: 340px;
   }
-  .ev-filter-bar:hover { background: var(--border); }
+  @media (hover: hover) { .ev-filter-bar:hover { background: var(--border); } }
   .ev-filter.open .ev-filter-bar { border-color: var(--accent); }
   .ev-filter-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ev-filter-arrow { font-size: 9px; color: var(--text-muted); transition: transform 0.25s; }
@@ -1243,7 +1249,7 @@
     background: none; border: none; cursor: pointer; padding: 4px 2px;
     font-family: var(--mono); font-size: 10px; color: var(--text-muted); letter-spacing: 1px;
   }
-  .ev-filter-clear:hover { color: var(--accent-bright); }
+  @media (hover: hover) { .ev-filter-clear:hover { color: var(--accent-bright); } }
   .ev-filter-list {
     display: none; position: absolute; top: calc(100% + 4px); left: 0; z-index: 60;
     min-width: 340px; max-width: 460px; max-height: 340px; overflow-y: auto;
@@ -1257,7 +1263,7 @@
     padding: 10px 14px; transition: background 0.15s;
   }
   .ev-row:last-child { border-bottom: none; }
-  .ev-row:hover { background: var(--card2); }
+  @media (hover: hover) { .ev-row:hover { background: var(--card2); } }
   .ev-row.active { background: var(--card2); box-shadow: inset 3px 0 0 var(--accent-bright); }
   .ev-row-name { display: block; font-family: var(--body); font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.3; }
   .ev-row.active .ev-row-name { color: var(--accent-bright); }
@@ -1270,13 +1276,13 @@
     display: flex; align-items: center; gap: 14px; width: 100%; text-align: left; cursor: pointer;
     background: var(--card); border: none; padding: 12px 16px; transition: background 0.15s;
   }
-  .ev-attend:hover { background: var(--card2); }
+  @media (hover: hover) { .ev-attend:hover { background: var(--card2); } }
   .ev-attend-main { flex: 1; min-width: 0; }
   .ev-attend-name { display: block; font-family: var(--body); font-size: 13.5px; font-weight: 600; color: var(--text); line-height: 1.35; }
-  .ev-attend:hover .ev-attend-name { color: var(--accent-bright); }
+  @media (hover: hover) { .ev-attend:hover .ev-attend-name { color: var(--accent-bright); } }
   .ev-attend-meta { display: block; font-family: var(--mono); font-size: 10.5px; color: var(--text-muted); margin-top: 3px; letter-spacing: 0.5px; }
   .ev-attend-go { font-family: var(--mono); font-size: 15px; color: var(--text-muted); transition: transform 0.2s, color 0.2s; }
-  .ev-attend:hover .ev-attend-go { color: var(--accent-bright); transform: translateX(3px); }
+  @media (hover: hover) { .ev-attend:hover .ev-attend-go { color: var(--accent-bright); transform: translateX(3px); } }
 
   @media (max-width: 600px) {
     .ev-filter-bar { max-width: 210px; font-size: 11px; }
@@ -1301,7 +1307,7 @@
     padding: 11px 14px; cursor: pointer; text-align: left;
     transition: border-color 0.2s, background 0.2s;
   }
-  .cs-bar:hover { background: var(--border); }
+  @media (hover: hover) { .cs-bar:hover { background: var(--border); } }
   .cs.open .cs-bar { border-color: var(--accent); }
   .cs-value { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .cs-arrow { font-size: 10px; color: var(--text-muted); transition: transform 0.25s; }
@@ -1332,7 +1338,7 @@
     padding: 10px 14px; transition: background 0.12s, color 0.12s;
   }
   .cs-opt:last-child { border-bottom: none; }
-  .cs-opt:hover { background: var(--card2); color: var(--text); }
+  @media (hover: hover) { .cs-opt:hover { background: var(--card2); color: var(--text); } }
   .cs-opt.active { color: var(--accent-bright); background: var(--card2); box-shadow: inset 3px 0 0 var(--accent-bright); }
 
   /* Custom scrollbars — replaces the chunky default one inside dropdowns/lists */
@@ -1357,7 +1363,7 @@
   .cs-list::-webkit-scrollbar-thumb:hover,
   .ev-list::-webkit-scrollbar-thumb:hover,
   .bracket-container::-webkit-scrollbar-thumb:hover,
-  .skills-table-wrap::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+  @media (hover: hover) { .skills-table-wrap::-webkit-scrollbar-thumb:hover { background: var(--accent); } }
   .cs-list::-webkit-scrollbar-button,
   .ev-list::-webkit-scrollbar-button { display: none; height: 0; }
 
@@ -1366,7 +1372,7 @@
   .rw-hint { font-family: var(--body); font-size: 12px; color: var(--text-muted); margin-bottom: 12px; line-height: 1.5; }
   .rw-events { display: flex; flex-direction: column; gap: 1px; background: var(--border); border: 1px solid var(--border); max-height: 300px; overflow-y: auto; }
   .rw-event { display: block; width: 100%; text-align: left; cursor: pointer; background: var(--card); border: none; padding: 11px 15px; transition: background 0.15s; }
-  .rw-event:hover { background: var(--card2); }
+  @media (hover: hover) { .rw-event:hover { background: var(--card2); } }
   .rw-event.active { background: var(--card2); box-shadow: inset 3px 0 0 var(--accent-bright); }
   .rw-event-name { display: block; font-family: var(--body); font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.3; }
   .rw-event.active .rw-event-name { color: var(--accent-bright); }
@@ -1390,7 +1396,7 @@
   /* The position, for a stream we can compute into but not seek. Large on
      purpose: it is the whole answer when there is no player to jump. */
   .rw-vextv-time { font-family: var(--mono); font-size: 34px; letter-spacing: 2px; margin: 14px 0 4px; color: var(--accent, #4ea1ff); }
-  .rw-fallback:hover { color: var(--accent-bright); }
+  @media (hover: hover) { .rw-fallback:hover { color: var(--accent-bright); } }
 
   .rw-group-label { font-family: var(--mono); font-size: 9px; letter-spacing: 2px; color: var(--text-muted); margin: 14px 0 6px; }
   .rw-list { display: flex; flex-direction: column; gap: 1px; background: var(--border); border: 1px solid var(--border); }
@@ -1412,7 +1418,7 @@
     background: transparent; border: 1px solid var(--border); color: var(--text-dim);
     padding: 5px 9px; cursor: pointer; transition: all 0.18s; white-space: nowrap;
   }
-  .rw-watch:hover { border-color: var(--accent); color: var(--accent-bright); background: var(--card2); }
+  @media (hover: hover) { .rw-watch:hover { border-color: var(--accent); color: var(--accent-bright); background: var(--card2); } }
   .rw-noclock { font-family: var(--mono); font-size: 10px; color: var(--text-muted); }
 
   @media (max-width: 720px) {
@@ -1435,13 +1441,13 @@
     font-family: var(--mono); font-size: 10px; letter-spacing: 0.5px; padding: 4px 8px; cursor: pointer;
     background: transparent; color: var(--text-muted); border: 1px solid var(--border); transition: all 0.15s;
   }
-  .rw-nudge button:hover { color: var(--accent-bright); border-color: var(--accent); }
+  @media (hover: hover) { .rw-nudge button:hover { color: var(--accent-bright); border-color: var(--accent); } }
 
   .rw-anchors { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 10px; }
   .rw-anchor-tag { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 11px;
     color: var(--text-dim); border: 1px solid var(--accent-dim); padding: 4px 6px 4px 10px; letter-spacing: 0.5px; }
   .rw-anchor-tag button { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 13px; padding: 0 2px; }
-  .rw-anchor-tag button:hover { color: var(--accent-bright); }
+  @media (hover: hover) { .rw-anchor-tag button:hover { color: var(--accent-bright); } }
   .rw-shift-row { align-items: flex-end; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
   .rw-warn { border-left: 2px solid var(--accent-dim); padding-left: 10px; }
 
@@ -1466,7 +1472,7 @@
     background: transparent; color: var(--text-muted); border: 1px solid var(--border);
     transition: all 0.15s; white-space: nowrap; line-height: 1.5;
   }
-  .rw-shift-go:hover, .rw-nudge-btn:hover { color: var(--accent-bright); border-color: var(--accent); }
+  @media (hover: hover) { .rw-shift-go:hover, .rw-nudge-btn:hover { color: var(--accent-bright); border-color: var(--accent); } }
   @media (max-width: 600px) { .rw-shift-bar { flex-wrap: wrap; } }
 
   /* ── Tournament sub-navigation ── */
@@ -1476,7 +1482,7 @@
     font-family: var(--display); font-size: 12px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase;
     color: var(--text-muted); padding: 9px 10px; transition: all 0.2s;
   }
-  .t-nav-btn:hover { color: var(--text); background: var(--card2); }
+  @media (hover: hover) { .t-nav-btn:hover { color: var(--text); background: var(--card2); } }
   .t-nav-btn.active { color: #fff; background: var(--accent); }
   /* Deliberately NOT flex:1 — it leaves the event, so it should not look like
      another view of it. Sits at the end and takes only the room it needs. */
@@ -1486,7 +1492,14 @@
     text-transform: uppercase; color: var(--text-muted); padding: 8px 12px;
     text-decoration: none; display: inline-flex; align-items: center; transition: all 0.2s;
   }
-  .t-nav-link:hover { color: var(--text); background: var(--card2); border-color: var(--text-muted); }
+  @media (hover: hover) { .t-nav-link:hover { color: var(--text); background: var(--card2); border-color: var(--text-muted); } }
+  .t-live { display: inline-flex; align-items: center; gap: 6px; margin-left: 10px; padding: 2px 8px;
+    border: 1px solid var(--accent); color: var(--accent-bright); font-size: 11px; letter-spacing: 0.5px;
+    white-space: nowrap; vertical-align: middle; }
+  .t-live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent-bright);
+    animation: tLivePulse 2s ease-in-out infinite; }
+  @keyframes tLivePulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+  @media (prefers-reduced-motion: reduce) { .t-live-dot { animation: none; } }
   .t-empty { text-align: center; padding: 40px; font-family: var(--mono); font-size: 13px; color: var(--text-muted); }
   .rw-eventlink { display: flex; margin: -4px 0 12px; }
 
@@ -1500,7 +1513,7 @@
   .t-match-div { font-size: 9px; color: var(--accent-dim); margin-top: 2px; }
   .t-match-side { font-family: var(--mono); font-size: 12px; letter-spacing: 0.5px; }
   .t-match-side span { cursor: pointer; }
-  .t-match-side span:hover { text-decoration: underline; }
+  @media (hover: hover) { .t-match-side span:hover { text-decoration: underline; } }
   .t-match-side.red { color: #ff6b6b; }
   .t-match-side.blue { color: #6ba7ff; text-align: right; }
   .t-match-side.won { font-weight: 700; }
@@ -1519,7 +1532,7 @@
   .t-skills-head { background: var(--card2); font-family: var(--mono); font-size: 9px; letter-spacing: 2px; color: var(--text-muted); }
   .t-skills-head > div:nth-child(n+3), .t-skills-row > div:nth-child(n+3) { text-align: right; }
   .t-skills-row { cursor: pointer; transition: background 0.15s; }
-  .t-skills-row:hover { background: var(--card2); }
+  @media (hover: hover) { .t-skills-row:hover { background: var(--card2); } }
   .t-skills-row.self { box-shadow: inset 3px 0 0 var(--accent-bright); }
   .t-sk-rank { font-family: var(--mono); font-size: 13px; color: var(--text-muted); }
   .t-sk-team { font-family: var(--display); font-weight: 700; font-size: 15px; color: var(--text); }
@@ -1566,7 +1579,7 @@
     font-family: var(--mono); font-size: 11px; color: var(--text-dim); cursor: pointer;
     border: 1px solid var(--border); padding: 2px 8px; transition: all 0.15s;
   }
-  .t-award-win:hover { color: var(--accent-bright); border-color: var(--accent); }
+  @media (hover: hover) { .t-award-win:hover { color: var(--accent-bright); border-color: var(--accent); } }
   .t-award-win.self { color: var(--accent-bright); border-color: var(--accent-dim); }
   .t-award-none { font-family: var(--mono); font-size: 11px; color: var(--text-muted); margin-top: 5px; }
   .t-award-qual { font-family: var(--mono); font-size: 10px; letter-spacing: 0.5px; color: var(--accent-bright); text-align: right; max-width: 190px; line-height: 1.4; }
@@ -1660,7 +1673,7 @@
     background: transparent; border: 1px solid var(--border); color: var(--text-muted);
     font-size: 11px; padding: 4px 9px; cursor: pointer; transition: all 0.15s; line-height: 1;
   }
-  .match-play:hover { color: var(--accent-bright); border-color: var(--accent); }
+  @media (hover: hover) { .match-play:hover { color: var(--accent-bright); border-color: var(--accent); } }
   .match-row { grid-template-columns: 90px 1fr 40px 1fr 70px 36px; }
   @media (max-width: 768px) {
     .match-row { grid-template-columns: 68px 1fr 28px 1fr 52px 30px; }
@@ -2050,6 +2063,34 @@
 <script>
 const BASE = '/api/proxy';
 
+// ── Grade, compared without losing anybody ─────────────────────────────────
+//
+// The team list filtered with `(t.grade || '').trim() === grade`, an exact
+// string match against the dropdown's 'High School' / 'Middle School'. Two ways
+// that drops a team OFF THE LIST ENTIRELY, with nothing on screen to say so:
+//
+//   • the API returns the grade in another case or spacing ('high school'),
+//   • the API returns no grade at all, which is common on a roster that has
+//     just been finalised.
+//
+// A missing grade is not evidence of the other grade. Reported as "I cannot see
+// the top 2 teams" at an event that had just ended.
+function gradeNorm(g) {
+  return String(g == null ? '' : g).toLowerCase().replace(/\s+/g, ' ').trim();
+}
+function gradeOfTeam(t) {
+  return gradeNorm(t && (t.grade || t.grade_level || t.gradeLevel));
+}
+// `want` is what the dropdown says. Unknown stays in: showing a team that might
+// be the other grade beats hiding one that is this grade.
+function gradeMatches(teamGrade, want) {
+  const w = gradeNorm(want);
+  if (!w || w === 'all') return true;
+  const g = gradeNorm(teamGrade);
+  if (!g) return true;
+  return g === w;
+}
+
 // ── The event's own page on RobotEvents ────────────────────────────────────
 //
 // Addressed by SKU, with a program segment that has to match the SKU's program
@@ -2353,7 +2394,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v46';
+const APP_BUILD = 'v47';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -5852,10 +5893,13 @@ async function findTournament() {
       // The grade dropdown defaults to High School. Searching a team number
       // tells us the grade outright, so take it — otherwise a Middle School
       // team opens its own event and the team list filters down to nothing.
-      const teamGrade = (team.grade || team.grade_level || team.gradeLevel || '').trim();
+      // Matched normalised, for the same reason the list filter is: the API
+      // does not promise the exact casing the dropdown happens to use.
+      const teamGrade = gradeOfTeam(team);
       const gradeSel = document.getElementById('tournamentGradeSelect');
-      if (gradeSel && teamGrade && [...gradeSel.options].some(o => o.value === teamGrade)) {
-        gradeSel.value = teamGrade;
+      const opt = teamGrade && [...gradeSel?.options || []].find(o => gradeNorm(o.value) === teamGrade);
+      if (opt) {
+        gradeSel.value = opt.value;
         gradeSel.dispatchEvent(new Event('change', { bubbles: true }));
       }
 
@@ -5958,6 +6002,9 @@ let tournamentGrade = 'High School';
 // How many teams the event has that the GRADE filter removed. An event that is
 // entirely the other grade is the ordinary reason the list looks empty.
 let tournamentTeamsOtherGrades = 0;
+// Teams shown whose grade the API did not give us. They are included rather
+// than dropped; this is what lets the list admit it.
+let tournamentUngraded = 0;
 
 // Tournament view state
 let tournamentEventId = null;
@@ -5972,6 +6019,9 @@ async function loadTournamentTeams(eventId, eventName, focusTeamId, focusTeamNum
   tournamentRolldownCache = null;
   tournamentTeamCache = null;
   tournamentEventSku = sku || null;
+  tournamentEventWindow = null;
+  tournamentLiveAt = 0;
+  tournamentLiveStop();
   tournamentView = 'teams';
   tournamentEventId = eventId;
   tournamentEventName = eventName;
@@ -6771,13 +6821,11 @@ async function loadAndRenderTeamList() {
 
     const grade = document.getElementById('tournamentGradeSelect').value;
     tournamentGrade = grade;
-    let filtered = teams;
-    if (grade && grade !== 'All') {
-      filtered = teams.filter(t => {
-        const g = (t.grade || t.grade_level || t.gradeLevel || '').trim();
-        return g === grade;
-      });
-    }
+    const filtered = teams.filter(t => gradeMatches(gradeOfTeam(t), grade));
+    // How many got in only because their grade was blank. Worth saying out
+    // loud — it is the difference between "this event is all one grade" and
+    // "we could not tell", and the two look identical otherwise.
+    tournamentUngraded = filtered.filter(t => !gradeOfTeam(t)).length;
 
     if (!filtered.length) {
       // Render through the normal path rather than a bare message: it keeps the
@@ -6786,6 +6834,7 @@ async function loadAndRenderTeamList() {
       // to the High School default.
       tournamentTeamCache = [];
       tournamentTeamsOtherGrades = teams.length;
+      tournamentUngraded = 0;
       renderTournamentTeams();
       loadingEl.classList.remove('active');
       return;
@@ -6803,6 +6852,7 @@ async function loadAndRenderTeamList() {
     try {
       const evDetail = await apiGet('/events', { 'id[]': [eventId] });
       if (!tournamentEventSku) tournamentEventSku = evDetail[0]?.sku || null;
+      tournamentNoteWindow(evDetail[0]);
       const divisions = (evDetail[0]?.divisions?.length ? evDetail[0].divisions : [{ id: 1, name: null }]);
       for (let d = 0; d < divisions.length; d++) {
         const div = divisions[d];
@@ -6836,7 +6886,7 @@ async function loadAndRenderTeamList() {
       return {
         id: t.id, number: t.number, team_name: t.team_name || '',
         eventRank: r.eventRank || null, wins, losses, ties, winRate, worldSkills,
-        divisionName: r.divisionName || null
+        divisionName: r.divisionName || null, grade: gradeOfTeam(t) || null
       };
     });
 
@@ -6939,6 +6989,7 @@ async function renderTournamentMatches() {
     try {
       const evs = await apiGet('/events', { 'id[]': [tournamentEventId] });
       if (!tournamentEventSku) tournamentEventSku = evs[0]?.sku || null;
+      tournamentNoteWindow(evs[0]);
       const divisions = (evs[0]?.divisions?.length ? evs[0].divisions : [{ id: 1 }]);
       const all = [];
       await sim_pool(divisions, async div => {
@@ -6995,7 +7046,7 @@ async function renderTournamentMatches() {
   let html = `
     <div class="tournament-summary">
       <div class="tournament-summary-name">${tournamentEventName}</div>
-      <div class="tournament-summary-count">${rows.length} matches · ${playedCount} played · ${rows.length - playedCount} upcoming</div>
+      <div class="tournament-summary-count">${rows.length} matches · ${playedCount} played · ${rows.length - playedCount} upcoming${tournamentLiveBadge()}</div>
     </div>
     ${tournamentNav('matches')}`;
 
@@ -7046,6 +7097,113 @@ async function tournamentFocusOn(teamNumber) {
 // who isn't already qualified (by any route at this event).
 // Shared by the Awards and Skills views, and cached per event.
 let tournamentRolldownCache = null;
+
+// ── Live tracking ──────────────────────────────────────────────────────────
+//
+// Nothing in the app ever refetched. Open the Matches view at a running event
+// and it showed the schedule as it was when you opened it, for as long as you
+// left it there — scores frozen, "upcoming" matches still upcoming an hour
+// after they were played.
+//
+// The proxy was already set up for this: /matches and /rankings carry a 15s TTL
+// and are deliberately excluded from edge caching so a refresh is always
+// function-fresh (see ttlFor in api/proxy.js). The client simply never asked
+// again.
+//
+// Rules, in order of how much they matter:
+//   • Only while the event is actually live. A finished event's schedule is
+//     final, and polling it is pure waste.
+//   • Only while the tab is visible. A phone in a pocket at a competition
+//     should not be refetching every half minute all day.
+//   • Only on the views that show live data — matches, the team list (which
+//     carries ranks and records) and the focused team's own matches.
+//   • Never while a fetch is already in flight.
+const RW_LIVE_POLL_MS = 30 * 1000;
+const RW_LIVE_VIEWS = ['matches', 'teams', 'team'];
+let tournamentLiveTimer = null;
+let tournamentLiveBusy = false;
+let tournamentLiveAt = 0;          // when the data on screen was fetched
+let tournamentEventWindow = null;  // { startMs, endMs } of the open event
+
+// An event is live from its start until the end of its last day, plus an hour
+// of slack — finals and award entry run past the published end time, and the
+// API's `end` is a date, not a moment.
+function tournamentIsLive() {
+  const w = tournamentEventWindow;
+  if (!w || !w.startMs) return false;
+  const now = Date.now();
+  const from = w.startMs - 60 * 60 * 1000;
+  const to = (w.endMs || w.startMs) + 25 * 60 * 60 * 1000;
+  return now >= from && now <= to;
+}
+
+// The event's own window, from the detail call two views already make. `end` is
+// a date rather than a moment, so the day it names counts in full.
+function tournamentNoteWindow(ev) {
+  if (!ev) return;
+  const startMs = Date.parse(ev.start || '');
+  const endMs = Date.parse(ev.end || ev.start || '');
+  tournamentEventWindow = {
+    startMs: isNaN(startMs) ? null : startMs,
+    endMs: isNaN(endMs) ? null : endMs
+  };
+  tournamentLiveStart();
+}
+
+function tournamentLiveStop() {
+  if (tournamentLiveTimer) { clearInterval(tournamentLiveTimer); tournamentLiveTimer = null; }
+}
+
+function tournamentLiveStart() {
+  tournamentLiveStop();
+  if (!tournamentIsLive()) return;
+  tournamentLiveTimer = setInterval(tournamentLiveTick, RW_LIVE_POLL_MS);
+}
+
+async function tournamentLiveTick(force) {
+  if (tournamentLiveBusy) return;
+  if (!force) {
+    if (document.hidden) return;                       // in a pocket
+    if (!tournamentIsLive()) { tournamentLiveStop(); return; }
+    if (!RW_LIVE_VIEWS.includes(tournamentView)) return;
+    if (!document.getElementById('tournamentResults')) return;
+  }
+  tournamentLiveBusy = true;
+  try {
+    // Drop only what goes stale. Awards, skills and the bracket have their own
+    // refresh when you open them, and rebuilding the rolldown every 30s would
+    // cost far more than it is worth.
+    tournamentMatchCache = null;
+    tournamentTeamCache = null;
+    tournamentLiveAt = Date.now();
+    if (tournamentView === 'matches') await renderTournamentMatches();
+    else if (tournamentView === 'team') await renderEventTeamMatchesView();
+    else await loadAndRenderTeamList();
+  } catch (e) {
+    // A dropped refresh is not worth an error box over — venue wifi drops
+    // constantly and the next tick will pick it up.
+    vsNote('live', String(e && e.message || e));
+  } finally { tournamentLiveBusy = false; }
+}
+
+// Catch up the moment the screen comes back, rather than waiting out the rest
+// of the interval — the usual case is a phone unlocked to check a score.
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden || !tournamentIsLive()) return;
+  if (!RW_LIVE_VIEWS.includes(tournamentView)) return;
+  if (Date.now() - tournamentLiveAt >= RW_LIVE_POLL_MS) tournamentLiveTick();
+});
+
+// A short line saying when this was read and whether it keeps itself current.
+function tournamentLiveBadge() {
+  if (!tournamentIsLive()) return '';
+  const secs = tournamentLiveAt ? Math.round((Date.now() - tournamentLiveAt) / 1000) : 0;
+  const when = !tournamentLiveAt ? 'just now'
+    : secs < 60 ? `${secs}s ago`
+    : `${Math.round(secs / 60)} min ago`;
+  return `<span class="t-live" title="This event is running. Scores refresh by themselves every ${RW_LIVE_POLL_MS / 1000} seconds while this tab is open.">
+    <span class="t-live-dot"></span>LIVE · updated ${when}</span>`;
+}
 
 async function computeEventRolldown() {
   if (tournamentRolldownCache) return tournamentRolldownCache;
@@ -7297,7 +7455,8 @@ function renderTournamentTeams() {
   resultsEl.innerHTML = `
     <div class="tournament-summary">
       <div class="tournament-summary-name">${tournamentEventName}</div>
-      <div class="tournament-summary-count">${teams.length} ${tournamentGrade} team${teams.length === 1 ? '' : 's'} registered</div>
+      <div class="tournament-summary-count">${teams.length} ${tournamentGrade} team${teams.length === 1 ? '' : 's'} registered${
+        tournamentUngraded ? ` · ${tournamentUngraded} with no grade listed, shown anyway` : ''}${tournamentLiveBadge()}</div>
       <div class="tournament-summary-actions">
         <div class="input-wrap select-wrap" style="min-width:180px;">
           <span class="input-label">SORT BY</span>
@@ -7480,6 +7639,10 @@ function setLoading(active, text = 'FETCHING TEAM DATA...') {
 let scoutInProgress = false;
 
 function switchTab(tabName) {
+  // Polling an event you are no longer looking at is the same waste as polling
+  // one in your pocket.
+  if (tabName !== 'tournament') tournamentLiveStop();
+  else if (tournamentIsLive()) tournamentLiveStart();
   // Hide all panels
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
   // Show the selected panel
