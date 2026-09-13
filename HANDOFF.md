@@ -346,6 +346,13 @@ Two bugs surfaced on its first run, neither visible in the source:
 Add to it whenever a bug turns out to live in the join between two screens
 rather than inside either one.
 
+**Prefer the harness over `new Function` extraction.** Several older tests pull
+a function out of the source and inject the globals it reads by hand. Every one
+of those broke the next time the function gained a global — four times for
+`renderTournamentTeams` alone, and each break was the *test* being stale, not
+the code. t81 §7 was rewritten to drive the real page instead; do the same
+rather than adding one more name to an injection list.
+
 **A caveat that matters:** jsdom has no layout engine. `getBoundingClientRect`
 returns zeroes, so t43 and t45 verify that the cascade resolves and that the
 arithmetic fits — they **cannot** prove two boxes stopped overlapping. Check
@@ -402,6 +409,27 @@ every 30s would cost far more than it is worth.
 **Note for tests:** the interval keeps node's event loop alive, so a test that
 opens a running event never exits on its own. `boot()` returns a `stop()` — call
 it, or rely on the `process.exit()` every test file already ends with.
+
+### Grade at a mixed event
+
+Community events often run **both grades in one division**. The division's
+rankings then cover every team while the list is filtered to one grade, so the
+rank order has holes exactly where the other grade placed — reported as
+"sorting by rank I'm missing teams 1, 2 and 9". They were never missing from
+the data.
+
+The dropdown has an **All Grades** option (the filter always understood `'All'`;
+nothing could select it), and when the filter hides anyone the list says which
+ranks went with them and offers the switch. On a mixed list each card is tagged
+MS or HS.
+
+Under All Grades the world-skills column reads **both** grades' standings and
+looks each team up in its own — a single call would rank a Middle School team
+against High School.
+
+Use `setSelectValue()` for any grade hand-off. Assigning a value a `<select>`
+has no option for silently sets it to `''`, which then reads as "no grade"
+everywhere downstream.
 
 ### Grade is matched, never used to hide someone
 

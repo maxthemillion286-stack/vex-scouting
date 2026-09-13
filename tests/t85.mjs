@@ -184,5 +184,102 @@ ok('deliberate selection styling is untouched — it is not a hover state',
 ok('the live dot respects prefers-reduced-motion',
   /@media \(prefers-reduced-motion: reduce\) \{ \.t-live-dot \{ animation: none; \} \}/.test(idx));
 
+// ══ 4. Rank gaps at a mixed-grade event ══
+//
+// Reported as a follow-up: "when I sort by rank I'm still missing teams 1, 2
+// and 9". They were not missing from the data. At a community event both grades
+// often play in ONE division, so the division's rankings cover every team while
+// the list is filtered to one grade — leaving holes exactly where the other
+// grade ranked, and nothing on screen to say so.
+//
+// Two fixes: the dropdown gains the All Grades option it was missing (the
+// filter already understood 'All'), and the list says which ranks it removed.
+ok('the dropdown offers All Grades',
+  /<option value="All">All Grades<\/option>/.test(idx),
+  "gradeMatches already understood 'All'; nothing could select it");
+ok('the hidden Scout shim offers it too, so the value survives the hand-off',
+  /id="scoutGradeSelect"[^>]*>[\s\S]{0,260}<option value="All">All Grades<\/option>/.test(idx));
+ok('the hidden ranks are tracked', /let tournamentHiddenRanks = \[\];/.test(src));
+ok('they come from the teams the filter removed, not from a guess',
+  /teams\s*\n\s*\.filter\(t => !shown\.has\(t\.id\)\)\s*\n\s*\.map\(t => rankByTeamId\[t\.id\]\?\.eventRank\)/.test(src));
+ok('they are listed in rank order', /\.sort\(\(a, b\) => a - b\)/.test(src));
+ok('the note names them', /hidden by the GRADE filter/.test(src));
+ok('and offers the switch in one tap', /onclick="tournamentShowAllGrades\(\)"/.test(src));
+ok('the switch reloads rather than re-rendering a stale cache',
+  /function tournamentShowAllGrades\(\)[\s\S]{0,240}tournamentTeamCache = null;[\s\S]{0,60}loadAndRenderTeamList\(\)/.test(src));
+ok('a mixed list marks which grade each team is',
+  /const mixedGrades = new Set\(cache\.map\(t => t\.grade\)\.filter\(Boolean\)\)\.size > 1;/.test(src) &&
+  /class="tt-grade"/.test(src));
+ok('"All" is not printed as if it were a grade name',
+  /gradeNorm\(tournamentGrade\) === 'all' \? '' : tournamentGrade \+ ' '/.test(src));
+
+// Assigning a value a <select> has no option for blanks it — which is how a
+// grade could silently become ''.
+ok('a shared helper guards every grade hand-off', /function setSelectValue\(el, value\)/.test(src));
+ok('it refuses a value with no matching option', /if \(!opt\) return false;/.test(src));
+ok('the two Scout hand-offs use it',
+  (src.match(/setSelectValue\(document\.getElementById\('scoutGradeSelect'\), grade\)/g) || []).length === 2);
+
+const setSel = new Function('el', 'value', `
+  const n = (g) => String(g == null ? '' : g).toLowerCase().replace(/\\s+/g, ' ').trim();
+  if (!el || value == null || value === '') return false;
+  const opt = [...el.options].find(o => o.value === value) || [...el.options].find(o => n(o.value) === n(value));
+  if (!opt) return false; el.value = opt.value; return true;`);
+const fakeSel = (vals) => ({ options: vals.map(v => ({ value: v })), value: vals[0] });
+{
+  const el = fakeSel(['High School', 'Middle School', 'All']);
+  ok('a present value is assigned', setSel(el, 'All') === true && el.value === 'All');
+  const el2 = fakeSel(['High School', 'Middle School']);
+  ok('an absent value is refused, leaving the select alone',
+    setSel(el2, 'All') === false && el2.value === 'High School',
+    'the bare assignment set it to "" instead');
+  const el3 = fakeSel(['High School', 'Middle School']);
+  ok('casing still resolves', setSel(el3, 'middle school') === true && el3.value === 'Middle School');
+}
+
+// Under All Grades a single standings call would rank a Middle School team
+// against High School.
+ok('All Grades reads both sets of world standings',
+  /getFullSeasonSkills\(seasonId, 'High School'\)[\s\S]{0,160}getFullSeasonSkills\(seasonId, 'Middle School'\)/.test(src));
+ok('...and looks each team up in its own',
+  /const book = \(tGrade === 'middle school' && seasonSkillsMs\) \? seasonSkillsMs : seasonSkills;/.test(src));
+
+// Driven: the exact reported shape — mixed grades, one division.
+{
+  const keepT = FIXTURES.teams, keepD = FIXTURES.event.divisions;
+  FIXTURES.teams = [
+    { id: 1, number: 'AAA', grade: 'Middle School' },
+    { id: 2, number: 'BBB', grade: 'Middle School' },
+    { id: 3, number: 'CCC', grade: 'High School' },
+    { id: 4, number: 'DDD', grade: 'High School' },
+    { id: 9, number: 'III', grade: 'Middle School' }
+  ];
+  FIXTURES.rankOf = t => t.id;          // rank == id, so the gaps are 1, 2 and 9
+  FIXTURES.event.divisions = [{ id: 1, name: null }];
+
+  const { win, stop } = await boot();
+  win.switchTab('tournament');
+  await win.loadTournamentTeams(55001, 'Maker Faire Day 1', null, '', 'RE-V5RC-25-0191');
+  await settle(win, 300);
+  let h = html(win, 'tournamentResults');
+  ok('the High School view says teams are hidden', /t-hidden-note/.test(h));
+  ok('...and names the exact ranks that are gone', /including ranks\s*1, 2, 9/.test(h.replace(/\s+/g, ' ')),
+    (h.match(/t-hidden-note">([\s\S]*?)<button/) || [])[1]);
+
+  await win.tournamentShowAllGrades();
+  await settle(win, 300);
+  h = html(win, 'tournamentResults');
+  for (const n of ['AAA', 'BBB', 'CCC', 'DDD', 'III']) {
+    ok(`${n} is on the All Grades list`, h.includes('>' + n + '<'));
+  }
+  ok('the count says all grades', /5 teams registered · all grades/.test(h),
+    (h.match(/summary-count">([^<]*)</) || [])[1]);
+  ok('each card is marked MS or HS', (h.match(/tt-grade">(MS|HS)</g) || []).length === 5);
+  ok('the note is gone, because nothing is hidden any more', !/t-hidden-note/.test(h));
+  stop();
+
+  FIXTURES.teams = keepT; FIXTURES.event.divisions = keepD; delete FIXTURES.rankOf;
+}
+
 console.log(`\nt85: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

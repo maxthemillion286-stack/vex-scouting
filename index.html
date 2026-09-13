@@ -1493,6 +1493,16 @@
     text-decoration: none; display: inline-flex; align-items: center; transition: all 0.2s;
   }
   @media (hover: hover) { .t-nav-link:hover { color: var(--text); background: var(--card2); border-color: var(--text-muted); } }
+  .t-hidden-note {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    border: 1px solid var(--accent); background: var(--card); padding: 10px 12px; margin: 12px 0;
+    font-family: var(--mono); font-size: 12px; color: var(--text-dim); line-height: 1.6;
+  }
+  .t-hidden-note .btn { margin-left: auto; }
+  .tt-grade {
+    font-family: var(--mono); font-size: 9px; letter-spacing: 0.5px; color: var(--text-muted);
+    border: 1px solid var(--border); padding: 1px 4px; flex: 0 0 auto;
+  }
   .t-live { display: inline-flex; align-items: center; gap: 6px; margin-left: 10px; padding: 2px 8px;
     border: 1px solid var(--accent); color: var(--accent-bright); font-size: 11px; letter-spacing: 0.5px;
     white-space: nowrap; vertical-align: middle; }
@@ -1687,7 +1697,7 @@
      they write here, and scoutTeams() forwards it into the Scout tab. -->
 <input type="hidden" id="teamInput">
 <select id="seasonSelect" hidden></select>
-<select id="scoutGradeSelect" hidden><option value="High School" selected>High School</option><option value="Middle School">Middle School</option></select>
+<select id="scoutGradeSelect" hidden><option value="High School" selected>High School</option><option value="Middle School">Middle School</option><option value="All">All Grades</option></select>
 
 <header>
   <div class="container">
@@ -1883,6 +1893,7 @@
         <select id="tournamentGradeSelect">
           <option value="High School" selected>High School</option>
           <option value="Middle School">Middle School</option>
+          <option value="All">All Grades</option>
         </select>
       </div>
       <div class="input-wrap select-wrap" style="min-width:180px;">
@@ -2075,6 +2086,18 @@ const BASE = '/api/proxy';
 //
 // A missing grade is not evidence of the other grade. Reported as "I cannot see
 // the top 2 teams" at an event that had just ended.
+// Assigning a value a <select> has no option for silently sets it to '', which
+// then reads as "no grade" everywhere downstream. Only assign what exists.
+function setSelectValue(el, value) {
+  if (!el || value == null || value === '') return false;
+  const opt = [...el.options].find(o => o.value === value) ||
+              [...el.options].find(o => gradeNorm(o.value) === gradeNorm(value));
+  if (!opt) return false;
+  el.value = opt.value;
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+  return true;
+}
+
 function gradeNorm(g) {
   return String(g == null ? '' : g).toLowerCase().replace(/\s+/g, ' ').trim();
 }
@@ -2394,7 +2417,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v47';
+const APP_BUILD = 'v48';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -6005,6 +6028,11 @@ let tournamentTeamsOtherGrades = 0;
 // Teams shown whose grade the API did not give us. They are included rather
 // than dropped; this is what lets the list admit it.
 let tournamentUngraded = 0;
+// Ranks held by teams the GRADE filter removed. At a mixed event the rankings
+// cover every team in the division, so filtering to one grade leaves holes in
+// the rank order — "I'm missing teams 1, 2 and 9" — with nothing to explain
+// them. These are those numbers.
+let tournamentHiddenRanks = [];
 
 // Tournament view state
 let tournamentEventId = null;
@@ -6835,6 +6863,7 @@ async function loadAndRenderTeamList() {
       tournamentTeamCache = [];
       tournamentTeamsOtherGrades = teams.length;
       tournamentUngraded = 0;
+      tournamentHiddenRanks = [];
       renderTournamentTeams();
       loadingEl.classList.remove('active');
       return;
@@ -6843,7 +6872,19 @@ async function loadAndRenderTeamList() {
 
     const seasonId = document.getElementById('tournamentSeasonSelect')?.value;
     loadingText.textContent = 'LOADING WORLD SKILLS RANKINGS...';
-    const seasonSkills = seasonId ? await getFullSeasonSkills(seasonId, grade).catch(() => null) : null;
+    // Under "All Grades" a single standings call would rank a Middle School
+    // team against High School. Both are cached, so read each team's own.
+    let seasonSkills = null, seasonSkillsMs = null;
+    if (seasonId) {
+      if (gradeNorm(grade) === 'all') {
+        [seasonSkills, seasonSkillsMs] = await Promise.all([
+          getFullSeasonSkills(seasonId, 'High School').catch(() => null),
+          getFullSeasonSkills(seasonId, 'Middle School').catch(() => null)
+        ]);
+      } else {
+        seasonSkills = await getFullSeasonSkills(seasonId, grade).catch(() => null);
+      }
+    }
 
     // ── Bulk rankings: one call per division instead of one per team ──
     // (per-team calls melt down at Worlds/signature events with 400+ teams)
@@ -6876,13 +6917,25 @@ async function loadAndRenderTeamList() {
       }
     } catch (e) { /* event detail failed — teams render without ranks */ }
 
+    // Which ranks did the grade filter remove? Computed from the teams that
+    // did NOT survive it, so the list can say why its numbering has holes.
+    const shown = new Set(filtered.map(t => t.id));
+    tournamentHiddenRanks = teams
+      .filter(t => !shown.has(t.id))
+      .map(t => rankByTeamId[t.id]?.eventRank)
+      .filter(r => r)
+      .sort((a, b) => a - b);
+
     loadingText.textContent = `BUILDING ${filtered.length} TEAM CARDS...`;
     const enriched = filtered.map(t => {
       const r = rankByTeamId[t.id] || {};
       const wins = r.wins || 0, losses = r.losses || 0, ties = r.ties || 0;
       const total = wins + losses + ties;
       const winRate = total > 0 ? wins / total * 100 : null;
-      const worldSkills = seasonSkills?.byId[t.id]?.globalRank || null;
+      const tGrade = gradeOfTeam(t);
+      const book = (tGrade === 'middle school' && seasonSkillsMs) ? seasonSkillsMs : seasonSkills;
+      const worldSkills = book?.byId[t.id]?.globalRank ||
+        (seasonSkillsMs && seasonSkillsMs !== book ? seasonSkillsMs.byId[t.id]?.globalRank : null) || null;
       return {
         id: t.id, number: t.number, team_name: t.team_name || '',
         eventRank: r.eventRank || null, wins, losses, ties, winRate, worldSkills,
@@ -7423,6 +7476,7 @@ function renderTournamentTeams() {
 
   // Divisions present at this event (Worlds/signatures have several)
   const cache = tournamentTeamCache || [];
+  const mixedGrades = new Set(cache.map(t => t.grade).filter(Boolean)).size > 1;
   const divisions = [...new Set(cache.map(t => t.divisionName).filter(Boolean))].sort();
 
   // Sort teams
@@ -7455,7 +7509,8 @@ function renderTournamentTeams() {
   resultsEl.innerHTML = `
     <div class="tournament-summary">
       <div class="tournament-summary-name">${tournamentEventName}</div>
-      <div class="tournament-summary-count">${teams.length} ${tournamentGrade} team${teams.length === 1 ? '' : 's'} registered${
+      <div class="tournament-summary-count">${teams.length} ${gradeNorm(tournamentGrade) === 'all' ? '' : tournamentGrade + ' '}team${teams.length === 1 ? '' : 's'} registered${
+        gradeNorm(tournamentGrade) === 'all' ? ' · all grades' : ''}${
         tournamentUngraded ? ` · ${tournamentUngraded} with no grade listed, shown anyway` : ''}${tournamentLiveBadge()}</div>
       <div class="tournament-summary-actions">
         <div class="input-wrap select-wrap" style="min-width:180px;">
@@ -7485,6 +7540,14 @@ function renderTournamentTeams() {
     ${tournamentNav('teams')}
     <div id="tournamentSelectionSlot"></div>
 
+    ${tournamentHiddenRanks.length ? `
+    <div class="t-hidden-note">
+      ${tournamentHiddenRanks.length} team${tournamentHiddenRanks.length === 1 ? ' is' : 's are'} hidden by the GRADE filter,
+      including rank${tournamentHiddenRanks.length === 1 ? '' : 's'}
+      ${tournamentHiddenRanks.slice(0, 8).join(', ')}${tournamentHiddenRanks.length > 8 ? '…' : ''}.
+      <button class="btn btn-secondary" onclick="tournamentShowAllGrades()">SHOW ALL GRADES</button>
+    </div>` : ''}
+
     ${teams.length === 0 ? '' : `
     <div class="info-bar">
       <span class="info-icon" title="Click to scout one team. Shift+click to select multiple, then 'Compare Selected' to scout them together. On mobile, tap MULTI-SELECT to enable selecting multiple teams without Shift.">ⓘ</span>
@@ -7503,11 +7566,14 @@ function renderTournamentTeams() {
         const winRateStr = t.winRate !== null ? t.winRate.toFixed(0) + '%' : '—';
         const worldStr = t.worldSkills ? '#' + t.worldSkills : '—';
         const divShort = (divisions.length > 1 && t.divisionName) ? ' ' + t.divisionName.slice(0, 4).toUpperCase() : '';
+        // With both grades on one list, which is which stops being obvious.
+        const gradeTag = mixedGrades && t.grade
+          ? `<span class="tt-grade">${t.grade === 'middle school' ? 'MS' : t.grade === 'high school' ? 'HS' : t.grade.slice(0, 2).toUpperCase()}</span>` : '';
         const eventStr = t.eventRank ? '#' + t.eventRank + divShort : '—';
         return `
         <div class="tournament-team-tag" data-team="${t.number}" onclick="onTournamentTeamClick('${t.number}', event)">
           <div class="tt-row1">
-            <span class="tt-num">${t.number}</span>
+            <span class="tt-num">${t.number}</span>${gradeTag}
             <span class="tt-name">${t.team_name || ''}</span>
           </div>
           <div class="tt-row2">
@@ -7521,6 +7587,14 @@ function renderTournamentTeams() {
 
   enhanceAllSelects();   // sort + division dropdowns were just rebuilt
   updateTournamentSelectionUI();
+}
+
+// Switch the dropdown to All Grades and reload the list in place.
+function tournamentShowAllGrades() {
+  const sel = document.getElementById('tournamentGradeSelect');
+  if (!setSelectValue(sel, 'All')) return;
+  tournamentTeamCache = null;
+  loadAndRenderTeamList();
 }
 
 function onTournamentTeamClick(teamNumber, evt) {
@@ -7609,7 +7683,7 @@ function copyTournamentTeams(commaList) {
 
 function scoutFromTournament(teamNumber, grade) {
   document.getElementById('teamInput').value = teamNumber;
-  document.getElementById('scoutGradeSelect').value = grade;
+  setSelectValue(document.getElementById('scoutGradeSelect'), grade);
   window.scrollTo({ top: 0, behavior: 'smooth' });
   scoutTeams();
 }
@@ -7617,7 +7691,7 @@ function scoutFromTournament(teamNumber, grade) {
 function scoutTournamentTeams(commaList, grade) {
   if (!commaList) return;
   document.getElementById('teamInput').value = commaList.replace(/,/g, ', ');
-  document.getElementById('scoutGradeSelect').value = grade;
+  setSelectValue(document.getElementById('scoutGradeSelect'), grade);
   window.scrollTo({ top: 0, behavior: 'smooth' });
   scoutTeams();
 }
