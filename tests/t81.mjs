@@ -102,10 +102,15 @@ ok('the click-to-scout hint is hidden too',
 const find = src.slice(src.indexOf('async function findTournament'),
                        src.indexOf('// Selection set for tournament teams'));
 ok('the grade select is set from the team that was searched',
-  /const teamGrade = \(team\.grade \|\| team\.grade_level \|\| team\.gradeLevel \|\| ''\)\.trim\(\);/.test(find));
+  /const teamGrade = gradeOfTeam\(team\);/.test(find));
 ok('it is only set to a value the dropdown actually has',
-  /\[\.\.\.gradeSel\.options\]\.some\(o => o\.value === teamGrade\)/.test(find),
+  /\.find\(o => gradeNorm\(o\.value\) === teamGrade\)/.test(find) &&
+  /gradeSel\.value = opt\.value;/.test(find),
   'assigning an absent value silently blanks a <select>');
+// t85 covers why the compare is normalised: an exact one missed a grade the API
+// spelled differently and left the team on a list filtered to nothing.
+ok('the match is not decided by casing',
+  /gradeNorm\(o\.value\)/.test(find));
 ok('the change event fires so the styled select repaints',
   /gradeSel\.dispatchEvent\(new Event\('change', \{ bubbles: true \}\)\)/.test(find));
 
@@ -133,9 +138,11 @@ const run = (cacheArg, other, grade) => {
   results.innerHTML = '';
   new Function('document', 'tournamentTeamCache', 'tournamentTeamsOtherGrades', 'tournamentGrade',
     'tournamentEventName', 'tournamentNav', 'tournamentMultiSelectMode',
-    'enhanceAllSelects', 'updateTournamentSelectionUI',
+    'enhanceAllSelects', 'updateTournamentSelectionUI', 'tournamentUngraded',
+    'tournamentLiveBadge', 'tournamentEventId', 'reEventLink',
     body + '\nrenderTournamentTeams();'
-  )(fakeDoc, cacheArg, other, grade, 'Bots @ Bristol', () => '<div class="t-nav">NAV</div>', false, () => {}, () => {});
+  )(fakeDoc, cacheArg, other, grade, 'Bots @ Bristol', () => '<div class="t-nav">NAV</div>', false,
+    () => {}, () => {}, 0, () => '', 55001, () => '');
   return results.innerHTML;
 };
 

@@ -187,8 +187,16 @@ export async function boot(opts = {}) {
     win.addEventListener('load', res);
   });
   await settle(win);
-  return { win, dom, errors, router };
+  // The live-tracking interval keeps node's event loop alive, so a test that
+  // opens a running event never exits unless the window is closed. Every boot()
+  // is registered and closed for you at exit; call stop() to do it sooner.
+  const stop = () => { try { dom.window.close(); } catch (e) {} };
+  OPEN.add(stop);
+  return { win, dom, errors, router, stop };
 }
+
+const OPEN = new Set();
+process.on('exit', () => { for (const stop of OPEN) stop(); });
 
 // Let pending promises and timers drain. The app fires several fetches per
 // screen and renders when they land, so tests have to wait for quiet.

@@ -301,6 +301,7 @@ proxy is at `api/proxy.js`.
 | t82 | **End to end in a real DOM — see below** |
 | t83 | Guarded storage; a boot no single step can cancel |
 | t84 | The RobotEvents link — URL shape, and the proxy's copy of it agreeing |
+| t85 | Grade must not drop teams; live tracking; the stuck-hover highlight |
 | sanity | CSS braces balance, inline JS parses, tabs present |
 | tool_sanity | Same for anchor-tool.html |
 
@@ -374,6 +375,47 @@ The program segment must match the SKU's program or the page 404s.
 `api/proxy.js` derives the same mapping for scraping, so **two copies of it now
 exist** — t84 asserts they agree. Add a program to one and you must add it to
 the other.
+
+---
+
+### Live tracking
+
+`/matches` and `/rankings` already carry a 15s TTL in `ttlFor()` and are
+deliberately left out of edge caching so a refresh is function-fresh. Until v47
+the client never used that: nothing refetched, so a schedule opened at a running
+event stayed frozen.
+
+`tournamentLiveTick()` now repolls every 30s, but only when **all** of these
+hold — a phone in a pocket at a competition should not refetch all day:
+
+* the event is live (`tournamentIsLive()` — from an hour before the start until
+  25h after the end, because finals and award entry run past the published end
+  time, and the API's `end` is a date rather than a moment),
+* the tab is visible,
+* the current view is one of `matches` / `teams` / `team`,
+* no tick is already in flight.
+
+Only `tournamentMatchCache` and `tournamentTeamCache` are dropped per tick.
+Awards, skills and the bracket refresh when opened; rebuilding the rolldown
+every 30s would cost far more than it is worth.
+
+**Note for tests:** the interval keeps node's event loop alive, so a test that
+opens a running event never exits on its own. `boot()` returns a `stop()` — call
+it, or rely on the `process.exit()` every test file already ends with.
+
+### Grade is matched, never used to hide someone
+
+`gradeMatches()` normalises case and spacing, and **an unknown grade is kept**.
+The old exact compare dropped teams whose grade came back differently cased or
+absent — off the list, with the count line reporting the smaller number as
+fact. A blank grade is not evidence of the other grade.
+
+### :hover is always behind `@media (hover: hover)`
+
+A touch device has no hover but latches the state onto the last element tapped
+and holds it until something else is tapped — which reads as a team being
+randomly highlighted. Every self-contained `:hover` rule in `index.html` is
+wrapped; t85 fails if a bare one appears.
 
 ---
 
