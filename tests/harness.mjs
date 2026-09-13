@@ -206,5 +206,17 @@ export async function settle(win, rounds = 60) {
   for (let i = 0; i < rounds; i++) await new Promise(r => setTimeout(r, 4));
 }
 
+// Pick a grade the way a person does: click the option in the styled dropdown.
+// Assigning win.tournamentGradePicked does nothing — a top-level `let` in a
+// classic script is not a property of window, so the page never sees it.
+export async function pickGrade(win, label) {
+  const wrap = [...win.document.querySelectorAll('.cs')].find(w => w.querySelector('#tournamentGradeSelect'));
+  if (!wrap) throw new Error('grade dropdown not enhanced yet');
+  const opt = [...wrap.querySelectorAll('.cs-opt')].find(o => o.textContent.trim() === label);
+  if (!opt) throw new Error('no such grade option: ' + label);
+  opt.dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+  await settle(win, 400);
+}
+
 export const text = (win, id) => (win.document.getElementById(id)?.textContent || '').replace(/\s+/g, ' ').trim();
 export const html = (win, id) => win.document.getElementById(id)?.innerHTML || '';

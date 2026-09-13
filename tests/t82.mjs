@@ -86,7 +86,15 @@ console.log('t82 — end to end, in a real DOM');
   h = html(win, 'tournamentResults');
   ok('the Teams tab lists the teams', /66449A/.test(h),
     'this is the reported bug: it rendered a cache nothing had filled');
-  ok('it counts them honestly', /2 High School teams registered/.test(h), h.slice(0, 200));
+  // The fixture event runs both grades, so since v49 it opens showing both
+  // rather than silently filtering to the dropdown's default. What matters
+  // here is that the count agrees with the list.
+  const shownCount = (h.match(/class="tournament-team-tag"/g) || []).length;
+  const claimed = parseInt((h.match(/summary-count">(\d+)/) || [])[1], 10);
+  ok('it counts them honestly', shownCount === claimed && shownCount === 3,
+    `says ${claimed}, shows ${shownCount}`);
+  ok('a mixed event is not filtered down on open', /both grades, tagged MS\/HS/.test(h),
+    (h.match(/summary-count">([^<]*)</) || [])[1]);
   ok('nothing threw along the way', errors.length === 0, errors.join('\n'));
 }
 

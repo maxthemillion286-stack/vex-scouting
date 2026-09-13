@@ -134,18 +134,26 @@ ok('a team with no grade recorded changes nothing',
 // being stale, never the code. The harness runs the real page, so the list of
 // globals stops being this file's problem.
 {
-  const { boot, settle, html, FIXTURES } = await import('./harness.mjs');
+  const { boot, settle, html, FIXTURES, pickGrade } = await import('./harness.mjs');
 
   // Loaded and empty: the state that used to render a bare grid with no
   // explanation and no way back.
+  //
+  // Reaching it now takes a DELIBERATE filter — since v49 an event that is
+  // entirely one grade opens on that grade, so it can no longer look empty by
+  // accident. That is the point of the change, and this still has to work for
+  // the case where someone asks for a grade nobody at the event is in.
   {
     const keep = FIXTURES.teams;
     FIXTURES.teams = [{ id: 9003, number: '12345B', team_name: 'Middle Bots', grade: 'Middle School' }];
     const { win, stop } = await boot();
     win.switchTab('tournament');
-    win.document.getElementById('tournamentGradeSelect').value = 'High School';
     await win.loadTournamentTeams(55001, 'Bots @ Bristol', null, '', 'RE-V5RC-25-0191');
     await settle(win, 300);
+    ok('an all-Middle-School event opens on Middle School, not empty',
+      win.document.getElementById('tournamentGradeSelect').value === 'Middle School' &&
+      html(win, 'tournamentResults').includes('12345B'));
+    await pickGrade(win, 'High School');
     const h = html(win, 'tournamentResults');
     ok('rendered empty: says which grade it filtered on', /No High School teams are registered/.test(h));
     ok('rendered empty: points at the GRADE dropdown', /switch GRADE at the top/.test(h));
