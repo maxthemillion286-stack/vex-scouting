@@ -301,7 +301,7 @@ proxy is at `api/proxy.js`.
 | t82 | **End to end in a real DOM — see below** |
 | t83 | Guarded storage; a boot no single step can cancel |
 | t84 | The RobotEvents link — URL shape, and the proxy's copy of it agreeing |
-| t85 | Grade must not drop teams; live tracking; the stuck-hover highlight |
+| t85 | Grade must not drop teams; MS/HS badges; live tracking; the stuck-hover highlight |
 | sanity | CSS braces balance, inline JS parses, tabs present |
 | tool_sanity | Same for anchor-tool.html |
 
@@ -418,10 +418,20 @@ rank order has holes exactly where the other grade placed — reported as
 "sorting by rank I'm missing teams 1, 2 and 9". They were never missing from
 the data.
 
-The dropdown has an **All Grades** option (the filter always understood `'All'`;
-nothing could select it), and when the filter hides anyone the list says which
-ranks went with them and offers the switch. On a mixed list each card is tagged
-MS or HS.
+**Nothing is filtered by default.** On opening an event the GRADE dropdown is
+set from the roster: both grades present → All Grades, one grade → that grade.
+Each card on a mixed list carries a small **MS** / **HS** badge
+(`gradeBadge()`), so the two are told apart without hiding either.
+
+Picking a grade from the dropdown is a deliberate act and sticks for that event
+(`tournamentGradePicked`), including through a live refresh — the tick calls
+`loadAndRenderTeamList()`, never `loadTournamentTeams()`, which is where the
+flag resets. The flag is set in `enhanceSelect`'s option-click handler, not on
+`change`: `setSelectValue()` dispatches `change` too, so a change listener
+would record the app's own assignments as user choices.
+
+When a deliberate filter does hide someone, the list says which ranks went with
+them and offers SHOW ALL GRADES.
 
 Under All Grades the world-skills column reads **both** grades' standings and
 looks each team up in its own — a single call would rank a Middle School team

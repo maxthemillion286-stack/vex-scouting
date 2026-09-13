@@ -23,7 +23,7 @@
 //    something else is tapped, so the team you opened earlier is still lit when
 //    you come back. Every :hover rule is now behind @media (hover: hover).
 import fs from 'fs';
-import { boot, settle, html, FIXTURES } from './harness.mjs';
+import { boot, settle, html, FIXTURES, pickGrade } from './harness.mjs';
 let pass = 0, fail = 0;
 const ok = (n, c, e) => { c ? (pass++, console.log('  ok   ' + n)) : (fail++, console.log('  FAIL ' + n + (e ? '\n         ' + e : ''))); };
 const idx = fs.readFileSync('../index.html', 'utf8');
@@ -78,11 +78,16 @@ ok('the team-number search matches grade the same way',
   win.switchTab('tournament');
   await win.loadTournamentTeams(55001, 'Ended Today', null, '', 'RE-V5RC-25-0191');
   await settle(win, 300);
+  // Narrow to High School ON PURPOSE — this block is about a grade the API
+  // spelled oddly not removing anyone, which only means anything under a
+  // filter. (A mixed event opens showing both; that is §5.)
+  await pickGrade(win, 'High School');
   const h = html(win, 'tournamentResults');
   for (const n of ['1STPLACE', '2NDPLACE', '3RDPLACE', '4THPLACE']) {
     ok(`${n} is on the list`, h.includes(n), 'the old filter dropped it silently');
   }
-  ok('a team that really is the other grade is still filtered out', !h.includes('5THPLACE'));
+  ok('a team that really is the other grade is filtered out when asked for',
+    !h.includes('5THPLACE'));
   ok('the count matches what is shown', /4 High School teams registered/.test(h),
     (h.match(/summary-count">([^<]*)</) || [])[1]);
   ok('and it says one had no grade', /1 with no grade listed/.test(h));
@@ -244,6 +249,37 @@ ok('All Grades reads both sets of world standings',
 ok('...and looks each team up in its own',
   /const book = \(tGrade === 'middle school' && seasonSkillsMs\) \? seasonSkillsMs : seasonSkills;/.test(src));
 
+ok('a mixed event is not filtered by default',
+  /if \(!tournamentGradePicked && gradesHere\.length\) \{/.test(src) &&
+  /setSelectValue\(gradeSel, gradesHere\.length > 1 \? 'All' : gradesHere\[0\]\);/.test(src),
+  'filtering is something to ask for, not something done to you');
+ok('a deliberate pick is recorded where a real choice happens',
+  /if \(select\.id === 'tournamentGradeSelect'\) \{\s*\n\s*tournamentGradePicked = true;/.test(src),
+  'setSelectValue dispatches change too, so a plain change listener would lie');
+ok('picking a grade reloads the list', /setTimeout\(loadAndRenderTeamList, 0\)/.test(src));
+ok('the flag is per-event, cleared when another event opens',
+  /tournamentGradePicked = false;\s*\n\s*tournamentEventWindow = null;/.test(src));
+ok('SHOW ALL GRADES counts as a deliberate pick',
+  /if \(!setSelectValue\(sel, 'All'\)\) return;\s*\n\s*tournamentGradePicked = true;/.test(src));
+ok('a live refresh cannot undo a deliberate pick',
+  /await loadAndRenderTeamList\(\);/.test(src) && !/tournamentLiveTick[\s\S]{0,700}tournamentGradePicked = false/.test(src),
+  'the tick calls loadAndRenderTeamList, never loadTournamentTeams');
+
+// The badge itself.
+const badgeSrc = src.slice(src.indexOf('function gradeBadge(grade)'), src.indexOf('function gradeOfTeam(t)'));
+const gradeBadge = new Function(badgeSrc + '; return gradeBadge;')();
+ok('Middle School reads MS', /">MS</.test(gradeBadge('Middle School')));
+ok('High School reads HS', /">HS</.test(gradeBadge('High School')));
+ok('the two are told apart by colour as well as text',
+  /is-ms/.test(gradeBadge('Middle School')) && /is-hs/.test(gradeBadge('High School')));
+ok('each carries the full name for anyone who needs it',
+  /title="Middle School"/.test(gradeBadge('Middle School')));
+ok('an unknown grade gets no badge rather than a wrong one', gradeBadge('') === '' && gradeBadge(null) === '');
+ok('a grade we do not know about still gets initials',
+  /">ES</.test(gradeBadge('Elementary School')));
+ok('the badge only appears when the list holds more than one grade',
+  /const gradeTag = mixedGrades \? gradeBadge\(t\.grade\) : '';/.test(src));
+
 // Driven: the exact reported shape — mixed grades, one division.
 {
   const keepT = FIXTURES.teams, keepD = FIXTURES.event.divisions;
@@ -258,24 +294,54 @@ ok('...and looks each team up in its own',
   FIXTURES.event.divisions = [{ id: 1, name: null }];
 
   const { win, stop } = await boot();
+  const d = win.document;
   win.switchTab('tournament');
   await win.loadTournamentTeams(55001, 'Maker Faire Day 1', null, '', 'RE-V5RC-25-0191');
   await settle(win, 300);
   let h = html(win, 'tournamentResults');
-  ok('the High School view says teams are hidden', /t-hidden-note/.test(h));
-  ok('...and names the exact ranks that are gone', /including ranks\s*1, 2, 9/.test(h.replace(/\s+/g, ' ')),
+
+  // The default: nothing hidden, everyone tagged.
+  ok('a mixed event opens on All Grades', d.getElementById('tournamentGradeSelect').value === 'All',
+    d.getElementById('tournamentGradeSelect').value);
+  for (const n of ['AAA', 'BBB', 'CCC', 'DDD', 'III']) {
+    ok(`${n} is shown without being asked for`, h.includes('>' + n + '<'));
+  }
+  ok('the count says both grades', /5 teams registered · both grades, tagged MS\/HS/.test(h),
+    (h.match(/summary-count">([^<]*)</) || [])[1]);
+  ok('every card carries its grade', (h.match(/class="tt-grade is-(ms|hs)"/g) || []).length === 5);
+  ok('the middle school teams are tagged MS',
+    (h.match(/is-ms"[^>]*>MS</g) || []).length === 3);
+  ok('the high school teams are tagged HS',
+    (h.match(/is-hs"[^>]*>HS</g) || []).length === 2);
+  ok('nothing is hidden, so there is no note', !/t-hidden-note/.test(h));
+
+  // Narrowing on purpose still works, and still explains the gaps it makes.
+  await pickGrade(win, 'High School');
+  h = html(win, 'tournamentResults');
+  ok('a deliberate High School filter hides the others', !h.includes('>AAA<'));
+  ok('...and says so', /t-hidden-note/.test(h));
+  ok('...naming the exact ranks that went', /including ranks\s*1, 2, 9/.test(h.replace(/\s+/g, ' ')),
     (h.match(/t-hidden-note">([\s\S]*?)<button/) || [])[1]);
 
+  // And one tap brings them back.
   await win.tournamentShowAllGrades();
   await settle(win, 300);
   h = html(win, 'tournamentResults');
-  for (const n of ['AAA', 'BBB', 'CCC', 'DDD', 'III']) {
-    ok(`${n} is on the All Grades list`, h.includes('>' + n + '<'));
-  }
-  ok('the count says all grades', /5 teams registered · all grades/.test(h),
-    (h.match(/summary-count">([^<]*)</) || [])[1]);
-  ok('each card is marked MS or HS', (h.match(/tt-grade">(MS|HS)</g) || []).length === 5);
-  ok('the note is gone, because nothing is hidden any more', !/t-hidden-note/.test(h));
+  ok('SHOW ALL GRADES restores every team',
+    ['AAA', 'BBB', 'CCC', 'DDD', 'III'].every(n => h.includes('>' + n + '<')));
+  ok('the note is gone with them', !/t-hidden-note/.test(h));
+
+  // A single-grade event names that grade rather than keeping a stale 'All'.
+  const solo = FIXTURES.teams;
+  FIXTURES.teams = [{ id: 7, number: 'ZZZ', grade: 'High School' }];
+  await win.loadTournamentTeams(55002, 'HS Only', null, '', 'RE-V5RC-25-0649');
+  await settle(win, 300);
+  ok('a single-grade event names that grade',
+    d.getElementById('tournamentGradeSelect').value === 'High School',
+    d.getElementById('tournamentGradeSelect').value);
+  ok('...and carries no grade tags, because there is nothing to tell apart',
+    !/tt-grade/.test(html(win, 'tournamentResults')));
+  FIXTURES.teams = solo;
   stop();
 
   FIXTURES.teams = keepT; FIXTURES.event.divisions = keepD; delete FIXTURES.rankOf;
