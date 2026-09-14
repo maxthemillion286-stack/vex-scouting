@@ -100,7 +100,11 @@ ok('no seed channel means no expansion', shouldExpand(1, 2, null) === false);
 
 // The result cap has to admit all four Bristol broadcasts.
 ok('the search keeps enough candidates for a two-grade two-day event',
-  /return scored\.slice\(0, 16\);/.test(px), '6 filled up before the needed day got in');
+  /scored\.slice\(0, 16\)/.test(px), '6 filled up before the needed day got in');
+// The rejects ride back on the same array, so the cap is unchanged but the
+// return is wrapped — see t86 for what that carries.
+ok('...and the refused candidates come back with them',
+  /return withRejects\(scored\.slice\(0, 16\), rejects, items\.length\);/.test(px));
 ok('the response carries them too', /streams: found\.slice\(0, 16\)/.test(px));
 ok('the search asks for more candidates at the same price',
   /maxResults=50&order=relevance/.test(px));
