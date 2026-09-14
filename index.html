@@ -2437,7 +2437,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v49';
+const APP_BUILD = 'v50';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -2583,6 +2583,32 @@ function vsSelfCheck() {
         j.reason === 'page-blocked-and-no-yt-match'
           ? "The event page is blocked (normal) and YouTube had no confident match. If this event streams on vexworlds.tv, paste that channel — the Jumper can't discover VEX TV on its own."
           : 'Send me this whole block.'}`);
+
+      // WHICH gate threw the search away.
+      //
+      // Every failure used to read the same from outside, whatever caused it:
+      // a query that returned nothing, the right video refused on its title,
+      // and the right video refused on a grade veto were one sentence. That is
+      // why this took a month to pin down. Now the panel says it.
+      const se = j.search;
+      if (se) {
+        add('info', `Searched YouTube for "${se.query}" — matching on [${(se.want || []).join(' ')}]${
+          se.wantGrade ? `, event reads ${se.wantGrade}` : ', no grade veto'}. YouTube returned ${se.returned} video(s).`);
+        if (!se.returned) {
+          add('fail', 'YouTube returned NOTHING for that query. The stream is either not on YouTube, not public, or titled so differently that the search cannot reach it. Paste the link by hand below and it still syncs itself.');
+        } else if (!(se.refused || []).length) {
+          add('warn', 'YouTube returned videos but none reached the scorer. Send me this whole block.');
+        } else {
+          const byGate = {};
+          for (const r of se.refused) byGate[r.gate] = (byGate[r.gate] || 0) + 1;
+          add('info', 'Every candidate was refused: ' +
+            Object.entries(byGate).map(([g, n]) => `${n} on ${g}`).join(', ') + '.');
+          for (const r of se.refused.slice(0, 6)) {
+            add('info', `refused (${r.gate}): "${r.title}" — ${r.detail}`);
+          }
+          add('warn', 'If one of those IS the right video, send me this block — the line above names exactly which rule threw it away.');
+        }
+      }
     }
 
     // ── Day by day, which is where most of the trouble has been ──
@@ -2840,7 +2866,7 @@ const RW_MAX_BROADCAST_SEC = 14 * 3600;
 //
 // Bump this ONLY when the lookup changes in a way that makes old answers
 // wrong. A cosmetic or client-side release should reuse what is cached.
-const RW_STREAM_LOGIC = 'L1';
+const RW_STREAM_LOGIC = 'L2';
 
 let rwEventStartDay = null;
 

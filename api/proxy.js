@@ -18,7 +18,7 @@ export const config = { maxDuration: 60 };
 // Bumped whenever the streams lookup changes. Surfaced in `diag` and in every
 // streams response so the debug page can prove WHICH proxy is actually live —
 // a stale cached reply is otherwise indistinguishable from a fresh failure.
-const PROXY_BUILD = 'v49';
+const PROXY_BUILD = 'v50';
 // A failed stream lookup is expensive (page race + a YouTube search), and the
 // answer rarely changes within a session. Cache the miss too, or every revisit
 // pays the full cost again.
@@ -329,10 +329,16 @@ function iso8601Seconds(d) {
 // a live broadcast running for hours, and a highlights reel is a short upload.
 // This costs nothing — contentDetails rides along on the details call we
 // already make.
-function looksLikeEventBroadcast(v) {
+function looksLikeEventBroadcast(v, strict) {
   if (v.actualStartTime || v.scheduledStartTime) return true;   // an actual broadcast
-  if (v.durationSec === null || v.durationSec === undefined) return true;  // unknown: don't punish
-  return v.durationSec >= 20 * 60;   // an upload long enough to be a session
+  if (v.durationSec === null || v.durationSec === undefined) return !strict;
+  // 20 minutes is enough for a session when the TITLE already matched closely.
+  // `strict` is for the weaker acceptance added to scoreTitle — a title that
+  // names the event and then adds words of its own. "Maker Faire OC — cosplay
+  // contest" names the event perfectly well; what it is not is an hours-long
+  // competition broadcast, and that is the difference worth testing.
+  // §3: a wrong video is worse than no video.
+  return v.durationSec >= (strict ? 40 * 60 : 20 * 60);
 }
 
 // When did this video actually air? Prefer the real start, fall back to the
@@ -426,7 +432,7 @@ async function resolveChannel(channelUrl, startISO, endISO, ytKey, eventName) {
   const details = await ytVideoDetails(ids, ytKey);
   const byId = new Map(nearby.map(it => [it.snippet && it.snippet.resourceId && it.snippet.resourceId.videoId, it.snippet || {}]));
 
-  const wantGrade = gradeOf(eventName);
+  const wantGrade = eventGrade(eventName);
   const out = [];
   for (const id of ids) {
     const sn = byId.get(id) || {};
@@ -477,6 +483,34 @@ function gradeOf(text) {
   return null;
 }
 
+// Which grades does this text name? Not "the" grade — plural, on purpose.
+//
+// gradeOf() returns the FIRST grade it finds, which is right for a stream title
+// and wrong for an event name. Blended events are named "MS/HS" or "Blended
+// MS/HS", and gradeOf tests middle school first, so every one of them came back
+// 'ms'. The veto below then threw away any broadcast whose title said HS — at
+// an event that is, by name, half high school.
+//
+// "Maker Faire OC - MS/HS - Day 1" is exactly that shape, and it is the event
+// that has been failing to auto-find for a month.
+function gradesNamed(text) {
+  const t = String(text || '').toLowerCase();
+  const out = new Set();
+  if (/\b(?:middle\s*school|ms|m\.s\.)\b/.test(t)) out.add('ms');
+  if (/\b(?:high\s*school|hs|h\.s\.)\b/.test(t)) out.add('hs');
+  if (/\b(?:elementary|es)\b/.test(t)) out.add('es');
+  if (/\b(?:college|university|vex\s*u|vurc)\b/.test(t)) out.add('u');
+  return out;
+}
+
+// The grade to hold a broadcast to. An event that names one grade vetoes the
+// others; an event that names two or none vetoes nothing, because there is no
+// single right answer to veto against.
+function eventGrade(name) {
+  const named = gradesNamed(name);
+  return named.size === 1 ? [...named][0] : null;
+}
+
 // Words in almost every event name or stream title, carrying no evidence.
 // "Katy Regional Event" reduces to just "katy" — correctly too thin to search.
 const STOPWORDS = new Set([
@@ -492,7 +526,10 @@ const STOPWORDS = new Set([
   'high','school','schools','middle','elementary','college','university',
   'live','livestream','stream','streaming','webcast','broadcast','replay','full',
   'day','days','division','divisions','field','fields','matches','match','round','rounds',
-  'push','back','over','under','rapid','relay','season',
+  // Game names. Every event in a season carries the current one, so it is
+  // boilerplate that looks distinctive — and 'override' being absent let it
+  // count as shared evidence between two unrelated events this season.
+  'push','back','over','under','rapid','relay','season','override','mix','match',
   '2023','2024','2025','2026','2027','20242025','20252026'
 ]);
 
@@ -532,7 +569,30 @@ function scoreTitle(want, title) {
   const precision = overlap / got.length;
   const recall = overlap / want.length;
   const best = Math.max(precision, recall);
-  if (best < 0.8) return null;
+
+  // A title that NAMES THE EVENT and then adds something of its own.
+  //
+  // Organisers stream per field, and the field gets top billing:
+  //
+  //   "Obsessed Cuts and Color - Maker Faire OC - MS/HS - Day 1"
+  //   "Geared4Girls - Maker Faire OC - MS/HS - Day 1"
+  //
+  // Both of those are the event, completely named, with a field in front. Both
+  // were refused: the extra words drop precision, and the event has words of
+  // its own the title omits, so recall lands around 0.6-0.75 and neither half
+  // of `best` clears 0.8. (The two field names above are the real ones from
+  // that event's results table.)
+  //
+  // Coverage of the EVENT is the evidence here, and it is strong when the words
+  // covered are rare ones. Two distinctive words shared plus most of the event
+  // name present is not something an unrelated video does — "Maker Faire Bay
+  // Area" shares maker and faire but covers only half the name, and is still
+  // refused. The date window, the broadcast check and the grade check all still
+  // have to agree afterwards.
+  const distinctShared = shared.filter(distinctiveWord).length;
+  const namesTheEvent = recall >= 0.6 && distinctShared >= 2;
+
+  if (best < 0.8 && !namesTheEvent) return null;
 
   // Two words in common used to be required, always, on the grounds that one
   // is a coincidence. Usually true — but it threw away the strongest matches
@@ -560,7 +620,8 @@ function scoreTitle(want, title) {
     if (!distinctiveWord(shared[0])) return null;
     if (precision < 0.5) return null;
   }
-  return { overlap, precision, recall, best, solo: overlap < 2 };
+  return { overlap, precision, recall, best, distinctShared,
+           solo: overlap < 2, via: best >= 0.8 ? 'score' : 'names-event' };
 }
 
 // Is one word, on its own, enough to hang a match on?
@@ -618,7 +679,7 @@ async function searchYouTubeByName(name, startISO, endISO, ytKey) {
   // actually goes to YouTube. Only the scoring works on tokens.
   if (!want.length) return [];
   if (want.length === 1 && !distinctiveWord(want[0])) return [];
-  const wantGrade = gradeOf(name);
+  const wantGrade = eventGrade(name);
 
   const startMs = Date.parse(startISO);
   if (isNaN(startMs)) return [];
@@ -642,7 +703,26 @@ async function searchYouTubeByName(name, startISO, endISO, ytKey) {
     '&publishedAfter=' + new Date(startMs - 60 * 86400e3).toISOString() +
     '&publishedBefore=' + new Date(endMs + 7 * 86400e3).toISOString(), 100, ytKey);
   const items = (j && j.items) || [];
-  if (!items.length) return [];
+  // Carried on the returned array so every caller keeps working unchanged.
+  const withRejects = (arr, rejects, searched) => {
+    arr.rejects = rejects; arr.searched = searched; return arr;
+  };
+  if (!items.length) return withRejects([], [], 0);
+
+  // Why each candidate was refused.
+  //
+  // This is the whole reason auto-find took a month to pin down: every failure,
+  // for every different cause, collapsed into one sentence — "nothing matches
+  // its name and dates closely enough to trust". A search that returned nothing
+  // and a search that returned the right video and threw it away on a grade
+  // veto read identically from outside, so every round was a guess.
+  //
+  // Capped and title-only: it costs nothing, and it is the difference between
+  // one more release and one more month.
+  const rejects = [];
+  const note = (title, gate, detail) => {
+    if (rejects.length < 12) rejects.push({ title: String(title || '').slice(0, 120), gate, detail });
+  };
 
   // Score on the search snippet first, so only plausible videos cost a unit.
   const shortlist = [];
@@ -654,10 +734,15 @@ async function searchYouTubeByName(name, startISO, endISO, ytKey) {
     // name can never match ("KR", "Robotics Live"), which drags precision down
     // and rejects correct videos — the query already found the right channel.
     const sc = scoreTitle(want, sn.title || '');
-    if (!sc) continue;
+    if (!sc) {
+      const got = nameTokens(sn.title || '');
+      const shared = want.filter(t => got.includes(t));
+      note(sn.title, 'title', `shared ${shared.length}/${want.length} [${shared.join(' ')}] of ${got.length} title words`);
+      continue;
+    }
     shortlist.push({ id, sc });
   }
-  if (!shortlist.length) return [];
+  if (!shortlist.length) return withRejects([], rejects, items.length);
 
   const details = await ytVideoDetails(shortlist.map(x => x.id), ytKey);
   // If the details call itself failed, fall back to what the search gave us.
@@ -675,9 +760,15 @@ async function searchYouTubeByName(name, startISO, endISO, ytKey) {
     } : null);
     if (!v) continue;
     // The real test: did this video actually air while the event was running?
-    if (!airedDuringEvent(v, startMs, endMs)) continue;
+    if (!airedDuringEvent(v, startMs, endMs)) {
+      note(v.title, 'aired', `aired ${String(v.actualStartTime || v.publishedAt || '?').slice(0, 16)}, event ${String(startISO).slice(0, 10)}..${String(endISO || startISO).slice(0, 10)}`);
+      continue;
+    }
     // ...and is it a broadcast rather than a clip about the same occasion?
-    if (!looksLikeEventBroadcast(v)) continue;
+    if (!looksLikeEventBroadcast(v, sc.via === 'names-event')) {
+      note(v.title, 'duration', `${v.durationSec ?? '?'}s, matched via ${sc.via}`);
+      continue;
+    }
     // The TITLE decides the grade; the description is consulted only when the
     // title is silent.
     //
@@ -687,7 +778,10 @@ async function searchYouTubeByName(name, startISO, endISO, ytKey) {
     // concatenation won, which is not a rule so much as a coin toss, and it
     // decides whether a video is dropped outright.
     const gotGrade = gradeOf(v.title) || gradeOf(v.description.slice(0, 400));
-    if (wantGrade && gotGrade && gotGrade !== wantGrade) continue;
+    if (wantGrade && gotGrade && gotGrade !== wantGrade) {
+      note(v.title, 'grade', `video reads ${gotGrade}, event reads ${wantGrade}`);
+      continue;
+    }
     scored.push({
       url: 'https://www.youtube.com/watch?v=' + id,
       title: v.title,
@@ -708,7 +802,7 @@ async function searchYouTubeByName(name, startISO, endISO, ytKey) {
   // 6 was too tight for a multi-day event that also runs several grades: four
   // Bristol broadcasts (MS and HS, two days each) plus any near-miss fills it
   // before the day that matters gets in.
-  return scored.slice(0, 16);
+  return withRejects(scored.slice(0, 16), rejects, items.length);
 }
 
 function slimForPath(path, data) {
@@ -961,9 +1055,11 @@ async function handleRequest(req, res) {
       // could not be fetched at all. Search YouTube for the event by name,
       // scored so a weak match is dropped rather than presented as the answer.
       let searched = false;
+      let searchHits = null;      // what the search returned and what it refused
       if (!found.length && evName && process.env.YOUTUBE_API_KEY) {
         searched = true;
-        for (const v of await searchYouTubeByName(evName, startISO, endISO, process.env.YOUTUBE_API_KEY)) {
+        searchHits = await searchYouTubeByName(evName, startISO, endISO, process.env.YOUTUBE_API_KEY);
+        for (const v of searchHits) {
           add(v.url, 'yt-search');
           const rec = found[found.length - 1];
           if (rec && rec.url === v.url) {
@@ -1127,6 +1223,20 @@ async function handleRequest(req, res) {
         channels: channels.map(c => c.url).slice(0, 4),
         // What YouTube actually said, when it said anything. Absent on success.
         ytError: ytLastError || undefined,
+        // WHY the search came back empty, candidate by candidate.
+        //
+        // Without this every cause looks the same from outside: a query that
+        // returned nothing, a right video refused on its title, and a right
+        // video refused on a grade veto all produced one identical sentence.
+        // That sameness is why this took a month. Only sent when the search
+        // ran and produced nothing, which is exactly when someone is asking.
+        search: (searched && !found.length && searchHits) ? {
+          query: searchQuery(evName),
+          want: nameTokens(evName),
+          wantGrade: eventGrade(evName),
+          returned: searchHits.searched ?? 0,
+          refused: searchHits.rejects || []
+        } : undefined,
         reason: found.length ? undefined
               // Quota first. It outranks every other explanation because it is
               // not an explanation of the event at all — nothing was searched.

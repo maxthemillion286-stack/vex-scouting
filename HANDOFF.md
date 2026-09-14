@@ -106,6 +106,38 @@ Caching is what keeps the quota alive:
 defeated the CDN on every request — the single largest source of wasted quota.
 It is now `rwDebugOn() ? ... : ''`.
 
+### When auto-find comes back empty, read the panel
+
+Since v50 a failed search reports **which gate refused each candidate** —
+`title`, `aired`, `duration` or `grade` — with the query it used, the tokens it
+matched on, and how many videos YouTube returned at all. `vsSelfCheck()` prints
+it. Before that, every cause produced one identical sentence, which is why the
+Maker Faire miss took a month: a query that returned nothing and the right video
+thrown away on a grade veto were indistinguishable from outside.
+
+Three things that miss came down to, all in one event name — *"Maker Faire OC -
+MS/HS - Day 1 - robotics is ez: VEX V5 Robotics Competition - Override"*:
+
+* **Blended events vetoed on the wrong grade.** `gradeOf()` returns the FIRST
+  grade it finds and tests middle school first, so `MS/HS` read as `ms` and any
+  HS-titled broadcast was refused. Use `eventGrade()` for the veto — it returns
+  null when a name mentions two grades or none. `gradeOf()` is still right for a
+  stream TITLE, which names one grade or none.
+* **The season's game name was not a stopword.** `push`/`back`/`rapid`/`relay`
+  were listed, `override` was not. Every event in a season carries it, so it was
+  boilerplate posing as evidence. Add the new game name each season.
+* **Organisers stream per field, and the field goes first in the title.**
+  `"Obsessed Cuts and Color - Maker Faire OC - MS/HS - Day 1"` is the event
+  completely named with a field in front, and the extra words dropped precision
+  below the 0.8 bar. `scoreTitle()` now also accepts `recall >= 0.6` with two or
+  more distinctive shared words (`via: 'names-event'`), and that weaker route is
+  held to a 40-minute broadcast minimum rather than 20 — a clip can name an
+  event, an afternoon of matches is what a stream looks like.
+
+**Bump `RW_STREAM_LOGIC` whenever any of this changes.** The proxy caches a miss
+for an hour and a past event's miss much harder, keyed on that string — ship a
+matching fix without bumping it and nobody sees the fix.
+
 ### Matching a video to an event — the rules and why
 
 Getting this wrong is worse than finding nothing: a wrong video means every
@@ -302,6 +334,7 @@ proxy is at `api/proxy.js`.
 | t83 | Guarded storage; a boot no single step can cancel |
 | t84 | The RobotEvents link — URL shape, and the proxy's copy of it agreeing |
 | t85 | Grade must not drop teams; MS/HS badges; live tracking; the stuck-hover highlight |
+| t86 | **Why Maker Faire never auto-found — blended grades, the game name, field-prefixed titles — and a search that explains its refusals** |
 | sanity | CSS braces balance, inline JS parses, tabs present |
 | tool_sanity | Same for anchor-tool.html |
 
