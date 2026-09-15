@@ -116,15 +116,38 @@ function matchesFor(divId, evId) {
   for (let d = 0; d < days.length; d++) {
     for (let n = 1; n <= 3; n++) {
       const t = `${days[d]}T${String(10 + n).padStart(2, '0')}:00:00-05:00`;
+      // An event that has not happened yet has a schedule and no scores.
       out.push({
         id: ++id, name: `Qualification ${n + d * 3}`, matchnum: n + d * 3, round: 2,
-        started: t, scheduled: t, event: { id: eventId },
-        alliances: [
-          { color: 'red', score: 100 + n, teams: [{ team: { id: 9001, name: '66449A' } }, { team: { id: 9002, name: '1234X' } }] },
-          { color: 'blue', score: 90 + n, teams: [{ team: { id: 9003, name: '12345B' } }, { team: { id: 9004, name: '777Z' } }] }
+        started: FIXTURES.unplayed ? null : t, scheduled: t, event: { id: eventId },
+        alliances: divId === 1 ? [
+          { color: 'red', score: FIXTURES.unplayed ? 0 : 100 + n, teams: [{ team: { id: 9001, name: '66449A' } }, { team: { id: 9002, name: '1234X' } }] },
+          { color: 'blue', score: FIXTURES.unplayed ? 0 : 90 + n, teams: [{ team: { id: 9003, name: '12345B' } }, { team: { id: 9004, name: '777Z' } }] }
+        ] : [
+          // Division 2 is other teams. A team plays in one division, so
+          // returning the same roster from both gave every match twice.
+          { color: 'red', score: 70 + n, teams: [{ team: { id: 9005, name: '555A' } }, { team: { id: 9006, name: '888B' } }] },
+          { color: 'blue', score: 60 + n, teams: [{ team: { id: 9007, name: '999C' } }, { team: { id: 9008, name: '222D' } }] }
         ]
       });
     }
+  }
+  // A short elimination run, so "best result" has something to describe.
+  // Division 1 only, for the same reason the quals are.
+  if (!B && divId === 1 && !FIXTURES.unplayed) {
+    const el = (name, num, mine, theirs, hour) => ({
+      id: ++id, name, matchnum: num, round: 5,
+      started: `${days[days.length - 1]}T${String(hour).padStart(2, '0')}:00:00-05:00`,
+      scheduled: `${days[days.length - 1]}T${String(hour).padStart(2, '0')}:00:00-05:00`,
+      event: { id: eventId },
+      alliances: [
+        { color: 'red', score: mine, teams: [{ team: { id: 9001, name: '66449A' } }, { team: { id: 9002, name: '1234X' } }] },
+        { color: 'blue', score: theirs, teams: [{ team: { id: 9003, name: '12345B' } }, { team: { id: 9004, name: '777Z' } }] }
+      ]
+    });
+    out.push(el('R16 #7-1', 1, 143, 5, 14));
+    out.push(el('QF #4-1', 2, 113, 57, 15));
+    out.push(el('SF #2-1', 3, 8, 135, 16));   // the run ends here
   }
   return out;
 }

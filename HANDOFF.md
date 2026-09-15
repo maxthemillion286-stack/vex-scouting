@@ -334,6 +334,7 @@ proxy is at `api/proxy.js`.
 | t83 | Guarded storage; a boot no single step can cancel |
 | t84 | The RobotEvents link — URL shape, and the proxy's copy of it agreeing |
 | t85 | Grade must not drop teams; MS/HS badges; live tracking; the stuck-hover highlight |
+| t87 | The team page: best result, score-by-match chart, phone layout |
 | t86 | **Why Maker Faire never auto-found — blended grades, the game name, field-prefixed titles — and a search that explains its refusals** |
 | sanity | CSS braces balance, inline JS parses, tabs present |
 | tool_sanity | Same for anchor-tool.html |
