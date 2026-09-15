@@ -594,6 +594,16 @@
   .match-time { font-family: var(--mono); font-size: 9px; color: var(--accent-bright); margin-top: 2px; letter-spacing: 0.5px; }
   .match-num { font-family: var(--mono); font-size: 11px; color: var(--text-muted); letter-spacing: 1px; }
 
+  @media (max-width: 560px) {
+    .match-row { grid-template-columns: 1fr auto auto; gap: 6px; padding: 8px 10px; }
+    .match-row > :nth-child(1) { grid-row: 1; grid-column: 1; }          /* name  */
+    .match-row > :nth-child(5) { grid-row: 1; grid-column: 2; }          /* W / L */
+    .match-row > :nth-child(6) { grid-row: 1; grid-column: 3; }          /* watch */
+    .match-row > :nth-child(2) { grid-row: 2; grid-column: 1 / -1; }     /* yours */
+    .match-row > :nth-child(4) { grid-row: 3; grid-column: 1 / -1; }     /* theirs */
+    .match-row > .match-vs { display: none; }   /* the stacking says it */
+  }
+
   .match-alliance {
     display: grid; grid-template-columns: 40px 1fr 50px;
     align-items: center; gap: 8px;
@@ -1506,6 +1516,59 @@
   }
   .tt-grade.is-ms { color: var(--accent-bright); }
   .tt-grade.is-hs { color: var(--text-muted); }
+  /* ── Score by match ───────────────────────────────────────────────────
+     Two series only, so identity is carried by dash pattern as well as
+     colour: this app has fifteen user-selectable themes and nothing may
+     depend on telling two particular hues apart. Gridlines stay solid
+     hairlines — dashing is reserved for the mark that means "not you". */
+  .sc-wrap { border: 1px solid var(--border); background: var(--card); padding: 12px 14px 6px; margin: 12px 0; }
+  .sc-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
+  .sc-title { font-family: var(--display); font-size: 12px; font-weight: 600; letter-spacing: 1px;
+    text-transform: uppercase; color: var(--text-dim); }
+  .sc-legend { display: flex; gap: 14px; margin-left: auto; }
+  .sc-key { display: inline-flex; align-items: center; gap: 6px;
+    font-family: var(--mono); font-size: 11px; color: var(--text-muted); }
+  .sc-plot { position: relative; }
+  .sc-plot svg { display: block; width: 100%; height: auto; overflow: visible; }
+  .sc-grid { stroke: var(--border); stroke-width: 1; }
+  .sc-cross { stroke: var(--text-muted); stroke-width: 1; opacity: 0.6; pointer-events: none; }
+  .sc-ytick, .sc-xtick { font-family: var(--mono); font-size: 11px; fill: var(--text-muted); }
+  .sc-ytick { text-anchor: end; }
+  .sc-xtick { text-anchor: middle; }
+  .sc-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  line.sc-mine, path.sc-mine { stroke: var(--accent-bright); }
+  line.sc-opp, path.sc-opp { stroke: var(--text-muted); stroke-dasharray: 5 4; }
+  line.sc-mine, line.sc-opp { stroke-width: 2; }
+  /* A ring in the surface colour, so overlapping points stay countable. */
+  .sc-dot { stroke: var(--card); stroke-width: 2; }
+  circle.sc-myScore { fill: var(--accent-bright); }
+  circle.sc-oppScore { fill: var(--text-muted); }
+  .sc-hit { fill: transparent; }
+  .sc-tip { position: absolute; top: 2px; transform: translateX(-50%); pointer-events: none;
+    background: var(--card2); border: 1px solid var(--accent); color: var(--text);
+    font-family: var(--mono); font-size: 11px; padding: 4px 8px; white-space: nowrap; z-index: 3; }
+  @media (max-width: 560px) {
+    .sc-legend { margin-left: 0; }
+    .sc-wrap { padding: 10px 10px 4px; }
+    /* User units, so these scale down with the viewBox — at ~340px wide the
+       factor is about 0.47 and an 11px label lands at 5px. */
+    .sc-ytick, .sc-xtick { font-size: 21px; }
+    .sc-line { stroke-width: 4; }
+    .sc-dot { r: 7; stroke-width: 4; }
+    .sc-grid, .sc-cross { stroke-width: 2; }
+    .sc-tip { font-size: 12px; }
+  }
+
+  /* ── Best result ─────────────────────────────────────────────────────── */
+  .md-headline { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0; }
+  .md-stat { flex: 1 1 150px; border: 1px solid var(--border); background: var(--card); padding: 10px 12px; }
+  .md-stat-label { font-family: var(--mono); font-size: 10px; letter-spacing: 1px;
+    text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px; }
+  .md-stat-value { font-family: var(--display); font-size: 20px; font-weight: 700; color: var(--text); line-height: 1.15; }
+  .md-stat-sub { font-family: var(--mono); font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+  .md-stat.is-champion { border-color: var(--accent-bright); }
+  .md-stat.is-champion .md-stat-value { color: var(--accent-bright); }
+
   .t-live { display: inline-flex; align-items: center; gap: 6px; margin-left: 10px; padding: 2px 8px;
     border: 1px solid var(--accent); color: var(--accent-bright); font-size: 11px; letter-spacing: 0.5px;
     white-space: nowrap; vertical-align: middle; }
@@ -2437,7 +2500,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v50';
+const APP_BUILD = 'v51';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -6329,15 +6392,49 @@ async function renderEventTeamMatchesView() {
     return;
   }
 
-  // Qual record + favorability
-  if (quals.length) {
+  // ── Headline: rank, record, how far they got ──
+  // These were scattered — the rank badge sat at the very bottom, under every
+  // match — and the run itself was never stated at all. They are the three
+  // things you look for first at an event that has finished.
+  const bestRes = md_bestResult(myMatches);
+  const rankCard = focusRank && focusRank.rank ? `
+    <div class="md-stat">
+      <div class="md-stat-label">Rank</div>
+      <div class="md-stat-value">#${focusRank.rank}${focusRank.total ? ` <span style="font-size:13px;color:var(--text-muted);">/ ${focusRank.total}</span>` : ''}</div>
+      ${focusRank.division ? `<div class="md-stat-sub">${focusRank.division}</div>` : ''}
+    </div>` : '';
+  const recordCard = playedQ.length ? `
+    <div class="md-stat">
+      <div class="md-stat-label">Qualification record</div>
+      <div class="md-stat-value">${aw}–${al_}${at ? '–' + at : ''}</div>
+      <div class="md-stat-sub">${playedQ.length} of ${quals.length} played</div>
+    </div>` : '';
+  const bestCard = bestRes ? `
+    <div class="md-stat${bestRes.champion ? ' is-champion' : ''}">
+      <div class="md-stat-label">Best result</div>
+      <div class="md-stat-value">${bestRes.label}</div>
+      <div class="md-stat-sub">${bestRes.elim
+        ? `${bestRes.name} · ${bestRes.champion ? 'won' : bestRes.tied ? 'tied' : bestRes.won ? 'won' : 'lost'}`
+        : 'did not reach eliminations'}</div>
+    </div>` : '';
+  if (rankCard || recordCard || bestCard) {
+    html += `<div class="md-headline">${rankCard}${recordCard}${bestCard}</div>`;
+  }
+
+  // Qual record + favorability.
+  //
+  // Only while there are matches left to play: this block is a PROJECTION, and
+  // once the last qualifier is done it restates the headline card's number in
+  // 28px type directly underneath it. Favorability is still worth saying, so
+  // that survives on its own.
+  if (quals.length && remaining.length) {
     html += `<div class="sched-summary">
       <div class="ss-record">${projW}–${projL}${at ? '–' + at : ''}</div>
-      <div class="ss-label">${remaining.length === 0
-        ? `final qualification record`
-        : `projected qual record · ${aw}–${al_}${at ? '–' + at : ''} so far + ${remainExp.toFixed(1)} expected wins in ${remaining.length} remaining`}</div>
+      <div class="ss-label">projected qual record · ${aw}–${al_}${at ? '–' + at : ''} so far + ${remainExp.toFixed(1)} expected wins in ${remaining.length} remaining</div>
       ${favorTag ? `<div class="ss-strength">SCHEDULE FAVORABILITY: <strong>${favorTag}</strong> · ${favorDetail}</div>` : ''}
     </div>`;
+  } else if (favorTag) {
+    html += `<div class="sched-summary"><div class="ss-strength">SCHEDULE FAVORABILITY: <strong>${favorTag}</strong> · ${favorDetail}</div></div>`;
   }
 
   // Live pace banner
@@ -6364,6 +6461,9 @@ async function renderEventTeamMatchesView() {
     html += `</div>`;
   }
 
+  // Score by match, above the list it summarises.
+  html += md_scoreChart(myMatches);
+
   // Match list grouped by round
   const byRound = {};
   const order = [];
@@ -6381,11 +6481,6 @@ async function renderEventTeamMatchesView() {
     html += `<div class="match-round-label">${round}</div><div class="match-list">`;
     for (const m of byRound[round]) html += renderMatchRow(m, teamId);
     html += `</div>`;
-  }
-
-  // Rank badge
-  if (focusRank && focusRank.rank) {
-    html += `<div class="tournament-rank-badge">RANK <strong>#${focusRank.rank}</strong>${focusRank.total ? ` / ${focusRank.total}` : ''}${focusRank.division ? ` · ${focusRank.division.toUpperCase()}` : ''} · ${focusRank.wins}–${focusRank.losses}${focusRank.ties ? '–' + focusRank.ties : ''}</div>`;
   }
 
   resultsEl.innerHTML = html;
@@ -6409,6 +6504,173 @@ function detectRoundFromMatch(match) {
 
 // One match row. Played matches show the real result; upcoming ones are greyed
 // out and show the win prediction instead of a score.
+// ── How far did they get? ──────────────────────────────────────────────────
+// The thing you actually want to know about a finished event, and the one thing
+// a list of matches makes you work out for yourself.
+const MD_ROUND_ORDER = ['Practice', 'Qualification', 'Round of 128', 'Round of 64',
+  'Round of 32', 'Round of 16', 'Quarterfinals', 'Semifinals', 'Finals'];
+
+function md_bestResult(myMatches) {
+  const played = myMatches.filter(m => m.played);
+  if (!played.length) return null;
+  let best = null, bestIdx = -1;
+  for (const m of played) {
+    const r = detectRoundFromMatch(m.raw);
+    const i = MD_ROUND_ORDER.indexOf(r);
+    if (i > bestIdx) { bestIdx = i; best = { round: r, match: m }; }
+    else if (i === bestIdx && best && m.time > best.match.time) best.match = m;
+  }
+  if (!best) return null;
+  const m = best.match;
+  const won = m.myScore > m.oppScore;
+  // Winning the last final is the only way to be champion; losing it, or
+  // bowing out anywhere earlier, is where the run ended.
+  const champion = best.round === 'Finals' && won;
+  return {
+    round: best.round,
+    name: m.name,
+    won,
+    tied: m.myScore === m.oppScore,
+    champion,
+    // Qualification-only events have no run to describe.
+    elim: bestIdx > MD_ROUND_ORDER.indexOf('Qualification'),
+    label: champion ? 'CHAMPION'
+      : best.round === 'Qualification' ? 'QUALIFICATION ONLY'
+      : best.round
+  };
+}
+
+// ── Score by match ─────────────────────────────────────────────────────────
+//
+// Their score against the opponent's, in the order the matches were played.
+// One picture of the day: where they were strong, where the field caught up,
+// and which match the wheels came off.
+//
+// Hand-rolled SVG because this app is one file with no build step and no CDN.
+// Two series, so: a legend, and identity carried by dash pattern as well as
+// colour — the app has fifteen user-selectable themes and nothing may depend on
+// telling two particular hues apart. Gridlines are solid hairlines; dashing is
+// reserved for the mark that means "not you".
+function md_scoreChart(myMatches) {
+  const pts = myMatches.filter(m => m.played &&
+    m.myScore !== null && m.myScore !== undefined &&
+    m.oppScore !== null && m.oppScore !== undefined);
+  // Two points is a line between two numbers; the match list already says that.
+  if (pts.length < 3) return '';
+
+  const W = 720, H = 250, L = 38, R = 14, T = 14, B = 34;
+  const iw = W - L - R, ih = H - T - B;
+  const top = Math.max(...pts.flatMap(m => [m.myScore, m.oppScore]));
+  const max = Math.max(20, Math.ceil(top / 20) * 20);
+  const x = i => L + (pts.length === 1 ? iw / 2 : (i / (pts.length - 1)) * iw);
+  const y = v => T + ih - (v / max) * ih;
+
+  // Four gridlines is enough to read a value off; more is noise.
+  const steps = 4;
+  let grid = '';
+  for (let k = 0; k <= steps; k++) {
+    const v = (max / steps) * k;
+    grid += `<line class="sc-grid" x1="${L}" y1="${y(v).toFixed(1)}" x2="${W - R}" y2="${y(v).toFixed(1)}"/>` +
+            `<text class="sc-ytick" x="${L - 8}" y="${(y(v) + 4).toFixed(1)}">${v}</text>`;
+  }
+
+  const path = key => pts.map((m, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)} ${y(m[key]).toFixed(1)}`).join(' ');
+
+  // Label at most eight matches along the bottom, or they collide on a phone.
+  const every = Math.ceil(pts.length / 6);
+  let xticks = '', lastLabelX = -Infinity;
+  pts.forEach((m, i) => {
+    const isLast = i === pts.length - 1;
+    if (i % every && !isLast) return;
+    // The last match is always worth labelling, but not on top of the one
+    // before it — which is exactly what happens when the step lands near the
+    // end. 74 user units is about eight characters at the phone size.
+    if (x(i) - lastLabelX < 74) {
+      if (!isLast) return;
+      xticks = xticks.slice(0, xticks.lastIndexOf('<text class="sc-xtick"'));
+    }
+    lastLabelX = x(i);
+    xticks += `<text class="sc-xtick" x="${x(i).toFixed(1)}" y="${H - 12}">${md_shortMatch(m.name)}</text>`;
+  });
+
+  const dots = key => pts.map((m, i) =>
+    `<circle class="sc-dot sc-${key}" cx="${x(i).toFixed(1)}" cy="${y(m[key]).toFixed(1)}" r="4"/>`).join('');
+
+  // One hit area per match, full height — far easier to hit than the dots, and
+  // it means the crosshair lands on a match rather than a pixel.
+  const hits = pts.map((m, i) => {
+    const half = pts.length > 1 ? iw / (pts.length - 1) / 2 : iw / 2;
+    const cx = x(i);
+    const w = Math.min(half * 2, iw);
+    const res = m.myScore === m.oppScore ? 'TIE' : m.myScore > m.oppScore ? 'WIN' : 'LOSS';
+    const payload = `${m.name} · ${res} ${m.myScore}–${m.oppScore}`;
+    return `<rect class="sc-hit" x="${Math.max(L, cx - half).toFixed(1)}" y="${T}" width="${w.toFixed(1)}" height="${ih}"
+      data-x="${x(i).toFixed(1)}" data-t="${payload.replace(/"/g, '&quot;')}"/>`;
+  }).join('');
+
+  return `
+  <div class="sc-wrap">
+    <div class="sc-head">
+      <span class="sc-title">Score by match</span>
+      <span class="sc-legend">
+        <span class="sc-key"><svg width="22" height="8" aria-hidden="true"><line class="sc-mine" x1="1" y1="4" x2="21" y2="4"/></svg>${tournamentFocusTeamNumber || 'Their score'}</span>
+        <span class="sc-key"><svg width="22" height="8" aria-hidden="true"><line class="sc-opp" x1="1" y1="4" x2="21" y2="4"/></svg>Opponent</span>
+      </span>
+    </div>
+    <div class="sc-plot">
+      <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img"
+           aria-label="Score by match for ${tournamentFocusTeamNumber || 'this team'}: ${pts.map(m => `${m.name} ${m.myScore} to ${m.oppScore}`).join(', ')}">
+        ${grid}
+        <line class="sc-cross" x1="0" y1="${T}" x2="0" y2="${T + ih}" style="display:none"/>
+        <path class="sc-line sc-opp" d="${path('oppScore')}"/>
+        <path class="sc-line sc-mine" d="${path('myScore')}"/>
+        ${dots('oppScore')}${dots('myScore')}
+        ${xticks}
+        ${hits}
+      </svg>
+      <div class="sc-tip" hidden></div>
+    </div>
+  </div>`;
+}
+
+// "Qualifier #12" and "R16 #7-1" both need to fit under a tick on a phone.
+function md_shortMatch(name) {
+  return String(name || '')
+    .replace(/^Qualification\s*/i, 'Q').replace(/^Qualifier\s*#?\s*/i, 'Q')
+    .replace(/\s*#\s*/g, ' ').trim().slice(0, 8);
+}
+
+// Crosshair + tooltip. Delegated from the document, so it survives every
+// re-render — including the 30-second live refresh — without rebinding.
+function md_chartHover(e) {
+  const hit = e.target.closest ? e.target.closest('.sc-hit') : null;
+  const plot = e.target.closest ? e.target.closest('.sc-plot') : null;
+  if (!plot) return;
+  const tip = plot.querySelector('.sc-tip');
+  const cross = plot.querySelector('.sc-cross');
+  if (!tip || !cross) return;
+  if (!hit) { tip.hidden = true; cross.style.display = 'none'; return; }
+  const svg = plot.querySelector('svg');
+  const box = svg.getBoundingClientRect();
+  const vb = svg.viewBox.baseVal;
+  const cx = parseFloat(hit.dataset.x);
+  cross.setAttribute('x1', cx); cross.setAttribute('x2', cx);
+  cross.style.display = '';
+  tip.textContent = hit.dataset.t;
+  tip.hidden = false;
+  // Place it over the match, clamped inside the plot.
+  const px = box.width ? (cx / vb.width) * box.width : 0;
+  const half = tip.offsetWidth / 2;
+  tip.style.left = Math.max(half + 2, Math.min(box.width - half - 2, px)) + 'px';
+}
+document.addEventListener('mousemove', md_chartHover);
+document.addEventListener('mouseleave', e => {
+  const plot = e.target.closest && e.target.closest('.sc-plot');
+  if (!plot) return;
+  const tip = plot.querySelector('.sc-tip'); if (tip) tip.hidden = true;
+  const cross = plot.querySelector('.sc-cross'); if (cross) cross.style.display = 'none';
+}, true);
+
 function renderMatchRow(m, focusTeamId) {
   const myColorClass = m.myColor === 'red' ? 'alliance-red' : 'alliance-blue';
   const oppColorClass = m.myColor === 'red' ? 'alliance-blue' : 'alliance-red';
