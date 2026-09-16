@@ -37,7 +37,22 @@ ok('the stack is capped', /const VS_NAV_MAX = 50;/.test(src));
 // Greying out is `disabled`, not a class — so it cannot look dead and still work.
 ok('the disabled state is the real one, not a class',
   /back\.disabled = !canBack;/.test(src) && /fwd\.disabled = !canFwd;/.test(src));
-ok('and it is styled', /\.nav-arrow:disabled \{[^}]*opacity: 0\.3;/.test(idx));
+ok('and it is visibly faded', (() => {
+  const m = idx.match(/\.nav-arrow:disabled \{[^}]*opacity: ([\d.]+)/);
+  return m && parseFloat(m[1]) <= 0.4;
+})(), 'the exact value is a taste call; being clearly dimmer is not');
+ok('the live arrow is brighter than the dead one',
+  /\.nav-arrow:not\(:disabled\) \{ color: var\(--text-dim\); \}/.test(idx) &&
+  /\.nav-arrow \{[^}]*color: var\(--text-muted\)/.test(idx));
+
+// Glyphs rather than buttons: a bordered box either side of the label read as
+// two more controls competing with the tabs directly underneath.
+ok('the arrows carry no box of their own',
+  /\.nav-arrow \{[^}]*background: none; border: 0;/.test(idx),
+  'they are chrome for getting back to something, not a primary control');
+ok('...but the touch target survives the slimming',
+  /\.nav-arrow \{[^}]*padding: 6px 7px;/.test(idx),
+  'about 28px tall with a 14px glyph — thumbable without looking heavy');
 ok('the hover state is behind a real pointer',
   /@media \(hover: hover\) \{ \.nav-arrow:not\(:disabled\):hover/.test(idx),
   'a touch device latches hover onto the last thing tapped');
