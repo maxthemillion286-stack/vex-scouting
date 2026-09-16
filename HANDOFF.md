@@ -504,6 +504,15 @@ same functions a click does, so `vsNav.busy` is what stops a replay recording
 itself as a new place — without it, going back would push the place you went
 back to and the stack would never shrink.
 
+The arrows carry no visible text — the page says where you are. The `label` is
+for the tooltips, which name where each arrow LEADS.
+
+A tab entry also remembers whether that tab's results panel was empty when you
+arrived, and clears it on the way back. Without that, Tournament → search → back
+landed on the tab with the search results still on screen and the only sign
+anything had happened was the arrow greying out. It only ever clears what was
+already empty, so it can never throw away something you navigated to.
+
 To make something navigable, call `vsNavPush(key, label, restore)` from the
 place that performs it, after it renders. Same `key` twice in a row is not a
 move. Going somewhere new from halfway back drops what was ahead, like a

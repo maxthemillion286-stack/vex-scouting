@@ -34,6 +34,18 @@ ok('they sit outside .tabs-nav',
   'the sliding tab indicator is positioned from that row\'s children');
 ok('the stack is capped', /const VS_NAV_MAX = 50;/.test(src));
 
+// Going back to a tab you found empty leaves it empty. Otherwise
+// Tournament → search → back lands on the tab with the results still on
+// screen, and the only sign anything happened is the arrow greying out.
+ok('a tab entry remembers whether its panel was empty',
+  /const wasEmpty = tabPanelEmpty\(tabName\);/.test(src));
+ok('...and clears it on the way back', /if \(wasEmpty\) clearTabPanel\(tabName\);/.test(src));
+ok('...but only what was already empty when you arrived',
+  /Only ever clears what was already empty/.test(src),
+  'it can never throw away something you navigated to');
+ok('the tab you land on at boot counts as empty',
+  /\{ switchTab\(tab\); clearTabPanel\(tab\); \}/.test(src));
+
 // Greying out is `disabled`, not a class — so it cannot look dead and still work.
 ok('the disabled state is the real one, not a class',
   /back\.disabled = !canBack;/.test(src) && /fwd\.disabled = !canFwd;/.test(src));
@@ -57,7 +69,9 @@ ok('the hover state is behind a real pointer',
   /@media \(hover: hover\) \{ \.nav-arrow:not\(:disabled\):hover/.test(idx),
   'a touch device latches hover onto the last thing tapped');
 ok('each arrow says where it goes', /back\.title = canBack \? 'Back to '/.test(src));
-ok('the current place is named', /id="navWhere"/.test(idx));
+ok('nothing is printed beside them — the page says where you are',
+  !/navWhere|nav-where/.test(idx),
+  'the arrows only need to say where they LEAD, which the tooltips do');
 ok('Alt+arrow works too, the same chord a browser uses',
   /if \(e\.key === 'ArrowLeft'\) \{ e\.preventDefault\(\); vsNavGo\(-1\); \}/.test(src));
 
@@ -104,56 +118,71 @@ ok('...by dropping the oldest', vsNav.stack[0].key !== 'c');
   const d = win.document;
   const back = () => d.getElementById('navBack');
   const fwd = () => d.getElementById('navFwd');
-  const where = () => d.getElementById('navWhere').textContent;
+  // Where you are is read off the PAGE, not off a label. That is the honest
+  // question anyway: did the app actually go back, or did a caption change?
+  const tabOpen = () => ['scout', 'skills', 'tournament', 'rewatch', 'simulator']
+    .find(t => d.getElementById('tab-' + t).classList.contains('active'));
+  const results = () => html(win, 'tournamentResults');
+  const onSearchList = () => /CLICK TO VIEW MATCHES/.test(results());
+  const onTeamView = () => /Matches for/.test(results()) && /66449A/.test(results());
+  const onTeamList = () => /teams registered/.test(results());
+  // The tooltip names the destination, which is the only text the arrows carry.
+  const backTo = () => back().title;
+  const fwdTo = () => fwd().title;
 
-  ok('a fresh load records the tab you landed on', where() === 'Scout', where());
+  ok('a fresh load starts on the Scout tab', tabOpen() === 'scout', tabOpen());
   ok('...and both arrows are dead there',
     back().disabled === true && fwd().disabled === true,
     'nothing came before it and nothing after');
 
   win.switchTab('tournament');
-  ok('switching tabs is a move', where() === 'Tournament');
+  ok('switching tabs is a move', tabOpen() === 'tournament');
   ok('...so back comes alive', back().disabled === false);
+  ok('...and it names where it leads', backTo() === 'Back to Scout', backTo());
   ok('...and forward stays dead', fwd().disabled === true);
+  ok('...saying so', fwdTo() === 'Nothing to go forward to', fwdTo());
 
   d.getElementById('tournamentInput').value = '66449A';
   await win.findTournament();
   await settle(win);
-  ok('a list of search results is somewhere you came from', where() === "66449A's events");
+  ok('a list of search results is somewhere you came from', onSearchList());
+  ok('...and back leads to the tab', backTo() === 'Back to Tournament', backTo());
 
   await win.loadTournamentTeams(55001, 'Bots @ Bristol', 9001, '66449A', 'RE-V5RC-25-0191');
   await settle(win, 350);
-  ok('opening an event is a move', where() === '66449A at Bots @ Bristol', where());
+  ok('opening an event is a move', onTeamView() && !onSearchList());
+  ok('...and back leads to the results', backTo() === "Back to 66449A's events", backTo());
 
   await win.tournamentGo('teams');
   await settle(win, 350);
-  ok('so is changing sub-view', where() === 'Teams — Bots @ Bristol', where());
+  ok('so is changing sub-view', onTeamList());
 
-  // Back, all the way.
+  // Back, all the way — checking the PAGE each time.
   await win.vsNavGo(-1); await settle(win, 350);
-  ok('back returns to the event', where() === '66449A at Bots @ Bristol', where());
+  ok('back returns to the team view', onTeamView() && !onTeamList());
   ok('...and forward is now available', fwd().disabled === false);
+  ok('...naming where it goes', /^Forward to Teams/.test(fwdTo()), fwdTo());
   await win.vsNavGo(-1); await settle(win, 350);
-  ok('back again returns to the search results', where() === "66449A's events", where());
-  ok('...and the results are really on screen again',
-    /CLICK TO VIEW MATCHES/.test(html(win, 'tournamentResults')),
-    'the entry replays the search, it does not just relabel the bar');
+  ok('back again really re-runs the search', onSearchList(),
+    'the entry replays it, it does not just relabel anything');
   await win.vsNavGo(-1); await settle(win, 350);
-  ok('back again reaches the Tournament tab', where() === 'Tournament', where());
+  ok('back again reaches the Tournament tab as it was found — empty',
+    tabOpen() === 'tournament' && !onSearchList(),
+    'a back press that leaves the results up looks like it did nothing');
   await win.vsNavGo(-1); await settle(win, 350);
-  ok('back again reaches where the session started', where() === 'Scout', where());
+  ok('back again reaches where the session started', tabOpen() === 'scout');
   ok('...and back is dead at the start', back().disabled === true);
+  ok('...saying so', backTo() === 'Nothing to go back to', backTo());
   await win.vsNavGo(-1); await settle(win, 200);
-  ok('pressing it again does nothing', where() === 'Scout', where());
+  ok('pressing it again does nothing', tabOpen() === 'scout');
 
   // Forward, all the way.
   for (let i = 0; i < 4; i++) { await win.vsNavGo(1); await settle(win, 350); }
-  ok('forward walks back up to the last place', where() === 'Teams — Bots @ Bristol', where());
+  ok('forward walks back up to the last place', onTeamList(), results().slice(0, 120));
   ok('...and is dead at the end', fwd().disabled === true);
   await win.vsNavGo(1); await settle(win, 200);
-  ok('pressing it again does nothing', where() === 'Teams — Bots @ Bristol');
-  ok('the tab really did follow along',
-    d.getElementById('tab-tournament').classList.contains('active'));
+  ok('pressing it again does nothing', onTeamList());
+  ok('the tab really did follow along', tabOpen() === 'tournament');
   ok('nothing threw anywhere in that', errors.length === 0, errors.join('\n'));
   stop();
 }
@@ -170,8 +199,8 @@ ok('...by dropping the oldest', vsNav.stack[0].key !== 'c');
   ok('going somewhere new drops it', d.getElementById('navFwd').disabled === true);
   await win.vsNavGo(-1); await settle(win, 200);
   ok('and back now leads where you actually were',
-    d.getElementById('navWhere').textContent === 'Tournament',
-    d.getElementById('navWhere').textContent);
+    d.getElementById('tab-tournament').classList.contains('active'),
+    'Skills was dropped when Simulator was opened from halfway back');
   stop();
 }
 
