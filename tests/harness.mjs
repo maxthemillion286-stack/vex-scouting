@@ -88,7 +88,7 @@ export function makeRouter(opts = {}) {
         event: { id: E.id }
       }))) };
     }
-    if (/^\/events\/\d+\/awards/.test(path)) return { status: 200, body: j([]) };
+    if (/^\/events\/\d+\/awards/.test(path)) return { status: 200, body: j(FIXTURES.awards || []) };
     if (path.startsWith('/events?')) {
       const wantB = /id\[\]=55002/.test(path) || /sku\[\]=RE-V5RC-25-0649/.test(path);
       return { status: 200, body: j([wantB ? FIXTURES.eventB : E]) };

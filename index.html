@@ -2300,6 +2300,31 @@ document.addEventListener('keydown', e => {
   else if (e.key === 'ArrowRight') { e.preventDefault(); vsNavGo(1); }
 });
 
+// ── Text from the API is not markup ────────────────────────────────────────
+//
+// Team names, event names and award titles are typed by people — a team enters
+// its own name when it registers — and every one of them went into innerHTML
+// raw. A team called `<img src=x onerror=…>` would have run that code in the
+// browser of anyone who opened an event it attended, with the page's
+// localStorage and its /api/proxy session in reach.
+//
+// Numbers and dates the app computes itself do not need this. Anything that
+// arrives as a string from RobotEvents does.
+const esc = (v) => String(v == null ? '' : v)
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+// A team number on its way into an inline onclick. esc() is the wrong tool
+// there: the browser decodes entities BEFORE the JavaScript is parsed, so an
+// escaped quote comes back as a quote and closes the string anyway. A team
+// number is letters and digits; anything else has no business in a handler.
+const teamAttr = (n) => String(n == null ? '' : n).replace(/[^A-Za-z0-9-]/g, '');
+
+// Same reasoning, for handler arguments that legitimately contain a space or a
+// comma — a grade level, a comma-joined team list. Quotes, backslashes and
+// angle brackets are the only things being taken away.
+const listAttr = (v) => String(v == null ? '' : v).replace(/[^A-Za-z0-9 ,-]/g, '');
+
 // ── Storage that cannot take the page down with it ─────────────────────────
 //
 // Reading localStorage is not safe. Safari private browsing, "block all
@@ -2563,7 +2588,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v57';
+const APP_BUILD = 'v58';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -4703,8 +4728,8 @@ function rewatchRender() {
     <div class="detail-block-label">Event</div>
     <div class="rw-events">
       ${ctx.events.map(e => `<button class="rw-event${String(e.id) === String(ctx.eventId) ? ' active' : ''}" onclick="rewatchSelectEvent('${e.id}')">
-        <span class="rw-event-name">${e.name || 'Event'}</span>
-        <span class="rw-event-meta">${[e.sku, fmtDate(e.start), e.location?.region].filter(Boolean).join('  ·  ')}</span>
+        <span class="rw-event-name">${esc(e.name || 'Event')}</span>
+        <span class="rw-event-meta">${esc([e.sku, fmtDate(e.start), e.location?.region].filter(Boolean).join('  ·  '))}</span>
       </button>`).join('')}
     </div>
   </div>`;
@@ -4743,7 +4768,7 @@ function rewatchRender() {
     if (pcal) {
       const embed = rwEmbedSrc(pcal, ctx.playing.off);
       html += `<div class="rw-block" id="rwPlayer">
-        <div class="detail-block-label">${m ? m.name : 'Match'} · ${rwFmtClock(ctx.playing.off)}</div>
+        <div class="detail-block-label">${esc(m ? m.name : 'Match')} · ${rwFmtClock(ctx.playing.off)}</div>
         ${embed ? `<div class="rw-embed">
           <iframe src="${embed}"
             title="Match video" frameborder="0" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
@@ -4817,7 +4842,7 @@ function rewatchRender() {
     html += `<div class="rw-debug">
       <div class="rw-debug-head">self-check</div>
       <div class="rw-checks">${checks.map(c =>
-        `<div class="rw-check rw-check-${c.state}"><span class="rw-check-tag">${c.state}</span> ${c.text}</div>`
+        `<div class="rw-check rw-check-${c.state}"><span class="rw-check-tag">${c.state}</span> ${esc(c.text)}</div>`
       ).join('')}</div>
       <div class="rw-debug-actions">
         <button class="draft-btn" onclick="rwCopyDiag(this)">COPY DIAGNOSTICS</button>
@@ -4892,7 +4917,7 @@ function rewatchRender() {
               ? ` — this day was streamed in ${cal.segments.length} parts, and each match opens the right one`
               : ''}</div>`) : ''}${cal.published ? '<div class="rw-auto-tag">✓ using a published anchor — no setup needed</div>' : ''}
       <div class="rw-anchors">
-        ${anchors.map(a => `<span class="rw-anchor-tag">${a.name} @ ${rwFmtClock(a.videoSec)}
+        ${anchors.map(a => `<span class="rw-anchor-tag">${esc(a.name)} @ ${rwFmtClock(a.videoSec)}
           <button title="remove" onclick="rewatchRemoveAnchor('${day}','${a.matchId}')">×</button></span>`).join('')}
         <button class="draft-btn" onclick="rewatchCalibrateDay('${day}')">+ ADD ANCHOR</button>
       </div>
@@ -4957,7 +4982,7 @@ function rewatchRender() {
       <div class="controls-row" style="margin-top:12px;">
         <div class="input-wrap select-wrap" style="min-width:220px;"><span class="input-label">THIS IS…</span>
           <select id="rwAnchorMatch">
-            ${pick.map(m => `<option value="${m.id}">${m.name}${m.mine ? '  ← yours' : ''}</option>`).join('')}
+            ${pick.map(m => `<option value="${m.id}">${esc(m.name)}${m.mine ? '  ← yours' : ''}</option>`).join('')}
           </select></div>
         <button class="btn btn-primary" onclick="rwSetAnchorHere('${day}')">SET ANCHOR HERE</button>
       </div>
@@ -4982,7 +5007,7 @@ function rewatchRender() {
         const oppScore = m.onRed ? m.blueScore : m.redScore;
         const res = played ? (myScore > oppScore ? 'win' : myScore < oppScore ? 'loss' : 'tie') : 'pending';
         html += `<div class="rw-row ${res}">
-          <div class="rw-name">${m.name}${!m.exact && m.t !== null ? '<span class="rw-approx" title="This match has no start time from the API — using its scheduled time, so the jump may be off">~</span>' : ''}</div>
+          <div class="rw-name">${esc(m.name)}${!m.exact && m.t !== null ? '<span class="rw-approx" title="This match has no start time from the API — using its scheduled time, so the jump may be off">~</span>' : ''}</div>
           <div class="rw-teams"><span class="${m.onRed ? 'rw-red' : 'rw-blue'}">${(m.onRed ? m.redNums : m.blueNums).join(' ')}</span>
             <span class="rw-vs">vs</span>
             <span class="${m.onRed ? 'rw-blue' : 'rw-red'}">${(m.onRed ? m.blueNums : m.redNums).join(' ')}</span></div>
@@ -5521,10 +5546,24 @@ async function idbSet(key, data) {
   } catch (e) {}
 }
 
-async function getFullSeasonSkills(seasonId, gradeLevel = 'High School') {
+// A season of skills standings is ten thousand rows: the fetch is slow and the
+// aggregation loop below it is not free either. The resolved value was cached,
+// but nothing held the work IN FLIGHT — so two views opening at once (the team
+// list and the Simulator both want High School for this season) each fetched
+// and each parsed the whole thing. The in-flight promise is shared now; only
+// the first caller does the work.
+const skillsInflight = {};
+function getFullSeasonSkills(seasonId, gradeLevel = 'High School') {
   const cacheKey = seasonId + ':' + gradeLevel;
-  if (skillsCache[cacheKey]) return skillsCache[cacheKey];
+  if (skillsCache[cacheKey]) return Promise.resolve(skillsCache[cacheKey]);
+  if (!skillsInflight[cacheKey]) {
+    skillsInflight[cacheKey] = getFullSeasonSkillsUncached(seasonId, gradeLevel, cacheKey)
+      .finally(() => { delete skillsInflight[cacheKey]; });
+  }
+  return skillsInflight[cacheKey];
+}
 
+async function getFullSeasonSkillsUncached(seasonId, gradeLevel, cacheKey) {
   // Build URL with grade_level filter
   const params = new URLSearchParams();
   params.set('per_page', '10000');
@@ -5902,11 +5941,11 @@ function renderSkillsPage() {
     const locStr = [loc.eventRegion || loc.region, loc.country].filter(Boolean).join(', ');
     const rankClass = displayRank <= 3 ? 'rank-top' : '';
     return `
-      <div class="skill-row ${rankClass}" data-team="${t.number}" onclick="scoutFromSkillsRow('${t.number}', event)" title="Click to scout · Shift+click to multi-select">
+      <div class="skill-row ${rankClass}" data-team="${esc(t.number)}" onclick="scoutFromSkillsRow('${teamAttr(t.number)}', event)" title="Click to scout · Shift+click to multi-select">
         <div class="skill-rank">#${displayRank}</div>
         <div class="skill-team">
           <div class="skill-num">${t.number}</div>
-          <div class="skill-name">${t.team_name || '—'}</div>
+          <div class="skill-name">${esc(t.team_name || '—')}</div>
           <div class="skill-loc">${locStr}</div>
         </div>
         <div class="skill-score skill-prog">${t.programming}<span class="skill-label">AUTON</span></div>
@@ -6113,6 +6152,54 @@ function clearTabPanel(tab) {
   if (el) el.innerHTML = '';
 }
 
+// ── Per-event memo ─────────────────────────────────────────────────────────
+//
+// Opening an event and walking Teams → Matches → the team view asked the API
+// for the SAME event detail five times and for every division's rankings three
+// times. The proxy caches, so the answers were cheap, but the client still paid
+// a round trip for each — and on venue wifi a round trip is the whole cost.
+//
+// Scoped to one event id and cleared when the event changes, so it can never
+// serve another event's data. The Jumper has had this since v30; the Tournament
+// tab never did.
+let tMemoKey = null;
+let tMemo = {};
+function tMemoReset(eventId) {
+  if (tMemoKey !== String(eventId)) { tMemoKey = String(eventId); tMemo = {}; }
+}
+function tMemoed(eventId, key, fn) {
+  // Shared helpers (sim_buildRatingsFromEvent, the attendance walk) call these
+  // for events that are not the one on screen. Answering from a memo scoped to
+  // a different event is exactly the class of bug v44 was about, so anything
+  // but the open event goes straight to the network.
+  if (String(eventId) !== tMemoKey) return fn();
+  if (!(key in tMemo)) tMemo[key] = fn().catch(e => { delete tMemo[key]; throw e; });
+  return tMemo[key];
+}
+// Matches and rankings are the live half. Everything else about an event — its
+// divisions, its roster, its dates — does not change while you watch it, so a
+// refresh drops only what can actually have moved.
+function tMemoDropLive() {
+  for (const k of Object.keys(tMemo)) if (/^(rank|matches):/.test(k)) delete tMemo[k];
+  // The ratings snapshot is built FROM those matches and keeps its own 60s
+  // cache, so leaving it behind hands the team view a minute-old score on a
+  // thirty-second tick — the live refresh would be live in name only.
+  try { _evCache.delete(Number(tMemoKey)); _evCache.delete(tMemoKey); } catch (e) {}
+}
+
+const tEventDetail = eventId => tMemoed(eventId, 'ev', () => apiGet('/events', { 'id[]': [eventId] }));
+const tEventTeams = eventId => tMemoed(eventId, 'teams', () => apiGet(`/events/${eventId}/teams`));
+const tEventAwards = eventId => tMemoed(eventId, 'awards', () => apiGet(`/events/${eventId}/awards`));
+const tDivRankings = (eventId, divId) =>
+  tMemoed(eventId, 'rank:' + divId, () => apiGet(`/events/${eventId}/divisions/${divId}/rankings`));
+const tDivMatches = (eventId, divId) =>
+  tMemoed(eventId, 'matches:' + divId, () => apiGet(`/events/${eventId}/divisions/${divId}/matches`));
+// The divisions an event has, defaulted for the single-division case.
+async function tDivisions(eventId) {
+  const ev = await tEventDetail(eventId);
+  return ev[0]?.divisions?.length ? ev[0].divisions : [{ id: 1, name: null }];
+}
+
 // ── TOURNAMENT SCOUTING ──────────────────────
 async function findTournament() {
   const input = document.getElementById('tournamentInput').value.trim();
@@ -6189,9 +6276,9 @@ async function findTournament() {
         <div class="tournament-list">
           <div class="tournament-list-label">${events.length} EVENT${events.length === 1 ? '' : 'S'} FOR ${input.toUpperCase()} — CLICK TO VIEW MATCHES</div>
           ${events.slice(0, 50).map(ev => `
-            <div class="tournament-item" onclick="loadTournamentTeams(${ev.id}, ${JSON.stringify(ev.name || 'Unnamed').replace(/"/g, '&quot;')}, ${team.id}, '${input.toUpperCase()}', '${reSkuAttr(ev.sku)}')">
-              <div class="tournament-name">${ev.name || 'Unnamed'}</div>
-              <div class="tournament-meta">${ev.sku || ''} · ${ev.start ? new Date(ev.start).toLocaleDateString() : ''} · ${ev.location?.region || ''}</div>
+            <div class="tournament-item" onclick="loadTournamentTeams(${teamAttr(ev.id)}, ${esc(JSON.stringify(ev.name || 'Unnamed'))}, ${teamAttr(team.id)}, '${teamAttr(input.toUpperCase())}', '${reSkuAttr(ev.sku)}')">
+              <div class="tournament-name">${esc(ev.name || 'Unnamed')}</div>
+              <div class="tournament-meta">${esc(ev.sku || '')} · ${ev.start ? new Date(ev.start).toLocaleDateString() : ''} · ${esc(ev.location?.region || '')}</div>
             </div>
           `).join('')}
         </div>`;
@@ -6220,9 +6307,9 @@ async function findTournament() {
         <div class="tournament-list">
           <div class="tournament-list-label">FOUND ${events.length} EVENTS — PICK ONE</div>
           ${events.slice(0, 30).map(ev => `
-            <div class="tournament-item" onclick="loadTournamentTeams(${ev.id}, ${JSON.stringify(ev.name || 'Unnamed').replace(/"/g, '&quot;')}, null, '', '${reSkuAttr(ev.sku)}')">
-              <div class="tournament-name">${ev.name || 'Unnamed'}</div>
-              <div class="tournament-meta">${ev.sku || ''} · ${ev.start ? new Date(ev.start).toLocaleDateString() : ''} · ${ev.location?.region || ''}</div>
+            <div class="tournament-item" onclick="loadTournamentTeams(${teamAttr(ev.id)}, ${esc(JSON.stringify(ev.name || 'Unnamed'))}, null, '', '${reSkuAttr(ev.sku)}')">
+              <div class="tournament-name">${esc(ev.name || 'Unnamed')}</div>
+              <div class="tournament-meta">${esc(ev.sku || '')} · ${ev.start ? new Date(ev.start).toLocaleDateString() : ''} · ${esc(ev.location?.region || '')}</div>
             </div>
           `).join('')}
         </div>`;
@@ -6296,6 +6383,7 @@ async function loadTournamentTeams(eventId, eventName, focusTeamId, focusTeamNum
   tournamentRolldownCache = null;
   tournamentTeamCache = null;
   tournamentEventSku = sku || null;
+  tMemoReset(eventId);
   tournamentGradePicked = false;
   tournamentEventWindow = null;
   tournamentLiveAt = 0;
@@ -6353,7 +6441,7 @@ async function renderEventTeamMatchesView() {
   // Event detail (for divisions) then event-wide ratings — both cached
   let event = { id: eventId, divisions: [{ id: 1 }] };
   try {
-    const evs = await apiGet('/events', { 'id[]': [eventId] });
+    const evs = await tEventDetail(eventId);
     if (evs.length) event = evs[0];
   } catch (e) {}
 
@@ -6366,7 +6454,7 @@ async function renderEventTeamMatchesView() {
   const divisions = event.divisions && event.divisions.length ? event.divisions : [{ id: 1 }];
   await sim_pool(divisions, async div => {
     try {
-      const ranks = await apiGet(`/events/${event.id}/divisions/${div.id}/rankings`);
+      const ranks = await tDivRankings(event.id, div.id);
       for (const r of ranks) {
         if (String(r.team?.id) !== teamId) continue;
         const played = (r.wins || 0) + (r.losses || 0) + (r.ties || 0);
@@ -6517,18 +6605,18 @@ async function renderEventTeamMatchesView() {
   // ══════════════════ RENDER ══════════════════
   let html = `
     <div class="tournament-summary">
-      <div class="tournament-summary-name">${tournamentEventName}</div>
-      <div class="tournament-summary-count">Matches for <span style="color:var(--accent-bright);font-weight:700;">${tournamentFocusTeamNumber}</span></div>
+      <div class="tournament-summary-name">${esc(tournamentEventName)}</div>
+      <div class="tournament-summary-count">Matches for <span style="color:var(--accent-bright);font-weight:700;">${esc(tournamentFocusTeamNumber)}</span></div>
       <div class="tournament-summary-actions">
-        <button class="btn btn-primary" onclick="detailScoutFromTournament('${tournamentFocusTeamNumber}')">SCOUT ${tournamentFocusTeamNumber}</button>
-        <button class="btn btn-secondary" onclick="multiScoutFromTournament('${tournamentFocusTeamNumber}')">MULTI SCOUT</button>
-        <button class="btn btn-secondary" onclick="renderEventTeamMatchesView()">⟳ REFRESH</button>
+        <button class="btn btn-primary" onclick="detailScoutFromTournament('${teamAttr(tournamentFocusTeamNumber)}')">SCOUT ${esc(tournamentFocusTeamNumber)}</button>
+        <button class="btn btn-secondary" onclick="multiScoutFromTournament('${teamAttr(tournamentFocusTeamNumber)}')">MULTI SCOUT</button>
+        <button class="btn btn-secondary" onclick="tournamentRefreshNow()">⟳ REFRESH</button>
       </div>
     </div>
     ${tournamentNav('team')}`;
 
   if (!myMatches.length) {
-    html += `<div style="text-align:center;padding:40px;font-family:var(--mono);color:var(--text-muted);">No matches found for ${tournamentFocusTeamNumber} at this event.</div>`;
+    html += `<div style="text-align:center;padding:40px;font-family:var(--mono);color:var(--text-muted);">No matches found for ${esc(tournamentFocusTeamNumber)} at this event.</div>`;
     resultsEl.innerHTML = html;
     return;
   }
@@ -6542,7 +6630,7 @@ async function renderEventTeamMatchesView() {
     <div class="md-stat">
       <div class="md-stat-label">Rank</div>
       <div class="md-stat-value">#${focusRank.rank}${focusRank.total ? ` <span style="font-size:13px;color:var(--text-muted);">/ ${focusRank.total}</span>` : ''}</div>
-      ${focusRank.division ? `<div class="md-stat-sub">${focusRank.division}</div>` : ''}
+      ${focusRank.division ? `<div class="md-stat-sub">${esc(focusRank.division)}</div>` : ''}
     </div>` : '';
   const recordCard = playedQ.length ? `
     <div class="md-stat">
@@ -6555,7 +6643,7 @@ async function renderEventTeamMatchesView() {
       <div class="md-stat-label">Best result</div>
       <div class="md-stat-value">${bestRes.label}</div>
       <div class="md-stat-sub">${bestRes.elim
-        ? `${bestRes.name} · ${bestRes.champion ? 'won' : bestRes.tied ? 'tied' : bestRes.won ? 'won' : 'lost'}`
+        ? `${esc(bestRes.name)} · ${bestRes.champion ? 'won' : bestRes.tied ? 'tied' : bestRes.won ? 'won' : 'lost'}`
         : 'did not reach eliminations'}</div>
     </div>` : '';
   if (rankCard || recordCard || bestCard) {
@@ -6589,7 +6677,7 @@ async function renderEventTeamMatchesView() {
     const when = next.est ? (next.live ? 'live est. ' : 'est. ') + md_time(next.est) : md_time(next.time);
     const away = (typeof next.away === 'number') ? ` · ${next.away} match${next.away === 1 ? '' : 'es'} ahead of yours` : '';
     html += `<div class="md-next${next.queueNow ? ' queue-now' : ''}">
-      <div class="md-next-head"><span class="md-next-label">${next.queueNow ? '⚑ QUEUE NOW' : 'NEXT MATCH'}${when ? ` · ${when}` : ''}${away}</span><span class="md-next-name">${next.name}</span></div>`;
+      <div class="md-next-head"><span class="md-next-label">${next.queueNow ? '⚑ QUEUE NOW' : 'NEXT MATCH'}${when ? ` · ${when}` : ''}${away}</span><span class="md-next-name">${esc(next.name)}</span></div>`;
     html += next.oppIds.map(id => md_teamBlock(id, R, profiles)).join('');
     if (next.win !== null && next.win !== undefined) {
       html += `<div class="md-winrow"><div class="md-winbar"><div class="md-winfill" style="width:${next.win}%"></div></div><div class="md-winpct">${next.win.toFixed(0)}%</div></div>`;
@@ -6698,7 +6786,7 @@ function renderMatchRow(m, focusTeamId) {
 
   return `
     <div class="match-row ${outcomeClass}${m.played ? '' : ' upcoming'}${m.queueNow ? ' queue-now-row' : ''}">
-      <div class="match-num">${m.name}${timeStr ? `<div class="match-time">${m.live ? '~' : ''}${timeStr}</div>` : ''}</div>
+      <div class="match-num">${esc(m.name)}${timeStr ? `<div class="match-time">${m.live ? '~' : ''}${timeStr}</div>` : ''}</div>
       <div class="match-alliance ${myColorClass}">
         <div class="match-alliance-label">YOU</div>
         <div class="match-teams">${m.myNums.map(n => `<span class="${n.toUpperCase() === (tournamentFocusTeamNumber || '').toUpperCase() ? 'match-team-self' : ''}">${n}</span>`).join(' · ')}</div>
@@ -6711,7 +6799,7 @@ function renderMatchRow(m, focusTeamId) {
         <div class="match-score">${oppScoreCell(m.played)}</div>
       </div>
       <div class="match-outcome ${outcomeClass}">${outcome}</div>
-      ${m.played ? `<button class="match-play" title="Watch this match" onclick="event.stopPropagation();jumpToMatch('${tournamentEventId}', ${JSON.stringify(tournamentEventName || '').replace(/"/g, '&quot;')}, '${m.raw ? m.raw.id : m.id}', '${tournamentFocusTeamNumber || ''}')">▶</button>` : ''}
+      ${m.played ? `<button class="match-play" title="Watch this match" onclick="event.stopPropagation();jumpToMatch('${teamAttr(tournamentEventId)}', ${esc(JSON.stringify(tournamentEventName || ''))}, '${m.raw ? m.raw.id : m.id}', '${tournamentFocusTeamNumber || ''}')">▶</button>` : ''}
     </div>`;
 }
 
@@ -6726,11 +6814,10 @@ async function renderBracketView() {
 
   try {
     // Fetch event details to get division IDs
-    const eventDetailRes = await fetch(`${BASE}?path=${encodeURIComponent('/events?id[]=' + tournamentEventId)}`);
-    if (!eventDetailRes.ok) throw new Error(`HTTP ${eventDetailRes.status}`);
-    const eventData = await eventDetailRes.json();
-    const event = (eventData.data || [])[0];
-    const divisions = event?.divisions || [{ id: 1 }];
+    // Was a raw fetch of the same detail every other view memoises, so opening
+    // the bracket always cost a round trip nothing else needed.
+    const event = (await tEventDetail(tournamentEventId))[0];
+    const divisions = await tDivisions(tournamentEventId);
 
     // Fetch all matches across all divisions, tracking which division each match belongs to
     // Key by division ID, not name — some events return duplicate or missing
@@ -6739,7 +6826,7 @@ async function renderBracketView() {
     const divNameById = {};
     await sim_pool(divisions, async div => {
       try {
-        const divMatches = await apiGet(`/events/${tournamentEventId}/divisions/${div.id}/matches`);
+        const divMatches = await tDivMatches(tournamentEventId, div.id);
         matchesByDivision[div.id] = divMatches;
         divNameById[div.id] = div.name || `Division ${div.id}`;
       } catch(e) { /* continue with others */ }
@@ -6774,10 +6861,10 @@ async function renderBracketView() {
     if (totalElims === 0) {
       resultsEl.innerHTML = `
         <div class="tournament-summary">
-          <div class="tournament-summary-name">${tournamentEventName}</div>
+          <div class="tournament-summary-name">${esc(tournamentEventName)}</div>
           <div class="tournament-summary-count">No elimination matches yet</div>
           <div class="tournament-summary-actions">
-            ${tournamentFocusTeamId ? `<button class="btn btn-secondary" onclick="renderEventTeamMatchesView()">BACK TO ${tournamentFocusTeamNumber}'S MATCHES</button>` : ''}
+            ${tournamentFocusTeamId ? `<button class="btn btn-secondary" onclick="renderEventTeamMatchesView()">BACK TO ${esc(tournamentFocusTeamNumber)}'S MATCHES</button>` : ''}
             <button class="btn btn-secondary" onclick="loadAndRenderTeamList()">SHOW ALL TEAMS</button>
           </div>
         </div>
@@ -6808,9 +6895,9 @@ async function renderBracketView() {
 
     let html = `
       <div class="tournament-summary">
-        <div class="tournament-summary-name">${tournamentEventName} — Elimination Bracket</div>
+        <div class="tournament-summary-name">${esc(tournamentEventName)} — Elimination Bracket</div>
         <div class="tournament-summary-actions">
-          ${tournamentFocusTeamId ? `<button class="btn btn-secondary" onclick="renderEventTeamMatchesView()">BACK TO ${tournamentFocusTeamNumber}'S MATCHES</button>` : ''}
+          ${tournamentFocusTeamId ? `<button class="btn btn-secondary" onclick="renderEventTeamMatchesView()">BACK TO ${esc(tournamentFocusTeamNumber)}'S MATCHES</button>` : ''}
           <button class="btn btn-secondary" onclick="loadAndRenderTeamList()">SHOW ALL TEAMS</button>
         </div>
       </div>
@@ -7165,7 +7252,7 @@ async function loadAndRenderTeamList() {
   loadingText.textContent = `LOADING TEAMS FROM ${eventName}...`;
 
   try {
-    const teams = await apiGet(`/events/${eventId}/teams`);
+    const teams = await tEventTeams(eventId);
 
     // An event that runs BOTH grades shows both, tagged MS/HS on each card.
     //
@@ -7230,15 +7317,20 @@ async function loadAndRenderTeamList() {
     loadingText.textContent = 'LOADING RANKINGS BY DIVISION...';
     const rankByTeamId = {};
     try {
-      const evDetail = await apiGet('/events', { 'id[]': [eventId] });
+      const evDetail = await tEventDetail(eventId);
       if (!tournamentEventSku) tournamentEventSku = evDetail[0]?.sku || null;
       tournamentNoteWindow(evDetail[0]);
-      const divisions = (evDetail[0]?.divisions?.length ? evDetail[0].divisions : [{ id: 1, name: null }]);
-      for (let d = 0; d < divisions.length; d++) {
-        const div = divisions[d];
-        if (divisions.length > 1) loadingText.textContent = `LOADING RANKINGS — ${div.name || 'DIVISION ' + div.id} (${d + 1}/${divisions.length})...`;
+      const divisions = await tDivisions(eventId);
+      // In parallel. This was a `for` loop with an await in it, so Worlds —
+      // ten divisions — paid ten round trips end to end before a single team
+      // card was drawn.
+      let loaded = 0;
+      await sim_pool(divisions, async div => {
         try {
-          const ranks = await apiGet(`/events/${eventId}/divisions/${div.id}/rankings`);
+          const ranks = await tDivRankings(eventId, div.id);
+          if (divisions.length > 1) {
+            loadingText.textContent = `LOADING RANKINGS — ${++loaded}/${divisions.length} DIVISIONS...`;
+          }
           for (const r of ranks) {
             const tid = r.team?.id;
             if (tid == null) continue;
@@ -7253,7 +7345,7 @@ async function loadAndRenderTeamList() {
             }
           }
         } catch (e) { /* division without rankings yet — continue */ }
-      }
+      }, sim_poolSize());
     } catch (e) { /* event detail failed — teams render without ranks */ }
 
     // Which ranks did the grade filter remove? Computed from the teams that
@@ -7332,7 +7424,7 @@ function tournamentNav(active) {
     ${btn('skills', 'Skills')}
     ${btn('awards', 'Awards')}
     ${btn('bracket', 'Bracket')}
-    ${tournamentFocusTeamNumber ? `<button class="t-nav-btn${active === 'team' ? ' active' : ''}" onclick="tournamentGo('team')">${tournamentFocusTeamNumber}</button>` : ''}
+    ${tournamentFocusTeamNumber ? `<button class="t-nav-btn${active === 'team' ? ' active' : ''}" onclick="tournamentGo('team')">${esc(tournamentFocusTeamNumber)}</button>` : ''}
     ${tournamentEventId ? reEventLink(tournamentEventId, tournamentEventSku) : ''}
   </div>`;
 }
@@ -7385,14 +7477,14 @@ async function renderTournamentMatches() {
     loadingEl.classList.add('active');
     if (loadingText) loadingText.textContent = 'LOADING EVERY MATCH...';
     try {
-      const evs = await apiGet('/events', { 'id[]': [tournamentEventId] });
+      const evs = await tEventDetail(tournamentEventId);
       if (!tournamentEventSku) tournamentEventSku = evs[0]?.sku || null;
       tournamentNoteWindow(evs[0]);
-      const divisions = (evs[0]?.divisions?.length ? evs[0].divisions : [{ id: 1 }]);
+      const divisions = await tDivisions(tournamentEventId);
       const all = [];
       await sim_pool(divisions, async div => {
         try {
-          const ms = await apiGet(`/events/${tournamentEventId}/divisions/${div.id}/matches`);
+          const ms = await tDivMatches(tournamentEventId, div.id);
           for (const m of ms) if (m) { m.__divName = div.name || null; all.push(m); }
         } catch (e) {}
       }, sim_poolSize());
@@ -7443,7 +7535,7 @@ async function renderTournamentMatches() {
   const focus = (tournamentFocusTeamNumber || '').toUpperCase();
   let html = `
     <div class="tournament-summary">
-      <div class="tournament-summary-name">${tournamentEventName}</div>
+      <div class="tournament-summary-name">${esc(tournamentEventName)}</div>
       <div class="tournament-summary-count">${rows.length} matches · ${playedCount} played · ${rows.length - playedCount} upcoming${tournamentLiveBadge()}</div>
     </div>
     ${tournamentNav('matches')}`;
@@ -7462,7 +7554,7 @@ async function renderTournamentMatches() {
       const mark = list => list.map(n =>
         `<span class="${String(n).toUpperCase() === focus ? 'match-team-self' : ''}" onclick="event.stopPropagation();tournamentFocusOn('${n}')">${n}</span>`).join(' ');
       html += `<div class="t-match-row${r.played ? '' : ' upcoming'}">
-        <div class="t-match-name">${r.name}${r.div ? `<div class="t-match-div">${r.div}</div>` : ''}</div>
+        <div class="t-match-name">${esc(r.name)}${r.div ? `<div class="t-match-div">${esc(r.div)}</div>` : ''}</div>
         <div class="t-match-side red${redWon ? ' won' : ''}">${mark(r.red)}</div>
         <div class="t-match-score">${r.played ? `${r.redScore}<span class="t-dash">–</span>${r.blueScore}` : '<span class="t-pending">upcoming</span>'}</div>
         <div class="t-match-side blue${blueWon ? ' won' : ''}">${mark(r.blue)}</div>
@@ -7573,6 +7665,7 @@ async function tournamentLiveTick(force) {
     // cost far more than it is worth.
     tournamentMatchCache = null;
     tournamentTeamCache = null;
+    tMemoDropLive();          // or the refresh re-renders what is already there
     tournamentLiveAt = Date.now();
     if (tournamentView === 'matches') await renderTournamentMatches();
     else if (tournamentView === 'team') await renderEventTeamMatchesView();
@@ -7606,7 +7699,7 @@ function tournamentLiveBadge() {
 async function computeEventRolldown() {
   if (tournamentRolldownCache) return tournamentRolldownCache;
   if (!tournamentAwardsCache) {
-    try { tournamentAwardsCache = await apiGet(`/events/${tournamentEventId}/awards`); }
+    try { tournamentAwardsCache = await tEventAwards(tournamentEventId); }
     catch (e) { tournamentAwardsCache = []; }
   }
   const worldsWinners = new Map();
@@ -7675,7 +7768,7 @@ async function renderTournamentAwards() {
     loadingEl.classList.add('active');
     if (loadingText) loadingText.textContent = 'LOADING AWARDS...';
     try {
-      tournamentAwardsCache = await apiGet(`/events/${tournamentEventId}/awards`);
+      tournamentAwardsCache = await tEventAwards(tournamentEventId);
     } catch (e) {
       tournamentAwardsCache = [];
       showError('⚠ ' + e.message);
@@ -7706,7 +7799,7 @@ async function renderTournamentAwards() {
   const focus = (tournamentFocusTeamNumber || '').toUpperCase();
   let html = `
     <div class="tournament-summary">
-      <div class="tournament-summary-name">${tournamentEventName}</div>
+      <div class="tournament-summary-name">${esc(tournamentEventName)}</div>
       <div class="tournament-summary-count">${rows.length} award${rows.length === 1 ? '' : 's'}${qualCount ? ` · ${qualCount} carry a qualification` : ''}</div>
     </div>
     ${tournamentNav('awards')}`;
@@ -7732,13 +7825,13 @@ async function renderTournamentAwards() {
     html += `<div class="t-award${r.qual ? ' qualifies' : ''}">
       <div class="t-award-icon">${r.qual ? QUAL_ICONS[r.qual.icon] : ''}</div>
       <div class="t-award-body">
-        <div class="t-award-title">${r.title}</div>
+        <div class="t-award-title">${esc(r.title)}</div>
         ${r.winners.length
           ? `<div class="t-award-winners">${r.winners.map(w =>
               `<span class="t-award-win${String(w).toUpperCase() === focus ? ' self' : ''}" onclick="tournamentFocusOn('${String(w).replace(/'/g, "\\'")}')">${w}</span>`).join('')}</div>`
           : `<div class="t-award-none">Not awarded</div>`}
       </div>
-      ${r.qual ? `<div class="t-award-qual${r.qual.inferred ? ' inferred' : ''}">${r.qual.text}${r.qual.inferred ? '<span class="inf-mark" title="The event didn\'t record a qualification for this award, so this is inferred from the award title and event level.">?</span>' : ''}</div>` : ''}
+      ${r.qual ? `<div class="t-award-qual${r.qual.inferred ? ' inferred' : ''}">${esc(r.qual.text)}${r.qual.inferred ? '<span class="inf-mark" title="The event didn\'t record a qualification for this award, so this is inferred from the award title and event level.">?</span>' : ''}</div>` : ''}
     </div>`;
   }
   html += `</div>
@@ -7785,7 +7878,7 @@ async function renderTournamentSkills() {
   const focus = (tournamentFocusTeamNumber || '').toUpperCase();
   let html = `
     <div class="tournament-summary">
-      <div class="tournament-summary-name">${tournamentEventName}</div>
+      <div class="tournament-summary-name">${esc(tournamentEventName)}</div>
       <div class="tournament-summary-count">Skills standings · ${list.length} team${list.length === 1 ? '' : 's'} with runs${rd.spare ? ` · ${rd.spare} rolled-down spot${rd.spare === 1 ? '' : 's'}` : ''}</div>
     </div>
     ${tournamentNav('skills')}`;
@@ -7802,7 +7895,7 @@ async function renderTournamentSkills() {
     </div>`;
   list.forEach((e, i) => {
     const rdPos = rd.byTeam[String(e.number).toUpperCase()];
-    html += `<div class="t-skills-row${e.number.toUpperCase() === focus ? ' self' : ''}${rdPos ? ' rolldown-row' : ''}" onclick="tournamentFocusOn('${e.number}')">
+    html += `<div class="t-skills-row${e.number.toUpperCase() === focus ? ' self' : ''}${rdPos ? ' rolldown-row' : ''}" onclick="tournamentFocusOn('${teamAttr(e.number)}')">
       <div class="t-sk-rank">${i + 1}</div>
       <div class="t-sk-team">${e.number}${rdPos ? `<span class="rd-badge" title="A team here qualified more than once, so a spare Worlds spot rolls down to the highest-ranked team without one.">${QUAL_ICONS.worlds}QUALIFIES BY ROLLDOWN</span>` : ''}</div>
       <div class="t-sk-val">${e.driver || '—'}</div>
@@ -7853,7 +7946,7 @@ function renderTournamentTeams() {
 
   resultsEl.innerHTML = `
     <div class="tournament-summary">
-      <div class="tournament-summary-name">${tournamentEventName}</div>
+      <div class="tournament-summary-name">${esc(tournamentEventName)}</div>
       <div class="tournament-summary-count">${teams.length} ${gradeNorm(tournamentGrade) === 'all' ? '' : tournamentGrade + ' '}team${teams.length === 1 ? '' : 's'} registered${
         gradeNorm(tournamentGrade) === 'all' ? (mixedGrades ? ' · both grades, tagged MS/HS' : ' · all grades') : ''}${
         tournamentUngraded ? ` · ${tournamentUngraded} with no grade listed, shown anyway` : ''}${tournamentLiveBadge()}</div>
@@ -7874,9 +7967,9 @@ function renderTournamentTeams() {
           </select>
         </div>` : ''}
         ${teams.length === 0 ? '' : `
-        <button class="btn btn-secondary" onclick="copyTournamentTeams('${teamNumbers.join(',')}')">COPY ALL</button>`}
+        <button class="btn btn-secondary" onclick="copyTournamentTeams('${listAttr(teamNumbers.join(','))}')">COPY ALL</button>`}
         ${teams.length === 0 ? '' : teams.length <= 150
-          ? `<button class="btn btn-primary" onclick="scoutTournamentTeams('${teamNumbers.join(',')}', '${tournamentGrade}')">SCOUT ALL ${teams.length}</button>`
+          ? `<button class="btn btn-primary" onclick="scoutTournamentTeams('${listAttr(teamNumbers.join(','))}', '${listAttr(tournamentGrade)}')">SCOUT ALL ${teams.length}</button>`
           : `<div class="scout-all-disabled" title="This event has ${teams.length} teams — too many to scout at once. Use multi-select to pick the teams you want.">SCOUT ALL DISABLED · ${teams.length} TEAMS</div>`
         }
       </div>
@@ -7902,7 +7995,7 @@ function renderTournamentTeams() {
 
     ${teams.length === 0 ? `
     <div style="text-align:center;padding:40px 20px;font-family:var(--mono);color:var(--text-muted);line-height:1.7;">
-      No ${tournamentGrade} teams are registered at this event.
+      No ${esc(tournamentGrade)} teams are registered at this event.
       ${tournamentTeamsOtherGrades ? `<br>It has ${tournamentTeamsOtherGrades} team${tournamentTeamsOtherGrades === 1 ? '' : 's'} in the other grade — switch GRADE at the top and search again.` : ''}
     </div>` : ''}
 
@@ -7915,10 +8008,10 @@ function renderTournamentTeams() {
         const gradeTag = mixedGrades ? gradeBadge(t.grade) : '';
         const eventStr = t.eventRank ? '#' + t.eventRank + divShort : '—';
         return `
-        <div class="tournament-team-tag" data-team="${t.number}" onclick="onTournamentTeamClick('${t.number}', event)">
+        <div class="tournament-team-tag" data-team="${esc(t.number)}" onclick="onTournamentTeamClick('${teamAttr(t.number)}', event)">
           <div class="tt-row1">
             <span class="tt-num">${t.number}</span>${gradeTag}
-            <span class="tt-name">${t.team_name || ''}</span>
+            <span class="tt-name">${esc(t.team_name || '')}</span>
           </div>
           <div class="tt-row2">
             <span class="tt-stat"><span class="tt-stat-label">Event</span> ${eventStr}</span>
@@ -7934,6 +8027,14 @@ function renderTournamentTeams() {
 }
 
 // Switch the dropdown to All Grades and reload the list in place.
+// The REFRESH button, which has to reach past the memo to mean anything.
+function tournamentRefreshNow() {
+  tMemoDropLive();
+  tournamentMatchCache = null;
+  tournamentTeamCache = null;
+  return renderEventTeamMatchesView();
+}
+
 function tournamentShowAllGrades() {
   const sel = document.getElementById('tournamentGradeSelect');
   if (!setSelectValue(sel, 'All')) return;
@@ -8569,7 +8670,7 @@ async function renderLadder(teamId, seasonId, gradeLevel) {
     host.innerHTML = `<div class="ladder-body">
       <div class="ladder-heading">Rank among teams that aren't qualified yet</div>
       <div class="ladder-grid">
-        ${cell(L.regionName ? L.regionName : 'Region', L.region)}
+        ${cell(esc(L.regionName || 'Region'), L.region)}
         ${cell(L.stateName ? L.stateName : 'State', L.state)}
         ${cell('World', L.world)}
       </div>
@@ -8661,12 +8762,12 @@ async function buildTeamCard(teamNumber, seasonId, gradeLevel = 'High School') {
     <div class="card-header">
       <div>
         <div class="team-number">${team.number}</div>
-        <div class="team-name">${team.team_name || '—'}</div>
-        <div class="team-location">${locationStr || '—'}</div>
+        <div class="team-name">${esc(team.team_name || '—')}</div>
+        <div class="team-location">${esc(locationStr || '—')}</div>
       </div>
       <div class="card-header-right">
-        <div class="robot-name">${team.robot_name ? '⬡ ' + team.robot_name : ''}</div>
-        <button class="btn-detail" onclick="openDetailedTeam('${team.number}')">DETAILED CARD →</button>
+        <div class="robot-name">${team.robot_name ? '⬡ ' + esc(team.robot_name) : ''}</div>
+        <button class="btn-detail" onclick="openDetailedTeam('${teamAttr(team.number)}')">DETAILED CARD →</button>
       </div>
     </div>
     <div class="stats-body">
@@ -8714,10 +8815,10 @@ async function buildTeamCard(teamNumber, seasonId, gradeLevel = 'High School') {
         <div class="stat-group-label">Awards (${awardsList.length}) <span class="section-info" title="Click any award to see which event it was won at.">i</span></div>
         ${awardsList.length
           ? `<div class="awards-list">${awardsList.map((a, idx) => {
-              const eventStr = (a.event || '').replace(/"/g, '&quot;');
+              const eventStr = esc(a.event || '');
               const id = 'aw_' + teamId + '_' + idx;
               return `<span class="award-tag${eventStr ? ' award-clickable' : ''}" ${eventStr ? `onclick="document.getElementById('${id}').classList.toggle('show')"` : ''}>
-                ${a.title}
+                ${esc(a.title)}
                 ${eventStr ? `<span class="award-event" id="${id}"> · ${eventStr}</span>` : ''}
               </span>`;
             }).join('')}</div>`
@@ -8785,7 +8886,7 @@ function renderEventPicker(d, eventFilter) {
       <span class="ev-filter-label">FILTER</span>
       <div class="ev-filter-ctl">
         <button class="ev-filter-bar" onclick="event.stopPropagation(); detailTogglePicker()">
-          <span class="ev-filter-value">${sel ? short(sel.name) : 'All events'}</span>
+          <span class="ev-filter-value">${esc(sel ? short(sel.name) : 'All events')}</span>
           <span class="ev-filter-arrow">▾</span>
         </button>
         <div class="ev-filter-list">
@@ -8795,8 +8896,8 @@ function renderEventPicker(d, eventFilter) {
           </button>
           ${d.eventsList.map(e => `
             <button class="ev-row${String(eventFilter) === String(e.id) ? ' active' : ''}" onclick="detailFilterEvent('${e.id}')">
-              <span class="ev-row-name">${e.name || 'Event'}</span>
-              <span class="ev-row-meta">${[e.sku, fmtDate(e.start), e.region].filter(Boolean).join('  ·  ')}</span>
+              <span class="ev-row-name">${esc(e.name || 'Event')}</span>
+              <span class="ev-row-meta">${esc([e.sku, fmtDate(e.start), e.region].filter(Boolean).join('  ·  '))}</span>
             </button>`).join('')}
         </div>
       </div>
@@ -8813,10 +8914,10 @@ function renderEventsAttended(d) {
     <div class="ev-attend-hint">Click an event to open it in Tournament, focused on ${d.team.number}.</div>
     <div class="ev-attend-list">
       ${d.eventsList.map(e => `
-        <button class="ev-attend" onclick="openEventInTournament('${e.id}', ${JSON.stringify(e.name || 'Event').replace(/"/g, '&quot;')})">
+        <button class="ev-attend" onclick="openEventInTournament('${teamAttr(e.id)}', ${esc(JSON.stringify(e.name || 'Event'))})">
           <span class="ev-attend-main">
-            <span class="ev-attend-name">${e.name || 'Event'}</span>
-            <span class="ev-attend-meta">${[e.sku, fmtDate(e.start), e.region].filter(Boolean).join('  ·  ')}</span>
+            <span class="ev-attend-name">${esc(e.name || 'Event')}</span>
+            <span class="ev-attend-meta">${esc([e.sku, fmtDate(e.start), e.region].filter(Boolean).join('  ·  '))}</span>
           </span>
           <span class="ev-attend-go">→</span>
         </button>`).join('')}
@@ -8880,7 +8981,7 @@ function renderEventSchedule(d, eventId) {
     <div class="match-list">
       ${rows.map(r => `
         <div class="match-row ${r.cls}${r.played ? '' : ' upcoming'}">
-          <div class="match-num">${r.name}</div>
+          <div class="match-num">${esc(r.name)}</div>
           <div class="match-alliance ${r.color === 'red' ? 'alliance-red' : 'alliance-blue'}">
             <div class="match-alliance-label">YOU</div>
             <div class="match-teams">${r.myNums.map(n => `<span class="${String(n).toUpperCase() === String(d.team.number).toUpperCase() ? 'match-team-self' : ''}">${n}</span>`).join(' · ')}</div>
@@ -8889,11 +8990,11 @@ function renderEventSchedule(d, eventId) {
           <div class="match-vs">VS</div>
           <div class="match-alliance ${r.color === 'red' ? 'alliance-blue' : 'alliance-red'}">
             <div class="match-alliance-label">OPP</div>
-            <div class="match-teams">${r.oppNums.map(n => `<span>${n}</span>`).join(' · ')}</div>
+            <div class="match-teams">${r.oppNums.map(n => `<span>${esc(n)}</span>`).join(' · ')}</div>
             <div class="match-score">${r.oppScore}</div>
           </div>
           <div class="match-outcome ${r.cls}">${r.label}</div>
-          <button class="match-play" title="Watch this match" onclick="event.stopPropagation();jumpToMatch('${eventId}', ${JSON.stringify(evName || '').replace(/"/g, '&quot;')}, '${r.id}', '${d.team.number}')">▶</button>
+          <button class="match-play" title="Watch this match" onclick="event.stopPropagation();jumpToMatch('${teamAttr(eventId)}', ${esc(JSON.stringify(evName || ''))}, '${teamAttr(r.id)}', '${teamAttr(d.team.number)}')">▶</button>
         </div>`).join('')}
     </div>
   </div>`;
@@ -8933,8 +9034,8 @@ async function runDetailedScout() {
         else if (c) {
           const bad = document.createElement('div');
           bad.className = 'team-card';
-          bad.innerHTML = `<div class="card-header"><div><div class="team-number">${c.num}</div>
-            <div class="team-name" style="color:var(--text-muted);">${c.error || 'Not found'}</div></div></div>`;
+          bad.innerHTML = `<div class="card-header"><div><div class="team-number">${esc(c.num)}</div>
+            <div class="team-name" style="color:var(--text-muted);">${esc(c.error || 'Not found')}</div></div></div>`;
           grid.appendChild(bad);
         }
       }
@@ -9005,12 +9106,12 @@ function renderDetailedTeam(d, eventFilter) {
   let html = `
     <div class="detail-head">
       <div class="detail-number">${t.number}</div>
-      <div class="detail-name">${t.team_name || '—'}</div>
-      ${t.robot_name ? `<div class="detail-robot">⬡ ${t.robot_name}</div>` : ''}
+      <div class="detail-name">${esc(t.team_name || '—')}</div>
+      ${t.robot_name ? `<div class="detail-robot">⬡ ${esc(t.robot_name)}</div>` : ''}
     </div>
 
     <div class="detail-meta">
-      <span><em>Location</em> <strong>${d.locationStr || '—'}</strong></span>
+      <span><em>Location</em> <strong>${esc(d.locationStr || '—')}</strong></span>
       <span><em>Grade</em> <strong>${grade}</strong></span>
       <span><em>Program</em> <strong class="detail-pill">${program}</strong></span>
       <span><em>Status</em> <strong class="${status === 'Active' ? 'st-active' : 'st-inactive'}">● ${status}</strong></span>
@@ -9064,14 +9165,14 @@ function renderDetailedTeam(d, eventFilter) {
     <div class="sim-ov-lists">
       <div class="sim-ov-col str">
         <div class="sim-ov-col-label">PROS</div>
-        ${strengths.length ? `<ul class="sim-ov-bullets">${strengths.map(i => `<li title="${(i.desc || '').replace(/"/g, '&quot;')}"><b>${i.title}</b></li>`).join('')}</ul>` : `<div class="sim-ov-empty">None standing out.</div>`}
+        ${strengths.length ? `<ul class="sim-ov-bullets">${strengths.map(i => `<li title="${esc(i.desc || '')}"><b>${esc(i.title)}</b></li>`).join('')}</ul>` : `<div class="sim-ov-empty">None standing out.</div>`}
       </div>
       <div class="sim-ov-col weak">
         <div class="sim-ov-col-label">CONS</div>
-        ${weaknesses.length ? `<ul class="sim-ov-bullets">${weaknesses.map(i => `<li title="${(i.desc || '').replace(/"/g, '&quot;')}"><b>${i.title}</b></li>`).join('')}</ul>` : `<div class="sim-ov-empty">None standing out.</div>`}
+        ${weaknesses.length ? `<ul class="sim-ov-bullets">${weaknesses.map(i => `<li title="${esc(i.desc || '')}"><b>${esc(i.title)}</b></li>`).join('')}</ul>` : `<div class="sim-ov-empty">None standing out.</div>`}
       </div>
     </div>
-    ${notes.length ? `<ul class="sim-ov-bullets" style="margin-top:10px;">${notes.map(i => `<li class="note" title="${(i.desc || '').replace(/"/g, '&quot;')}"><b>${i.title}</b></li>`).join('')}</ul>` : ''}
+    ${notes.length ? `<ul class="sim-ov-bullets" style="margin-top:10px;">${notes.map(i => `<li class="note" title="${esc(i.desc || '')}"><b>${esc(i.title)}</b></li>`).join('')}</ul>` : ''}
   </div>`;
 
   // ── Everything else from the compact card ──
@@ -9134,7 +9235,7 @@ function renderDetailedTeam(d, eventFilter) {
       <div class="qual-body">
         <div class="qual-label">${qs.label}</div>
         ${qs.via.length
-          ? `<div class="qual-via">${qs.via.map(v => `<span class="qual-via-item"><strong>${v.award}</strong> at ${v.event || 'an event'}${v.inferred ? '<span class="inf-mark" title="Inferred from the award title and event level — this event didn\'t record the qualification explicitly.">?</span>' : ''}</span>`).join('')}</div>`
+          ? `<div class="qual-via">${qs.via.map(v => `<span class="qual-via-item"><strong>${esc(v.award)}</strong> at ${esc(v.event || 'an event')}${v.inferred ? '<span class="inf-mark" title="Inferred from the award title and event level — this event didn\'t record the qualification explicitly.">?</span>' : ''}</span>`).join('')}</div>`
           : `<div class="qual-via-none">No award this season carried a qualification. Teams can also qualify through the skills list or event rank — the ladder below shows where this team stands.</div>`}
       </div>
     </div>
@@ -9152,10 +9253,10 @@ function renderDetailedTeam(d, eventFilter) {
     <div class="detail-block-label">Awards (${d.awardsList.length})</div>
     ${d.awardsList.length
       ? `<div class="awards-list">${d.awardsList.map((a, i) => {
-          const ev = (a.event || '').replace(/"/g, '&quot;');
+          const ev = esc(a.event || '');
           const id = 'dw_' + d.teamId + '_' + i;
           const q = qualForAward(a, a.event);
-          return `<span class="award-tag${ev ? ' award-clickable' : ''}"${ev ? ` onclick="document.getElementById('${id}').classList.toggle('show')"` : ''}>${q ? `<span class="award-qual-icon" title="${String(q.text).replace(/"/g,'&quot;')}">${QUAL_ICONS[q.icon]}</span>` : ''}${a.title}${ev ? `<span class="award-event" id="${id}"> · ${ev}</span>` : ''}</span>`;
+          return `<span class="award-tag${ev ? ' award-clickable' : ''}"${ev ? ` onclick="document.getElementById('${id}').classList.toggle('show')"` : ''}>${q ? `<span class="award-qual-icon" title="${esc(q.text)}">${QUAL_ICONS[q.icon]}</span>` : ''}${esc(a.title)}${ev ? `<span class="award-event" id="${id}"> · ${ev}</span>` : ''}</span>`;
         }).join('')}</div>`
       : `<div class="no-awards">No awards found</div>`}
   </div>`;
@@ -9172,7 +9273,7 @@ function renderDetailedTeam(d, eventFilter) {
       setTimeout(() => renderLadder(d.teamId, _sid, _grade), 20);
     } else {
       _host.innerHTML = `<div class="ladder-cta">
-        <button class="btn btn-secondary" onclick="startLadder('${d.teamId}','${_sid}','${_grade}')">CHECK LADDER POSITION</button>
+        <button class="btn btn-secondary" onclick="startLadder('${teamAttr(d.teamId)}','${teamAttr(_sid)}','${listAttr(_grade)}')">CHECK LADDER POSITION</button>
         <span class="ladder-cta-note">Checks every team ranked above for a Worlds qualification — a few seconds.</span>
       </div>`;
     }
@@ -9494,8 +9595,8 @@ function sim_renderEventPicker(containerId, choices, skuInputId, runFnName) {
   el.innerHTML = `<div class="sim-event-picker"><div class="sim-event-pick-label">MULTIPLE EVENTS MATCH — PICK ONE</div>` +
     choices.map(ev => {
       const meta = [ev.sku || '', ev.start ? new Date(ev.start).toLocaleDateString() : '', ev.location?.region || ''].filter(Boolean).join(' · ');
-      return `<div class="sim-event-item" onclick="document.getElementById('${skuInputId}').value='${ev.sku}'; document.getElementById('${containerId}').innerHTML=''; ${runFnName}();">
-        <div class="ei-name">${(ev.name || 'Unnamed').replace(/"/g, '&quot;')}</div>
+      return `<div class="sim-event-item" onclick="document.getElementById('${skuInputId}').value='${reSkuAttr(ev.sku)}'; document.getElementById('${containerId}').innerHTML=''; ${runFnName}();">
+        <div class="ei-name">${esc(ev.name || 'Unnamed')}</div>
         <div class="ei-meta">${meta}</div>
       </div>`;
     }).join('') + `</div>`;
@@ -9524,7 +9625,7 @@ async function sim_buildRatingsFromEventUncached(event, setStatus) {
   if (setStatus) setStatus(`LOADING MATCHES ACROSS ${divisions.length} DIVISION${divisions.length > 1 ? 'S' : ''}...`);
   const divLists = await sim_pool(divisions, async div => {
     try {
-      const divMatches = await apiGet(`/events/${event.id}/divisions/${div.id}/matches`);
+      const divMatches = await tDivMatches(event.id, div.id);
       for (const dm of divMatches) if (dm) dm.__div = div.id;
       return divMatches;
     } catch (e) { return []; }
@@ -9777,7 +9878,11 @@ async function runSimulation() {
     if (document.getElementById('simUseSkills')?.checked) {
       loadingText.textContent = 'PULLING ROBOT SKILLS...';
       const skillsBest = new Map();
-      for (const tid of seenIds) {
+      // In parallel. This was a `for` loop with an await in it — one request
+      // per team, in series, so an 80-team event spent 80 round trips end to
+      // end behind a checkbox most people tick once and never untick.
+      let fetched = 0;
+      await sim_pool([...seenIds], async tid => {
         try {
           const params = seasonId ? { 'season[]': [seasonId] } : {};
           const runs = await apiGet(`/teams/${tid}/skills`, params);
@@ -9789,7 +9894,8 @@ async function runSimulation() {
           }
           skillsBest.set(tid, bestDriver + bestProg);
         } catch (e) { /* team has no skills runs */ }
-      }
+        if (++fetched % 10 === 0) loadingText.textContent = `PULLING ROBOT SKILLS... ${fetched}/${seenIds.size}`;
+      }, sim_poolSize());
       const vals = [...skillsBest.values()].filter(v => v > 0);
       if (vals.length >= 2) {
         const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
@@ -9927,11 +10033,11 @@ function sim_render(el, data) {
     const strengths = items.filter(i => i.kind === 'str');
     const weaknesses = items.filter(i => i.kind === 'weak');
     const notes = items.filter(i => i.kind === 'note');
-    const bullet = i => `<li title="${(i.desc || '').replace(/"/g, '&quot;')}"><b>${i.title}</b></li>`;
+    const bullet = i => `<li title="${esc(i.desc || '')}"><b>${esc(i.title)}</b></li>`;
     html += `<div class="sim-ov-team">
       <div class="sim-ov-head">
-        <span class="sim-ov-num">${t.displayNum || '?'}</span>
-        <span class="sim-ov-name">${(t.name || '').slice(0, 34)}</span>
+        <span class="sim-ov-num">${esc(t.displayNum || '?')}</span>
+        <span class="sim-ov-name">${esc((t.name || '').slice(0, 34))}</span>
         ${record ? `<span class="sim-ov-record">${record}</span>` : ''}
       </div>
       <div class="sim-ov-lists">
@@ -9944,7 +10050,7 @@ function sim_render(el, data) {
           ${weaknesses.length ? `<ul class="sim-ov-bullets">${weaknesses.map(bullet).join('')}</ul>` : `<div class="sim-ov-empty">None standing out.</div>`}
         </div>
       </div>
-      ${notes.length ? `<ul class="sim-ov-bullets" style="margin-top:10px;">${notes.map(i => `<li class="note" title="${(i.desc || '').replace(/"/g, '&quot;')}"><b>${i.title}</b></li>`).join('')}</ul>` : ''}
+      ${notes.length ? `<ul class="sim-ov-bullets" style="margin-top:10px;">${notes.map(i => `<li class="note" title="${esc(i.desc || '')}"><b>${esc(i.title)}</b></li>`).join('')}</ul>` : ''}
     </div>`;
   }
   html += `</div>`;
@@ -9956,8 +10062,8 @@ function sim_render(el, data) {
     const mc = matchCount.get(id) || 0;
     const vol = (stdByTeam.get(id) || 0).toFixed(1);
     return `<div class="sim-rating-row">
-      <div class="sr-team">${t.displayNum || '?'}</div>
-      <div class="sr-meta" style="text-align:left;">${(t.name || '').slice(0, 28)}</div>
+      <div class="sr-team">${esc(t.displayNum || '?')}</div>
+      <div class="sr-meta" style="text-align:left;">${esc((t.name || '').slice(0, 28))}</div>
       <div class="sr-opr">${ts}</div>
       <div class="sr-meta">${mc} · ±${vol}</div>
     </div>`;
@@ -10084,12 +10190,12 @@ function pickRender() {
   ctx.rows.forEach((r, idx) => (r.taken ? gone : avail).push({ ...r, idx }));
 
   let html = `<div class="sim-result">`;
-  html += `<div class="sim-block-label">Pick list for ${ctx.you} vs ${ctx.oppLabel} · best available first · ${avail.length} on the board${gone.length ? `, ${gone.length} taken` : ''}</div>`;
+  html += `<div class="sim-block-label">Pick list for ${esc(ctx.you)} vs ${esc(ctx.oppLabel)} · best available first · ${avail.length} on the board${gone.length ? `, ${gone.length} taken` : ''}</div>`;
   html += `<div class="pick-list">`;
   avail.forEach((r, i) => {
     html += `<div class="pick-row${i === 0 ? ' first' : ''}">
       <div class="pick-rank">${i + 1}</div>
-      <div><div class="pick-team">${r.num}</div><div class="pick-name">${(r.name || '').slice(0, 30)}</div>
+      <div><div class="pick-team">${r.num}</div><div class="pick-name">${esc((r.name || '').slice(0, 30))}</div>
            <button class="draft-btn" style="margin-top:5px;" onclick="pickToggle(${r.idx})">TAKEN</button></div>
       <div class="pick-win">${r.win.toFixed(1)}%</div>
       <div class="pick-opr">TS ${r.opr.toFixed(1)}<br>${r.matches} m</div>
@@ -10101,7 +10207,7 @@ function pickRender() {
     gone.forEach(r => {
       html += `<div class="pick-row taken">
         <div class="pick-rank">—</div>
-        <div><div class="pick-team">${r.num}</div><div class="pick-name">${(r.name || '').slice(0, 30)}</div>
+        <div><div class="pick-team">${r.num}</div><div class="pick-name">${esc((r.name || '').slice(0, 30))}</div>
              <button class="draft-btn undo" style="margin-top:5px;" onclick="pickToggle(${r.idx})">UNDO</button></div>
         <div class="pick-win">${r.win.toFixed(1)}%</div>
         <div class="pick-opr">TS ${r.opr.toFixed(1)}</div>
@@ -10112,7 +10218,7 @@ function pickRender() {
   const basisNote = ctx.basis === 'event'
     ? `from <strong>this event's own matches</strong> — the most accurate basis on selection day`
     : `from real season match data (recent matches weigh most)`;
-  html += `<div class="sim-caveat">Win % is how often <strong>you + that partner</strong> beat ${ctx.oppLabel} across 10,000 simulated matches, ${basisNote}. During alliance selection, tap <strong>TAKEN</strong> the moment a team is picked or declines — the top of the board is always your best available call. Taken state is saved per event, so a reload loses nothing.</div></div>`;
+  html += `<div class="sim-caveat">Win % is how often <strong>you + that partner</strong> beat ${esc(ctx.oppLabel)} across 10,000 simulated matches, ${basisNote}. During alliance selection, tap <strong>TAKEN</strong> the moment a team is picked or declines — the top of the board is always your best available call. Taken state is saved per event, so a reload loses nothing.</div></div>`;
   el.innerHTML = html;
 }
 
@@ -10221,7 +10327,6 @@ function bracketBuildInput(size, prefill, advance) {
   const slot = seed => {
     if (seed > size) return `<div class="bracket-input-slot bracket-bye"><div class="bracket-bye-label">BYE</div></div>`;
     const p = (prefill && prefill[seed]) || [];
-    const esc = s => (s || '').replace(/"/g, '&quot;');
     return `<div class="bracket-input-slot">
       <div class="bracket-input-seedlabel">SEED ${seed} <span class="bracket-slot-odds" id="brkOdds_${seed}"></span></div>
       <input type="text" id="brk_s${seed}_t1" value="${esc(p[0])}" placeholder="66449A" autocomplete="off">
@@ -10308,7 +10413,7 @@ async function bracketLoadEvent() {
     setStatus('LOADING ELIMINATION MATCHES...');
     let all = [];
     await sim_pool(divisions, async div => {
-      try { all.push(...await apiGet(`/events/${event.id}/divisions/${div.id}/matches`)); } catch (e) {}
+      try { all.push(...await tDivMatches(event.id, div.id)); } catch (e) {}
     }, sim_poolSize());
     // Identify elimination matches (exclude quals/practice)
     const isElim = m => {
@@ -10476,7 +10581,7 @@ async function runBracket() {
     ranked.forEach((r, i) => {
       html += `<div class="bo-row${i === 0 ? ' first' : ''}">
         <div class="bo-seed">#${r.seed}</div>
-        <div class="bo-teams">${r.label}</div>
+        <div class="bo-teams">${esc(r.label)}</div>
         <div class="bo-bar-wrap"><div class="bo-bar" style="width:${(r.odds / maxOdds * 100).toFixed(1)}%"></div><span class="bo-pct">${r.odds.toFixed(1)}%</span></div>
       </div>`;
     });
@@ -10526,7 +10631,7 @@ function md_teamBlock(id, R, profiles, roleLabel) {
   const ts = (R.ratings.get(id) || 0).toFixed(0);
   const c = md_callouts(profiles.get(id));
   return `<div class="md-opp">
-    <div class="md-opp-head">${roleLabel ? `<span class="md-partner-label">${roleLabel}</span>` : ''}<span class="md-opp-num">${num}</span><span class="md-opp-ts">TS ${ts}</span></div>
+    <div class="md-opp-head">${roleLabel ? `<span class="md-partner-label">${roleLabel}</span>` : ''}<span class="md-opp-num">${esc(num)}</span><span class="md-opp-ts">TS ${ts}</span></div>
     ${c.weak.length ? `<div class="md-tags">${c.weak.map(w => `<span class="md-tag weak">▾ ${w}</span>`).join('')}</div>` : ''}
     ${c.str.length ? `<div class="md-tags">${c.str.map(s => `<span class="md-tag str">▴ ${s}</span>`).join('')}</div>` : ''}
     ${(!c.weak.length && !c.str.length) ? '<div class="md-tags"><span class="md-tag note">no read yet — few matches</span></div>' : ''}
@@ -10655,7 +10760,7 @@ async function runEventScout() {
         : (r.median ? `median skills #${r.median} · no match data yet` : 'no data yet');
       html += `<div class="pick-row${i === 0 ? ' first' : ''}">
         <div class="pick-rank">${i + 1}</div>
-        <div><div class="pick-team">${r.name.slice(0, 44)}${r.sig ? ' <span class="es-sig">SIG</span>' : ''}</div>
+        <div><div class="pick-team">${esc(r.name.slice(0, 44))}${r.sig ? ' <span class="es-sig">SIG</span>' : ''}</div>
              <div class="pick-name">${r.start}${r.loc ? ' · ' + r.loc : ''} · ${r.teams} teams · ${evidence}</div></div>
         <div class="pick-win">${r.myPos ? '~#' + r.myPos : '—'}</div>
         <div class="pick-opr">${r.tag}</div>

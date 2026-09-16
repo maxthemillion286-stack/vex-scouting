@@ -567,6 +567,98 @@ never look dead and still work.
 
 ---
 
+### Round trips: the Tournament tab memo
+
+Opening an event used to re-ask the API for the same things on every view. The
+event detail came back five times in one walk; each division's rankings three
+times. The proxy caches all of it, so the answers were cheap — but the client
+still paid a **round trip** for each, and on venue wifi the round trip is the
+whole cost.
+
+The Jumper has had `rwMemoed` since v30. The Tournament tab now has the same
+thing:
+
+```
+tMemoReset(eventId)                   // at the top of loadTournamentTeams
+tEventDetail / tEventTeams / tEventAwards / tDivisions
+tDivRankings(eventId, divId) / tDivMatches(eventId, divId)
+```
+
+Two rules make it safe:
+
+* **It refuses to answer for any other event.** `tMemoed` compares the id it was
+  given against `tMemoKey` and falls through to a live fetch when they differ.
+  `sim_buildRatingsFromEvent` walks events the Tournament tab never opened, so
+  without that guard it would have been handed another event's rankings.
+* **A rejected promise is not kept.** The `.catch` deletes the key and rethrows,
+  so one failed call does not pin the failure for the rest of the visit.
+
+`tMemoDropLive()` is the refresh path: it drops only `rank:` and `matches:`,
+because divisions, the roster, the dates and the awards do not change while you
+watch. It also evicts `_evCache` — the ratings snapshot is built **from** those
+matches and keeps its own 60-second cache, so leaving it in place served a
+minute-old table to a 30-second live tick.
+
+Adding a view? Fetch through these, not `apiGet`. A typical walk is 12 calls,
+down from 22; Matches and back-to-team are 0; a steady live tick is 2. t91 fails
+if those numbers regress.
+
+Two loops were also `for` with an `await` inside, which is serial — ten round
+trips end to end for rankings at Worlds, and **one per team** for Simulator
+skills, so an 80-team event spent eighty in a row. Both now go through
+`sim_pool(items, worker, sim_poolSize())`, which keeps the progress counters and
+catches per item so one bad division does not take the view down.
+
+---
+
+### API text is not markup
+
+Team names, robot names, event names and award titles are typed by people — a
+team enters its own name when it registers — and every one of them went into
+`innerHTML` raw. A team called `<img src=x onerror=…>` would have run that in
+the browser of anyone who opened an event it attended, with the page's
+localStorage and its `/api/proxy` session in reach.
+
+Two helpers, and which one to use is not a matter of taste:
+
+* `esc(v)` — for text and for ordinary attributes. All five characters, `&`
+  first so nothing double-escapes.
+* `teamAttr(n)` / `listAttr(v)` — for a value going **inside an inline
+  `onclick`**. `esc()` is the wrong tool there: the browser decodes entities
+  *before* the JavaScript is parsed, so an escaped quote comes back as a quote
+  and closes the string anyway. These narrow to a safe alphabet instead —
+  `teamAttr` to letters, digits and hyphens, `listAttr` also allowing a space
+  and a comma for a grade level or a comma-joined team list.
+
+The one string here a **stranger** picks is a YouTube video title: the
+self-check prints the titles auto-find refused, and anyone can upload a video
+with any title they like. That path is remote, not stored, and it is escaped at
+the render site in `rw-check`.
+
+`JSON.stringify(x).replace(/"/g, '&quot;')` used to appear in four places as a
+hand-rolled version of this. It happened to work for quotes and did nothing for
+`&`; all four now use `esc(JSON.stringify(x))`. There was also a local
+`const esc = s => (s || '').replace(/"/g, '&quot;')` inside the bracket builder
+that **shadowed the real one** — removed, so nobody reaches for `esc` and gets
+the weaker version.
+
+t91 covers both the helpers and the driven case: a payload in a team name
+renders as text, does not execute, and no raw tag reaches the DOM.
+
+---
+
+### The API cache has a ceiling
+
+`sw.js` caches API responses as an offline fallback, and until v58 kept every
+distinct URL for the life of the build. The app asks for a lot of distinct
+things — a season of skills standings, every team a scout looks up, every
+division's matches — so on a phone that grew until the browser evicted the whole
+origin, taking the app shell with it and leaving nothing to open offline.
+`API_CACHE_MAX` is 300, trimmed oldest-first after each write. The app shell
+lives in `CACHE_NAME` and is never trimmed.
+
+---
+
 ## 8. Versioning — please keep this up
 
 `index.html` (`APP_BUILD`), `api/proxy.js` (`PROXY_BUILD`) and `sw.js`
@@ -749,3 +841,11 @@ out — but it's confusing to read. Left from removing Multi Scout.
 - Watch for silent failures. The two worst bugs here — the negative offset and
   the unreachable YouTube search — both failed *quietly*, which is why they
   survived multiple rounds. If something can fail, make it say so.
+
+---
+
+## 12. Feature ideas
+
+`IDEAS.md` holds the list of things worth building next, with what each one
+would cost against what already exists. It also records three things **not** to
+build, and why — all three have already cost a release.
