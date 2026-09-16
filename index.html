@@ -345,17 +345,22 @@
   .results-section { position: relative; z-index: 2; padding-bottom: 60px; }
 
   /* ── TAB NAVIGATION ── */
-  .nav-history { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; min-height: 30px; }
+  .nav-history { display: flex; align-items: center; gap: 2px; margin: 0 0 6px; min-height: 24px; }
+  /* Glyphs, not buttons. A bordered box either side of the label read as two
+     more controls competing with the tabs right underneath; this is chrome for
+     getting back to something, so it recedes until wanted. The padding keeps a
+     ~28px touch target while the visible mark stays small. */
   .nav-arrow {
-    width: 30px; height: 30px; flex: 0 0 auto; cursor: pointer;
-    background: var(--card); border: 1px solid var(--border); color: var(--text-dim);
-    font-family: var(--mono); font-size: 15px; line-height: 1; padding: 0;
-    transition: color 0.2s, border-color 0.2s, background 0.2s;
+    flex: 0 0 auto; cursor: pointer; background: none; border: 0;
+    color: var(--text-muted); font-family: var(--mono); font-size: 14px;
+    line-height: 1; padding: 6px 7px; transition: color 0.2s;
   }
-  @media (hover: hover) { .nav-arrow:not(:disabled):hover { color: var(--accent-bright); border-color: var(--accent); background: var(--card2); } }
+  @media (hover: hover) { .nav-arrow:not(:disabled):hover { color: var(--accent-bright); } }
   /* Greyed out AND inert — there is no state where it looks dead and still works. */
-  .nav-arrow:disabled { opacity: 0.3; cursor: default; color: var(--text-muted); }
-  .nav-where { font-family: var(--mono); font-size: 11px; color: var(--text-muted);
+  .nav-arrow:disabled { opacity: 0.28; cursor: default; }
+  /* The one that can be used is the one that stands out. */
+  .nav-arrow:not(:disabled) { color: var(--text-dim); }
+  .nav-where { margin-left: 4px; font-family: var(--mono); font-size: 11px; color: var(--text-muted);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   .tabs-nav {
@@ -2538,7 +2543,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v52';
+const APP_BUILD = 'v53';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
