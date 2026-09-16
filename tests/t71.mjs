@@ -29,12 +29,16 @@ console.log('t71 — the search entry check reaches the scorer');
 // Rebuild the real tokenizer, scorer and helper from source.
 const stopSrc = px.slice(px.indexOf('const STOPWORDS = new Set(['), px.indexOf('function nameTokens'));
 const STOPWORDS = new Function('return ' + stopSrc.replace(/^const STOPWORDS = /, '').replace(/;\s*$/, ''))();
-const nameTokens = new Function('STOPWORDS', 'return ' +
-  px.slice(px.indexOf('function nameTokens'), px.indexOf('// How well does a video title')))(STOPWORDS);
+// The whole matcher in one slice — NUMBERED, STATE_CODE, sameWord, nameTokens,
+// scoreTitle and distinctiveWord. Pulling out one function and injecting its
+// dependencies by hand is what goes stale every time the matcher gains one
+// (HANDOFF §7); taking the block whole cannot.
+const MATCHER = px.slice(px.indexOf('const NUMBERED ='),
+                         px.indexOf('// The event name as a search query'));
+const nameTokens = new Function('STOPWORDS', MATCHER + '; return nameTokens;')(STOPWORDS);
 const distinctiveWord = new Function('return ' +
   px.slice(px.indexOf('function distinctiveWord'), px.indexOf('// The event name as a search query')))();
-const scoreTitle = new Function('nameTokens', 'distinctiveWord', 'return ' +
-  px.slice(px.indexOf('function scoreTitle'), px.indexOf('// Is one word, on its own')))(nameTokens, distinctiveWord);
+const scoreTitle = new Function('STOPWORDS', MATCHER + '; return scoreTitle;')(STOPWORDS);
 
 // The guard, lifted verbatim from searchYouTubeByName.
 const guard = new Function('want', 'distinctiveWord', `

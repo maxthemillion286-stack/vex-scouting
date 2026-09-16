@@ -29,10 +29,14 @@ console.log('t68 — rare-word matching and day labels');
 const stopSrc = px.slice(px.indexOf('const STOPWORDS = new Set(['),
                          px.indexOf('function nameTokens'));
 const STOPWORDS = new Function('return ' + stopSrc.replace(/^const STOPWORDS = /, '').replace(/;\s*$/, ''))();
-const nameTokens = new Function('STOPWORDS', 'return ' +
-  px.slice(px.indexOf('function nameTokens'), px.indexOf('// How well does a video title')))(STOPWORDS);
-const scoreTitle = new Function('nameTokens', 'return ' +
-  px.slice(px.indexOf('function scoreTitle'), px.indexOf('// The event name as a search query')))(nameTokens);
+// The whole matcher in one slice — NUMBERED, STATE_CODE, sameWord, nameTokens,
+// scoreTitle and distinctiveWord. Pulling out one function and injecting its
+// dependencies by hand is what goes stale every time the matcher gains one
+// (HANDOFF §7); taking the block whole cannot.
+const MATCHER = px.slice(px.indexOf('const NUMBERED ='),
+                         px.indexOf('// The event name as a search query'));
+const nameTokens = new Function('STOPWORDS', MATCHER + '; return nameTokens;')(STOPWORDS);
+const scoreTitle = new Function('STOPWORDS', MATCHER + '; return scoreTitle;')(STOPWORDS);
 
 const EVENT = 'Excalibur Robotics Challenge 2025 "PUSH BACK": VEX V5 Robotics Competition';
 const VIDEO = 'Excalibur Robotics Challenge 2025 "PUSH BACK"';

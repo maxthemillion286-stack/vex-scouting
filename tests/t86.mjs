@@ -216,7 +216,7 @@ ok('a name with nothing to trim produces no retry',
   M.searchQuery('Bots @ Bristol Signature Event (Middle School)'));
 
 // The lookup version has to move, or yesterday's cached miss outlives the fix.
-ok('the lookup version was bumped', /const RW_STREAM_LOGIC = 'L3';/.test(src),
+ok('the lookup version was bumped', /const RW_STREAM_LOGIC = 'L4';/.test(src),
   'the proxy caches a miss; shipping a matching change without bumping it is invisible');
 
 console.log(`\nt86: ${pass} passed, ${fail} failed`);

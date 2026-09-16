@@ -18,7 +18,7 @@ export const config = { maxDuration: 60 };
 // Bumped whenever the streams lookup changes. Surfaced in `diag` and in every
 // streams response so the debug page can prove WHICH proxy is actually live —
 // a stale cached reply is otherwise indistinguishable from a fresh failure.
-const PROXY_BUILD = 'v56';
+const PROXY_BUILD = 'v57';
 // A failed stream lookup is expensive (page race + a YouTube search), and the
 // answer rarely changes within a session. Cache the miss too, or every revisit
 // pays the full cost again.
@@ -520,7 +520,7 @@ const STOPWORDS = new Set([
   // so "VEX V5 Robotics Competition" left a v5 behind to dilute recall.
   'vex','v5','v5rc','iq','vrc','viqrc','viqc','vurc','vexu','robotics','robot','robots','competition',
   'tournament','tourney','event','events','meet','scrimmage','scrim','open','challenge',
-  'regional','regionals','state','championship','championships','invitational','classic',
+  'regional','regionals','region','state','championship','championships','champs','champ','invitational','classic',
   'signature','league','qualifier','qualifiers','quals','finals','elims','elimination',
   'presented','by','hosted','powered',
   'high','school','schools','middle','elementary','college','university',
@@ -533,9 +533,47 @@ const STOPWORDS = new Set([
   '2023','2024','2025','2026','2027','20242025','20252026'
 ]);
 
+// A number that IS the identity has to stay attached to the word it numbers.
+//
+// "2026 California Region 3 Middle School Championship" reduces to
+// [california, region] — every other word is boilerplate this file already
+// stopwords — and the 3, the one thing separating Region 3 from Regions 1, 2
+// and 4, is dropped for being a single character. Two events a hundred miles
+// apart then look identical, and "california" alone is a whole state.
+//
+// Joined into one token, so "Region 3" and "Region3" agree as well. Only for
+// words where the number is the name; "Day 1" is deliberately absent, because
+// the per-day logic in §4 owns that and a day1/day2 split here would lower
+// recall for every multi-day title.
+const NUMBERED = /\b(region|division|div|field|section|zone|area)\s+(\d{1,2})\b/g;
+// "CA" and "California" are the same word.
+//
+// Organisers abbreviate the state and RobotEvents spells it out, so the two
+// never shared a token — leaving an event like [california, region3] matching a
+// title that says "CA Region 3" on region3 alone. Treated as EQUAL at compare
+// time rather than rewritten, so nothing here can resurrect a token the
+// stopword list drops ("IN" and "OR" are stopwords long before they are
+// Indiana and Oregon).
+// Deliberately incomplete. Left out are the codes that are ordinary words or
+// mean something else in this domain — MS and HS are grades, IN/OR/OK/HI/DE/ME/
+// LA/ID are English or a city long before they are a state. A missing code
+// costs one shared token; a wrong one invents evidence.
+const STATE_CODE = {
+  ak: 'alaska', al: 'alabama', ar: 'arkansas', az: 'arizona', ca: 'california',
+  co: 'colorado', ct: 'connecticut', fl: 'florida', ga: 'georgia', ia: 'iowa',
+  ks: 'kansas', ky: 'kentucky', ma: 'massachusetts', md: 'maryland',
+  mi: 'michigan', mn: 'minnesota', mo: 'missouri', mt: 'montana',
+  nc: 'carolina', nd: 'dakota', ne: 'nebraska', nh: 'hampshire', nj: 'jersey',
+  nm: 'mexico', nv: 'nevada', ny: 'york', oh: 'ohio', pa: 'pennsylvania',
+  sc: 'carolina', sd: 'dakota', tn: 'tennessee', tx: 'texas', ut: 'utah',
+  va: 'virginia', vt: 'vermont', wa: 'washington', wi: 'wisconsin', wy: 'wyoming'
+};
+const sameWord = (a, b) => a === b || STATE_CODE[a] === b || STATE_CODE[b] === a;
+
 function nameTokens(name) {
   return String(name || '').toLowerCase()
     .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(NUMBERED, '$1$2')
     .split(/\s+/)
     // 2 characters are allowed: club names like "EZ" and "JR" are exactly the
     // distinctive bit. Filler of that length is stopworded explicitly instead.
@@ -562,8 +600,7 @@ function nameTokens(name) {
 function scoreTitle(want, title) {
   const got = nameTokens(title);
   if (!got.length) return null;
-  const gotSet = new Set(got);
-  const shared = want.filter(t => gotSet.has(t));
+  const shared = want.filter(t => got.some(g => sameWord(t, g)));
   const overlap = shared.length;
   if (!overlap) return null;
   const precision = overlap / got.length;
@@ -643,9 +680,16 @@ function distinctiveWord(tok) {
 // The event name as a search query: intact, minus the program boilerplate
 // RobotEvents appends to every event ("...: VEX V5 Robotics Competition :Push
 // Back"). Everything distinctive — club, venue, city — is deliberately kept.
+// RobotEvents appends its programme string after a colon, and it is NOT always
+// "VEX V5 Robotics Competition". This event ends
+// ": VEX V5 Event Regional Championship: Push Back", which the Competition-only
+// pattern left in place — so the query sent to YouTube was the whole
+// 98-character name, and nothing is titled that.
+const PROGRAM_SUFFIX = /:\s*VEX\s+[^:]*(?:Competition|Championship|League|Event|Series)[^:]*(?::[^:]*)?$/i;
+
 function searchQuery(name) {
   return String(name || '')
-    .replace(/:\s*VEX\s+[^:]*Competition\s*:?[^:]*$/i, '')
+    .replace(PROGRAM_SUFFIX, '')
     .replace(/\((?:high|middle|elementary)\s*school\)/ig, '')
     .replace(/\s{2,}/g, ' ')
     .trim()
@@ -663,7 +707,7 @@ function searchQuery(name) {
 // and it is the full name that tells them apart.
 function bareQuery(name) {
   return String(name || '')
-    .replace(/:\s*VEX\s+[^:]*Competition\s*:?[^:]*$/i, ' ')
+    .replace(PROGRAM_SUFFIX, ' ')
     .replace(/\b(?:presented|hosted|powered)\s+by\b[\s\S]*$/i, ' ')
     .replace(/\b(19|20)\d{2}(\s*[-–—\/]\s*(19|20)?\d{2})?\b/g, ' ')
     .replace(/\bday\s*\d+\b/ig, ' ')
