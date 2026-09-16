@@ -360,8 +360,6 @@
   .nav-arrow:disabled { opacity: 0.28; cursor: default; }
   /* The one that can be used is the one that stands out. */
   .nav-arrow:not(:disabled) { color: var(--text-dim); }
-  .nav-where { margin-left: 4px; font-family: var(--mono); font-size: 11px; color: var(--text-muted);
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   .tabs-nav {
     display: flex; gap: 0;
@@ -1825,7 +1823,6 @@
   <div class="nav-history">
     <button class="nav-arrow" id="navBack" onclick="vsNavGo(-1)" aria-label="Back" title="Nothing to go back to" disabled>&#8592;</button>
     <button class="nav-arrow" id="navFwd" onclick="vsNavGo(1)" aria-label="Forward" title="Nothing to go forward to" disabled>&#8594;</button>
-    <span class="nav-where" id="navWhere"></span>
   </div>
 
   <!-- Tab navigation -->
@@ -2269,8 +2266,6 @@ function vsNavRender() {
   fwd.disabled = !canFwd;
   back.title = canBack ? 'Back to ' + vsNav.stack[vsNav.i - 1].label : 'Nothing to go back to';
   fwd.title = canFwd ? 'Forward to ' + vsNav.stack[vsNav.i + 1].label : 'Nothing to go forward to';
-  const where = document.getElementById('navWhere');
-  if (where) where.textContent = (vsNav.stack[vsNav.i] || {}).label || '';
 }
 
 // Alt+arrow, the same chord a browser uses for the same thing.
@@ -2543,7 +2538,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v53';
+const APP_BUILD = 'v54';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -5004,7 +4999,8 @@ window.onload = () => {
   bootStep('nav history', () => {
     const open = document.querySelector('.tab-btn.active');
     const tab = (open && open.dataset.tab) || 'scout';
-    vsNavPush('tab:' + tab, TAB_LABELS[tab] || tab, () => switchTab(tab));
+    vsNavPush('tab:' + tab, TAB_LABELS[tab] || tab,
+      () => { switchTab(tab); clearTabPanel(tab); });   // it was empty at load
     vsNavRender();
   });
 
@@ -6037,6 +6033,25 @@ function scoutSelectedSkills() {
 
 const TAB_LABELS = { scout: 'Scout', skills: 'Skills Rankings', tournament: 'Tournament',
   rewatch: 'Jumper', simulator: 'Simulator' };
+
+// The results area each tab fills in. Going back to a tab you found EMPTY has
+// to leave it empty, or the press does nothing visible: Tournament → search →
+// back landed on the tab with the search results still sitting there, and the
+// only way to tell anything had happened was that the arrow greyed out.
+//
+// Only ever clears what was already empty when you arrived, so it can never
+// throw away something you navigated to.
+const TAB_PANELS = { tournament: 'tournamentResults', rewatch: 'rwResults',
+  scout: 'detailResults', simulator: 'simResults' };
+
+function tabPanelEmpty(tab) {
+  const el = document.getElementById(TAB_PANELS[tab] || '');
+  return el ? !el.innerHTML.trim() : false;
+}
+function clearTabPanel(tab) {
+  const el = document.getElementById(TAB_PANELS[tab] || '');
+  if (el) el.innerHTML = '';
+}
 
 // ── TOURNAMENT SCOUTING ──────────────────────
 async function findTournament() {
@@ -7983,7 +7998,9 @@ function setLoading(active, text = 'FETCHING TEAM DATA...') {
 let scoutInProgress = false;
 
 function switchTab(tabName) {
-  vsNavPush('tab:' + tabName, TAB_LABELS[tabName] || tabName, () => switchTab(tabName));
+  const wasEmpty = tabPanelEmpty(tabName);
+  vsNavPush('tab:' + tabName, TAB_LABELS[tabName] || tabName,
+    () => { switchTab(tabName); if (wasEmpty) clearTabPanel(tabName); });
   // Polling an event you are no longer looking at is the same waste as polling
   // one in your pocket.
   if (tabName !== 'tournament') tournamentLiveStop();
