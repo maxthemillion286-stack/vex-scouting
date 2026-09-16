@@ -2563,7 +2563,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v56';
+const APP_BUILD = 'v57';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -2993,7 +2993,7 @@ const RW_MAX_BROADCAST_SEC = 14 * 3600;
 //
 // Bump this ONLY when the lookup changes in a way that makes old answers
 // wrong. A cosmetic or client-side release should reuse what is cached.
-const RW_STREAM_LOGIC = 'L3';
+const RW_STREAM_LOGIC = 'L4';
 
 let rwEventStartDay = null;
 

@@ -134,6 +134,24 @@ MS/HS - Day 1 - robotics is ez: VEX V5 Robotics Competition - Override"*:
   held to a 40-minute broadcast minimum rather than 20 — a clip can name an
   event, an afternoon of matches is what a stream looks like.
 
+**The programme suffix is not always "…Competition".** RobotEvents appends it
+after a colon in several shapes — `VEX V5 Robotics Competition`, `VEX V5 Event
+Regional Championship`. `PROGRAM_SUFFIX` matches them all, and both `searchQuery`
+and `bareQuery` use it. Miss one and the whole name goes to YouTube as the query.
+
+**A number that IS the identity stays attached to its word.** `NUMBERED` fuses
+`Region 3` into `region3` before tokenising, because single characters are
+dropped and "California Region 3" would otherwise reduce to `[california]` plus
+a `region` that says nothing. `Day N` is deliberately excluded — §4 owns days,
+and a day1/day2 split here would lower recall on every multi-day title.
+
+**A state code is the state.** `sameWord()` treats `ca` and `california` as equal
+at compare time. Not a rewrite: rewriting could resurrect a token the stopword
+list drops, since `IN` and `OR` are stopwords long before they are states. The
+table deliberately omits every code that is an English word or a grade — `MS`,
+`HS`, `IN`, `OR`, `OK`, `HI`, `DE`, `ME`, `LA`, `ID`. A missing code costs one
+shared token; a wrong one invents evidence.
+
 **A second, trimmed query.** If the full name reaches nothing, `bareQuery()`
 strips the season, the day marker, the grade, the programme initials and the
 "presented by" tail, and the search runs once more — *"2026 CA Region 3 State
@@ -360,6 +378,7 @@ proxy is at `api/proxy.js`.
 | t83 | Guarded storage; a boot no single step can cancel |
 | t84 | The RobotEvents link — URL shape, and the proxy's copy of it agreeing |
 | t85 | Grade must not drop teams; MS/HS badges; live tracking; the stuck-hover highlight |
+| t90 | **California Region 3 — the programme suffix, the dropped number, the state code** |
 | t89 | Nudging the calibration has to move the preview |
 | t88 | Back / forward through where you have been |
 | t87 | The team page: best result, phone layout |
