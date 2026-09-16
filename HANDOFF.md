@@ -230,6 +230,23 @@ Details that matter:
 
 ---
 
+### Anything that re-times a day must move the preview
+
+`ctx.playing.off` is computed when ▶ is pressed and is NOT derived on render, so
+every path that changes a day's anchors has to call `rwRefreshPlaying(ctx, day)`
+before `rewatchRender()`. The ±30s nudges, the minute shift, adding an anchor and
+removing one all do.
+
+Without it the match list's times updated and the player did not, so the buttons
+looked like they did nothing — which is the whole point of nudging, since you
+press it while watching to see the match come into frame.
+
+It recomputes through `rwOffsetFor()` rather than adding the same delta to
+`off`: with two or more anchors the matches between them are interpolated, so a
+day does not move by a flat amount.
+
+---
+
 ## 6. Anchors: the sharing model
 
 Anchoring is per **video** and one-off: the recording runs in real time, so
@@ -334,6 +351,7 @@ proxy is at `api/proxy.js`.
 | t83 | Guarded storage; a boot no single step can cancel |
 | t84 | The RobotEvents link — URL shape, and the proxy's copy of it agreeing |
 | t85 | Grade must not drop teams; MS/HS badges; live tracking; the stuck-hover highlight |
+| t89 | Nudging the calibration has to move the preview |
 | t88 | Back / forward through where you have been |
 | t87 | The team page: best result, phone layout |
 | t86 | **Why Maker Faire never auto-found — blended grades, the game name, field-prefixed titles — and a search that explains its refusals** |
