@@ -334,7 +334,8 @@ proxy is at `api/proxy.js`.
 | t83 | Guarded storage; a boot no single step can cancel |
 | t84 | The RobotEvents link — URL shape, and the proxy's copy of it agreeing |
 | t85 | Grade must not drop teams; MS/HS badges; live tracking; the stuck-hover highlight |
-| t87 | The team page: best result, score-by-match chart, phone layout |
+| t88 | Back / forward through where you have been |
+| t87 | The team page: best result, phone layout |
 | t86 | **Why Maker Faire never auto-found — blended grades, the game name, field-prefixed titles — and a search that explains its refusals** |
 | sanity | CSS braces balance, inline JS parses, tabs present |
 | tool_sanity | Same for anchor-tool.html |
@@ -488,6 +489,26 @@ A touch device has no hover but latches the state onto the last element tapped
 and holds it until something else is tapped — which reads as a team being
 randomly highlighted. Every self-contained `:hover` rule in `index.html` is
 wrapped; t85 fails if a bare one appears.
+
+---
+
+### Back / forward
+
+The app is one page with no URLs, so the browser's Back button either leaves the
+site or does nothing. `vsNav` is a small history of places you have been, driven
+by the two arrows above the tabs.
+
+Each entry carries a **closure that puts the app back**, not a description of a
+state some future render would have to learn to rebuild. Replaying re-enters the
+same functions a click does, so `vsNav.busy` is what stops a replay recording
+itself as a new place — without it, going back would push the place you went
+back to and the stack would never shrink.
+
+To make something navigable, call `vsNavPush(key, label, restore)` from the
+place that performs it, after it renders. Same `key` twice in a row is not a
+move. Going somewhere new from halfway back drops what was ahead, like a
+browser. Greying out is the `disabled` attribute, never a class, so an arrow can
+never look dead and still work.
 
 ---
 

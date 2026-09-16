@@ -345,6 +345,19 @@
   .results-section { position: relative; z-index: 2; padding-bottom: 60px; }
 
   /* ── TAB NAVIGATION ── */
+  .nav-history { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; min-height: 30px; }
+  .nav-arrow {
+    width: 30px; height: 30px; flex: 0 0 auto; cursor: pointer;
+    background: var(--card); border: 1px solid var(--border); color: var(--text-dim);
+    font-family: var(--mono); font-size: 15px; line-height: 1; padding: 0;
+    transition: color 0.2s, border-color 0.2s, background 0.2s;
+  }
+  @media (hover: hover) { .nav-arrow:not(:disabled):hover { color: var(--accent-bright); border-color: var(--accent); background: var(--card2); } }
+  /* Greyed out AND inert — there is no state where it looks dead and still works. */
+  .nav-arrow:disabled { opacity: 0.3; cursor: default; color: var(--text-muted); }
+  .nav-where { font-family: var(--mono); font-size: 11px; color: var(--text-muted);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
   .tabs-nav {
     display: flex; gap: 0;
     margin-bottom: 28px;
@@ -1516,49 +1529,6 @@
   }
   .tt-grade.is-ms { color: var(--accent-bright); }
   .tt-grade.is-hs { color: var(--text-muted); }
-  /* ── Score by match ───────────────────────────────────────────────────
-     Two series only, so identity is carried by dash pattern as well as
-     colour: this app has fifteen user-selectable themes and nothing may
-     depend on telling two particular hues apart. Gridlines stay solid
-     hairlines — dashing is reserved for the mark that means "not you". */
-  .sc-wrap { border: 1px solid var(--border); background: var(--card); padding: 12px 14px 6px; margin: 12px 0; }
-  .sc-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
-  .sc-title { font-family: var(--display); font-size: 12px; font-weight: 600; letter-spacing: 1px;
-    text-transform: uppercase; color: var(--text-dim); }
-  .sc-legend { display: flex; gap: 14px; margin-left: auto; }
-  .sc-key { display: inline-flex; align-items: center; gap: 6px;
-    font-family: var(--mono); font-size: 11px; color: var(--text-muted); }
-  .sc-plot { position: relative; }
-  .sc-plot svg { display: block; width: 100%; height: auto; overflow: visible; }
-  .sc-grid { stroke: var(--border); stroke-width: 1; }
-  .sc-cross { stroke: var(--text-muted); stroke-width: 1; opacity: 0.6; pointer-events: none; }
-  .sc-ytick, .sc-xtick { font-family: var(--mono); font-size: 11px; fill: var(--text-muted); }
-  .sc-ytick { text-anchor: end; }
-  .sc-xtick { text-anchor: middle; }
-  .sc-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
-  line.sc-mine, path.sc-mine { stroke: var(--accent-bright); }
-  line.sc-opp, path.sc-opp { stroke: var(--text-muted); stroke-dasharray: 5 4; }
-  line.sc-mine, line.sc-opp { stroke-width: 2; }
-  /* A ring in the surface colour, so overlapping points stay countable. */
-  .sc-dot { stroke: var(--card); stroke-width: 2; }
-  circle.sc-myScore { fill: var(--accent-bright); }
-  circle.sc-oppScore { fill: var(--text-muted); }
-  .sc-hit { fill: transparent; }
-  .sc-tip { position: absolute; top: 2px; transform: translateX(-50%); pointer-events: none;
-    background: var(--card2); border: 1px solid var(--accent); color: var(--text);
-    font-family: var(--mono); font-size: 11px; padding: 4px 8px; white-space: nowrap; z-index: 3; }
-  @media (max-width: 560px) {
-    .sc-legend { margin-left: 0; }
-    .sc-wrap { padding: 10px 10px 4px; }
-    /* User units, so these scale down with the viewBox — at ~340px wide the
-       factor is about 0.47 and an 11px label lands at 5px. */
-    .sc-ytick, .sc-xtick { font-size: 21px; }
-    .sc-line { stroke-width: 4; }
-    .sc-dot { r: 7; stroke-width: 4; }
-    .sc-grid, .sc-cross { stroke-width: 2; }
-    .sc-tip { font-size: 12px; }
-  }
-
   /* ── Best result ─────────────────────────────────────────────────────── */
   .md-headline { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0; }
   .md-stat { flex: 1 1 150px; border: 1px solid var(--border); background: var(--card); padding: 10px 12px; }
@@ -1846,6 +1816,13 @@
 </header>
 
 <div class="container">
+  <!-- Back / forward through where you have been in the app -->
+  <div class="nav-history">
+    <button class="nav-arrow" id="navBack" onclick="vsNavGo(-1)" aria-label="Back" title="Nothing to go back to" disabled>&#8592;</button>
+    <button class="nav-arrow" id="navFwd" onclick="vsNavGo(1)" aria-label="Forward" title="Nothing to go forward to" disabled>&#8594;</button>
+    <span class="nav-where" id="navWhere"></span>
+  </div>
+
   <!-- Tab navigation -->
   <div class="tabs-nav">
     <button class="tab-btn active" data-tab="scout" onclick="switchTab('scout')">SCOUT</button>
@@ -2237,6 +2214,67 @@ async function openEventPage(eventId, knownSku) {
   else window.open(url, '_blank', 'noopener');   // blocked — try the direct way
 }
 
+// ── Where you have been ────────────────────────────────────────────────────
+//
+// The app is one page with no URLs, so a browser's Back button either leaves
+// the site or does nothing. Getting from a team's matches back to the list you
+// picked them from meant retyping the search.
+//
+// Each entry carries a closure that puts the app back the way it was, rather
+// than a description of a state that some future render would have to learn to
+// rebuild. Replaying an entry re-enters the same functions a click does, so
+// `busy` stops a replay recording itself as a new place.
+const VS_NAV_MAX = 50;
+const vsNav = { stack: [], i: -1, busy: false };
+
+function vsNavPush(key, label, restore) {
+  if (vsNav.busy) return;
+  const cur = vsNav.stack[vsNav.i];
+  // Landing where you already are is not a move. Keep the newer closure: it
+  // captures the current arguments, which may have grown (an event opened
+  // without a SKU and then with one).
+  if (cur && cur.key === key) { cur.restore = restore; cur.label = label; return; }
+  // Going somewhere new from halfway back drops what was ahead, like a browser.
+  vsNav.stack = vsNav.stack.slice(0, vsNav.i + 1);
+  vsNav.stack.push({ key, label, restore });
+  if (vsNav.stack.length > VS_NAV_MAX) vsNav.stack.shift();
+  vsNav.i = vsNav.stack.length - 1;
+  vsNavRender();
+}
+
+async function vsNavGo(delta) {
+  const j = vsNav.i + delta;
+  if (j < 0 || j >= vsNav.stack.length || vsNav.busy) return;
+  vsNav.i = j;
+  vsNavRender();          // grey the arrows out before the fetch, not after
+  vsNav.busy = true;
+  try { await vsNav.stack[j].restore(); }
+  catch (e) { vsNote('nav', String((e && e.message) || e)); }
+  finally { vsNav.busy = false; vsNavRender(); }
+}
+
+function vsNavRender() {
+  const back = document.getElementById('navBack');
+  const fwd = document.getElementById('navFwd');
+  if (!back || !fwd) return;
+  const canBack = vsNav.i > 0, canFwd = vsNav.i < vsNav.stack.length - 1;
+  // `disabled` rather than a class: it greys out AND stops the click, so there
+  // is no state where the button looks dead and still does something.
+  back.disabled = !canBack;
+  fwd.disabled = !canFwd;
+  back.title = canBack ? 'Back to ' + vsNav.stack[vsNav.i - 1].label : 'Nothing to go back to';
+  fwd.title = canFwd ? 'Forward to ' + vsNav.stack[vsNav.i + 1].label : 'Nothing to go forward to';
+  const where = document.getElementById('navWhere');
+  if (where) where.textContent = (vsNav.stack[vsNav.i] || {}).label || '';
+}
+
+// Alt+arrow, the same chord a browser uses for the same thing.
+document.addEventListener('keydown', e => {
+  if (!e.altKey || e.ctrlKey || e.metaKey) return;
+  if (e.key === 'ArrowLeft') { e.preventDefault(); vsNavGo(-1); }
+  else if (e.key === 'ArrowRight') { e.preventDefault(); vsNavGo(1); }
+});
+
 // ── Storage that cannot take the page down with it ─────────────────────────
 //
 // Reading localStorage is not safe. Safari private browsing, "block all
@@ -2500,7 +2538,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v51';
+const APP_BUILD = 'v52';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -3727,6 +3765,9 @@ async function rewatchSelectEvent(eventId) {
   // on screen.
   rwMemoReset(eventId);
   rwResetEventState();
+  vsNavPush('jumper:' + eventId,
+    'Jumper — ' + ((ctx.events.find(e => String(e.id) === String(eventId)) || {}).name || 'event'),
+    () => rewatchSelectEvent(eventId));
   const metaLoaded = rwRecordEventMeta(eventId);
   const loading = document.getElementById('rwLoading');
   const status = t => { const el = document.getElementById('rwLoadingText'); if (el) el.textContent = t; };
@@ -4952,6 +4993,16 @@ window.onload = () => {
       switchTab(savedTab);
     }
   });
+  // Whatever tab you land on is the first place you have been, so the arrow
+  // can bring you back to it. Without this the tab showing at load was absent
+  // from the stack and unreachable by going back.
+  bootStep('nav history', () => {
+    const open = document.querySelector('.tab-btn.active');
+    const tab = (open && open.dataset.tab) || 'scout';
+    vsNavPush('tab:' + tab, TAB_LABELS[tab] || tab, () => switchTab(tab));
+    vsNavRender();
+  });
+
   // Position tab indicator after layout settles
   bootStep('tab indicator', () => setTimeout(positionTabIndicator, 100));
 
@@ -5979,6 +6030,9 @@ function scoutSelectedSkills() {
   updateSkillsSelectionUI();
 }
 
+const TAB_LABELS = { scout: 'Scout', skills: 'Skills Rankings', tournament: 'Tournament',
+  rewatch: 'Jumper', simulator: 'Simulator' };
+
 // ── TOURNAMENT SCOUTING ──────────────────────
 async function findTournament() {
   const input = document.getElementById('tournamentInput').value.trim();
@@ -6049,6 +6103,8 @@ async function findTournament() {
         return;
       }
 
+      vsNavPush('search:' + input.toUpperCase(), `${input.toUpperCase()}'s events`,
+        () => { document.getElementById('tournamentInput').value = input; return findTournament(); });
       resultsEl.innerHTML = `
         <div class="tournament-list">
           <div class="tournament-list-label">${events.length} EVENT${events.length === 1 ? '' : 'S'} FOR ${input.toUpperCase()} — CLICK TO VIEW MATCHES</div>
@@ -6184,6 +6240,11 @@ async function loadTournamentTeams(eventId, eventName, focusTeamId, focusTeamNum
     } else {
       await loadAndRenderTeamList();
     }
+    // Recorded after it renders, so a failed load leaves no dead entry to
+    // walk back into.
+    vsNavPush(`ev:${eventId}:${focusTeamNumber || ''}`,
+      focusTeamNumber ? `${focusTeamNumber} at ${eventName}` : eventName,
+      () => loadTournamentTeams(eventId, eventName, focusTeamId, focusTeamNumber, sku));
   } catch(e) {
     showError('⚠ ' + e.message);
     console.error('Tournament teams error:', e);
@@ -6461,9 +6522,6 @@ async function renderEventTeamMatchesView() {
     html += `</div>`;
   }
 
-  // Score by match, above the list it summarises.
-  html += md_scoreChart(myMatches);
-
   // Match list grouped by round
   const byRound = {};
   const order = [];
@@ -6539,137 +6597,6 @@ function md_bestResult(myMatches) {
       : best.round
   };
 }
-
-// ── Score by match ─────────────────────────────────────────────────────────
-//
-// Their score against the opponent's, in the order the matches were played.
-// One picture of the day: where they were strong, where the field caught up,
-// and which match the wheels came off.
-//
-// Hand-rolled SVG because this app is one file with no build step and no CDN.
-// Two series, so: a legend, and identity carried by dash pattern as well as
-// colour — the app has fifteen user-selectable themes and nothing may depend on
-// telling two particular hues apart. Gridlines are solid hairlines; dashing is
-// reserved for the mark that means "not you".
-function md_scoreChart(myMatches) {
-  const pts = myMatches.filter(m => m.played &&
-    m.myScore !== null && m.myScore !== undefined &&
-    m.oppScore !== null && m.oppScore !== undefined);
-  // Two points is a line between two numbers; the match list already says that.
-  if (pts.length < 3) return '';
-
-  const W = 720, H = 250, L = 38, R = 14, T = 14, B = 34;
-  const iw = W - L - R, ih = H - T - B;
-  const top = Math.max(...pts.flatMap(m => [m.myScore, m.oppScore]));
-  const max = Math.max(20, Math.ceil(top / 20) * 20);
-  const x = i => L + (pts.length === 1 ? iw / 2 : (i / (pts.length - 1)) * iw);
-  const y = v => T + ih - (v / max) * ih;
-
-  // Four gridlines is enough to read a value off; more is noise.
-  const steps = 4;
-  let grid = '';
-  for (let k = 0; k <= steps; k++) {
-    const v = (max / steps) * k;
-    grid += `<line class="sc-grid" x1="${L}" y1="${y(v).toFixed(1)}" x2="${W - R}" y2="${y(v).toFixed(1)}"/>` +
-            `<text class="sc-ytick" x="${L - 8}" y="${(y(v) + 4).toFixed(1)}">${v}</text>`;
-  }
-
-  const path = key => pts.map((m, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)} ${y(m[key]).toFixed(1)}`).join(' ');
-
-  // Label at most eight matches along the bottom, or they collide on a phone.
-  const every = Math.ceil(pts.length / 6);
-  let xticks = '', lastLabelX = -Infinity;
-  pts.forEach((m, i) => {
-    const isLast = i === pts.length - 1;
-    if (i % every && !isLast) return;
-    // The last match is always worth labelling, but not on top of the one
-    // before it — which is exactly what happens when the step lands near the
-    // end. 74 user units is about eight characters at the phone size.
-    if (x(i) - lastLabelX < 74) {
-      if (!isLast) return;
-      xticks = xticks.slice(0, xticks.lastIndexOf('<text class="sc-xtick"'));
-    }
-    lastLabelX = x(i);
-    xticks += `<text class="sc-xtick" x="${x(i).toFixed(1)}" y="${H - 12}">${md_shortMatch(m.name)}</text>`;
-  });
-
-  const dots = key => pts.map((m, i) =>
-    `<circle class="sc-dot sc-${key}" cx="${x(i).toFixed(1)}" cy="${y(m[key]).toFixed(1)}" r="4"/>`).join('');
-
-  // One hit area per match, full height — far easier to hit than the dots, and
-  // it means the crosshair lands on a match rather than a pixel.
-  const hits = pts.map((m, i) => {
-    const half = pts.length > 1 ? iw / (pts.length - 1) / 2 : iw / 2;
-    const cx = x(i);
-    const w = Math.min(half * 2, iw);
-    const res = m.myScore === m.oppScore ? 'TIE' : m.myScore > m.oppScore ? 'WIN' : 'LOSS';
-    const payload = `${m.name} · ${res} ${m.myScore}–${m.oppScore}`;
-    return `<rect class="sc-hit" x="${Math.max(L, cx - half).toFixed(1)}" y="${T}" width="${w.toFixed(1)}" height="${ih}"
-      data-x="${x(i).toFixed(1)}" data-t="${payload.replace(/"/g, '&quot;')}"/>`;
-  }).join('');
-
-  return `
-  <div class="sc-wrap">
-    <div class="sc-head">
-      <span class="sc-title">Score by match</span>
-      <span class="sc-legend">
-        <span class="sc-key"><svg width="22" height="8" aria-hidden="true"><line class="sc-mine" x1="1" y1="4" x2="21" y2="4"/></svg>${tournamentFocusTeamNumber || 'Their score'}</span>
-        <span class="sc-key"><svg width="22" height="8" aria-hidden="true"><line class="sc-opp" x1="1" y1="4" x2="21" y2="4"/></svg>Opponent</span>
-      </span>
-    </div>
-    <div class="sc-plot">
-      <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img"
-           aria-label="Score by match for ${tournamentFocusTeamNumber || 'this team'}: ${pts.map(m => `${m.name} ${m.myScore} to ${m.oppScore}`).join(', ')}">
-        ${grid}
-        <line class="sc-cross" x1="0" y1="${T}" x2="0" y2="${T + ih}" style="display:none"/>
-        <path class="sc-line sc-opp" d="${path('oppScore')}"/>
-        <path class="sc-line sc-mine" d="${path('myScore')}"/>
-        ${dots('oppScore')}${dots('myScore')}
-        ${xticks}
-        ${hits}
-      </svg>
-      <div class="sc-tip" hidden></div>
-    </div>
-  </div>`;
-}
-
-// "Qualifier #12" and "R16 #7-1" both need to fit under a tick on a phone.
-function md_shortMatch(name) {
-  return String(name || '')
-    .replace(/^Qualification\s*/i, 'Q').replace(/^Qualifier\s*#?\s*/i, 'Q')
-    .replace(/\s*#\s*/g, ' ').trim().slice(0, 8);
-}
-
-// Crosshair + tooltip. Delegated from the document, so it survives every
-// re-render — including the 30-second live refresh — without rebinding.
-function md_chartHover(e) {
-  const hit = e.target.closest ? e.target.closest('.sc-hit') : null;
-  const plot = e.target.closest ? e.target.closest('.sc-plot') : null;
-  if (!plot) return;
-  const tip = plot.querySelector('.sc-tip');
-  const cross = plot.querySelector('.sc-cross');
-  if (!tip || !cross) return;
-  if (!hit) { tip.hidden = true; cross.style.display = 'none'; return; }
-  const svg = plot.querySelector('svg');
-  const box = svg.getBoundingClientRect();
-  const vb = svg.viewBox.baseVal;
-  const cx = parseFloat(hit.dataset.x);
-  cross.setAttribute('x1', cx); cross.setAttribute('x2', cx);
-  cross.style.display = '';
-  tip.textContent = hit.dataset.t;
-  tip.hidden = false;
-  // Place it over the match, clamped inside the plot.
-  const px = box.width ? (cx / vb.width) * box.width : 0;
-  const half = tip.offsetWidth / 2;
-  tip.style.left = Math.max(half + 2, Math.min(box.width - half - 2, px)) + 'px';
-}
-document.addEventListener('mousemove', md_chartHover);
-document.addEventListener('mouseleave', e => {
-  const plot = e.target.closest && e.target.closest('.sc-plot');
-  if (!plot) return;
-  const tip = plot.querySelector('.sc-tip'); if (tip) tip.hidden = true;
-  const cross = plot.querySelector('.sc-cross'); if (cross) cross.style.display = 'none';
-}, true);
 
 function renderMatchRow(m, focusTeamId) {
   const myColorClass = m.myColor === 'red' ? 'alliance-red' : 'alliance-blue';
@@ -7349,8 +7276,14 @@ function reEventLink(eventId, sku, cls) {
 // use, but the string literal is the injection point, so it narrows here too.
 const reSkuAttr = (sku) => String(sku || '').toUpperCase().replace(/[^A-Z0-9-]/g, '');
 
+const T_VIEW_LABELS = { teams: 'Teams', matches: 'Matches', skills: 'Skills',
+  awards: 'Awards', bracket: 'Bracket', team: 'that team' };
+
 function tournamentGo(view) {
   tournamentView = view;
+  vsNavPush(`ev:${tournamentEventId}:view:${view}`,
+    `${T_VIEW_LABELS[view] || view} — ${tournamentEventName}`,
+    () => tournamentGo(view));
   // Load on demand, exactly like matches/skills/awards below. Entering an
   // event by team number goes straight to that team's matches and never runs
   // the team-list load, so this tab had nothing to render.
@@ -8045,6 +7978,7 @@ function setLoading(active, text = 'FETCHING TEAM DATA...') {
 let scoutInProgress = false;
 
 function switchTab(tabName) {
+  vsNavPush('tab:' + tabName, TAB_LABELS[tabName] || tabName, () => switchTab(tabName));
   // Polling an event you are no longer looking at is the same waste as polling
   // one in your pocket.
   if (tabName !== 'tournament') tournamentLiveStop();

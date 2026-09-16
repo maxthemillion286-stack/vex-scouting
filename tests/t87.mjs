@@ -1,23 +1,13 @@
-// t87 — the team's own page: how far they got, and the shape of their day.
+// t87 — the team's own page: how far they got.
 //
 // Asked for from a RobotEvents screenshot: "when I type in 66449a in events and
 // click that event it shows me this". That lands on the focused-team view, so
 // that is where the three pieces go — a score-by-match chart, the W/L already
 // on every row, and a Best result panel.
 //
-// The chart is hand-rolled SVG: this app is one file, no build step, no CDN.
-// Two rules it has to keep, both checked below.
-//
-//   IDENTITY IS NEVER COLOUR ALONE. There are fifteen user-selectable themes,
-//   so nothing may depend on telling two particular hues apart. The opponent's
-//   line is dashed as well as muted, and a legend is always present.
-//
-//   GRIDLINES STAY SOLID. A dashed grid reads as "projection" or "threshold"
-//   when it is just a grid; dashing here means "not you" and nothing else.
-//
-// And one thing only rendering catches: the SVG scales its whole viewBox, so an
-// 11-unit label inside a 720-unit box lands at about 5px in a phone-width
-// column. Everything in user units grows under 560px to compensate.
+// The score-by-match chart that shipped alongside this was removed in v52 at
+// the user's request; what it taught the codebase lives on in the phone rules
+// below, which it is what surfaced.
 import fs from 'fs';
 import { boot, settle, html, FIXTURES } from './harness.mjs';
 let pass = 0, fail = 0;
@@ -25,7 +15,7 @@ const ok = (n, c, e) => { c ? (pass++, console.log('  ok   ' + n)) : (fail++, co
 const idx = fs.readFileSync('../index.html', 'utf8');
 const src = idx.match(/<script(?![^>]*src=)[^>]*>([\s\S]*?)<\/script>/)[1];
 
-console.log('t87 — best result, and score by match');
+console.log('t87 — best result, and the team page on a phone');
 
 // ── 1. Best result ──
 // md_bestResult is taken off the real page rather than sliced out of the
@@ -61,59 +51,6 @@ ok('the later match of the furthest round is the one reported', (() => {
 })());
 PAGE.stop();
 
-// ── 2. The chart ──
-ok('it needs more than two points to be worth drawing',
-  /if \(pts\.length < 3\) return '';/.test(src),
-  'a line between two numbers is what the match list already says');
-ok('only played matches are plotted', /m\.played &&/.test(src));
-ok('the y scale starts at zero and rounds up',
-  /Math\.max\(20, Math\.ceil\(top \/ 20\) \* 20\)/.test(src));
-
-// Anti-patterns, checked against the stylesheet.
-const css = [...idx.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(m => m[1]).join('\n');
-const rule = sel => (css.match(new RegExp('\\' + sel + '\\s*\\{[^}]*\\}', 'g')) || []).join(' ');
-ok('gridlines are solid hairlines, never dashed',
-  /\.sc-grid \{[^}]*stroke-width: 1;[^}]*\}/.test(css) && !/\.sc-grid \{[^}]*dasharray/.test(css));
-ok('the opponent line is dashed, so identity is not colour alone',
-  /line\.sc-opp, path\.sc-opp \{[^}]*stroke-dasharray/.test(css));
-ok('a legend is always present — two series', (src.match(/class="sc-key"/g) || []).length === 2);
-ok('the legend names the team rather than saying "yours"',
-  /\$\{tournamentFocusTeamNumber \|\| 'Their score'\}/.test(src));
-ok('marks are thin', /\.sc-line \{[^}]*stroke-width: 2;/.test(css));
-ok('overlapping dots get a surface ring, not a border',
-  /\.sc-dot \{ stroke: var\(--card\); stroke-width: 2; \}/.test(css));
-ok('there is no number printed on every point', !/sc-dotlabel|sc-value/.test(src));
-ok('it carries a text alternative', /aria-label="Score by match/.test(src));
-ok('the alternative lists the actual scores',
-  /\$\{m\.name\} \$\{m\.myScore\} to \$\{m\.oppScore\}/.test(src));
-
-// Hover, per the interaction rule: a line chart ships a crosshair and tooltip.
-ok('there is a hit area per match, not per pixel', /class="sc-hit"/.test(src));
-ok('the hit area is full height, so it is easy to reach',
-  /y="\$\{T\}" width="\$\{w\.toFixed\(1\)\}" height="\$\{ih\}"/.test(src));
-ok('a crosshair follows it', /class="sc-cross"/.test(src));
-ok('the tooltip says which match and both scores',
-  /\$\{m\.name\} · \$\{res\} \$\{m\.myScore\}–\$\{m\.oppScore\}/.test(src));
-ok('the handler is delegated, so it survives every re-render',
-  /document\.addEventListener\('mousemove', md_chartHover\)/.test(src),
-  'including the 30-second live refresh');
-ok('the tooltip is clamped inside the plot',
-  /Math\.max\(half \+ 2, Math\.min\(box\.width - half - 2, px\)\)/.test(src));
-
-// Label collision — the one thing only rendering catches.
-ok('x labels are thinned to at most six', /Math\.ceil\(pts\.length \/ 6\)/.test(src));
-ok('the final label never lands on top of the one before it',
-  /if \(x\(i\) - lastLabelX < 74\)/.test(src));
-ok('long match names are shortened for the axis', /function md_shortMatch\(name\)/.test(src));
-
-// Phone legibility.
-const phone = css.slice(css.indexOf('.sc-legend { margin-left: 0; }') - 120,
-                        css.indexOf('.sc-tip { font-size: 12px; }') + 40);
-ok('labels grow under 560px', /\.sc-ytick, \.sc-xtick \{ font-size: 21px; \}/.test(phone),
-  'the viewBox scales, so 11 units becomes about 5px in a phone column');
-ok('so do the lines and dots',
-  /\.sc-line \{ stroke-width: 4; \}/.test(phone) && /\.sc-dot \{ r: 7;/.test(phone));
-
 // ── 3. The headline strip ──
 ok('rank, record and best result sit together at the top',
   /<div class="md-headline">\$\{rankCard\}\$\{recordCard\}\$\{bestCard\}<\/div>/.test(src));
@@ -140,17 +77,6 @@ ok('favourability survives on its own when the event is over',
   ok('...and how far they got', /Best result<\/div>\s*<div class="md-stat-value">Semifinals/.test(h));
   ok('the run is named', /SF #2-1 · lost/.test(h));
 
-  ok('the chart renders', /class="sc-wrap"/.test(h));
-  ok('one dot per played match, per series',
-    (h.match(/class="sc-dot sc-myScore"/g) || []).length === 9 &&
-    (h.match(/class="sc-dot sc-oppScore"/g) || []).length === 9,
-    (h.match(/class="sc-dot sc-myScore"/g) || []).length + ' mine');
-  ok('one hit area per match', (h.match(/class="sc-hit"/g) || []).length === 9);
-  ok('the axis is labelled without crowding',
-    (h.match(/class="sc-xtick"/g) || []).length <= 6 &&
-    (h.match(/class="sc-xtick"/g) || []).length >= 4,
-    (h.match(/class="sc-xtick"/g) || []).length + ' x labels');
-  ok('five gridlines', (h.match(/class="sc-grid"/g) || []).length === 5);
   ok('the record is stated once, not twice',
     (h.match(/6–0/g) || []).length === 1, (h.match(/6–0/g) || []).length + ' times');
   ok('every match still carries its W/L', (h.match(/match-outcome win/g) || []).length === 8);
@@ -170,8 +96,7 @@ ok('favourability survives on its own when the event is over',
   await win.loadTournamentTeams(55001, 'Future Event', 9001, '66449A', 'RE-V5RC-25-0191');
   await settle(win, 400);
   const h = html(win, 'tournamentResults');
-  ok('an event with no played matches draws no chart', !/class="sc-wrap"/.test(h));
-  ok('...and claims no best result', !/Best result/.test(h));
+  ok('an event with nothing played claims no best result', !/Best result/.test(h));
   stop();
   FIXTURES.event.start = keep; FIXTURES.event.end = keepE; delete FIXTURES.unplayed;
 }
