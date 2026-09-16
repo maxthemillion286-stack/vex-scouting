@@ -79,7 +79,8 @@ ok('the empty case renders through the normal path',
 ok('the bare early-return message is gone',
   !/No \$\{grade\} teams found at this event\./.test(src));
 ok('the empty state says which grade it filtered on',
-  /No \$\{tournamentGrade\} teams are registered at this event\./.test(render));
+  /No \$\{esc\(tournamentGrade\)\} teams are registered at this event\./.test(render),
+  'escaped since t91 — the message itself is unchanged');
 ok('it names the grade dropdown as the likely cause',
   /switch GRADE at the top/.test(render));
 ok('it counts the teams the filter removed',

@@ -1,4 +1,4 @@
-// VEX Scout Service Worker — v57
+// VEX Scout Service Worker — v58
 //
 // Built on the v3 network-first design (updates always appear immediately),
 // with three additions aimed at competition venues:
@@ -21,8 +21,8 @@
 //
 // Bump CACHE_NAME whenever index.html changes.
 
-const CACHE_NAME = 'vex-scout-v57';
-const API_CACHE = 'vex-scout-v57-api';
+const CACHE_NAME = 'vex-scout-v58';
+const API_CACHE = 'vex-scout-v58-api';
 
 // How long to wait for the network before showing the cached copy.
 const HTML_TIMEOUT_MS = 2500;
@@ -57,6 +57,26 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+// The API cache had no ceiling. Every distinct request was kept for as long as
+// the build lasted, and the app asks for a lot of distinct things — a season of
+// skills standings, every team a scout looks up, every division's matches. On a
+// phone that quietly grew until the browser evicted the whole origin, taking the
+// app shell with it and leaving nothing to open offline.
+//
+// So: a cap, oldest first. cache.keys() comes back in insertion order and a
+// re-put moves an entry to the end, which makes this roughly least-recently-
+// written. The app shell is in its own cache and is never touched.
+const API_CACHE_MAX = 300;
+let trimming = false;
+function trim(cache, cacheName) {
+  if (cacheName !== API_CACHE || trimming) return;
+  trimming = true;
+  return cache.keys().then((keys) => {
+    if (keys.length <= API_CACHE_MAX) return;
+    return Promise.all(keys.slice(0, keys.length - API_CACHE_MAX).map((k) => cache.delete(k)));
+  }).catch(() => {}).then(() => { trimming = false; });
+}
+
 // Network first, but don't hang forever on a slow connection.
 // Whatever the network eventually returns still refreshes the cache.
 function networkFirstWithTimeout(request, cacheName, timeoutMs, fallbackKey) {
@@ -65,7 +85,8 @@ function networkFirstWithTimeout(request, cacheName, timeoutMs, fallbackKey) {
   const network = fetch(request).then((response) => {
     if (response && response.ok) {
       const copy = response.clone();
-      caches.open(cacheName).then((cache) => cache.put(request, copy));
+      caches.open(cacheName)
+        .then((cache) => cache.put(request, copy).then(() => trim(cache, cacheName)));
     }
     return response;
   });

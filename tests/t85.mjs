@@ -110,8 +110,11 @@ ok('a dropped refresh is noted, not thrown at the user',
   /vsNote\('live', String\(e && e\.message \|\| e\)\)/.test(src),
   'venue wifi drops constantly; the next tick picks it up');
 ok('only the caches that go stale are dropped',
-  /tournamentMatchCache = null;\s*\n\s*tournamentTeamCache = null;\s*\n\s*tournamentLiveAt/.test(src),
+  /tournamentMatchCache = null;\s*\n\s*tournamentTeamCache = null;\s*\n\s*tMemoDropLive\(\);[^\n]*\n\s*tournamentLiveAt/.test(src),
   'rebuilding the rolldown every 30s would cost more than it is worth');
+ok('...and the per-event memo is dropped with them',
+  /function tMemoDropLive\(\)[\s\S]{0,200}\/\^\(rank\|matches\):\//.test(src),
+  'otherwise the tick re-renders exactly what is already on screen');
 ok('the window is recorded from the detail call the views already make',
   (src.match(/tournamentNoteWindow\(ev/g) || []).length >= 2);
 ok('it is cleared when a different event opens',
