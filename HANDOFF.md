@@ -134,6 +134,15 @@ MS/HS - Day 1 - robotics is ez: VEX V5 Robotics Competition - Override"*:
   held to a 40-minute broadcast minimum rather than 20 — a clip can name an
   event, an afternoon of matches is what a stream looks like.
 
+**A second, trimmed query.** If the full name reaches nothing, `bareQuery()`
+strips the season, the day marker, the grade, the programme initials and the
+"presented by" tail, and the search runs once more — *"2026 CA Region 3 State
+Championship - High School: VEX V5 Robotics Competition"* becomes *"CA Region 3
+State Championship"*. Only on a miss, only once, and only when the trimmed
+string differs, so a hit never pays for it. It is lossier than the full name
+(two events at one venue in a season can trim to the same string), which is why
+it is never the first attempt.
+
 **Bump `RW_STREAM_LOGIC` whenever any of this changes.** The proxy caches a miss
 for an hour and a past event's miss much harder, keyed on that string — ship a
 matching fix without bumping it and nobody sees the fix.

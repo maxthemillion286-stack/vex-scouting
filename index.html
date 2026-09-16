@@ -494,10 +494,14 @@
   .tournament-meta { font-family: var(--mono); font-size: 11px; color: var(--text-muted); margin-top: 3px; }
 
   .tournament-summary {
-    background: var(--card); border: 1px solid var(--border); padding: 16px 20px; margin-top: 16px;
-    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    background: var(--card); border: 1px solid var(--border); padding: 9px 14px; margin-top: 10px;
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
   }
-  .tournament-summary-name { font-family: var(--display); font-size: 16px; color: var(--text); font-weight: 700; flex: 1; min-width: 200px; }
+  /* The buttons in this header are secondary to the page under them, so they
+     do not need full-size chrome. */
+  .tournament-summary .btn { padding: 7px 12px; font-size: 11px; letter-spacing: 1px; }
+
+  .tournament-summary-name { font-family: var(--display); font-size: 14px; line-height: 1.25; color: var(--text); font-weight: 700; flex: 1; min-width: 180px; }
   .tournament-summary-count { font-family: var(--mono); font-size: 11px; color: var(--text-muted); letter-spacing: 1px; }
   .tournament-summary-actions { display: flex; gap: 8px; flex-wrap: wrap; }
   .tournament-rank-badge { display: flex; justify-content: flex-end; margin-top: 14px; font-family: var(--mono); font-size: 12px; letter-spacing: 1.5px; color: var(--text-muted); padding: 10px 14px; border: 1px solid var(--border); background: var(--card); }
@@ -837,11 +841,17 @@
     .skills-selection-bar { flex-direction: column; align-items: stretch; gap: 8px; padding: 10px; }
     .skills-selection-bar .sel-list { white-space: normal; }
 
-    /* Tournament list & summary */
-    .tournament-summary { flex-direction: column; align-items: stretch; gap: 10px; padding: 12px; }
-    .tournament-summary-name { font-size: 14px; }
-    .tournament-summary-actions { flex-direction: column; gap: 8px; }
-    .tournament-summary-actions .input-wrap { width: 100%; }
+    /* Tournament list & summary.
+       These used to stack, which turned a header into half a phone screen
+       before a single match was visible. The three actions sit in a row and
+       share it; only a dropdown in here still needs its own line. */
+    .tournament-summary { align-items: stretch; gap: 6px; padding: 8px 10px; }
+    .tournament-summary-name { font-size: 12px; flex: 1 1 100%; min-width: 0; }
+    .tournament-summary-count { flex: 1 1 100%; }
+    .tournament-summary-actions { flex: 1 1 100%; gap: 6px; }
+    .tournament-summary .btn { width: auto; flex: 1 1 auto; font-size: 10px;
+      padding: 7px 8px; letter-spacing: 0.5px; }
+    .tournament-summary-actions .input-wrap { width: 100%; flex: 1 1 100%; }
     .tournament-item { padding: 10px; }
     .tournament-name { font-size: 13px; }
     .tournament-meta { font-size: 10px; }
@@ -1001,6 +1011,10 @@
   .sched-summary .ss-record { font-family: var(--display); font-size: 30px; font-weight: 700; color: var(--text); }
   .sched-summary .ss-label { font-family: var(--mono); font-size: 11px; color: var(--text-muted); letter-spacing: 1px; margin-top: 4px; }
   .sched-summary .ss-strength { font-family: var(--mono); font-size: 11px; color: var(--text-dim); letter-spacing: 1px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+  /* Once the event is over the projection above it is gone and this is all that
+     is left, so it stops being a card with a rule across the top of nothing. */
+  .sched-summary.ss-solo { border: 0; background: none; padding: 0; margin: 0 0 8px; text-align: left; }
+  .sched-summary.ss-solo .ss-strength { margin: 0; padding: 0; border-top: 0; }
   .sched-summary .ss-strength strong { color: var(--accent-bright); }
   .sched-list { display: flex; flex-direction: column; gap: 4px; }
   .sched-row { display: grid; grid-template-columns: 70px 1fr 64px 58px; align-items: center; gap: 10px; background: var(--card); border: 1px solid var(--border); padding: 10px 14px; }
@@ -1502,11 +1516,11 @@
   @media (max-width: 600px) { .rw-shift-bar { flex-wrap: wrap; } }
 
   /* ── Tournament sub-navigation ── */
-  .t-nav { display: flex; gap: 4px; border: 1px solid var(--border); background: var(--card); padding: 4px; margin: 12px 0; flex-wrap: wrap; }
+  .t-nav { display: flex; gap: 2px; border: 1px solid var(--border); background: var(--card); padding: 2px; margin: 8px 0; flex-wrap: wrap; }
   .t-nav-btn {
-    flex: 1; min-width: 84px; background: transparent; border: none; cursor: pointer;
-    font-family: var(--display); font-size: 12px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase;
-    color: var(--text-muted); padding: 9px 10px; transition: all 0.2s;
+    flex: 1; min-width: 72px; background: transparent; border: none; cursor: pointer;
+    font-family: var(--display); font-size: 11px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase;
+    color: var(--text-muted); padding: 7px 8px; transition: all 0.2s;
   }
   @media (hover: hover) { .t-nav-btn:hover { color: var(--text); background: var(--card2); } }
   .t-nav-btn.active { color: #fff; background: var(--accent); }
@@ -1514,8 +1528,8 @@
      another view of it. Sits at the end and takes only the room it needs. */
   .t-nav-link {
     flex: 0 0 auto; background: transparent; border: 1px solid var(--border); cursor: pointer;
-    font-family: var(--display); font-size: 11px; font-weight: 600; letter-spacing: 1px;
-    text-transform: uppercase; color: var(--text-muted); padding: 8px 12px;
+    font-family: var(--display); font-size: 10px; font-weight: 600; letter-spacing: 1px;
+    text-transform: uppercase; color: var(--text-muted); padding: 6px 10px;
     text-decoration: none; display: inline-flex; align-items: center; transition: all 0.2s;
   }
   @media (hover: hover) { .t-nav-link:hover { color: var(--text); background: var(--card2); border-color: var(--text-muted); } }
@@ -1533,14 +1547,25 @@
   .tt-grade.is-ms { color: var(--accent-bright); }
   .tt-grade.is-hs { color: var(--text-muted); }
   /* ── Best result ─────────────────────────────────────────────────────── */
-  .md-headline { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0; }
-  .md-stat { flex: 1 1 150px; border: 1px solid var(--border); background: var(--card); padding: 10px 12px; }
-  .md-stat-label { font-family: var(--mono); font-size: 10px; letter-spacing: 1px;
-    text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px; }
-  .md-stat-value { font-family: var(--display); font-size: 20px; font-weight: 700; color: var(--text); line-height: 1.15; }
-  .md-stat-sub { font-family: var(--mono); font-size: 11px; color: var(--text-dim); margin-top: 2px; }
-  .md-stat.is-champion { border-color: var(--accent-bright); }
+  /* One strip with hairline dividers, rather than three boxes each with its own
+     border and padding. Same three facts, roughly half the height, and it reads
+     as one row of the page instead of three things stacked on it. */
+  .md-headline { display: flex; flex-wrap: wrap; margin: 8px 0;
+    border: 1px solid var(--border); background: var(--card); }
+  .md-stat { flex: 1 1 140px; padding: 7px 12px; min-width: 0; }
+  .md-stat + .md-stat { border-left: 1px solid var(--border); }
+  .md-stat-label { font-family: var(--mono); font-size: 9px; letter-spacing: 1px;
+    text-transform: uppercase; color: var(--text-muted); margin-bottom: 1px; }
+  .md-stat-value { font-family: var(--display); font-size: 16px; font-weight: 700; color: var(--text); line-height: 1.2;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .md-stat-sub { font-family: var(--mono); font-size: 10px; color: var(--text-dim);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .md-stat.is-champion .md-stat-value { color: var(--accent-bright); }
+  /* Stacked on a phone, so the divider has to move with them. */
+  @media (max-width: 560px) {
+    .md-stat { flex: 1 1 100%; }
+    .md-stat + .md-stat { border-left: 0; border-top: 1px solid var(--border); }
+  }
 
   .t-live { display: inline-flex; align-items: center; gap: 6px; margin-left: 10px; padding: 2px 8px;
     border: 1px solid var(--accent); color: var(--accent-bright); font-size: 11px; letter-spacing: 0.5px;
@@ -2538,7 +2563,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v55';
+const APP_BUILD = 'v56';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -2693,10 +2718,11 @@ function vsSelfCheck() {
       // why this took a month to pin down. Now the panel says it.
       const se = j.search;
       if (se) {
-        add('info', `Searched YouTube for "${se.query}" — matching on [${(se.want || []).join(' ')}]${
+        add('info', `Searched YouTube for "${se.query}"${
+          se.retried ? ` and then, finding nothing, for "${se.retried}"` : ''} — matching on [${(se.want || []).join(' ')}]${
           se.wantGrade ? `, event reads ${se.wantGrade}` : ', no grade veto'}. YouTube returned ${se.returned} video(s).`);
         if (!se.returned) {
-          add('fail', 'YouTube returned NOTHING for that query. The stream is either not on YouTube, not public, or titled so differently that the search cannot reach it. Paste the link by hand below and it still syncs itself.');
+          add('fail', `YouTube returned NOTHING for ${se.retried ? 'either query' : 'that query'}. The stream is either not on YouTube, not public, or titled so differently that the search cannot reach it. Paste the link by hand below and it still syncs itself.`);
         } else if (!(se.refused || []).length) {
           add('warn', 'YouTube returned videos but none reached the scorer. Send me this whole block.');
         } else {
@@ -2967,7 +2993,7 @@ const RW_MAX_BROADCAST_SEC = 14 * 3600;
 //
 // Bump this ONLY when the lookup changes in a way that makes old answers
 // wrong. A cosmetic or client-side release should reuse what is cached.
-const RW_STREAM_LOGIC = 'L2';
+const RW_STREAM_LOGIC = 'L3';
 
 let rwEventStartDay = null;
 
@@ -6549,7 +6575,7 @@ async function renderEventTeamMatchesView() {
       ${favorTag ? `<div class="ss-strength">SCHEDULE FAVORABILITY: <strong>${favorTag}</strong> · ${favorDetail}</div>` : ''}
     </div>`;
   } else if (favorTag) {
-    html += `<div class="sched-summary"><div class="ss-strength">SCHEDULE FAVORABILITY: <strong>${favorTag}</strong> · ${favorDetail}</div></div>`;
+    html += `<div class="sched-summary ss-solo"><div class="ss-strength">SCHEDULE FAVORABILITY: <strong>${favorTag}</strong> · ${favorDetail}</div></div>`;
   }
 
   // Live pace banner

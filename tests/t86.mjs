@@ -44,7 +44,7 @@ const src = idx.match(/<script(?![^>]*src=)[^>]*>([\s\S]*?)<\/script>/)[1];
 // The real matcher, not a re-description of it.
 const M = new Function(
   px.slice(px.indexOf('function looksLikeEventBroadcast'), px.indexOf("// ── Find the event's broadcast by name")) +
-  '; return { gradeOf, gradesNamed, eventGrade, nameTokens, scoreTitle, distinctiveWord, searchQuery, looksLikeEventBroadcast };'
+  '; return { gradeOf, gradesNamed, eventGrade, nameTokens, scoreTitle, distinctiveWord, searchQuery, bareQuery, looksLikeEventBroadcast };'
 )();
 
 const NAME = 'Maker Faire OC - MS/HS - Day 1 - robotics is ez: VEX V5 Robotics Competition - Override';
@@ -162,12 +162,62 @@ ok('and how many videos YouTube returned at all', /returned: searchHits\.searche
 ok('the self-check prints the query and tokens',
   /Searched YouTube for "\$\{se\.query\}"/.test(src));
 ok('"YouTube returned nothing" is called out as its own case',
-  /YouTube returned NOTHING for that query/.test(src),
+  /YouTube returned NOTHING for /.test(src),
   'not on YouTube, not public, or unreachable by that query — a different fix each');
 ok('the gates are tallied', /Object\.entries\(byGate\)\.map/.test(src));
 ok('and the individual refusals listed', /refused \(\$\{r\.gate\}\): "\$\{r\.title\}"/.test(src));
 ok('it says what to do if one of them is the right video',
   /names exactly which rule threw it away/.test(src));
+
+// ── 7. A second, trimmed query when the full name reaches nothing ──
+//
+// RobotEvents names carry a season, a day marker, a grade and a programme
+// string that no organiser repeats in a stream title. A long enough name stops
+// matching anything and the search comes back EMPTY — which reads exactly like
+// "no stream exists", and is the one failure the refusal list above cannot
+// explain, because there is nothing to refuse.
+//
+// Reported for "California region 3 states", whose broadcast the full name
+// never reached.
+ok('a trimmer exists', /function bareQuery\(name\)/.test(px));
+ok('it is only a SECOND attempt, after the full name finds nothing',
+  /const first = await runQuery\(full\);\s*\n\s*if \(first\.length\) return first;/.test(px),
+  'a hit never pays for it');
+ok('...and is skipped when it would just repeat the first',
+  /if \(!bare \|\| bare === full \|\| nameTokens\(bare\)\.length === 0\) return first;/.test(px));
+ok('...and only runs once', (px.match(/await runQuery\(/g) || []).length === 2);
+ok('both attempts are reported when neither works',
+  /first\.rejects = \(first\.rejects \|\| \[\]\)\.concat\(second\.rejects \|\| \[\]\)/.test(px) &&
+  /first\.retried = bare;/.test(px));
+ok('the route passes the retry through', /retried: searchHits\.retried \|\| undefined,/.test(px));
+ok('the panel names the second query', /and then, finding nothing, for "\$\{se\.retried\}"/.test(src));
+ok('...and says "either query" when both came back empty',
+  /YouTube returned NOTHING for \$\{se\.retried \? 'either query' : 'that query'\}/.test(src));
+
+const trims = [
+  ['2026 CA Region 3 State Championship - High School: VEX V5 Robotics Competition - Override',
+   'CA Region 3 State Championship'],
+  ['California Region 3 V5RC State Championship 2025-2026', 'California Region 3 State Championship'],
+  ['2026 Northern California Region 3 Championship (High School) Day 2',
+   'Northern California Region 3 Championship'],
+  ['Maker Faire OC - MS/HS - Day 1 - robotics is ez: VEX V5 Robotics Competition - Override',
+   'Maker Faire OC - robotics is ez']
+];
+for (const [name, want] of trims) {
+  ok(`trims to ${JSON.stringify(want)}`, M.bareQuery(name) === want, M.bareQuery(name));
+}
+ok('separators left behind by the trimming are collapsed',
+  !/ - - /.test(M.bareQuery('Maker Faire OC - MS/HS - Day 1 - robotics is ez')),
+  '"Maker Faire OC - - - robotics is ez" is not a query anyone would type');
+ok('a bare "VEX" survives — it is in real titles, Worlds among them',
+  M.bareQuery('VEX Robotics World Championship') === 'VEX Robotics World Championship');
+ok('a name with nothing to trim produces no retry',
+  M.bareQuery('Bots @ Bristol Signature Event (Middle School)') ===
+  M.searchQuery('Bots @ Bristol Signature Event (Middle School)'));
+
+// The lookup version has to move, or yesterday's cached miss outlives the fix.
+ok('the lookup version was bumped', /const RW_STREAM_LOGIC = 'L3';/.test(src),
+  'the proxy caches a miss; shipping a matching change without bumping it is invisible');
 
 console.log(`\nt86: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

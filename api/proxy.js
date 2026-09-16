@@ -18,7 +18,7 @@ export const config = { maxDuration: 60 };
 // Bumped whenever the streams lookup changes. Surfaced in `diag` and in every
 // streams response so the debug page can prove WHICH proxy is actually live —
 // a stale cached reply is otherwise indistinguishable from a fresh failure.
-const PROXY_BUILD = 'v55';
+const PROXY_BUILD = 'v56';
 // A failed stream lookup is expensive (page race + a YouTube search), and the
 // answer rarely changes within a session. Cache the miss too, or every revisit
 // pays the full cost again.
@@ -652,6 +652,38 @@ function searchQuery(name) {
     .slice(0, 120) || String(name || '').slice(0, 120);
 }
 
+// The same name with everything an organiser would never repeat taken out:
+// the season, the day marker, the grade, the programme initials, the "presented
+// by" tail. What is left is the part a stream title actually shares — "CA
+// Region 3 State Championship" out of "2026 CA Region 3 State Championship -
+// High School: VEX V5 Robotics Competition - Override".
+//
+// Used ONLY as a second attempt after the full name finds nothing, because it
+// is lossier: two events at one venue in a season can trim to the same string,
+// and it is the full name that tells them apart.
+function bareQuery(name) {
+  return String(name || '')
+    .replace(/:\s*VEX\s+[^:]*Competition\s*:?[^:]*$/i, ' ')
+    .replace(/\b(?:presented|hosted|powered)\s+by\b[\s\S]*$/i, ' ')
+    .replace(/\b(19|20)\d{2}(\s*[-–—\/]\s*(19|20)?\d{2})?\b/g, ' ')
+    .replace(/\bday\s*\d+\b/ig, ' ')
+    .replace(/\((?:high|middle|elementary)\s*school\)/ig, ' ')
+    .replace(/\bblended\b/ig, ' ')
+    .replace(/\b(?:ms|hs|es)\s*[\/&+]\s*(?:ms|hs|es)\b/ig, ' ')
+    .replace(/\b(?:high|middle|elementary)\s+school(?:\s+only)?\b/ig, ' ')
+    // The programme initials, but NOT a bare "VEX" — it is in the real title of
+    // plenty of broadcasts, the World Championship's among them.
+    .replace(/\b(?:v5rc|viqrc|viqc|vurc|vexu|vrc|vex\s*u|vex\s*v5)\b/ig, ' ')
+    // Whatever was removed leaves its separators behind: "Maker Faire OC - - -
+    // robotics is ez" is not a query anyone would type.
+    .replace(/(?:\s*[-–—:|,]\s*){2,}/g, ' - ')
+    .replace(/[\s\-–—:|,]+$/, '')
+    .replace(/^[\s\-–—:|,]+/, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+    .slice(0, 120);
+}
+
 // ── Find the event's broadcast by name ─────────────────────────────────────
 // 101 units: one search, plus one batched details call for every candidate.
 //
@@ -698,111 +730,142 @@ async function searchYouTubeByName(name, startISO, endISO, ytKey) {
   // 50 rather than 25: the cost is the same 100 units either way (search.list
   // is priced per call, not per result), and a club that streams two grades
   // across two days puts four near-identical titles in the running at once.
-  const j = await ytGet('search?part=snippet&type=video&maxResults=50&order=relevance' +
-    '&q=' + encodeURIComponent(searchQuery(name)) +
-    '&publishedAfter=' + new Date(startMs - 60 * 86400e3).toISOString() +
-    '&publishedBefore=' + new Date(endMs + 7 * 86400e3).toISOString(), 100, ytKey);
-  const items = (j && j.items) || [];
-  // Carried on the returned array so every caller keeps working unchanged.
-  const withRejects = (arr, rejects, searched) => {
-    arr.rejects = rejects; arr.searched = searched; return arr;
-  };
-  if (!items.length) return withRejects([], [], 0);
+  async function runQuery(q) {
+    const j = await ytGet('search?part=snippet&type=video&maxResults=50&order=relevance' +
+      '&q=' + encodeURIComponent(q) +
+      '&publishedAfter=' + new Date(startMs - 60 * 86400e3).toISOString() +
+      '&publishedBefore=' + new Date(endMs + 7 * 86400e3).toISOString(), 100, ytKey);
+    const items = (j && j.items) || [];
+    // Carried on the returned array so every caller keeps working unchanged.
+    const withRejects = (arr, rejects, searched) => {
+      arr.rejects = rejects; arr.searched = searched; return arr;
+    };
+    if (!items.length) return withRejects([], [], 0);
 
-  // Why each candidate was refused.
-  //
-  // This is the whole reason auto-find took a month to pin down: every failure,
-  // for every different cause, collapsed into one sentence — "nothing matches
-  // its name and dates closely enough to trust". A search that returned nothing
-  // and a search that returned the right video and threw it away on a grade
-  // veto read identically from outside, so every round was a guess.
-  //
-  // Capped and title-only: it costs nothing, and it is the difference between
-  // one more release and one more month.
-  const rejects = [];
-  const note = (title, gate, detail) => {
-    if (rejects.length < 12) rejects.push({ title: String(title || '').slice(0, 120), gate, detail });
-  };
-
-  // Score on the search snippet first, so only plausible videos cost a unit.
-  const shortlist = [];
-  for (const it of items) {
-    const id = it.id && it.id.videoId;
-    const sn = it.snippet || {};
-    if (!id) continue;
-    // Score the TITLE alone. Folding in the channel name adds tokens the event
-    // name can never match ("KR", "Robotics Live"), which drags precision down
-    // and rejects correct videos — the query already found the right channel.
-    const sc = scoreTitle(want, sn.title || '');
-    if (!sc) {
-      const got = nameTokens(sn.title || '');
-      const shared = want.filter(t => got.includes(t));
-      note(sn.title, 'title', `shared ${shared.length}/${want.length} [${shared.join(' ')}] of ${got.length} title words`);
-      continue;
-    }
-    shortlist.push({ id, sc });
-  }
-  if (!shortlist.length) return withRejects([], rejects, items.length);
-
-  const details = await ytVideoDetails(shortlist.map(x => x.id), ytKey);
-  // If the details call itself failed, fall back to what the search gave us.
-  // Less precise — publishedAt is when a broadcast was created, not when it
-  // aired — but far better than discarding every candidate.
-  const snippets = new Map(items.map(it => [it.id && it.id.videoId, it.snippet || {}]));
-  const degraded = details === null;
-
-  const scored = [];
-  for (const { id, sc } of shortlist) {
-    const sn = snippets.get(id) || {};
-    const v = (details && details.get(id)) || (degraded ? {
-      title: sn.title || '', description: sn.description || '',
-      publishedAt: sn.publishedAt || null, actualStartTime: null, scheduledStartTime: null
-    } : null);
-    if (!v) continue;
-    // The real test: did this video actually air while the event was running?
-    if (!airedDuringEvent(v, startMs, endMs)) {
-      note(v.title, 'aired', `aired ${String(v.actualStartTime || v.publishedAt || '?').slice(0, 16)}, event ${String(startISO).slice(0, 10)}..${String(endISO || startISO).slice(0, 10)}`);
-      continue;
-    }
-    // ...and is it a broadcast rather than a clip about the same occasion?
-    if (!looksLikeEventBroadcast(v, sc.via === 'names-event')) {
-      note(v.title, 'duration', `${v.durationSec ?? '?'}s, matched via ${sc.via}`);
-      continue;
-    }
-    // The TITLE decides the grade; the description is consulted only when the
-    // title is silent.
+    // Why each candidate was refused.
     //
-    // Reading both as one string let a description settle it, and descriptions
-    // routinely name the other grade — "our High School stream is here too" on
-    // a Middle School broadcast. Whichever pattern appeared first in the
-    // concatenation won, which is not a rule so much as a coin toss, and it
-    // decides whether a video is dropped outright.
-    const gotGrade = gradeOf(v.title) || gradeOf(v.description.slice(0, 400));
-    if (wantGrade && gotGrade && gotGrade !== wantGrade) {
-      note(v.title, 'grade', `video reads ${gotGrade}, event reads ${wantGrade}`);
-      continue;
+    // This is the whole reason auto-find took a month to pin down: every failure,
+    // for every different cause, collapsed into one sentence — "nothing matches
+    // its name and dates closely enough to trust". A search that returned nothing
+    // and a search that returned the right video and threw it away on a grade
+    // veto read identically from outside, so every round was a guess.
+    //
+    // Capped and title-only: it costs nothing, and it is the difference between
+    // one more release and one more month.
+    const rejects = [];
+    const note = (title, gate, detail) => {
+      if (rejects.length < 12) rejects.push({ title: String(title || '').slice(0, 120), gate, detail });
+    };
+
+    // Score on the search snippet first, so only plausible videos cost a unit.
+    const shortlist = [];
+    for (const it of items) {
+      const id = it.id && it.id.videoId;
+      const sn = it.snippet || {};
+      if (!id) continue;
+      // Score the TITLE alone. Folding in the channel name adds tokens the event
+      // name can never match ("KR", "Robotics Live"), which drags precision down
+      // and rejects correct videos — the query already found the right channel.
+      const sc = scoreTitle(want, sn.title || '');
+      if (!sc) {
+        const got = nameTokens(sn.title || '');
+        const shared = want.filter(t => got.includes(t));
+        note(sn.title, 'title', `shared ${shared.length}/${want.length} [${shared.join(' ')}] of ${got.length} title words`);
+        continue;
+      }
+      shortlist.push({ id, sc });
     }
-    scored.push({
-      url: 'https://www.youtube.com/watch?v=' + id,
-      title: v.title,
-      publishedAt: v.actualStartTime || v.publishedAt,
-      actualStartTime: v.actualStartTime || null,
-      match: sc.overlap + '/' + want.length,
-      score: sc.best,
-      durationSec: v.durationSec ?? null,
-      grade: gotGrade || null,
-      // The channel that broadcast it. This is the lead that finds the OTHER
-      // days without depending on the relevance ranking to have surfaced them.
-      channelId: v.channelId || null
-    });
-  }
-  // Best match first, then oldest, so day 1 leads when several tie.
-  scored.sort((a, b) => (b.score - a.score) ||
-    (Date.parse(a.publishedAt || 0) - Date.parse(b.publishedAt || 0)));
-  // 6 was too tight for a multi-day event that also runs several grades: four
-  // Bristol broadcasts (MS and HS, two days each) plus any near-miss fills it
-  // before the day that matters gets in.
+    if (!shortlist.length) return withRejects([], rejects, items.length);
+
+    const details = await ytVideoDetails(shortlist.map(x => x.id), ytKey);
+    // If the details call itself failed, fall back to what the search gave us.
+    // Less precise — publishedAt is when a broadcast was created, not when it
+    // aired — but far better than discarding every candidate.
+    const snippets = new Map(items.map(it => [it.id && it.id.videoId, it.snippet || {}]));
+    const degraded = details === null;
+
+    const scored = [];
+    for (const { id, sc } of shortlist) {
+      const sn = snippets.get(id) || {};
+      const v = (details && details.get(id)) || (degraded ? {
+        title: sn.title || '', description: sn.description || '',
+        publishedAt: sn.publishedAt || null, actualStartTime: null, scheduledStartTime: null
+      } : null);
+      if (!v) continue;
+      // The real test: did this video actually air while the event was running?
+      if (!airedDuringEvent(v, startMs, endMs)) {
+        note(v.title, 'aired', `aired ${String(v.actualStartTime || v.publishedAt || '?').slice(0, 16)}, event ${String(startISO).slice(0, 10)}..${String(endISO || startISO).slice(0, 10)}`);
+        continue;
+      }
+      // ...and is it a broadcast rather than a clip about the same occasion?
+      if (!looksLikeEventBroadcast(v, sc.via === 'names-event')) {
+        note(v.title, 'duration', `${v.durationSec ?? '?'}s, matched via ${sc.via}`);
+        continue;
+      }
+      // The TITLE decides the grade; the description is consulted only when the
+      // title is silent.
+      //
+      // Reading both as one string let a description settle it, and descriptions
+      // routinely name the other grade — "our High School stream is here too" on
+      // a Middle School broadcast. Whichever pattern appeared first in the
+      // concatenation won, which is not a rule so much as a coin toss, and it
+      // decides whether a video is dropped outright.
+      const gotGrade = gradeOf(v.title) || gradeOf(v.description.slice(0, 400));
+      if (wantGrade && gotGrade && gotGrade !== wantGrade) {
+        note(v.title, 'grade', `video reads ${gotGrade}, event reads ${wantGrade}`);
+        continue;
+      }
+      scored.push({
+        url: 'https://www.youtube.com/watch?v=' + id,
+        title: v.title,
+        publishedAt: v.actualStartTime || v.publishedAt,
+        actualStartTime: v.actualStartTime || null,
+        match: sc.overlap + '/' + want.length,
+        score: sc.best,
+        durationSec: v.durationSec ?? null,
+        grade: gotGrade || null,
+        // The channel that broadcast it. This is the lead that finds the OTHER
+        // days without depending on the relevance ranking to have surfaced them.
+        channelId: v.channelId || null
+      });
+    }
+    // Best match first, then oldest, so day 1 leads when several tie.
+    scored.sort((a, b) => (b.score - a.score) ||
+      (Date.parse(a.publishedAt || 0) - Date.parse(b.publishedAt || 0)));
+    // 6 was too tight for a multi-day event that also runs several grades: four
+    // Bristol broadcasts (MS and HS, two days each) plus any near-miss fills it
+    // before the day that matters gets in.
   return withRejects(scored.slice(0, 16), rejects, items.length);
+  }
+
+  // One query is often too specific to reach the broadcast.
+  //
+  // RobotEvents names carry a season, a day marker, a grade and a programme
+  // string that no organiser repeats in a stream title. YouTube's ranking
+  // copes with some of that, but a long enough name stops matching anything
+  // and the search comes back empty — which reads exactly like "no stream
+  // exists", and is the one failure the refusal list cannot explain, because
+  // there is nothing to refuse.
+  //
+  // So: if the full name finds nothing usable, try once more with the
+  // decorations stripped. Only on a miss, only once, and only when the trimmed
+  // query actually differs — a hit never pays for it, and §3's budget is spent
+  // on events that would otherwise have failed outright.
+  const full = searchQuery(name);
+  const first = await runQuery(full);
+  if (first.length) return first;
+
+  const bare = bareQuery(name);
+  if (!bare || bare === full || nameTokens(bare).length === 0) return first;
+
+  const second = await runQuery(bare);
+  if (second.length) return second;
+
+  // Neither reached it. Report both attempts, so the panel can say so.
+  first.rejects = (first.rejects || []).concat(second.rejects || []).slice(0, 12);
+  first.searched = (first.searched || 0) + (second.searched || 0);
+  first.retried = bare;
+  return first;
 }
 
 function slimForPath(path, data) {
@@ -1232,6 +1295,9 @@ async function handleRequest(req, res) {
         // ran and produced nothing, which is exactly when someone is asking.
         search: (searched && !found.length && searchHits) ? {
           query: searchQuery(evName),
+          // Present only when the full name found nothing and a trimmed one was
+          // tried as well — the panel needs to say which query it is reporting.
+          retried: searchHits.retried || undefined,
           want: nameTokens(evName),
           wantGrade: eventGrade(evName),
           returned: searchHits.searched ?? 0,
