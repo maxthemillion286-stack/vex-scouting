@@ -2538,7 +2538,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v54';
+const APP_BUILD = 'v55';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -4582,6 +4582,9 @@ function rewatchCalibrate(day) {
   ctx.cal[day] = cur;
   rwSaveCal(ctx.eventId, ctx.cal);
   ctx.calDay = null;
+  // A new anchor re-times every match on the day, including whichever one the
+  // preview is sitting on.
+  rwRefreshPlaying(ctx, day);
   rewatchRender();
 }
 
@@ -4591,7 +4594,36 @@ function rewatchRemoveAnchor(day, matchId) {
   cal.anchors = (cal.anchors || []).filter(a => String(a.matchId) !== String(matchId));
   if (!cal.anchors.length) delete ctx.cal[day];
   rwSaveCal(ctx.eventId, ctx.cal);
+  rwRefreshPlaying(ctx, ctx.cal[day] ? day : null);
   rewatchRender();
+}
+
+// Move the preview to wherever the calibration now says.
+//
+// −30s changed the anchors and re-rendered, but ctx.playing.off was whatever it
+// had been when you pressed ▶ — so the player kept showing the old position and
+// the buttons appeared to do nothing. The whole point of nudging is watching the
+// picture move; without this you are adjusting a number and hoping.
+//
+// If nothing is playing yet, start on the match the day is anchored to, because
+// that is the one you are lining up.
+function rwRefreshPlaying(ctx, day) {
+  if (!ctx) return;
+  const find = id => (ctx.matches || []).find(x => String(x.id) === String(id));
+  let m = ctx.playing ? find(ctx.playing.matchId) : null;
+  // Nudging a different day than the one on screen should follow the nudge.
+  if (m && day && rwDayKey(m.t) !== day) m = null;
+  if (!m && day) {
+    const cal = ctx.cal && ctx.cal[day];
+    const anchored = cal && (cal.anchors || [])[0];
+    m = (anchored && find(anchored.matchId)) ||
+        (ctx.matches || []).filter(x => x.t !== null && rwDayKey(x.t) === day)
+          .sort((a, b) => a.t - b.t)[0] || null;
+  }
+  if (!m) { ctx.playing = null; return; }
+  const off = rwOffsetFor(m, ctx.cal);
+  if (off === null) { ctx.playing = null; return; }
+  ctx.playing = { matchId: m.id, off };
 }
 
 // Shift a whole day. The box you type in decides the direction — left is
@@ -4606,6 +4638,7 @@ function rewatchShiftBy(day, sign) {
   const delta = Math.round(sign * mins * 60);
   (ctx.cal[day].anchors || []).forEach(a => { a.videoSec = Math.max(0, a.videoSec + delta); });
   rwSaveCal(ctx.eventId, ctx.cal);
+  rwRefreshPlaying(ctx, day);
   rewatchRender();
 }
 
@@ -4613,6 +4646,7 @@ function rewatchNudge(day, deltaSec) {
   const ctx = window._rwCtx; if (!ctx || !ctx.cal || !ctx.cal[day]) return;
   (ctx.cal[day].anchors || []).forEach(a => { a.videoSec = Math.max(0, a.videoSec + deltaSec); });
   rwSaveCal(ctx.eventId, ctx.cal);
+  rwRefreshPlaying(ctx, day);
   rewatchRender();
 }
 
