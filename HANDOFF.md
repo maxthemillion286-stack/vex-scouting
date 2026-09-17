@@ -753,6 +753,22 @@ Two traps, both hit while doing this:
   `@media (hover: hover)` on the same physical line — the file's existing
   one-line form. A correctly wrapped multi-line rule still fails it.
 
+v62 carried the same rules through the other four tabs, because half an app in
+one style is worse than either style applied everywhere. **t93 is the written
+form of the rules** — it walks the stylesheet and fails if a set is both
+hairlined and framed, if a panel regains an outline, if a row becomes a box, if
+either sub-navigation turns back into a tray, or if a notice grows a box. Add a
+component, and that is the checklist.
+
+What deliberately kept its border, and why: **chips and tags** (`.award-tag`,
+`.detail-pill`, `.md-tag`, `.sim-chip`, `.status-badge`, `.tournament-rank-badge`,
+`.rolldown-team`, `.es-sig`) — the outline is what makes a chip a chip;
+**buttons** (`.draft-btn`, `.bracket-size-btn`, `.multi-select-btn`); **meter
+tracks** (`.bo-bar-wrap`, `.md-winbar`, `.sim-winbar`) — the border is the
+track; **the bracket** (`.bracket-input-match`, `.bracket-adv-filled`) — a
+bracket is drawn with boxes; the video frame, the logo, and the `?debug=1`
+panel, which is meant to look like a warning.
+
 Screenshots are how this was checked, not guesswork: Chromium is preinstalled at
 `/opt/pw-browsers/chromium-1194/chrome-linux/chrome` and `tests/harness.mjs`
 exports `makeRouter`, so a throwaway script can serve `index.html` with the

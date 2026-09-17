@@ -337,7 +337,7 @@
   .loading-text { font-family: var(--mono); font-size: 13px; color: var(--text-muted); letter-spacing: 2px; }
 
   /* ── ERROR ── */
-  .error-box { display: none; background: rgba(170,0,0,0.1); border: 1px solid var(--accent-dim); padding: 14px 18px; font-family: var(--mono); font-size: 13px; color: #ff6666; margin-bottom: 24px; }
+  .error-box { display: none; background: transparent; border-left: 2px solid #ff6666; padding: 10px 0 10px 14px; font-family: var(--mono); font-size: 13px; color: #ff6666; margin-bottom: 20px; }
   .error-box.active { display: block; }
 
   /* ── RESULTS ── */
@@ -404,7 +404,7 @@
   }
   .results-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 2px; }
 
-  .team-card { background: var(--card); border: 1px solid var(--border); animation: fadeUp 0.5s cubic-bezier(0.4, 0, 0.2, 1) both; position: relative; overflow: hidden; }
+  .team-card { background: var(--card); animation: fadeUp 0.5s cubic-bezier(0.4, 0, 0.2, 1) both; position: relative; overflow: hidden; }
   .team-card-loading {
     opacity: 0.6;
     animation: cardPulse 1.6s ease-in-out infinite;
@@ -446,7 +446,7 @@
   .compare-notice { font-family: var(--mono); font-size: 11px; color: var(--text-muted); text-align: center; padding: 20px 0 0; }
 
   /* ── SKILLS RANKINGS TABLE ── */
-  .skill-table { display: flex; flex-direction: column; gap: 1px; background: var(--border); border: 1px solid var(--border); }
+  .skill-table { display: flex; flex-direction: column; gap: 1px; background: var(--border); }
   .skill-header-row, .skill-row {
     display: grid;
     grid-template-columns: 70px 1fr 90px 90px 100px;
@@ -921,7 +921,7 @@
 
   /* ══════════════ MATCH SIMULATOR ══════════════ */
   .sim-alliances { display: grid; grid-template-columns: 1fr auto 1fr; gap: 16px; align-items: stretch; margin-top: 8px; }
-  .sim-alliance { border: 1px solid var(--border); background: var(--card); padding: 16px; display: flex; flex-direction: column; gap: 18px; position: relative; }
+  .sim-alliance { background: var(--card2); padding: 16px; display: flex; flex-direction: column; gap: 18px; position: relative; }
   .sim-alliance::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, var(--accent), transparent); }
   .sim-alliance-label { font-family: var(--mono); font-size: 11px; letter-spacing: 3px; font-weight: 700; color: var(--text-muted); }
   .sim-vs { display: flex; align-items: center; justify-content: center; font-family: var(--display); font-size: 22px; font-weight: 700; color: var(--text-muted); letter-spacing: 2px; padding: 0 4px; }
@@ -932,7 +932,7 @@
   /* Result blocks */
   .sim-result { margin-top: 28px; animation: fadeUp 0.4s ease; }
   .sim-block-label { font-family: var(--mono); font-size: 10px; color: var(--text-muted); letter-spacing: 3px; text-transform: uppercase; margin-bottom: 12px; }
-  .sim-block { border: 1px solid var(--border); background: var(--card); padding: 20px; margin-bottom: 20px; }
+  .sim-block { background: var(--card); padding: 20px; margin-bottom: 16px; }
 
   /* Win probability bar — red/blue lives ONLY inside the bar */
   .sim-winbar-labels { display: flex; justify-content: space-between; font-family: var(--display); font-weight: 700; margin-bottom: 8px; }
@@ -946,7 +946,7 @@
 
   /* Team overview — strengths & weaknesses */
   .sim-overview { display: flex; flex-direction: column; gap: 10px; }
-  .sim-ov-team { border: 1px solid var(--border); background: var(--card); padding: 14px 16px; }
+  .sim-ov-team { background: var(--card2); padding: 14px 16px; }
   .sim-ov-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
   .sim-ov-num { font-family: var(--display); font-weight: 700; font-size: 16px; color: var(--text); }
   .sim-ov-name { font-family: var(--body); font-size: 12px; color: var(--text-muted); flex: 1; }
@@ -958,7 +958,7 @@
   .sim-chip.note { color: var(--text-muted); }
 
   /* Team ratings (True Skill) table — theme-neutral */
-  .sim-rating-table { display: flex; flex-direction: column; gap: 1px; background: var(--border); border: 1px solid var(--border); }
+  .sim-rating-table { display: flex; flex-direction: column; gap: 1px; background: var(--border); }
   .sim-rating-head, .sim-rating-row { display: grid; grid-template-columns: 80px 1fr 90px 90px; background: var(--card); align-items: center; gap: 12px; padding: 10px 16px; }
   .sim-rating-head { background: var(--card2); font-family: var(--mono); font-size: 10px; color: var(--text-muted); letter-spacing: 2px; }
   .sim-rating-head > div:nth-child(n+3), .sim-rating-row > div:nth-child(n+3) { text-align: right; }
@@ -976,14 +976,22 @@
   }
 
   /* ── Simulator sub-navigation ── */
-  .sim-subnav { display: flex; gap: 4px; border: 1px solid var(--border); padding: 4px; background: var(--card); margin: 4px 0 16px; flex-wrap: wrap; }
-  .sim-subnav .sub-btn {
-    flex: 1; min-width: 90px; background: transparent; border: none; cursor: pointer;
-    font-family: var(--display); font-size: 13px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase;
-    color: var(--text-muted); padding: 10px 12px; transition: all 0.25s;
+  /* The same strip as .t-nav, because it does the same job: pick a view of
+     what is already on screen. It was the last tray of buttons left with a
+     solid block for the active one. */
+  .sim-subnav {
+    display: flex; gap: 4px; align-items: stretch; margin: 2px 0 16px;
+    border-bottom: 1px solid var(--border); overflow-x: auto; scrollbar-width: none;
   }
-  @media (hover: hover) { .sim-subnav .sub-btn:hover { color: var(--text); background: var(--card2); } }
-  .sim-subnav .sub-btn.active { color: #fff; background: var(--accent); }
+  .sim-subnav::-webkit-scrollbar { display: none; }
+  .sim-subnav .sub-btn {
+    flex: 0 0 auto; background: transparent; border: none; cursor: pointer;
+    font-family: var(--display); font-size: 12px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase;
+    color: var(--text-muted); padding: 9px 14px; transition: color 0.15s;
+    border-bottom: 2px solid transparent; margin-bottom: -1px;
+  }
+  @media (hover: hover) { .sim-subnav .sub-btn:hover { color: var(--text-dim); } }
+  .sim-subnav .sub-btn.active { color: var(--text); border-bottom-color: var(--accent-bright); }
   .sim-mode { display: none; }
   .sim-mode.active { display: block; animation: fadeUp 0.3s ease; }
   .sim-season-row { align-items: center; gap: 14px; margin-bottom: 8px; }
@@ -1001,7 +1009,7 @@
   }
 
   /* ── Pick list results ── */
-  .pick-list { display: flex; flex-direction: column; gap: 1px; background: var(--border); border: 1px solid var(--border); margin-top: 4px; }
+  .pick-list { display: flex; flex-direction: column; gap: 1px; background: var(--border); margin-top: 4px; }
   .pick-row { display: grid; grid-template-columns: 44px 1fr 90px 80px; align-items: center; gap: 12px; background: var(--card); padding: 12px 16px; }
   .pick-row.first { background: var(--card2); box-shadow: inset 4px 0 0 var(--accent-bright); }
   .pick-rank { font-family: var(--mono); font-size: 15px; color: var(--text-muted); }
@@ -1022,7 +1030,7 @@
   .sched-summary.ss-solo .ss-strength { margin: 0; padding: 0; border-top: 0; }
   .sched-summary .ss-strength strong { color: var(--accent-bright); }
   .sched-list { display: flex; flex-direction: column; gap: 4px; }
-  .sched-row { display: grid; grid-template-columns: 70px 1fr 64px 58px; align-items: center; gap: 10px; background: var(--card); border: 1px solid var(--border); padding: 10px 14px; }
+  .sched-row { display: grid; grid-template-columns: 70px 1fr 64px 58px; align-items: center; gap: 10px; background: transparent; border-bottom: 1px solid var(--border); padding: 11px 10px; }
   .sched-row.win { border-left: 4px solid #44dd44; }
   .sched-row.loss { border-left: 4px solid #ee4444; }
   .sched-row.tossup { border-left: 4px solid #ddaa44; }
@@ -1033,7 +1041,7 @@
   .sched-tag { font-family: var(--mono); font-size: 9px; letter-spacing: 1px; text-align: right; color: var(--text-muted); }
 
   /* ── Bracket odds results ── */
-  .bracket-odds { display: flex; flex-direction: column; gap: 1px; background: var(--border); border: 1px solid var(--border); margin-top: 4px; }
+  .bracket-odds { display: flex; flex-direction: column; gap: 1px; background: var(--border); margin-top: 4px; }
   .bo-row { display: grid; grid-template-columns: 44px 1fr 90px; align-items: center; gap: 12px; background: var(--card); padding: 12px 16px; }
   .bo-row.first { background: var(--card2); box-shadow: inset 4px 0 0 var(--accent-bright); }
   .bo-seed { font-family: var(--mono); font-size: 13px; color: var(--text-muted); }
@@ -1043,7 +1051,7 @@
   .bo-pct { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); font-family: var(--mono); font-size: 12px; color: var(--text); }
 
   @media (max-width: 768px) {
-    .sim-subnav .sub-btn { font-size: 11px; min-width: 72px; padding: 9px 6px; letter-spacing: 0.5px; }
+    .sim-subnav .sub-btn { font-size: 11px; padding: 9px 10px; letter-spacing: 0.5px; }
     .sim-season-row { flex-direction: column; align-items: stretch; }
     .pick-row { grid-template-columns: 34px 1fr 66px 58px; gap: 8px; padding: 10px; }
     .pick-team { font-size: 14px; }
@@ -1111,8 +1119,8 @@
   /* ── Tournament picker (name search → choose event) reused in sim modes ── */
   .sim-event-picker { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
   .sim-event-pick-label { font-family: var(--mono); font-size: 10px; letter-spacing: 2px; color: var(--text-muted); margin-bottom: 2px; }
-  .sim-event-item { border: 1px solid var(--border); background: var(--card); padding: 10px 14px; cursor: pointer; transition: all 0.2s; }
-  @media (hover: hover) { .sim-event-item:hover { border-color: var(--accent); background: var(--card2); } }
+  .sim-event-item { background: var(--card); border-bottom: 1px solid var(--border); padding: 11px 14px; cursor: pointer; transition: background 0.15s; }
+  @media (hover: hover) { .sim-event-item:hover { background: var(--card2); } }
   .sim-event-item .ei-name { font-family: var(--display); font-weight: 600; font-size: 14px; color: var(--text); }
   .sim-event-item .ei-meta { font-family: var(--mono); font-size: 11px; color: var(--text-muted); margin-top: 2px; }
 
@@ -1153,7 +1161,7 @@
 
   /* ── Match Day dashboard ── */
   .md-updated { font-family: var(--mono); font-size: 10px; color: var(--text-muted); letter-spacing: 1px; margin-top: 6px; min-height: 14px; }
-  .md-next { border: 1px solid var(--accent-dim); background: var(--card); padding: 18px; box-shadow: 0 0 30px rgba(0,0,0,0.3); }
+  .md-next { border-left: 2px solid var(--accent); background: var(--card); padding: 18px 18px 18px 16px; }
   .md-next-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 14px; }
   .md-next-label { font-family: var(--mono); font-size: 10px; letter-spacing: 3px; color: var(--accent-bright); }
   .md-next-name { font-family: var(--display); font-size: 26px; font-weight: 700; color: var(--text); }
@@ -1173,14 +1181,14 @@
   .md-winpct { font-family: var(--display); font-size: 24px; font-weight: 700; color: var(--text); min-width: 58px; text-align: right; }
   .md-partner { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 10px; font-family: var(--body); font-size: 13px; color: var(--text-dim); display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
   .md-partner-label { font-family: var(--mono); font-size: 10px; letter-spacing: 2px; color: var(--text-muted); margin-right: 4px; }
-  .md-rankrow { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-top: 18px; padding: 12px 14px; border: 1px solid var(--border); background: var(--card); font-family: var(--mono); font-size: 11px; letter-spacing: 1px; color: var(--text-muted); }
+  .md-rankrow { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-top: 18px; padding: 12px 14px; background: var(--card); font-family: var(--mono); font-size: 11px; letter-spacing: 1px; color: var(--text-muted); }
   .md-rankrow strong { color: var(--accent-bright); font-size: 14px; }
   .md-row-time { font-family: var(--mono); font-size: 10px; color: var(--accent-bright); margin-top: 2px; letter-spacing: 0.5px; }
   .md-clickable { cursor: pointer; }
   @media (hover: hover) { .md-clickable:hover { border-color: var(--accent-dim); } }
   .md-chev { display: inline-block; transition: transform 0.2s; color: var(--text-muted); }
   .md-clickable.open .md-chev { transform: rotate(90deg); }
-  .md-expand { border: 1px solid var(--border); border-top: none; background: var(--card); padding: 6px 16px 14px; margin-top: -4px; margin-bottom: 4px; }
+  .md-expand { background: var(--card); padding: 6px 16px 14px; margin-top: -4px; margin-bottom: 4px; }
   .md-exp-label { font-family: var(--mono); font-size: 9px; letter-spacing: 2px; color: var(--text-muted); margin: 12px 0 2px; }
   .md-drift { font-family: var(--mono); font-size: 11px; color: var(--text-dim); letter-spacing: 0.5px; padding: 8px 12px; border: 1px dashed var(--border); margin-bottom: 12px; }
   .md-next.queue-now { border-color: var(--accent-bright); box-shadow: 0 0 24px var(--accent-glow); }
@@ -1237,14 +1245,14 @@
   .detail-filter { margin-bottom: 18px; }
 
   .detail-grid { display: grid; grid-template-columns: 1fr 340px; gap: 16px; align-items: stretch; margin-bottom: 18px; }
-  .detail-overview { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); }
+  .detail-overview { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1px; background: var(--border); }
   .ov-cell { background: var(--card); padding: 17px 18px; transition: background 0.2s; }
   @media (hover: hover) { .ov-cell:hover { background: var(--card2); } }
   .ov-label { font-family: var(--mono); font-size: 9px; letter-spacing: 2px; color: var(--text-muted); }
   .ov-big { font-family: var(--display); font-size: 30px; font-weight: 700; color: var(--text); line-height: 1.05; margin-top: 7px; font-variant-numeric: tabular-nums; }
   .ov-cell:first-child .ov-big { color: var(--accent-bright); }
   .ov-sub { font-family: var(--body); font-size: 12px; color: var(--text-muted); margin-top: 4px; line-height: 1.35; }
-  .detail-radar { border: 1px solid var(--border); background: var(--card); padding: 17px 18px; display: flex; flex-direction: column; }
+  .detail-radar { background: var(--card); padding: 17px 18px; display: flex; flex-direction: column; }
   .radar-svg { width: 100%; height: auto; max-height: 300px; margin-top: 4px; }
   .radar-missing { font-family: var(--body); font-size: 11px; color: var(--text-muted); text-align: center; margin-top: 2px; }
 
@@ -1254,7 +1262,6 @@
     color: var(--accent-bright); margin-bottom: 14px;
     display: flex; align-items: center; gap: 10px;
   }
-  .detail-block-label::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, var(--border), transparent); }
   .detail-block .stats-body { display: grid; grid-template-columns: repeat(auto-fit, minmax(232px, 1fr)); gap: 10px 26px; }
   /* Keep every label on one line and pin values to the right edge of each column */
   .detail-block .stat-row { display: grid; grid-template-columns: 1fr auto; align-items: baseline; gap: 12px; padding: 7px 0; }
@@ -1316,7 +1323,7 @@
 
   /* ── Events attended list ── */
   .ev-attend-hint { font-family: var(--body); font-size: 12px; color: var(--text-muted); margin: -6px 0 12px; }
-  .ev-attend-list { display: flex; flex-direction: column; gap: 1px; background: var(--border); border: 1px solid var(--border); }
+  .ev-attend-list { display: flex; flex-direction: column; gap: 1px; background: var(--border); }
   .ev-attend {
     display: flex; align-items: center; gap: 14px; width: 100%; text-align: left; cursor: pointer;
     background: var(--card); border: none; padding: 12px 16px; transition: background 0.15s;
@@ -1415,7 +1422,7 @@
   /* ══════════════ REWATCH ══════════════ */
   .rw-block { background: var(--card); padding: 18px 20px; margin-bottom: 14px; }
   .rw-hint { font-family: var(--body); font-size: 12px; color: var(--text-muted); margin-bottom: 12px; line-height: 1.5; }
-  .rw-events { display: flex; flex-direction: column; gap: 1px; background: var(--border); border: 1px solid var(--border); max-height: 300px; overflow-y: auto; }
+  .rw-events { display: flex; flex-direction: column; gap: 1px; background: var(--border); max-height: 300px; overflow-y: auto; }
   .rw-event { display: block; width: 100%; text-align: left; cursor: pointer; background: var(--card); border: none; padding: 11px 15px; transition: background 0.15s; }
   @media (hover: hover) { .rw-event:hover { background: var(--card2); } }
   .rw-event.active { background: var(--card2); box-shadow: inset 3px 0 0 var(--accent-bright); }
@@ -1444,7 +1451,7 @@
   @media (hover: hover) { .rw-fallback:hover { color: var(--accent-bright); } }
 
   .rw-group-label { font-family: var(--mono); font-size: 9px; letter-spacing: 2px; color: var(--text-muted); margin: 14px 0 6px; }
-  .rw-list { display: flex; flex-direction: column; gap: 1px; background: var(--border); border: 1px solid var(--border); }
+  .rw-list { display: flex; flex-direction: column; gap: 1px; background: var(--border); }
   .rw-row { display: grid; grid-template-columns: 110px 1fr 74px 92px; align-items: center; gap: 12px; background: var(--card); padding: 9px 14px; }
   .rw-row.win { box-shadow: inset 3px 0 0 #44dd44; }
   .rw-row.loss { box-shadow: inset 3px 0 0 #ee4444; }
@@ -1715,7 +1722,7 @@
   .ladder-title { font-family: var(--mono); font-size: 9px; letter-spacing: 2px; color: var(--text-muted); margin-bottom: 8px; }
   .ladder-loading { font-family: var(--mono); font-size: 11px; color: var(--text-muted); letter-spacing: 0.5px; }
   .ladder-none { font-family: var(--body); font-size: 12px; color: var(--text-muted); }
-  .ladder-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); }
+  .ladder-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--border); }
   .ladder-cell { background: var(--card); padding: 12px 14px; }
   .ladder-cell-label { font-family: var(--mono); font-size: 9px; letter-spacing: 1.5px; color: var(--text-muted); text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .ladder-cell-pos { font-family: var(--display); font-size: 26px; font-weight: 700; color: var(--accent-bright); line-height: 1.1; margin-top: 5px; }
@@ -1731,7 +1738,7 @@
   .ladder-caveat { font-family: var(--body); font-size: 11.5px; color: var(--text-muted); margin-top: 8px; line-height: 1.5; border-left: 2px solid var(--accent-dim); padding-left: 10px; }
 
   /* ── Event rolldown ── */
-  .rolldown { border: 1px solid var(--accent-dim); background: var(--card2); padding: 14px 16px; margin: 4px 0 12px; }
+  .rolldown { border-left: 2px solid var(--accent); background: var(--card2); padding: 12px 16px 12px 14px; margin: 4px 0 12px; }
   .rolldown-head { font-family: var(--display); font-size: 15px; font-weight: 700; color: var(--accent-bright); }
   .rolldown-why { font-family: var(--body); font-size: 12.5px; color: var(--text-dim); margin-top: 5px; line-height: 1.5; }
   .rolldown-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
@@ -2633,7 +2640,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v61';
+const APP_BUILD = 'v62';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -6919,7 +6926,13 @@ async function renderEventTeamMatchesView() {
       <div class="tournament-summary-count">Matches for <span style="color:var(--accent-bright);font-weight:700;">${esc(tournamentFocusTeamNumber)}</span></div>
       <div class="tournament-summary-actions">
         <button class="btn btn-primary" onclick="detailScoutFromTournament('${teamAttr(tournamentFocusTeamNumber)}')">SCOUT ${esc(tournamentFocusTeamNumber)}</button>
-        <button class="btn btn-secondary" onclick="multiScoutFromTournament('${teamAttr(tournamentFocusTeamNumber)}')">MULTI SCOUT</button>
+        ${(() => {
+          const sched = tScheduleTeamNumbers(myMatches, tournamentFocusTeamNumber);
+          return sched.length
+            ? `<button class="btn btn-secondary" onclick="multiScoutFromTournament('${teamAttr(tournamentFocusTeamNumber)}', ${esc(JSON.stringify(sched))})"
+                 title="Compare ${esc(tournamentFocusTeamNumber)} against every team it plays with or against at this event">MULTI SCOUT ${sched.length + 1}</button>`
+            : '';
+        })()}
         <button class="btn btn-secondary" onclick="tournamentRefreshNow()">⟳ REFRESH</button>
       </div>
     </div>
@@ -7714,16 +7727,48 @@ function detailScoutFromTournament(teamNumber) {
   runDetailedScout();
 }
 
-// Send this team (plus anything multi-selected) to Multi Scout
-function multiScoutFromTournament(teamNumber) {
+// Send several teams to Multi Scout.
+//
+// The Scout tab shows side-by-side comparison cards for two or more numbers and
+// the full single profile for one — so handing this ONE number, which is what
+// the schedule view used to do, produced byte-for-byte what the SCOUT button
+// beside it produces. Pressing it looked like pressing nothing.
+//
+// `extra` is the set the caller thinks is worth comparing: on the Teams view
+// that is whatever is multi-selected, and on a team's schedule it is the teams
+// that team actually plays with and against at this event, which is the
+// comparison a schedule invites in the first place.
+function multiScoutFromTournament(teamNumber, extra) {
   const list = new Set(selectedTournamentTeams);
-  if (teamNumber) list.add(teamNumber);
+  if (teamNumber) list.add(String(teamNumber).toUpperCase());
+  for (const n of (extra || [])) if (n) list.add(String(n).toUpperCase());
+  if (list.size < 2) {
+    // Nothing to compare against. Rather than quietly doing the single-team
+    // thing again, say so and leave them where they are.
+    showError('⚠ Multi Scout compares two or more teams. Open TEAMS and tap MULTI-SELECT to choose who to compare.');
+    return;
+  }
+  showError('');
   const input = document.getElementById('detailTeamInput');
   if (input) input.value = [...list].join(', ');
   const g = document.getElementById('detailGradeSelect');
   if (g && tournamentGrade) { g.value = tournamentGrade; g.dispatchEvent(new Event('change', { bubbles: true })); }
   switchTab('scout');
   runDetailedScout();
+}
+
+// Every team on the other side of, or alongside, this team's matches. Deduped,
+// and without this team itself — multiScoutFromTournament adds that.
+function tScheduleTeamNumbers(myMatches, selfNumber) {
+  const self = String(selfNumber || '').toUpperCase();
+  const out = new Set();
+  for (const m of (myMatches || [])) {
+    for (const n of [...(m.myNums || []), ...(m.oppNums || [])]) {
+      const u = String(n || '').toUpperCase();
+      if (u && u !== self) out.add(u);
+    }
+  }
+  return [...out];
 }
 
 function tournamentNav(active) {
