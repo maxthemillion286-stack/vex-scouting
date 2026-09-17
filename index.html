@@ -295,13 +295,12 @@
 
   /* ── SEARCH SECTION ── */
   .search-section { padding: 36px 0 24px; position: relative; z-index: 2; }
-  .section-label { font-family: var(--mono); font-size: 11px; color: var(--accent); letter-spacing: 3px; text-transform: uppercase; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; }
-  .section-label::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, var(--border), transparent); }
+  .section-label { font-family: var(--mono); font-size: 10px; color: var(--text-muted); letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 18px; display: flex; align-items: center; gap: 10px; }
 
   .token-row { display: flex; gap: 10px; margin-bottom: 28px; }
   .controls-row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
   .input-wrap { position: relative; flex: 1; min-width: 200px; }
-  .input-label { font-family: var(--mono); font-size: 10px; color: var(--text-muted); letter-spacing: 2px; position: absolute; top: -18px; left: 0; white-space: nowrap; }
+  .input-label { font-family: var(--mono); font-size: 9px; color: var(--text-muted); letter-spacing: 1px; position: absolute; top: -17px; left: 0; white-space: nowrap; }
 
   input[type="text"], input[type="password"], select {
     width: 100%; background: var(--card); border: 1px solid var(--border); color: var(--text);
@@ -309,7 +308,7 @@
     transition: border-color 0.35s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.35s cubic-bezier(0.4, 0, 0.2, 1), background 0.35s cubic-bezier(0.4, 0, 0.2, 1);
     letter-spacing: 1px; appearance: none;
   }
-  input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-dim), 0 0 20px var(--accent-glow), inset 0 0 20px rgba(0,0,0,0.1); }
+  input:focus, select:focus { border-color: var(--accent-bright); box-shadow: none; }
   input::placeholder { color: var(--text-muted); }
   select option { background: var(--card); color: var(--text); }
 
@@ -319,12 +318,12 @@
     color: var(--accent); pointer-events: none; font-size: 12px;
   }
 
-  .btn { font-family: var(--display); font-size: 14px; font-weight: 600; letter-spacing: 3px; text-transform: uppercase; padding: 12px 24px; border: none; cursor: pointer; transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1); white-space: nowrap; }
-  .btn-primary { background: var(--accent); color: #fff; }
-  @media (hover: hover) { .btn-primary:hover { background: var(--accent-bright); box-shadow: 0 0 24px var(--accent-glow); transform: translateY(-1px); } }
-  .btn-primary:active { transform: scale(0.97) translateY(0); }
-  .btn-secondary { background: transparent; color: var(--text-dim); border: 1px solid var(--border); font-size: 12px; padding: 12px 16px; }
-  @media (hover: hover) { .btn-secondary:hover { border-color: var(--accent); color: var(--text); box-shadow: 0 0 12px var(--accent-glow); } }
+  .btn { font-family: var(--display); font-size: 12px; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; padding: 10px 18px; border: 1px solid transparent; cursor: pointer; transition: all 0.15s ease; white-space: nowrap; }
+  .btn-primary { background: var(--card2); color: var(--text); border-color: var(--accent); }
+  @media (hover: hover) { .btn-primary:hover { background: var(--accent); color: #fff; } }
+  .btn-primary:active { background: var(--accent-bright); color: #fff; }
+  .btn-secondary { background: transparent; color: var(--text-muted); border-color: var(--border); font-size: 11px; padding: 10px 14px; }
+  @media (hover: hover) { .btn-secondary:hover { border-color: var(--text-muted); color: var(--text); } }
   .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
   .hint { font-family: var(--mono); font-size: 11px; color: var(--text-muted); margin-top: 10px; }
@@ -384,10 +383,8 @@
     bottom: -1px;
     height: 2px;
     background: var(--accent-bright);
-    box-shadow: 0 0 8px var(--accent-glow);
-    transition: left 0.45s cubic-bezier(0.4, 0, 0.2, 1), width 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1), width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     pointer-events: none;
-    border-radius: 2px;
   }
 
   .tab-panel { display: none; }
@@ -486,7 +483,7 @@
   .skills-selection-bar .sel-list { flex: 1; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 200px; }
 
   /* Tournament scouting */
-  .tournament-list { display: flex; flex-direction: column; gap: 1px; background: var(--border); border: 1px solid var(--border); margin-top: 16px; }
+  .tournament-list { display: flex; flex-direction: column; gap: 1px; background: var(--border); margin-top: 16px; }
   .tournament-list-label { background: var(--card2); padding: 10px 16px; font-family: var(--mono); font-size: 10px; color: var(--text-muted); letter-spacing: 2px; }
   .tournament-item { background: var(--card); padding: 12px 16px; cursor: pointer; transition: background 0.15s; }
   @media (hover: hover) { .tournament-item:hover { background: var(--card2); } }
@@ -494,7 +491,7 @@
   .tournament-meta { font-family: var(--mono); font-size: 11px; color: var(--text-muted); margin-top: 3px; }
 
   .tournament-summary {
-    background: var(--card); border: 1px solid var(--border); padding: 9px 14px; margin-top: 10px;
+    background: transparent; padding: 14px 0 12px; margin-top: 4px;
     display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
   }
   /* The buttons in this header are secondary to the page under them, so they
@@ -516,11 +513,11 @@
   .tournament-teams { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; margin-top: 12px; }
   .tournament-team-tag {
     display: flex; flex-direction: column; gap: 4px;
-    background: var(--card); border: 1px solid var(--border); padding: 8px 12px;
-    cursor: pointer; transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1); user-select: none; -webkit-user-select: none;
+    background: var(--card); border: 1px solid transparent; padding: 10px 12px;
+    cursor: pointer; transition: background 0.15s, border-color 0.15s; user-select: none; -webkit-user-select: none;
   }
-  @media (hover: hover) { .tournament-team-tag:hover { background: var(--card2); border-color: var(--accent); box-shadow: 0 0 12px var(--accent-glow); transform: translateY(-1px); } }
-  .tournament-team-tag.selected { background: var(--card2); border-color: var(--accent-bright); box-shadow: inset 4px 0 0 var(--accent-bright); }
+  @media (hover: hover) { .tournament-team-tag:hover { background: var(--card2); } }
+  .tournament-team-tag.selected { background: var(--card2); border-color: var(--accent-bright); }
   .tournament-team-tag .tt-row1 { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
   .tournament-team-tag .tt-num { font-family: var(--display); font-size: 14px; color: var(--accent-bright); font-weight: 700; }
   .tournament-team-tag .tt-name { font-family: var(--body); font-size: 12px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
@@ -529,11 +526,13 @@
   .tournament-team-tag .tt-stat-label { color: var(--text-muted); font-size: 9px; letter-spacing: 1px; margin-right: 2px; }
 
   /* Info bar with (i) icon hint */
+  /* A line of guidance, not a panel. It sits above the grid it explains and
+     should be the quietest thing there. */
   .info-bar {
     display: flex; align-items: center; gap: 8px;
-    padding: 8px 12px; margin-top: 12px;
+    padding: 2px 0 10px; margin-top: 10px;
     font-family: var(--mono); font-size: 11px; color: var(--text-muted);
-    background: var(--card); border-left: 2px solid var(--accent-dim);
+    background: transparent;
   }
   .info-icon {
     display: inline-flex; align-items: center; justify-content: center;
@@ -563,9 +562,9 @@
   /* Multi-select toggle button */
   .multi-select-btn {
     background: transparent; border: 1px solid var(--border); color: var(--text-muted);
-    font-family: var(--mono); font-size: 10px; letter-spacing: 2px; font-weight: 700;
-    padding: 8px 14px; cursor: pointer;
-    transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    font-family: var(--mono); font-size: 10px; letter-spacing: 1px; font-weight: 400;
+    padding: 6px 10px; cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
     text-transform: uppercase;
   }
   @media (hover: hover) { .multi-select-btn:hover { border-color: var(--accent); color: var(--text); } }
@@ -590,12 +589,13 @@
     margin-top: 18px; margin-bottom: 8px; padding-bottom: 4px;
     border-bottom: 1px solid var(--border);
   }
-  .match-list { display: flex; flex-direction: column; gap: 4px; }
+  .match-list { display: flex; flex-direction: column; }
   .match-row {
     display: grid; grid-template-columns: 90px 1fr 40px 1fr 70px;
     align-items: center; gap: 8px;
-    background: var(--card); border: 1px solid var(--border); padding: 10px 14px;
+    background: transparent; border-bottom: 1px solid var(--border); padding: 11px 12px;
   }
+  .match-row:last-child { border-bottom: 0; }
   .match-row.win { border-left: 4px solid #44dd44; }
   .match-row.loss { border-left: 4px solid #ee4444; }
   .match-row.tie { border-left: 4px solid #ddaa44; }
@@ -793,7 +793,7 @@
     .tab-btn { padding: 8px 10px; font-size: 10px; letter-spacing: 1px; }
 
     /* Section labels — smaller margin */
-    .section-label { font-size: 10px; letter-spacing: 2px; margin-bottom: 14px; }
+    .section-label { font-size: 9px; letter-spacing: 1.5px; margin-bottom: 14px; }
 
     /* Form controls — stack vertically with TIGHT spacing for max density */
     .search-section { padding: 8px 0; }
@@ -802,9 +802,14 @@
     .input-label { font-size: 8px; top: -12px; letter-spacing: 1px; }
     /* iOS Safari zooms in on inputs when font-size < 16px. Force 16px on mobile to prevent zoom. */
     /* Padding reduced so the box itself is smaller despite the 16px text. */
-    input[type="text"], input[type="password"], select { font-size: 16px; padding: 6px 10px; }
-    .btn { width: 100%; font-size: 11px; padding: 8px 12px; letter-spacing: 1.5px; }
-    .btn-secondary { font-size: 10px; padding: 7px 10px; }
+    /* 16px is the smallest a phone will render without zooming the page on
+       focus, so the size stays; the height comes off the padding instead. The
+       Tournament tab asks three questions before it shows you anything, and
+       three tall fields is most of a screen spent on chrome. */
+    input[type="text"], input[type="password"], select { font-size: 16px; padding: 8px 10px; }
+    .cs-bar { padding: 8px 10px; font-size: 14px; }
+    .btn { width: 100%; font-size: 11px; padding: 9px 12px; letter-spacing: 1px; }
+    .btn-secondary { font-size: 10px; padding: 8px 10px; }
     .select-wrap::after { font-size: 10px; right: 8px; }
 
     /* Team cards — single column, more compact */
@@ -845,7 +850,7 @@
        These used to stack, which turned a header into half a phone screen
        before a single match was visible. The three actions sit in a row and
        share it; only a dropdown in here still needs its own line. */
-    .tournament-summary { align-items: stretch; gap: 6px; padding: 8px 10px; }
+    .tournament-summary { align-items: stretch; gap: 6px; padding: 10px 0 8px; }
     .tournament-summary-name { font-size: 12px; flex: 1 1 100%; min-width: 0; }
     .tournament-summary-count { flex: 1 1 100%; }
     .tournament-summary-actions { flex: 1 1 100%; gap: 6px; }
@@ -1007,7 +1012,7 @@
   .pick-opr { font-family: var(--mono); font-size: 12px; color: var(--text-muted); text-align: right; }
 
   /* ── Schedule results ── */
-  .sched-summary { border: 1px solid var(--border); background: var(--card2); padding: 16px; margin-bottom: 16px; text-align: center; }
+  .sched-summary { background: var(--card2); padding: 16px; margin-bottom: 14px; text-align: center; }
   .sched-summary .ss-record { font-family: var(--display); font-size: 30px; font-weight: 700; color: var(--text); }
   .sched-summary .ss-label { font-family: var(--mono); font-size: 11px; color: var(--text-muted); letter-spacing: 1px; margin-top: 4px; }
   .sched-summary .ss-strength { font-family: var(--mono); font-size: 11px; color: var(--text-dim); letter-spacing: 1px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
@@ -1243,7 +1248,7 @@
   .radar-svg { width: 100%; height: auto; max-height: 300px; margin-top: 4px; }
   .radar-missing { font-family: var(--body); font-size: 11px; color: var(--text-muted); text-align: center; margin-top: 2px; }
 
-  .detail-block { border: 1px solid var(--border); background: var(--card); padding: 18px 20px; margin-bottom: 16px; }
+  .detail-block { background: var(--card); padding: 18px 20px; margin-bottom: 14px; }
   .detail-block-label {
     font-family: var(--mono); font-size: 10px; letter-spacing: 3px; text-transform: uppercase;
     color: var(--accent-bright); margin-bottom: 14px;
@@ -1408,7 +1413,7 @@
   .ev-list::-webkit-scrollbar-button { display: none; height: 0; }
 
   /* ══════════════ REWATCH ══════════════ */
-  .rw-block { border: 1px solid var(--border); background: var(--card); padding: 18px 20px; margin-bottom: 16px; }
+  .rw-block { background: var(--card); padding: 18px 20px; margin-bottom: 14px; }
   .rw-hint { font-family: var(--body); font-size: 12px; color: var(--text-muted); margin-bottom: 12px; line-height: 1.5; }
   .rw-events { display: flex; flex-direction: column; gap: 1px; background: var(--border); border: 1px solid var(--border); max-height: 300px; overflow-y: auto; }
   .rw-event { display: block; width: 100%; text-align: left; cursor: pointer; background: var(--card); border: none; padding: 11px 15px; transition: background 0.15s; }
@@ -1545,30 +1550,35 @@
   @media (max-width: 600px) { .rw-shift-bar { flex-wrap: wrap; } }
 
   /* ── Tournament sub-navigation ── */
-  .t-nav { display: flex; gap: 2px; border: 1px solid var(--border); background: var(--card); padding: 2px; margin: 8px 0; flex-wrap: wrap; }
-  .t-nav-btn {
-    flex: 1; min-width: 72px; background: transparent; border: none; cursor: pointer;
-    font-family: var(--display); font-size: 11px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase;
-    color: var(--text-muted); padding: 7px 8px; transition: all 0.2s;
+  .t-nav {
+    display: flex; gap: 4px; align-items: stretch; margin: 2px 0 14px;
+    border-bottom: 1px solid var(--border); overflow-x: auto; scrollbar-width: none;
   }
-  @media (hover: hover) { .t-nav-btn:hover { color: var(--text); background: var(--card2); } }
-  .t-nav-btn.active { color: #fff; background: var(--accent); }
+  .t-nav::-webkit-scrollbar { display: none; }
+  .t-nav-btn {
+    flex: 0 0 auto; background: transparent; border: none; cursor: pointer;
+    font-family: var(--display); font-size: 11px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase;
+    color: var(--text-muted); padding: 9px 12px; transition: color 0.15s;
+    border-bottom: 2px solid transparent; margin-bottom: -1px;
+  }
+  @media (hover: hover) { .t-nav-btn:hover { color: var(--text-dim); } }
+  .t-nav-btn.active { color: var(--text); border-bottom-color: var(--accent-bright); }
   /* Deliberately NOT flex:1 — it leaves the event, so it should not look like
      another view of it. Sits at the end and takes only the room it needs. */
   .t-nav-link {
-    flex: 0 0 auto; background: transparent; border: 1px solid var(--border); cursor: pointer;
-    font-family: var(--display); font-size: 10px; font-weight: 600; letter-spacing: 1px;
-    text-transform: uppercase; color: var(--text-muted); padding: 6px 10px;
-    text-decoration: none; display: inline-flex; align-items: center; transition: all 0.2s;
+    flex: 0 0 auto; background: transparent; border: none; cursor: pointer;
+    font-family: var(--mono); font-size: 10px; font-weight: 400; letter-spacing: 0.5px;
+    text-transform: none; color: var(--text-muted); padding: 9px 8px;
+    text-decoration: none; display: inline-flex; align-items: center; transition: color 0.15s;
   }
-  @media (hover: hover) { .t-nav-link:hover { color: var(--text); background: var(--card2); border-color: var(--text-muted); } }
-  .t-offline[disabled] { opacity: 0.6; cursor: default; }
-  .t-offline.is-saved { color: var(--accent-bright); border-color: var(--accent); }
-  /* Sits flush against the badge so the pair reads as one control. */
-  .t-offline-x { border-left: 0; padding: 6px 8px; }
+  .t-nav-link:first-of-type { margin-left: auto; }
+  @media (hover: hover) { .t-nav-link:hover { color: var(--text-dim); } }
+  .t-offline[disabled] { opacity: 0.5; cursor: default; }
+  .t-offline.is-saved { color: var(--accent-bright); }
+  .t-offline-x { padding: 9px 6px; }
   .t-hidden-note {
     display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-    border: 1px solid var(--accent); background: var(--card); padding: 10px 12px; margin: 12px 0;
+    border-left: 2px solid var(--accent); background: transparent; padding: 8px 0 8px 12px; margin: 10px 0;
     font-family: var(--mono); font-size: 12px; color: var(--text-dim); line-height: 1.6;
   }
   .t-hidden-note .btn { margin-left: auto; }
@@ -1583,8 +1593,7 @@
   /* One strip with hairline dividers, rather than three boxes each with its own
      border and padding. Same three facts, roughly half the height, and it reads
      as one row of the page instead of three things stacked on it. */
-  .md-headline { display: flex; flex-wrap: wrap; margin: 8px 0;
-    border: 1px solid var(--border); background: var(--card); }
+  .md-headline { display: flex; flex-wrap: wrap; margin: 8px 0; background: var(--card); }
   .md-stat { flex: 1 1 140px; padding: 7px 12px; min-width: 0; }
   .md-stat + .md-stat { border-left: 1px solid var(--border); }
   .md-stat-label { font-family: var(--mono); font-size: 9px; letter-spacing: 1px;
@@ -1613,9 +1622,11 @@
   /* ── Event-wide match list ── */
   .t-match-row {
     display: grid; grid-template-columns: 108px 1fr 104px 1fr; align-items: center; gap: 10px;
-    background: var(--card); border: 1px solid var(--border); padding: 9px 14px;
+    background: transparent; border-bottom: 1px solid var(--border); padding: 11px 12px;
+    border-left: 2px solid transparent;
   }
-  .t-match-row.upcoming { opacity: 0.55; border-style: dashed; }
+  .t-match-row:last-child { border-bottom: 0; }
+  .t-match-row.upcoming { opacity: 0.5; border-left: 2px dashed var(--border); }
   .t-match-name { font-family: var(--mono); font-size: 11px; color: var(--text-muted); letter-spacing: 0.5px; }
   .t-match-div { font-size: 9px; color: var(--accent-dim); margin-top: 2px; }
   .t-match-side { font-family: var(--mono); font-size: 12px; letter-spacing: 0.5px; }
@@ -1631,7 +1642,7 @@
   .match-team-self { color: var(--accent-bright) !important; font-weight: 700; }
 
   /* ── Event skills standings ── */
-  .t-skills { display: flex; flex-direction: column; gap: 1px; background: var(--border); border: 1px solid var(--border); margin-top: 4px; }
+  .t-skills { display: flex; flex-direction: column; gap: 1px; background: var(--border); margin-top: 4px; }
   .t-skills-head, .t-skills-row {
     display: grid; grid-template-columns: 54px 1fr 88px 88px 88px; align-items: center; gap: 10px;
     background: var(--card); padding: 10px 16px;
@@ -1648,10 +1659,11 @@
   .t-sk-total { font-family: var(--display); font-weight: 700; font-size: 16px; color: var(--accent-bright); }
 
   @media (max-width: 700px) {
-    .t-nav-btn { font-size: 10px; min-width: 62px; padding: 8px 6px; letter-spacing: 0.5px; }
+    .t-nav-btn { font-size: 10px; padding: 9px 9px; letter-spacing: 0.5px; }
     /* Full width on its own row rather than a cramped stub beside the tabs. */
-    .t-nav-link { font-size: 10px; padding: 8px 6px; letter-spacing: 0.5px; flex: 1 0 100%; justify-content: center; }
-    .t-match-row { grid-template-columns: 76px 1fr 76px 1fr; gap: 6px; padding: 8px 10px; }
+    .t-nav-link { font-size: 10px; padding: 9px 6px; letter-spacing: 0.5px; }
+    .t-match-row { grid-template-columns: 96px 1fr 68px 1fr; gap: 6px; padding: 9px 8px; }
+    .t-match-name { font-size: 10px; letter-spacing: 0; }
     .t-match-side { font-size: 10px; }
     .t-match-score { font-size: 13px; }
     .t-skills-head, .t-skills-row { grid-template-columns: 36px 1fr 58px 58px 58px; gap: 6px; padding: 9px 10px; }
@@ -1676,7 +1688,7 @@
   .award-qual-icon { display: inline-block; width: 13px; height: 13px; vertical-align: -2px; margin-right: 5px; color: var(--accent-bright); }
 
   /* ── Tournament awards ── */
-  .t-awards { display: flex; flex-direction: column; gap: 1px; background: var(--border); border: 1px solid var(--border); margin-top: 4px; }
+  .t-awards { display: flex; flex-direction: column; gap: 1px; background: var(--border); margin-top: 4px; }
   .t-award { display: grid; grid-template-columns: 40px 1fr auto; align-items: center; gap: 14px; background: var(--card); padding: 12px 16px; }
   .t-award.qualifies { background: var(--card2); box-shadow: inset 3px 0 0 var(--accent-bright); }
   .t-award-icon { width: 30px; height: 30px; color: var(--accent-bright); }
@@ -2293,43 +2305,24 @@ function vsNavPush(key, label, restore) {
   // Landing where you already are is not a move. Keep the newer closure: it
   // captures the current arguments, which may have grown (an event opened
   // without a SKU and then with one).
-  if (cur && cur.key === key) {
-    cur.restore = restore; cur.label = label;
-    vsUrlSync(key, true);
-    return;
-  }
+  if (cur && cur.key === key) { cur.restore = restore; cur.label = label; return; }
   // Going somewhere new from halfway back drops what was ahead, like a browser.
   vsNav.stack = vsNav.stack.slice(0, vsNav.i + 1);
   vsNav.stack.push({ key, label, restore });
   if (vsNav.stack.length > VS_NAV_MAX) vsNav.stack.shift();
   vsNav.i = vsNav.stack.length - 1;
-  // The very first place is where the page opened. Replacing rather than
-  // pushing keeps the browser's Back button pointed at wherever you came FROM
-  // rather than at a phantom entry for the page you are already looking at.
-  vsUrlSync(key, vsNav.stack.length === 1);
   vsNavRender();
 }
 
-// Replay a place we already hold a closure for. Used by the arrows and by a
-// Back that lands on one of our own entries — re-entering the same function a
-// click does beats rebuilding the state from the address.
-async function vsNavReplay(j) {
+async function vsNavGo(delta) {
+  const j = vsNav.i + delta;
+  if (j < 0 || j >= vsNav.stack.length || vsNav.busy) return;
   vsNav.i = j;
   vsNavRender();          // grey the arrows out before the fetch, not after
   vsNav.busy = true;
   try { await vsNav.stack[j].restore(); }
   catch (e) { vsNote('nav', String((e && e.message) || e)); }
   finally { vsNav.busy = false; vsNavRender(); }
-}
-
-async function vsNavGo(delta) {
-  const j = vsNav.i + delta;
-  if (j < 0 || j >= vsNav.stack.length || vsNav.busy) return;
-  // ONE history, not two. Moving the browser and letting popstate do the work
-  // is the only arrangement in which these arrows and the browser's own Back
-  // button cannot disagree about where you are.
-  if (vsUrlOn()) { history.go(delta); return; }
-  return vsNavReplay(j);
 }
 
 function vsNavRender() {
@@ -2350,137 +2343,6 @@ document.addEventListener('keydown', e => {
   if (!e.altKey || e.ctrlKey || e.metaKey) return;
   if (e.key === 'ArrowLeft') { e.preventDefault(); vsNavGo(-1); }
   else if (e.key === 'ArrowRight') { e.preventDefault(); vsNavGo(1); }
-});
-
-// ── Addresses ──────────────────────────────────────────────────────────────
-//
-// Every place the app can be already had a name: the key vsNavPush() records.
-// `ev:55001:view:matches` is an address in everything but syntax. Writing it
-// into the location bar buys three things at once — a link you can send
-// someone, a refresh that lands where you were instead of at the top, and the
-// browser's own Back button working, because now there is something for it to
-// go back TO.
-//
-// The mapping is deliberately one-to-one with the nav keys rather than a
-// second vocabulary that could drift out of step with them.
-//
-//   tab:tournament         →  #/tournament
-//   search:66449A          →  #/team/66449A
-//   ev:55001:              →  #/event/55001
-//   ev:55001:66449A        →  #/event/55001/team/66449A
-//   ev:55001:view:matches  →  #/event/55001/matches
-//   jumper:55001           →  #/jumper/55001
-//
-// The tab is called Jumper everywhere a person can see it; `rewatch` is an
-// internal name from before it was renamed, and an address is something a
-// person reads.
-const VS_URL_TAB = { scout: 'scout', skills: 'skills', tournament: 'tournament',
-  jumper: 'rewatch', simulator: 'simulator' };
-const VS_TAB_URL = { scout: 'scout', skills: 'skills', tournament: 'tournament',
-  rewatch: 'jumper', simulator: 'simulator' };
-
-function vsUrlOn() {
-  try { return !!(window.history && history.pushState); } catch (e) { return false; }
-}
-
-function vsKeyToRoute(key) {
-  let m;
-  if ((m = /^tab:(.+)$/.exec(key))) return VS_TAB_URL[m[1]] ? '#/' + VS_TAB_URL[m[1]] : null;
-  if ((m = /^search:(.+)$/.exec(key))) return '#/team/' + encodeURIComponent(m[1]);
-  // Before the looser ev: rule below — `view:` is a literal, not a team number.
-  if ((m = /^ev:(\d+):view:(.+)$/.exec(key))) return `#/event/${m[1]}/${encodeURIComponent(m[2])}`;
-  if ((m = /^ev:(\d+):(.*)$/.exec(key))) {
-    return m[2] ? `#/event/${m[1]}/team/${encodeURIComponent(m[2])}` : `#/event/${m[1]}`;
-  }
-  if ((m = /^jumper:(\d+)$/.exec(key))) return `#/jumper/${m[1]}`;
-  return null;   // not addressable — leave the bar alone rather than lie
-}
-
-// The address the page was OPENED at. Read at parse time because the boot
-// steps below rewrite the bar within milliseconds — 'restore tab' switches to
-// whichever tab you last used and 'nav history' records it, and by the time
-// anything could ask, the shared link that brought you here is gone.
-const VS_BOOT_ROUTE = (() => { try { return location.hash || ''; } catch (e) { return ''; } })();
-
-// What the bar currently says, as far as we are concerned. Both directions
-// check it: it stops a push from repeating an address, and it stops popstate
-// from acting on a change we made ourselves.
-let vsUrlAt = null;
-
-function vsUrlSync(key, replace) {
-  if (!vsUrlOn()) return;
-  const route = vsKeyToRoute(key);
-  if (!route || route === vsUrlAt) return;
-  vsUrlAt = route;
-  try {
-    if (replace) history.replaceState({ k: key }, '', route);
-    else history.pushState({ k: key }, '', route);
-  } catch (e) { vsNote('url', String((e && e.message) || e)); }
-}
-
-// An address applied from cold: a pasted link, a refresh, or a Back that has
-// gone further than the closures we are holding. Everything here has to be
-// rebuildable from ids alone, which is why it looks up the event's real name
-// and SKU rather than inventing them — the header would otherwise read
-// "Event 55001" for the rest of the visit.
-async function vsApplyRoute(hash) {
-  const parts = String(hash || '').replace(/^#\/?/, '').split('/')
-    .filter(Boolean).map(x => { try { return decodeURIComponent(x); } catch (e) { return x; } });
-  if (!parts.length) return false;
-  const head = parts[0];
-
-  if (parts.length === 1 && VS_URL_TAB[head]) { switchTab(VS_URL_TAB[head]); return true; }
-
-  if (head === 'team' && parts[1]) {
-    switchTab('tournament');
-    const box = document.getElementById('tournamentInput');
-    if (box) box.value = parts[1];
-    await findTournament();
-    return true;
-  }
-
-  if (head === 'jumper' && parts[1]) {
-    switchTab('rewatch');
-    await rwOpenEventById(parts[1]);
-    return true;
-  }
-
-  if (head === 'event' && parts[1]) {
-    const id = Number(parts[1]);
-    if (!id) return false;
-    switchTab('tournament');
-    // Reset first so the detail lookup below is the memo's copy, not a second
-    // round trip that loadTournamentTeams then throws away.
-    tMemoReset(id);
-    let ev = {};
-    try { ev = (await tEventDetail(id))[0] || {}; } catch (e) {}
-    let focusId = null, focusNum = '';
-    if (parts[2] === 'team' && parts[3]) {
-      focusNum = parts[3].toUpperCase();
-      try { focusId = (await sim_resolveTeamCached(focusNum)).id; }
-      catch (e) { focusNum = ''; }   // a number that no longer resolves opens the event plain
-    }
-    await loadTournamentTeams(id, ev.name || `Event ${id}`, focusId, focusNum, ev.sku || null);
-    // A named view within the event, once the event itself is up.
-    if (parts[2] && parts[2] !== 'team' && T_VIEW_LABELS[parts[2]]) await tournamentGo(parts[2]);
-    return true;
-  }
-  return false;
-}
-
-// The browser moved. If it landed on one of our own entries, replay the
-// closure — it restores more faithfully than an address can. Otherwise this is
-// a link from outside our stack, so rebuild it from the address.
-window.addEventListener('popstate', () => {
-  const route = location.hash || '';
-  if (!route || route === vsUrlAt) return;
-  vsUrlAt = route;
-  const j = vsNav.stack.findIndex(e => vsKeyToRoute(e.key) === route);
-  if (j >= 0) { vsNavReplay(j); return; }
-  // Not ours: let vsApplyRoute record its own place on the way through. It
-  // cannot double-push, because vsUrlSync sees the address already matches.
-  Promise.resolve(vsApplyRoute(route))
-    .catch(e => vsNote('nav', String((e && e.message) || e)));
 });
 
 // ── Text from the API is not markup ────────────────────────────────────────
@@ -2771,7 +2633,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v59';
+const APP_BUILD = 'v60';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -3735,28 +3597,6 @@ async function jumpToMatch(eventId, eventName, matchId, teamNumber) {
 
 // Watch a whole event, no team required. Everything downstream is shared with
 // the team-first path; the only difference is that no match gets filtered out.
-// The Jumper, opened by event id rather than by typing its name. An address
-// carries the id; rewatchSelectEvent() needs ctx.events to already hold the
-// event, because that is where it reads the name and SKU from.
-async function rwOpenEventById(eventId) {
-  const id = Number(eventId);
-  if (!id) return false;
-  const ev = (await tEventDetail(id))[0];
-  if (!ev) throw new Error(`Event ${eventId} not found.`);
-  const keep = window._rwCtx;
-  // Keep a team context that already covers this event — arriving by address
-  // should not throw away the team filter you had.
-  if (!(keep && keep.events && keep.events.some(e => String(e.id) === String(id)))) {
-    window._rwCtx = {
-      team: null,
-      events: [{ id: ev.id, name: ev.name, sku: ev.sku, start: ev.start, location: ev.location }],
-      eventId: null, matches: [], videoId: null, cal: {}, calDay: null
-    };
-  }
-  await rewatchSelectEvent(id);
-  return true;
-}
-
 async function rewatchLoadEvent() {
   const input = (document.getElementById('rwEventInput').value || '').trim();
   if (!input) { showError('⚠ Enter an event name or SKU.'); return; }
@@ -5403,10 +5243,6 @@ window.onload = () => {
   bootStep('theme', () => applyTheme(lsGet('vex_theme') || 'dark-grey'));
   // Restore last viewed tab
   bootStep('restore tab', () => {
-    // An address in the bar is an explicit request and outranks the tab you
-    // happened to be on last time; opening a shared link on the Simulator tab
-    // for a quarter of a second and then moving is worse than not doing it.
-    if (VS_BOOT_ROUTE) return;
     const savedTab = lsGet('vex_active_tab');
     if (savedTab && ['scout','skills','tournament','rewatch','simulator'].includes(savedTab)) {
       switchTab(savedTab);
@@ -5421,20 +5257,6 @@ window.onload = () => {
     vsNavPush('tab:' + tab, TAB_LABELS[tab] || tab,
       () => { switchTab(tab); clearTabPanel(tab); });   // it was empty at load
     vsNavRender();
-  });
-
-  // An address in the bar: a link someone sent, or a refresh of wherever you
-  // were. Applied AFTER the entry above, so going back from a shared link
-  // lands on the tab rather than off the site.
-  bootStep('open the address', () => {
-    const route = VS_BOOT_ROUTE;
-    if (!route) return;
-    // The route is about to be pushed by whatever it opens; recording it here
-    // would make vsUrlSync think there was nothing to do.
-    vsUrlAt = null;
-    Promise.resolve(vsApplyRoute(route)).then(applied => {
-      if (!applied) vsNote('url', 'address not understood: ' + route);
-    }).catch(e => vsNote('url', String((e && e.message) || e)));
   });
 
   // Position tab indicator after layout settles

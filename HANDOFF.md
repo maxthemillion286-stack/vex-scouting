@@ -659,42 +659,6 @@ lives in `CACHE_NAME` and is never trimmed.
 
 ---
 
-### Addresses
-
-Every place the app can be already had a name — the key `vsNavPush()` records —
-so the location bar now carries it. The mapping is deliberately one-to-one with
-those keys rather than a second vocabulary that could drift:
-
-```
-tab:tournament         →  #/tournament
-search:66449A          →  #/team/66449A
-ev:55001:              →  #/event/55001
-ev:55001:66449A        →  #/event/55001/team/66449A
-ev:55001:view:matches  →  #/event/55001/matches
-jumper:55001           →  #/jumper/55001
-```
-
-A key with no address returns `null` and the bar is left alone, rather than
-showing something that would not reopen.
-
-**There is one history, not two.** The arrows call `history.go()` and let
-`popstate` do the work; if the address is one we still hold a closure for, that
-closure is replayed (it restores more faithfully than ids can), otherwise
-`vsApplyRoute` rebuilds it from the address. Any other arrangement lets the
-arrows and the browser's own Back button disagree about where you are.
-
-`VS_BOOT_ROUTE` is read **at parse time**. The boot steps rewrite the bar within
-milliseconds — `restore tab` switches to whichever tab you used last and `nav
-history` records it — so by the time `window.onload` runs, the link that brought
-you here is gone. For the same reason a route in the bar skips `restore tab`
-entirely: a shared link is explicit and outranks a preference.
-
-`vsApplyRoute` has to work from ids alone, which is why it looks the event up
-rather than inventing a name — the header would otherwise read "Event 55001" for
-the rest of the visit.
-
----
-
 ### Saved for offline
 
 The service worker caches API answers, but only ones you happened to open, and
@@ -744,6 +708,49 @@ offers a button rather than autoplaying — arriving to a video you did not ask
 for is worse than one click — and the offer is only made if that match is
 **still** playable, so a cleared calibration cannot leave a dead link on screen.
 Both lists are bounded (400 matches, 40 events) against the localStorage quota.
+
+---
+
+### Chrome, and how little of it there should be
+
+v60 took a pass at the look. The rule it followed, if more is added: **a border
+has to earn its place.** Almost everything here had one, so boxes sat inside
+boxes inside boxes and nothing on the page looked more important than anything
+else.
+
+What replaced them:
+
+* **Lists are lists.** `.match-row` and `.t-match-row` are a bottom hairline and
+  nothing else — fifteen outlined rectangles is a wall, not a schedule. The
+  win/loss stripe on the left stays, because that one carries information.
+* **Panels keep their surface and lose their outline.** `.detail-block`,
+  `.rw-block`, `.sched-summary`, `.md-headline` are a background and padding.
+* **Lists that draw hairlines between their rows no longer also draw a frame
+  around the set** (`.t-skills`, `.t-awards`, `.tournament-list`).
+* **The event sub-nav speaks the same language as the tab strip above it** — an
+  underline for the active view, no tray, no filled block. On a phone it scrolls
+  sideways as one strip instead of wrapping into three full-width blocks before
+  you can see a single match.
+* **A solid near-white button is the loudest thing a dark page can contain.**
+  `.btn-primary` is a quiet fill with a hairline of accent, and fills only on
+  hover. Tracking came down from 3px to 1.5px everywhere.
+* **Hints are text.** `.info-bar` and `.t-hidden-note` lost their panels; the
+  latter keeps a 2px rule down its left side.
+
+Two traps, both hit while doing this:
+
+* **`box-shadow` glow reads as a box.** The tab indicator was a 2px line with an
+  8px glow, which at the width of a tab looks exactly like a faint filled
+  rectangle behind the label. Removed.
+* **t85's hover guard is line-based.** Every `:hover` rule must have
+  `@media (hover: hover)` on the same physical line — the file's existing
+  one-line form. A correctly wrapped multi-line rule still fails it.
+
+Screenshots are how this was checked, not guesswork: Chromium is preinstalled at
+`/opt/pw-browsers/chromium-1194/chrome-linux/chrome` and `tests/harness.mjs`
+exports `makeRouter`, so a throwaway script can serve `index.html` with the
+fixtures behind `/api/proxy` and photograph any view at any width. Check a light
+theme as well as a dark one; there are seven of each.
 
 ---
 

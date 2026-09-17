@@ -1,8 +1,9 @@
 # Features worth building next
 
-Written at v58, after an optimise-and-audit pass. **3, 5 and 11 were built in
-v59** — they are struck through below, with what shipped, because the reasoning
-that justified them is also the reasoning for the ones still open. Ordered by how much each one
+Written at v58, after an optimise-and-audit pass. **5 and 11 were built in v59**
+and are struck through below. **3 was built in v59 and removed in v60** — what
+it did and what it cost to work out is kept with it, in case it is ever wanted
+again. Ordered by how much each one
 would change a Saturday at an event, not by how hard it is. Everything here is
 costed against what already exists — most of them are re-using a number the app
 already computes.
@@ -36,7 +37,7 @@ Jumper's `idbSet`/`idbGet` already exist), shown on the team card and in the
 pick list, and exported as text so you can hand it to a partner. Notes should
 survive a season and show up the next time you meet that team.
 
-## ~~3. Real URLs~~ — built in v59
+## 3. Real URLs — built in v59, removed in v60
 
 The app is one page with no addresses. That is why `vsNav` had to be built by
 hand, and why you cannot send someone "look at 66449A at this event".
@@ -46,10 +47,24 @@ browser Back and Forward for free, and a refresh that lands where you were
 instead of at the top. `vsNav`'s restore closures are most of the work already
 done; this turns them into something the URL bar can express.
 
-**Shipped.** `#/event/55001/team/66449A` and friends, one-to-one with the nav
-keys. The arrows drive `history.go()` so there is one history rather than two,
-and a pasted link opens cold — looking the event up so the header carries its
-real name. See HANDOFF § "Addresses".
+**Built and then taken out again.** v59 put `#/event/55001/team/66449A` in the
+bar, one-to-one with the nav keys, with the arrows driving `history.go()` so
+there was one history rather than two, and pasted links opening cold. It worked
+— t92 drove all of it — and it was removed in v60 because it was not wanted.
+
+If it comes back, the two things that cost the most time to work out are worth
+knowing:
+
+* The opening address must be read **at parse time**. The boot steps rewrite the
+  bar within milliseconds — `restore tab` switches to whichever tab you used
+  last and `nav history` records it — so by `window.onload` the link that
+  brought you here is gone.
+* Drive the browser's history rather than keeping a second stack beside it.
+  `vsNav` already holds restore closures; let the arrows call `history.go()` and
+  have `popstate` replay the matching closure. Any other arrangement lets the
+  arrows and the browser's own Back button disagree about where you are.
+
+The code is in the v59 commit if it is ever wanted again.
 
 ## 4. Compare teams side by side
 

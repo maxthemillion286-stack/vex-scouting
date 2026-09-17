@@ -1,8 +1,11 @@
-// t92 — addresses, events kept for offline, and moving between matches.
+// t92 — events kept for offline, and moving between matches.
 //
-// Three features from IDEAS.md, built together because each is about the app
-// remembering something across a boundary it used to forget at: the location
-// bar, a dead network, and closing the tab.
+// Two features from IDEAS.md (5 and 11). Both are about the app remembering
+// something across a boundary it used to forget at: a dead network, and
+// closing the tab.
+//
+// A third, addresses in the location bar, was built here in v59 and removed
+// again in v60 — see IDEAS.md § 3 for what it did and why it went.
 import fs from 'fs';
 import { boot, settle, html, newIdb } from './harness.mjs';
 let pass = 0, fail = 0;
@@ -10,75 +13,9 @@ const ok = (n, c, e) => { c ? (pass++, console.log('  ok   ' + n)) : (fail++, co
 const idx = fs.readFileSync('../index.html', 'utf8');
 const src = idx.match(/<script(?![^>]*src=)[^>]*>([\s\S]*?)<\/script>/)[1];
 
-console.log('t92 — addresses, offline, and stepping through matches');
+console.log('t92 — offline, and stepping through matches');
 
-// ══ 1. Addresses ══════════════════════════════════════════════════════════
-console.log('\n· the location bar');
-
-ok('the route is derived from the nav key, not a second vocabulary',
-  /function vsKeyToRoute\(key\)/.test(src),
-  'two lists of place names would drift apart');
-ok('the view rule is tested before the looser event rule',
-  src.indexOf("^ev:(\\d+):view:") < src.indexOf("^ev:(\\d+):(.*)$"),
-  '`view` would otherwise be read as a team number');
-ok('a key with no address leaves the bar alone rather than lying',
-  /return null;   \/\/ not addressable/.test(src));
-ok('the opening address is read at parse time',
-  /const VS_BOOT_ROUTE = \(\(\) => \{ try \{ return location\.hash/.test(src),
-  'the boot steps rewrite the bar within milliseconds');
-ok('a shared link outranks the tab you were last on',
-  /if \(VS_BOOT_ROUTE\) return;[\s\S]{0,160}lsGet\('vex_active_tab'\)/.test(src));
-ok('the first place replaces rather than pushes',
-  /vsUrlSync\(key, vsNav\.stack\.length === 1\)/.test(src),
-  'otherwise Back lands on a phantom entry for the page you are looking at');
-ok('the arrows move the browser instead of keeping a second history',
-  /if \(vsUrlOn\(\)\) \{ history\.go\(delta\); return; \}/.test(src));
-ok('popstate prefers the closure it already holds',
-  /const j = vsNav\.stack\.findIndex\(e => vsKeyToRoute\(e\.key\) === route\);[\s\S]{0,80}vsNavReplay\(j\)/.test(src));
-
-{
-  const { win, errors, stop } = await boot();
-  const H = () => win.location.hash;
-  win.switchTab('tournament'); await settle(win, 120);
-  ok('a tab writes its address', H() === '#/tournament', H());
-  await win.loadTournamentTeams(55001, 'Bots @ Bristol', null, '', 'RE-V5RC-25-0191');
-  await settle(win, 400);
-  ok('an event writes its address', H() === '#/event/55001', H());
-  await win.tournamentGo('matches'); await settle(win, 400);
-  ok('so does a view inside it', H() === '#/event/55001/matches', H());
-
-  win.history.back(); await settle(win, 500);
-  ok('the browser Back button walks it', H() === '#/event/55001', H());
-  win.history.back(); await settle(win, 500);
-  ok('...all the way out of the event', H() === '#/tournament', H());
-  ok('and the app actually followed', win.document.getElementById('tab-tournament').classList.contains('active'));
-  win.history.forward(); await settle(win, 500);
-  ok('forward works too', H() === '#/event/55001', H());
-  ok('nothing threw', errors.length === 0, errors.join('\n'));
-  stop();
-}
-
-// A link someone sent you, opened cold.
-for (const [hash, tab, panel, mustSay] of [
-  ['#/event/55001/matches',      'tab-tournament', 'tournamentResults', /Qualification/],
-  ['#/event/55001/team/66449A',  'tab-tournament', 'tournamentResults', /66449A/],
-  ['#/team/66449A',              'tab-tournament', 'tournamentResults', /EVENT/i],
-  ['#/skills',                   'tab-skills',     null,                null],
-  ['#/jumper/55001',             'tab-rewatch',    'rwResults',         /rw-/]
-]) {
-  const { win, errors, stop } = await boot({ hash });
-  await settle(win, 900);
-  const onTab = win.document.getElementById(tab).classList.contains('active');
-  const body = panel ? html(win, panel) : '';
-  ok(`${hash} opens on the right tab`, onTab,
-    [...win.document.querySelectorAll('.tab-panel.active')].map(p => p.id).join(','));
-  if (panel) ok(`${hash} actually renders`, mustSay.test(body), body.slice(0, 120));
-  ok(`${hash} survives in the bar`, win.location.hash === hash, win.location.hash);
-  ok(`${hash} threw nothing`, errors.length === 0, errors.join('\n'));
-  stop();
-}
-
-// ══ 2. Saved for offline ══════════════════════════════════════════════════
+// ══ 1. Saved for offline ══════════════════════════════════════════════════
 console.log('\n· an event kept on the device');
 
 ok('the save reuses the app\'s own calls',
@@ -151,7 +88,7 @@ ok('the debug panel reports what came from a saved copy',
   }
 }
 
-// ══ 3. Stepping through matches ═══════════════════════════════════════════
+// ══ 2. Stepping through matches ═══════════════════════════════════════════
 console.log('\n· the Jumper, match to match');
 
 ok('the order is the screen\'s order',
