@@ -151,24 +151,28 @@ console.log('\n· tabular figures');
     'a colour override is not where type belongs');
 }
 
-// ══ 8. MULTI SCOUT ═════════════════════════════════════════════════════════
+// ══ 8. What the schedule view does NOT carry ═══════════════════════════════
 //
-// The Scout tab renders comparison cards for two or more numbers and the full
-// single profile for one. The schedule view handed it ONE number, so it
-// produced exactly what the SCOUT button beside it produced — pressing it
-// looked like pressing nothing.
-console.log('\n· MULTI SCOUT on a schedule');
-ok('it refuses to be a second SCOUT button',
-  /if \(list\.size < 2\) \{[\s\S]{0,300}return;/.test(src),
-  'one number is the single-team profile, which is the other button');
-ok('...and says what it needs instead of failing silently',
-  /Multi Scout compares two or more teams/.test(src));
-ok('a schedule can name the teams worth comparing',
-  /function tScheduleTeamNumbers\(myMatches, selfNumber\)/.test(src));
-ok('...from both sides of every match',
-  /\[\.\.\.\(m\.myNums \|\| \[\]\), \.\.\.\(m\.oppNums \|\| \[\]\)\]/.test(src));
-ok('...and never lists the team itself twice',
-  /if \(u && u !== self\) out\.add\(u\);/.test(src));
+// MULTI SCOUT was on the schedule view's header. v62 made it compare the team
+// against everyone it plays; v64 removed it outright — comparing several teams
+// belongs on the TEAMS view, where MULTI-SELECT picks them and SCOUT ALL sends
+// them, and two routes to the same screen from two different places is one
+// route too many.
+//
+// Schedule favourability went at the same time: a derived number printed under
+// a card that already said the rank, the record and how far the team got.
+console.log('\n· what the schedule view no longer carries');
+ok('the MULTI SCOUT button is gone', !/>\s*MULTI SCOUT/.test(idx),
+  'the words survive in a comment explaining the removal; a rendered label must not');
+ok('...and so is the function it was the only caller of',
+  !/multiScoutFromTournament/.test(src));
+ok('...and the helper that fed it', !/tScheduleTeamNumbers/.test(src));
+ok('schedule favourability is gone', !/favorTag|favorDetail|SCHEDULE FAVORABILITY/.test(idx));
+ok('...including the stylesheet rules only it used',
+  !/ss-strength|ss-solo/.test(css));
+ok('comparing teams still has a home on the TEAMS view',
+  /function scoutTournamentTeams\(commaList, grade\)/.test(src) &&
+  /SCOUT ALL \$\{teams\.length\}/.test(src));
 
 {
   const { win, errors, stop } = await boot();
@@ -176,32 +180,14 @@ ok('...and never lists the team itself twice',
   await win.loadTournamentTeams(55001, 'Bots @ Bristol', 9001, '66449A', 'RE-V5RC-25-0191');
   await settle(win, 700);
   const h = html(win, 'tournamentResults');
-  const btn = [...win.document.querySelectorAll('#tournamentResults button')]
-    .find(b => /MULTI SCOUT/.test(b.textContent));
-  ok('the button says how many it will compare', !!btn && /MULTI SCOUT \d+/.test(btn.textContent),
-    btn ? btn.textContent.trim() : 'no button');
-  ok('...and that is more than one', !!btn && Number(btn.textContent.match(/(\d+)/)[1]) > 1,
-    btn ? btn.textContent.trim() : '');
-
-  btn.click();
-  await settle(win, 2200);
-  ok('pressing it lands on the Scout tab',
-    win.document.getElementById('tab-scout').classList.contains('active'));
-  const val = win.document.getElementById('detailTeamInput').value;
-  ok('the focused team is in the list', /66449A/.test(val), val);
-  ok('so are the teams it plays', val.split(/,\s*/).length > 1, val);
-  const d = html(win, 'detailResults');
-  ok('and it draws a card per team, not one profile',
-    (d.match(/class="team-card/g) || []).length > 1,
-    (d.match(/class="team-card/g) || []).length + ' cards');
-
-  // The guard, driven.
-  win.switchTab('tournament'); await settle(win, 250);
-  win.multiScoutFromTournament('66449A');
-  await settle(win, 350);
-  ok('a lone team does not silently re-run the single profile',
-    win.document.getElementById('tab-tournament').classList.contains('active'),
-    'it should stay put and explain');
+  const labels = [...win.document.querySelectorAll('#tournamentResults button')]
+    .map(b => b.textContent.trim());
+  ok('the schedule header offers SCOUT and REFRESH, nothing else',
+    labels.some(l => /^SCOUT 66449A$/.test(l)) && !labels.some(l => /MULTI/.test(l)),
+    labels.filter(l => l.length < 24).join(' | '));
+  ok('no favourability line is rendered', !/FAVORABILITY/i.test(h));
+  ok('the headline card still carries rank, record and best result',
+    /md-headline/.test(h) && /Qualification record/i.test(h));
   ok('nothing threw', errors.length === 0, errors.join('\n'));
   stop();
 }
