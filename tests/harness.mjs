@@ -11,6 +11,12 @@
 // outside world (fetch → /api/proxy), and drive the real handlers.
 import fs from 'fs';
 import { JSDOM, VirtualConsole } from 'jsdom';
+// jsdom has no IndexedDB, and the app keeps two things there that matter to
+// these tests: the season skills standings, and an event saved for offline.
+// Without this the store silently answers null for everything and a test that
+// thinks it is exercising the fallback is exercising nothing.
+import { indexedDB as fakeIDB, IDBKeyRange as fakeRange } from 'fake-indexeddb';
+import FDBFactory from 'fake-indexeddb/lib/FDBFactory';
 
 export const FIXTURES = {
   // A two-day, two-division event with both grades present — the shape that
@@ -163,10 +169,15 @@ export async function boot(opts = {}) {
 
   const dom = new JSDOM(html, {
     runScripts: 'dangerously',
-    url: 'https://vexscout.test/',
+    url: 'https://vexscout.test/' + (opts.hash || ''),
     pretendToBeVisual: true,
     virtualConsole: vc,
     beforeParse(win) {
+      // A fresh factory per window unless the caller passes one in, so two
+      // boots do not see each other's data — except when a test deliberately
+      // reuses one to stand in for coming back to the site tomorrow.
+      win.indexedDB = opts.idb || new FDBFactory();
+      win.IDBKeyRange = fakeRange;
       win.fetch = async (url) => {
         const r = await router(String(url));
         const text = typeof r.body === 'string' ? r.body : JSON.stringify(r.body);
@@ -188,6 +199,22 @@ export async function boot(opts = {}) {
         Object.defineProperty(win, 'localStorage', {
           configurable: true,
           get: () => ({ getItem: boom, setItem: boom, removeItem: boom, key: boom, get length() { return boom(); } })
+        });
+      } else if (opts.store) {
+        // A real device keeps localStorage between visits; a fresh jsdom does
+        // not. Pass a plain object in to stand in for the same phone opened
+        // again tomorrow.
+        const m = opts.store;
+        Object.defineProperty(win, 'localStorage', {
+          configurable: true,
+          get: () => ({
+            getItem: k => (k in m ? m[k] : null),
+            setItem: (k, v) => { m[k] = String(v); },
+            removeItem: k => { delete m[k]; },
+            clear: () => { for (const k of Object.keys(m)) delete m[k]; },
+            key: i => Object.keys(m)[i] ?? null,
+            get length() { return Object.keys(m).length; }
+          })
         });
       }
       win.matchMedia = win.matchMedia || (() => ({ matches: false, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {} }));
@@ -243,3 +270,7 @@ export async function pickGrade(win, label) {
 
 export const text = (win, id) => (win.document.getElementById(id)?.textContent || '').replace(/\s+/g, ' ').trim();
 export const html = (win, id) => win.document.getElementById(id)?.innerHTML || '';
+
+// One store shared by several boots — what "I saved it on Thursday and opened
+// it on Saturday" looks like from a test.
+export const newIdb = () => new FDBFactory();

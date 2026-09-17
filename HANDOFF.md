@@ -659,6 +659,94 @@ lives in `CACHE_NAME` and is never trimmed.
 
 ---
 
+### Addresses
+
+Every place the app can be already had a name — the key `vsNavPush()` records —
+so the location bar now carries it. The mapping is deliberately one-to-one with
+those keys rather than a second vocabulary that could drift:
+
+```
+tab:tournament         →  #/tournament
+search:66449A          →  #/team/66449A
+ev:55001:              →  #/event/55001
+ev:55001:66449A        →  #/event/55001/team/66449A
+ev:55001:view:matches  →  #/event/55001/matches
+jumper:55001           →  #/jumper/55001
+```
+
+A key with no address returns `null` and the bar is left alone, rather than
+showing something that would not reopen.
+
+**There is one history, not two.** The arrows call `history.go()` and let
+`popstate` do the work; if the address is one we still hold a closure for, that
+closure is replayed (it restores more faithfully than ids can), otherwise
+`vsApplyRoute` rebuilds it from the address. Any other arrangement lets the
+arrows and the browser's own Back button disagree about where you are.
+
+`VS_BOOT_ROUTE` is read **at parse time**. The boot steps rewrite the bar within
+milliseconds — `restore tab` switches to whichever tab you used last and `nav
+history` records it — so by the time `window.onload` runs, the link that brought
+you here is gone. For the same reason a route in the bar skips `restore tab`
+entirely: a shared link is explicit and outranks a preference.
+
+`vsApplyRoute` has to work from ids alone, which is why it looks the event up
+rather than inventing a name — the header would otherwise read "Event 55001" for
+the rest of the visit.
+
+---
+
+### Saved for offline
+
+The service worker caches API answers, but only ones you happened to open, and
+it trims oldest-first when it fills. Neither helps in a gym with no signal, where
+what you want is the schedule you deliberately kept before you left.
+
+So a save runs **the same calls the app makes** and stores each page body under
+the exact path that produced it; `apiGet`'s fallback looks that path up when the
+network fails. There is deliberately **no list of endpoints** to keep in step
+with the views — whatever they ask for is what was saved. A new view needs
+nothing added here.
+
+Kept in IndexedDB, not the service worker's cache, because that one is capped
+and evicts oldest-first: an event saved on Thursday should still be there on
+Saturday.
+
+Two things that are easy to get wrong:
+
+* **Do not sit through the backoff.** The five-attempt retry is for a connection
+  that is struggling. With a saved copy in hand it is thirty-one seconds of
+  spinner to reach an answer we already have, so `fetchPage` asks **once** when
+  a saved copy exists.
+* **Do not read localStorage per request.** `vsOfflineAny()` caches whether
+  anything is saved at all, so a device that has never used the feature does no
+  extra work. Invalidate it in `vsOfflineNote`.
+
+One known edge, left deliberately: a paginated endpoint is saved page by page,
+and `apiGet` still fails the whole call if any page is missing. That can only
+happen if the data grew between the save and the use — a roster that gained a
+page — and in that case the stored copy was incomplete anyway. Making the later
+pages optional would silently drop teams **online** too, which is worse.
+
+`?debug=1` reports `offlineHits` and which events are kept.
+
+---
+
+### The Jumper, match to match
+
+`rwPlayOrder()` returns the matches that can actually be opened, **in the
+screen's order** — day, then round, then position. Any other sequence makes
+"next" point somewhere the page never showed you. Matches on an unsynced day
+have no position and are left out, or stepping onto one would leave the player
+showing nothing.
+
+`vex_rw_seen` keeps, per event, the ids you opened and the last one. Coming back
+offers a button rather than autoplaying — arriving to a video you did not ask
+for is worse than one click — and the offer is only made if that match is
+**still** playable, so a cleared calibration cannot leave a dead link on screen.
+Both lists are bounded (400 matches, 40 events) against the localStorage quota.
+
+---
+
 ## 8. Versioning — please keep this up
 
 `index.html` (`APP_BUILD`), `api/proxy.js` (`PROXY_BUILD`) and `sw.js`
