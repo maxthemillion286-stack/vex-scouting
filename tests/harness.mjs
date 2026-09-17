@@ -169,7 +169,7 @@ export async function boot(opts = {}) {
 
   const dom = new JSDOM(html, {
     runScripts: 'dangerously',
-    url: 'https://vexscout.test/' + (opts.hash || ''),
+    url: 'https://vexscout.test/',
     pretendToBeVisual: true,
     virtualConsole: vc,
     beforeParse(win) {

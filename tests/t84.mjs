@@ -138,8 +138,19 @@ ok('a real sku passes through untouched', attr('RE-V5RC-25-0191') === 'RE-V5RC-2
 // ── 7. It is styled as a way OUT, not another view ──
 ok('it has its own class', /\.t-nav-link \{/.test(idx));
 ok('it does not stretch like the tabs', /\.t-nav-link \{[\s\S]{0,120}flex: 0 0 auto;/.test(idx));
-ok('it gets its own row on a phone',
-  /\.t-nav-link \{[^}]*flex: 1 0 100%;/.test(idx), 'a cramped stub beside five tabs is unreadable');
+// It used to take a whole row to itself on a phone, so it would not be a
+// cramped stub beside five tabs. v59 added a second link and v60 made the whole
+// strip scroll sideways, so two full-width blocks no longer sit between you and
+// the first match. Same concern, different answer: nothing is cramped because
+// nothing is squeezed — the strip is wider than the screen and moves.
+ok('the strip scrolls rather than squeezing what is on it',
+  /\.t-nav \{[^}]*overflow-x: auto;/.test(idx), 'a cramped stub beside five tabs is unreadable');
+ok('...with no scrollbar drawn over it',
+  /\.t-nav \{[^}]*scrollbar-width: none;/.test(idx) && /\.t-nav::-webkit-scrollbar \{ display: none; \}/.test(idx));
+ok('...and the links stay at the end of it, pushed there rather than stretched',
+  /\.t-nav-link:first-of-type \{ margin-left: auto; \}/.test(idx));
+ok('it is never given a width to shrink into',
+  !/\.t-nav-link \{[^}]*flex: 1/.test(idx), 'flex:1 is what made it a stub in the first place');
 ok('it has a hover state like everything else', /\.t-nav-link:hover/.test(idx));
 
 console.log(`\nt84: ${pass} passed, ${fail} failed`);
