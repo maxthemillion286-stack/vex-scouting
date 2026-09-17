@@ -122,13 +122,19 @@ function matchesFor(divId, evId) {
   for (let d = 0; d < days.length; d++) {
     for (let n = 1; n <= 3; n++) {
       const t = `${days[d]}T${String(10 + n).padStart(2, '0')}:00:00-05:00`;
+      const mnum = n + d * 3;
       // An event that has not happened yet has a schedule and no scores.
+      // playedThrough is the middle case, and the only one a prediction can be
+      // made in: enough matches played to rate the teams, and some left to
+      // predict. A wholly unplayed event rates nobody.
+      const done = !FIXTURES.unplayed &&
+        (FIXTURES.playedThrough === undefined || mnum <= FIXTURES.playedThrough);
       out.push({
-        id: ++id, name: `Qualification ${n + d * 3}`, matchnum: n + d * 3, round: 2,
-        started: FIXTURES.unplayed ? null : t, scheduled: t, event: { id: eventId },
+        id: ++id, name: `Qualification ${mnum}`, matchnum: mnum, round: 2,
+        started: done ? t : null, scheduled: t, event: { id: eventId },
         alliances: divId === 1 ? [
-          { color: 'red', score: FIXTURES.unplayed ? 0 : 100 + n, teams: [{ team: { id: 9001, name: '66449A' } }, { team: { id: 9002, name: '1234X' } }] },
-          { color: 'blue', score: FIXTURES.unplayed ? 0 : 90 + n, teams: [{ team: { id: 9003, name: '12345B' } }, { team: { id: 9004, name: '777Z' } }] }
+          { color: 'red', score: done ? 100 + n : 0, teams: [{ team: { id: 9001, name: '66449A' } }, { team: { id: 9002, name: '1234X' } }] },
+          { color: 'blue', score: done ? 90 + n : 0, teams: [{ team: { id: 9003, name: '12345B' } }, { team: { id: 9004, name: '777Z' } }] }
         ] : [
           // Division 2 is other teams. A team plays in one division, so
           // returning the same roster from both gave every match twice.
@@ -140,7 +146,9 @@ function matchesFor(divId, evId) {
   }
   // A short elimination run, so "best result" has something to describe.
   // Division 1 only, for the same reason the quals are.
-  if (!B && divId === 1 && !FIXTURES.unplayed) {
+  // playedThrough means the event is mid-qualification, so eliminations have
+  // not happened — which is the state the projected bracket exists for.
+  if (!B && divId === 1 && !FIXTURES.unplayed && FIXTURES.playedThrough === undefined) {
     const el = (name, num, mine, theirs, hour) => ({
       id: ++id, name, matchnum: num, round: 5,
       started: `${days[days.length - 1]}T${String(hour).padStart(2, '0')}:00:00-05:00`,

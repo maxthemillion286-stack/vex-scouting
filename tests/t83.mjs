@@ -83,11 +83,16 @@ ok('a step that throws does not stop the ones after it',
 // ── 4. Every tournament sub-view keeps the nav ──
 // The bracket was the one that did not, so opening it meant searching the
 // event again to get anywhere else.
-for (const v of ['teams', 'matches', 'skills', 'awards', 'bracket', 'team']) {
+for (const v of ['teams', 'matches', 'skills', 'awards', 'bracket', 'picklist', 'team']) {
   ok(`the ${v} view renders the nav`, new RegExp("tournamentNav\\('" + v + "'\\)").test(src));
 }
+// The no-elims path used to say "Elimination bracket not available" and stop.
+// v66 projects the bracket from the seeds instead, so the marker moved — the
+// thing being checked is still that this path keeps the nav.
 ok('the bracket renders it on the empty path too — the case most likely to be hit',
-  /tournamentNav\('bracket'\)[\s\S]{0,200}Elimination bracket not available/.test(src));
+  /if \(totalElims === 0\) \{[\s\S]{0,1600}tournamentNav\('bracket'\)/.test(src));
+ok('...and that path projects a bracket rather than dead-ending',
+  /Eliminations have not started — projected from the seeds/.test(src));
 ok('the bracket marks itself as the current view like its siblings',
   /async function renderBracketView\(\) \{\s*\n\s*tournamentView = 'bracket';/.test(src));
 

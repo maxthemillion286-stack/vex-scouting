@@ -802,6 +802,69 @@ theme as well as a dark one; there are seven of each.
 
 ---
 
+### The Simulator moved into the event (v66)
+
+The Simulator asked for four team numbers, two opponents and a candidate list
+before it would tell you anything — while the Tournament tab, one tab over,
+already had the roster, the seeds, the whole schedule and the event's True Skill
+ratings loaded for its own rank card. The tools moved to where the data is:
+
+| was | is |
+|---|---|
+| Simulator ▸ Match | every unplayed match, everywhere, behind one toggle |
+| Simulator ▸ Pick List | `TOURNAMENT ▸ PICK LIST`, run automatically |
+| Simulator ▸ Bracket Odds | `TOURNAMENT ▸ BRACKET`, projected before elims start |
+| Simulator ▸ Event Scout | the whole Simulator tab |
+| typing four teams in | `PICK LIST ▸ mode: Manual match`, behind the switch |
+
+**One prediction layer.** `tRatings()` fetches the open event's ratings;
+`tPredict(R, red, blue, seed)` gives red's chance or `null` when fewer than two
+of the six teams have played. `tPredClass()` picks the band so the same three
+colours mean the same thing in every view. The toggle is `tShowPred`, rendered
+by `tPredButton()` **into the nav strip** rather than one view's header, because
+it governs all of them, and it re-renders whatever is open.
+
+Building the ratings walks every match at the event, so the match list only does
+it when the toggle is actually on.
+
+**Two traps, both hit here.**
+
+`R.ratings` is a Map keyed by **string** team ids — that is how they arrive from
+the API — while `tournamentTeamCache` holds **numbers**. `Map.get` is
+type-strict, so mixing them returns `undefined`, which reads as a rating of zero
+and makes every alliance come out with an identical win probability. Everything
+goes through `tRatingOf(R, id)` and `tIds(list)` now; t94 fails if the numbers
+stop differing from each other.
+
+`sim_seedOrder(n)` returns **zero-based** indices (`[0, 3, 1, 2]` for four), so
+treating them as seed numbers and subtracting one walks off the front of the
+array and silently drops the first pairing. The seed *label* is the index plus
+one.
+
+**Alliance projection** is how selection actually runs: captains are the highest
+seeds not yet on an alliance, and each takes the strongest team still available.
+`tProjectAlliances()` does that, `tModelledAlliances()` shapes it for
+`sim_bracket()`, and the pick list and the bracket share both.
+
+Deleted with the old UI, and confirmed unreferenced: `runSimulation`,
+`runPickList`, `pickLoadAndRank`, `runBracket`, `bracketLoadEvent`,
+`bracketReadInput`, `bracketBuildInput`, `bracketClear`, `clearSimulation`,
+`simMode`, `sim_render`, `sim_runMonteCarlo`, and the `.sim-subnav` rules. The
+maths the new views need — `sim_buildRatingsFromEvent`, `sim_allianceStats`,
+`sim_matchupProb`, `sim_bracket`, `sim_seedOrder` — all stayed.
+
+**Not done:** odds on a bracket whose eliminations have already started. The
+real alliances would have to be reconstructed from the elim matches, and once
+elims are running you can see the bracket anyway. The projected case, before
+selection, is where the number changes a decision.
+
+The harness gained `FIXTURES.playedThrough`: quals up to N played and the rest
+not, which is the only state a prediction can be made in — a wholly unplayed
+event rates nobody. It also suppresses the fixture's eliminations, so the
+projected bracket has a state to exist in.
+
+---
+
 ## 8. Versioning — please keep this up
 
 `index.html` (`APP_BUILD`), `api/proxy.js` (`PROXY_BUILD`) and `sw.js`

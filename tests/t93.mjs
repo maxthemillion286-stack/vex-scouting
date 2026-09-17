@@ -66,19 +66,19 @@ ok('the win/loss stripe survives — that one is information',
 
 // ══ 4. Both sub-navigations are the same strip ══════════════════════════════
 console.log('\n· sub-navigation');
-for (const nav of ['.t-nav', '.sim-subnav']) {
+// .sim-subnav went with the Simulator's sub-modes in v66 — its rules are gone,
+// so there is one strip left to check.
+for (const nav of ['.t-nav']) {
   const rule = new RegExp('\\' + nav + ' \\{[^}]*\\}').exec(css);
   ok(`${nav} is an underline strip`,
     !!rule && /border-bottom: 1px solid var\(--border\)/.test(rule[0]) && !/border: 1px solid/.test(rule[0]),
     rule ? rule[0].slice(0, 130) : 'not found');
   ok(`${nav} scrolls rather than wrapping`, !!rule && /overflow-x: auto/.test(rule[0]));
 }
-ok('neither marks the active view with a filled block',
-  !/\.t-nav-btn\.active \{[^}]*background: var\(--accent\)/.test(css) &&
-  !/\.sub-btn\.active \{[^}]*background: var\(--accent\)/.test(css));
-ok('both mark it with a bottom rule instead',
-  /\.t-nav-btn\.active \{[^}]*border-bottom-color: var\(--accent-bright\)/.test(css) &&
-  /\.sub-btn\.active \{[^}]*border-bottom-color: var\(--accent-bright\)/.test(css));
+ok('it does not mark the active view with a filled block',
+  !/\.t-nav-btn\.active \{[^}]*background: var\(--accent\)/.test(css));
+ok('it marks it with a bottom rule instead',
+  /\.t-nav-btn\.active \{[^}]*border-bottom-color: var\(--accent-bright\)/.test(css));
 
 // ══ 5. Notices are a rule, not a box ═══════════════════════════════════════
 console.log('\n· notices');
@@ -99,8 +99,8 @@ ok('the event sub-nav links match the views beside them',
   /\.t-nav-link \{[^}]*font-family: var\(--display\)/.test(css) &&
   /\.t-nav-link \{[^}]*text-transform: uppercase/.test(css),
   'v60 put these in the mono face and v61 put them back — do not do it again');
-ok('the simulator sub-nav uses the display face too',
-  /\.sim-subnav \.sub-btn \{[^}]*font-family: var\(--display\)/.test(css));
+ok('the event sub-nav buttons use it as well',
+  /\.t-nav-btn \{[^}]*font-family: var\(--display\)/.test(css));
 
 // ══ 7b. Two faces, two jobs ════════════════════════════════════════════════
 //

@@ -86,12 +86,18 @@ than the trimmed service-worker cache, and a saved copy answers on the FIRST
 failure rather than after thirty-one seconds of retries. See HANDOFF § "Saved
 for offline".
 
-## 6. Live alliance selection
+## ~~6. Live alliance selection~~ — mostly built in v66
 
 The pick list exists. During selection it should update as picks happen: cross
 out teams as they are taken, recompute what is left, and show who is likely gone
 before your turn comes. The bracket view already reads the alliance list from
 the API, so the data is there.
+
+**Mostly shipped.** `TOURNAMENT ▸ PICK LIST` projects the whole selection from
+the seeds and the ratings, says where your team lands and who would call it, and
+ranks your best available partners. What is still open is the *live* half —
+crossing teams off as picks actually happen, which needs the API's alliance list
+polled during selection.
 
 ## 7. A printable match-day sheet
 
@@ -319,11 +325,18 @@ because nobody on the drive team knows this.
 
 A one-line note on the standings when SP is what is deciding your position.
 
-## 30. Bracket path
+## ~~30. Bracket path~~ — built in v66
 
 Given the current seeds, who you meet in each elimination round, and your
 modelled odds at each step. The bracket view draws the bracket and the Simulator
 computes championship odds; this is the two of them joined, from *your* seat.
+
+**Shipped for the case that matters.** `TOURNAMENT ▸ BRACKET` now draws the
+bracket the event is heading for *before* eliminations start, with championship
+odds per projected alliance and your own marked. Odds on a bracket already
+underway are not done: the real alliances would have to be reconstructed from
+the elimination matches, and once elims are running you can see the bracket
+anyway.
 
 ---
 
