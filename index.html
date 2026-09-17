@@ -1023,12 +1023,9 @@
   .sched-summary { background: var(--card2); padding: 16px; margin-bottom: 14px; text-align: center; }
   .sched-summary .ss-record { font-family: var(--display); font-size: 30px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
   .sched-summary .ss-label { font-family: var(--body); font-size: 12px; line-height: 1.5; color: var(--text-muted); letter-spacing: 1px; margin-top: 4px; }
-  .sched-summary .ss-strength { font-family: var(--mono); font-size: 11px; color: var(--text-dim); letter-spacing: 1px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+
   /* Once the event is over the projection above it is gone and this is all that
      is left, so it stops being a card with a rule across the top of nothing. */
-  .sched-summary.ss-solo { border: 0; background: none; padding: 0; margin: 0 0 8px; text-align: left; }
-  .sched-summary.ss-solo .ss-strength { margin: 0; padding: 0; border-top: 0; }
-  .sched-summary .ss-strength strong { color: var(--accent-bright); }
   .sched-list { display: flex; flex-direction: column; gap: 4px; }
   .sched-row { display: grid; grid-template-columns: 70px 1fr 64px 58px; align-items: center; gap: 10px; background: transparent; border-bottom: 1px solid var(--border); padding: 11px 10px; }
   .sched-row.win { border-left: 4px solid #44dd44; }
@@ -2639,7 +2636,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v63';
+const APP_BUILD = 'v64';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -6901,23 +6898,6 @@ async function renderEventTeamMatchesView() {
   const projW = aw + Math.round(remainExp);
   const projL = quals.length - at - projW;
 
-  let favorTag = null, favorDetail = '';
-  if (R && quals.length) {
-    const oppMeans = quals.map(m => m.oppMean).filter(v => v !== undefined && v !== null);
-    if (oppMeans.length) {
-      const avgOpp = oppMeans.reduce((a, b) => a + b, 0) / oppMeans.length;
-      const vals = [...R.ratings.values()].filter(v => Math.abs(v) > 0.01).sort((a, b) => a - b);
-      const fieldMed = vals.length ? vals[Math.floor(vals.length / 2)] : 0;
-      const avgAlliance = fieldMed * 2;
-      const delta = avgOpp - avgAlliance;
-      // Same reasoning: 6 rating points means something different every season,
-      // so compare against 5% of what an average alliance scores at this event.
-      const favorBand = Math.max(1, avgAlliance * 0.05);
-      favorTag = delta <= -favorBand ? 'FAVORABLE' : delta >= favorBand ? 'BRUTAL' : 'AVERAGE';
-      favorDetail = `avg opponent alliance ${avgOpp.toFixed(0)} TS vs event average ${avgAlliance.toFixed(0)} (${delta >= 0 ? '+' : ''}${delta.toFixed(1)})`;
-    }
-  }
-
   // ══════════════════ RENDER ══════════════════
   let html = `
     <div class="tournament-summary">
@@ -6925,13 +6905,6 @@ async function renderEventTeamMatchesView() {
       <div class="tournament-summary-count">Matches for <span style="color:var(--accent-bright);font-weight:700;">${esc(tournamentFocusTeamNumber)}</span></div>
       <div class="tournament-summary-actions">
         <button class="btn btn-primary" onclick="detailScoutFromTournament('${teamAttr(tournamentFocusTeamNumber)}')">SCOUT ${esc(tournamentFocusTeamNumber)}</button>
-        ${(() => {
-          const sched = tScheduleTeamNumbers(myMatches, tournamentFocusTeamNumber);
-          return sched.length
-            ? `<button class="btn btn-secondary" onclick="multiScoutFromTournament('${teamAttr(tournamentFocusTeamNumber)}', ${esc(JSON.stringify(sched))})"
-                 title="Compare ${esc(tournamentFocusTeamNumber)} against every team it plays with or against at this event">MULTI SCOUT ${sched.length + 1}</button>`
-            : '';
-        })()}
         <button class="btn btn-secondary" onclick="tournamentRefreshNow()">⟳ REFRESH</button>
       </div>
     </div>
@@ -6972,20 +6945,14 @@ async function renderEventTeamMatchesView() {
     html += `<div class="md-headline">${rankCard}${recordCard}${bestCard}</div>`;
   }
 
-  // Qual record + favorability.
-  //
-  // Only while there are matches left to play: this block is a PROJECTION, and
-  // once the last qualifier is done it restates the headline card's number in
-  // 28px type directly underneath it. Favorability is still worth saying, so
-  // that survives on its own.
+  // Projected qual record, only while there are matches left to play: this
+  // block is a PROJECTION, and once the last qualifier is done it restates the
+  // headline card's number in 28px type directly underneath it.
   if (quals.length && remaining.length) {
     html += `<div class="sched-summary">
       <div class="ss-record">${projW}–${projL}${at ? '–' + at : ''}</div>
       <div class="ss-label">projected qual record · ${aw}–${al_}${at ? '–' + at : ''} so far + ${remainExp.toFixed(1)} expected wins in ${remaining.length} remaining</div>
-      ${favorTag ? `<div class="ss-strength">SCHEDULE FAVORABILITY: <strong>${favorTag}</strong> · ${favorDetail}</div>` : ''}
     </div>`;
-  } else if (favorTag) {
-    html += `<div class="sched-summary ss-solo"><div class="ss-strength">SCHEDULE FAVORABILITY: <strong>${favorTag}</strong> · ${favorDetail}</div></div>`;
   }
 
   // Live pace banner
@@ -7726,49 +7693,9 @@ function detailScoutFromTournament(teamNumber) {
   runDetailedScout();
 }
 
-// Send several teams to Multi Scout.
-//
-// The Scout tab shows side-by-side comparison cards for two or more numbers and
-// the full single profile for one — so handing this ONE number, which is what
-// the schedule view used to do, produced byte-for-byte what the SCOUT button
-// beside it produces. Pressing it looked like pressing nothing.
-//
-// `extra` is the set the caller thinks is worth comparing: on the Teams view
-// that is whatever is multi-selected, and on a team's schedule it is the teams
-// that team actually plays with and against at this event, which is the
-// comparison a schedule invites in the first place.
-function multiScoutFromTournament(teamNumber, extra) {
-  const list = new Set(selectedTournamentTeams);
-  if (teamNumber) list.add(String(teamNumber).toUpperCase());
-  for (const n of (extra || [])) if (n) list.add(String(n).toUpperCase());
-  if (list.size < 2) {
-    // Nothing to compare against. Rather than quietly doing the single-team
-    // thing again, say so and leave them where they are.
-    showError('⚠ Multi Scout compares two or more teams. Open TEAMS and tap MULTI-SELECT to choose who to compare.');
-    return;
-  }
-  showError('');
-  const input = document.getElementById('detailTeamInput');
-  if (input) input.value = [...list].join(', ');
-  const g = document.getElementById('detailGradeSelect');
-  if (g && tournamentGrade) { g.value = tournamentGrade; g.dispatchEvent(new Event('change', { bubbles: true })); }
-  switchTab('scout');
-  runDetailedScout();
-}
-
-// Every team on the other side of, or alongside, this team's matches. Deduped,
-// and without this team itself — multiScoutFromTournament adds that.
-function tScheduleTeamNumbers(myMatches, selfNumber) {
-  const self = String(selfNumber || '').toUpperCase();
-  const out = new Set();
-  for (const m of (myMatches || [])) {
-    for (const n of [...(m.myNums || []), ...(m.oppNums || [])]) {
-      const u = String(n || '').toUpperCase();
-      if (u && u !== self) out.add(u);
-    }
-  }
-  return [...out];
-}
+// Comparing several teams lives on the TEAMS view, where MULTI-SELECT picks
+// them and SCOUT ALL sends them. The schedule view used to carry its own
+// MULTI SCOUT button as well; it was removed, and these went with it.
 
 function tournamentNav(active) {
   const btn = (id, label) => `<button class="t-nav-btn${active === id ? ' active' : ''}" onclick="tournamentGo('${id}')">${label}</button>`;

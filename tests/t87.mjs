@@ -60,8 +60,15 @@ ok('champion is marked out', /md-stat\$\{bestRes\.champion \? ' is-champion' : '
 ok('the projection block only shows while matches remain',
   /if \(quals\.length && remaining\.length\) \{/.test(src),
   'once final it restated the headline number in 28px type underneath it');
-ok('favourability survives on its own when the event is over',
-  /\} else if \(favorTag\) \{/.test(src));
+// Schedule favourability — "SCHEDULE FAVORABILITY: AVERAGE · avg opponent
+// alliance 56 TS vs event average 54 (+1.9)" — was removed in v64. It was a
+// derived number nobody asked a question of, printed under a card that already
+// said the useful things.
+ok('schedule favourability is gone, computation and all',
+  !/favorTag|favorDetail|favorBand/.test(src) && !/SCHEDULE FAVORABILITY/.test(idx));
+ok('...and the projection block no longer needs an else',
+  /if \(quals\.length && remaining\.length\) \{[\s\S]{0,420}\}\s*\n\s*\n\s*\/\/ Live pace banner/.test(src),
+  'the only other branch existed to keep favourability on screen');
 
 // ── 4. Driven ──
 {

@@ -138,6 +138,106 @@ CSS variables, so this is a class on `<body>` and a few overrides.
 
 ---
 
+# A second batch, asked for at v64
+
+The list above was written at v58. These are new, and none of them overlap it.
+Same ordering rule: how much it would change a Saturday, not how hard it is.
+
+## 13. A screen for the match you are about to play
+
+Not a list — **one screen, one match.** Your partner, both opponents, each with
+their callouts and True Skill, your win probability, and the clock. Nothing
+else on it.
+
+The team view computes every part of this already and then buries it in a
+scrollable schedule, so between matches you are scrolling to find the thing you
+most need. This is the single highest-value screen the app does not have, and it
+is mostly a re-layout of `md-next` and `md_teamBlock` at full size.
+
+Pairs with §1: the notification tells you to look, this is what you look at.
+
+## 14. Scouting notes that reach the rest of the team
+
+§2 gives one person notes on one phone. Scouting is three people in the stands
+splitting the field.
+
+No accounts and no server — the app should stay a single file. A **share code**
+would do it: notes for one event serialised, compressed, and shown as text to
+paste or a QR code to scan. Import merges by team and timestamp, newest wins.
+That is a self-contained feature with no backend, and it turns a solo tool into
+a team one.
+
+## 15. "If I win my last two, where do I finish?"
+
+The app already projects your **record**. The question teams actually ask on
+Saturday afternoon is about **rank**, and it is a much better question: run the
+remaining schedule for every team, not just yours, and report the band — "win
+both and you finish 3rd–5th; lose one and it is 9th–14th."
+
+Everything needed is loaded: the rankings, the remaining matches, and a win
+probability per match from True Skill.
+
+## 16. Standings that show the tiebreakers
+
+V5RC ranks on WP, then AP, then SP. The app shows rank and record, which means
+two teams on 6–2 look identical when one of them is four places higher and
+cannot be caught.
+
+Add the columns, and mark which tiebreaker is currently deciding your position.
+It is the difference between "we are 8th" and "we are 8th and one autonomous
+win from 5th".
+
+## 17. Tell me what changed
+
+The live tick already refetches rankings and matches every 30 seconds and then
+silently redraws. It knows the previous copy, so it could **diff** it:
+
+* your Q14 moved 40 minutes earlier
+* you dropped from 4th to 7th
+* an opponent in your next match was swapped
+
+A quiet line at the top of the view, dismissable. This is nearly free — the data
+is already in hand twice — and a rescheduled match you did not notice is the
+single worst thing that can happen to you at an event.
+
+## 18. Head to head
+
+Two team numbers → every match they have played against or alongside each other
+this season, with scores. Alliance selection and elimination prep both turn on
+this, and it is one filtered pass over data the Simulator already loads.
+
+## 19. A skills run log
+
+RobotEvents posts skills scores after the fact. During the event you want to
+know what you have actually put up, and whether the next run needs to beat
+something specific to move you up the ladder.
+
+Log attempts yourself, compare against the live standings, and show the target.
+Fits beside the ladder that already exists in the Scout card.
+
+## 20. Who is likely to pick you
+
+The pick list ranks who **you** should pick. The mirror question decides your
+Saturday: if you are seed 9, which alliance captains above you would want you,
+and roughly when should you expect to be called?
+
+Same ratings, run the other direction.
+
+## 21. A watchlist in the Jumper
+
+Mark matches worth reviewing while you are still at the event — a scoring
+mistake, a robot you want to see again — then walk the marked list at home.
+v59 added per-match ticks and prev/next, so the storage and the stepping are
+already there; this is one more flag and a filter.
+
+## 22. Export everything
+
+Your notes, saved events, Jumper anchors and settings, out as a single file, and
+back in again. Cheap insurance for a tool that keeps everything on one device,
+and the only way to move to a new phone without losing a season.
+
+---
+
 ## Not recommended
 
 * **Accounts and a server-side database.** The whole app is one HTML file and a
