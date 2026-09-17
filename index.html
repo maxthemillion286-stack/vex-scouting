@@ -562,7 +562,7 @@
   /* Multi-select toggle button */
   .multi-select-btn {
     background: transparent; border: 1px solid var(--border); color: var(--text-muted);
-    font-family: var(--mono); font-size: 10px; letter-spacing: 1px; font-weight: 400;
+    font-family: var(--mono); font-size: 10px; letter-spacing: 2px; font-weight: 700;
     padding: 6px 10px; cursor: pointer;
     transition: color 0.15s, border-color 0.15s;
     text-transform: uppercase;
@@ -1567,8 +1567,8 @@
      another view of it. Sits at the end and takes only the room it needs. */
   .t-nav-link {
     flex: 0 0 auto; background: transparent; border: none; cursor: pointer;
-    font-family: var(--mono); font-size: 10px; font-weight: 400; letter-spacing: 0.5px;
-    text-transform: none; color: var(--text-muted); padding: 9px 8px;
+    font-family: var(--display); font-size: 10px; font-weight: 600; letter-spacing: 1px;
+    text-transform: uppercase; color: var(--text-muted); padding: 9px 8px;
     text-decoration: none; display: inline-flex; align-items: center; transition: color 0.15s;
   }
   .t-nav-link:first-of-type { margin-left: auto; }
@@ -1661,7 +1661,7 @@
   @media (max-width: 700px) {
     .t-nav-btn { font-size: 10px; padding: 9px 9px; letter-spacing: 0.5px; }
     /* Full width on its own row rather than a cramped stub beside the tabs. */
-    .t-nav-link { font-size: 10px; padding: 9px 6px; letter-spacing: 0.5px; }
+    .t-nav-link { font-size: 10px; padding: 9px 6px; letter-spacing: 1px; }
     .t-match-row { grid-template-columns: 96px 1fr 68px 1fr; gap: 6px; padding: 9px 8px; }
     .t-match-name { font-size: 10px; letter-spacing: 0; }
     .t-match-side { font-size: 10px; }
@@ -2633,7 +2633,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v60';
+const APP_BUILD = 'v61';
 
 const vsDebug = {
   errors: [],        // last few failed API calls

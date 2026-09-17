@@ -737,6 +737,13 @@ What replaced them:
 * **Hints are text.** `.info-bar` and `.t-hidden-note` lost their panels; the
   latter keeps a 2px rule down its left side.
 
+**Sizes, spacing and colour were fair game; the typefaces were not.** v60 also
+moved `.t-nav-link` to the mono face in sentence case, which made the two links
+the only items in that strip not set like the views beside them. v61 put the
+face, the weight and the uppercasing back. If a future pass wants something
+quieter, do it with size, tracking or colour — every label in a row should share
+one typeface.
+
 Two traps, both hit while doing this:
 
 * **`box-shadow` glow reads as a box.** The tab indicator was a 2px line with an
