@@ -76,13 +76,18 @@ ok('Alt+arrow works too, the same chord a browser uses',
   /if \(e\.key === 'ArrowLeft'\) \{ e\.preventDefault\(\); vsNavGo\(-1\); \}/.test(src));
 
 // ── 2. The rules, in isolation ──
+// vsNavPush also writes the address now (v59), so the preamble declares that
+// the same way it already declares vsNavRender — and records the calls, which
+// turns the new dependency into coverage rather than a bare stub.
 const push = new Function(`
   const VS_NAV_MAX = 50;
   const vsNav = { stack: [], i: -1, busy: false };
+  const urls = [];
   function vsNavRender() {}
-  ${src.slice(src.indexOf('function vsNavPush'), src.indexOf('async function vsNavGo'))}
-  return { vsNav, vsNavPush };`)();
-const { vsNav, vsNavPush } = push;
+  function vsUrlSync(key, replace) { urls.push((replace ? 'replace ' : 'push ') + key); }
+  ${src.slice(src.indexOf('function vsNavPush'), src.indexOf('async function vsNavReplay'))}
+  return { vsNav, vsNavPush, urls };`)();
+const { vsNav, vsNavPush, urls } = push;
 const at = () => (vsNav.stack[vsNav.i] || {}).key;
 const canBack = () => vsNav.i > 0;
 const canFwd = () => vsNav.i < vsNav.stack.length - 1;
@@ -98,6 +103,12 @@ vsNavPush('c', 'C', () => {});
 ok('going somewhere new from halfway back drops what was ahead',
   vsNav.stack.length === 2 && at() === 'c' && canFwd() === false,
   vsNav.stack.map(e => e.key).join(','));
+ok('the first place REPLACES the address, the rest push it',
+  urls[0] === 'replace a' && urls.slice(1).every(u => u.startsWith('push ')),
+  urls.join(' | '));
+vsNavPush('c', 'C again', () => {});
+ok('landing where you already are replaces rather than pushes',
+  urls[urls.length - 1] === 'replace c', urls.join(' | '));
 vsNavPush('c', 'C again', () => {});
 ok('landing where you already are is not a move',
   vsNav.stack.length === 2 && vsNav.i === 1);

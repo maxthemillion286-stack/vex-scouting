@@ -1445,6 +1445,35 @@
   .rw-row.loss { box-shadow: inset 3px 0 0 #ee4444; }
   .rw-row.tie { box-shadow: inset 3px 0 0 #ddaa44; }
   .rw-row.pending { opacity: 0.6; }
+  /* Already opened, and the one on screen now. The playing row is outlined
+     rather than filled, so a win/loss stripe stays readable underneath. */
+  .rw-row.watched .rw-name { color: var(--text-muted); }
+  .rw-row.playing { outline: 1px solid var(--accent); outline-offset: -1px; }
+  .rw-seen { color: var(--accent-bright); margin-right: 5px; font-size: 10px; }
+  .rw-playhead { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .rw-playhead .detail-block-label { flex: 1 1 auto; min-width: 0; }
+  .rw-step { display: flex; align-items: center; gap: 2px; flex: 0 0 auto; }
+  .rw-step-at {
+    font-family: var(--mono); font-size: 10px; color: var(--text-muted);
+    padding: 0 8px; letter-spacing: 0.5px; min-width: 52px; text-align: center;
+  }
+  .rw-step-btn {
+    background: transparent; border: 1px solid var(--border); color: var(--text-dim);
+    font-size: 17px; line-height: 1; width: 30px; height: 28px; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center; transition: all 0.15s;
+  }
+  .rw-step-btn[disabled] { opacity: 0.3; cursor: default; }
+  @media (hover: hover) { .rw-step-btn:not([disabled]):hover { color: var(--text); border-color: var(--text-muted); background: var(--card2); } }
+  .rw-resume {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    border: 1px solid var(--accent); background: var(--card); padding: 12px 14px; margin-bottom: 12px;
+  }
+  .rw-resume-text { flex: 1 1 200px; font-family: var(--mono); font-size: 12px; color: var(--text-dim); line-height: 1.6; }
+  .rw-forget {
+    background: transparent; border: 1px solid var(--border); color: var(--text-muted); cursor: pointer;
+    font-family: var(--display); font-size: 10px; font-weight: 600; letter-spacing: 1px; padding: 6px 10px;
+  }
+  @media (hover: hover) { .rw-forget:hover { color: var(--text); border-color: var(--text-muted); } }
   .rw-name { font-family: var(--mono); font-size: 11px; color: var(--text-dim); letter-spacing: 0.5px; }
   .rw-approx { color: var(--accent-bright); margin-left: 4px; cursor: help; }
   .rw-teams { font-family: var(--mono); font-size: 11px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1533,6 +1562,10 @@
     text-decoration: none; display: inline-flex; align-items: center; transition: all 0.2s;
   }
   @media (hover: hover) { .t-nav-link:hover { color: var(--text); background: var(--card2); border-color: var(--text-muted); } }
+  .t-offline[disabled] { opacity: 0.6; cursor: default; }
+  .t-offline.is-saved { color: var(--accent-bright); border-color: var(--accent); }
+  /* Sits flush against the badge so the pair reads as one control. */
+  .t-offline-x { border-left: 0; padding: 6px 8px; }
   .t-hidden-note {
     display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
     border: 1px solid var(--accent); background: var(--card); padding: 10px 12px; margin: 12px 0;
@@ -2260,24 +2293,43 @@ function vsNavPush(key, label, restore) {
   // Landing where you already are is not a move. Keep the newer closure: it
   // captures the current arguments, which may have grown (an event opened
   // without a SKU and then with one).
-  if (cur && cur.key === key) { cur.restore = restore; cur.label = label; return; }
+  if (cur && cur.key === key) {
+    cur.restore = restore; cur.label = label;
+    vsUrlSync(key, true);
+    return;
+  }
   // Going somewhere new from halfway back drops what was ahead, like a browser.
   vsNav.stack = vsNav.stack.slice(0, vsNav.i + 1);
   vsNav.stack.push({ key, label, restore });
   if (vsNav.stack.length > VS_NAV_MAX) vsNav.stack.shift();
   vsNav.i = vsNav.stack.length - 1;
+  // The very first place is where the page opened. Replacing rather than
+  // pushing keeps the browser's Back button pointed at wherever you came FROM
+  // rather than at a phantom entry for the page you are already looking at.
+  vsUrlSync(key, vsNav.stack.length === 1);
   vsNavRender();
 }
 
-async function vsNavGo(delta) {
-  const j = vsNav.i + delta;
-  if (j < 0 || j >= vsNav.stack.length || vsNav.busy) return;
+// Replay a place we already hold a closure for. Used by the arrows and by a
+// Back that lands on one of our own entries — re-entering the same function a
+// click does beats rebuilding the state from the address.
+async function vsNavReplay(j) {
   vsNav.i = j;
   vsNavRender();          // grey the arrows out before the fetch, not after
   vsNav.busy = true;
   try { await vsNav.stack[j].restore(); }
   catch (e) { vsNote('nav', String((e && e.message) || e)); }
   finally { vsNav.busy = false; vsNavRender(); }
+}
+
+async function vsNavGo(delta) {
+  const j = vsNav.i + delta;
+  if (j < 0 || j >= vsNav.stack.length || vsNav.busy) return;
+  // ONE history, not two. Moving the browser and letting popstate do the work
+  // is the only arrangement in which these arrows and the browser's own Back
+  // button cannot disagree about where you are.
+  if (vsUrlOn()) { history.go(delta); return; }
+  return vsNavReplay(j);
 }
 
 function vsNavRender() {
@@ -2298,6 +2350,137 @@ document.addEventListener('keydown', e => {
   if (!e.altKey || e.ctrlKey || e.metaKey) return;
   if (e.key === 'ArrowLeft') { e.preventDefault(); vsNavGo(-1); }
   else if (e.key === 'ArrowRight') { e.preventDefault(); vsNavGo(1); }
+});
+
+// ── Addresses ──────────────────────────────────────────────────────────────
+//
+// Every place the app can be already had a name: the key vsNavPush() records.
+// `ev:55001:view:matches` is an address in everything but syntax. Writing it
+// into the location bar buys three things at once — a link you can send
+// someone, a refresh that lands where you were instead of at the top, and the
+// browser's own Back button working, because now there is something for it to
+// go back TO.
+//
+// The mapping is deliberately one-to-one with the nav keys rather than a
+// second vocabulary that could drift out of step with them.
+//
+//   tab:tournament         →  #/tournament
+//   search:66449A          →  #/team/66449A
+//   ev:55001:              →  #/event/55001
+//   ev:55001:66449A        →  #/event/55001/team/66449A
+//   ev:55001:view:matches  →  #/event/55001/matches
+//   jumper:55001           →  #/jumper/55001
+//
+// The tab is called Jumper everywhere a person can see it; `rewatch` is an
+// internal name from before it was renamed, and an address is something a
+// person reads.
+const VS_URL_TAB = { scout: 'scout', skills: 'skills', tournament: 'tournament',
+  jumper: 'rewatch', simulator: 'simulator' };
+const VS_TAB_URL = { scout: 'scout', skills: 'skills', tournament: 'tournament',
+  rewatch: 'jumper', simulator: 'simulator' };
+
+function vsUrlOn() {
+  try { return !!(window.history && history.pushState); } catch (e) { return false; }
+}
+
+function vsKeyToRoute(key) {
+  let m;
+  if ((m = /^tab:(.+)$/.exec(key))) return VS_TAB_URL[m[1]] ? '#/' + VS_TAB_URL[m[1]] : null;
+  if ((m = /^search:(.+)$/.exec(key))) return '#/team/' + encodeURIComponent(m[1]);
+  // Before the looser ev: rule below — `view:` is a literal, not a team number.
+  if ((m = /^ev:(\d+):view:(.+)$/.exec(key))) return `#/event/${m[1]}/${encodeURIComponent(m[2])}`;
+  if ((m = /^ev:(\d+):(.*)$/.exec(key))) {
+    return m[2] ? `#/event/${m[1]}/team/${encodeURIComponent(m[2])}` : `#/event/${m[1]}`;
+  }
+  if ((m = /^jumper:(\d+)$/.exec(key))) return `#/jumper/${m[1]}`;
+  return null;   // not addressable — leave the bar alone rather than lie
+}
+
+// The address the page was OPENED at. Read at parse time because the boot
+// steps below rewrite the bar within milliseconds — 'restore tab' switches to
+// whichever tab you last used and 'nav history' records it, and by the time
+// anything could ask, the shared link that brought you here is gone.
+const VS_BOOT_ROUTE = (() => { try { return location.hash || ''; } catch (e) { return ''; } })();
+
+// What the bar currently says, as far as we are concerned. Both directions
+// check it: it stops a push from repeating an address, and it stops popstate
+// from acting on a change we made ourselves.
+let vsUrlAt = null;
+
+function vsUrlSync(key, replace) {
+  if (!vsUrlOn()) return;
+  const route = vsKeyToRoute(key);
+  if (!route || route === vsUrlAt) return;
+  vsUrlAt = route;
+  try {
+    if (replace) history.replaceState({ k: key }, '', route);
+    else history.pushState({ k: key }, '', route);
+  } catch (e) { vsNote('url', String((e && e.message) || e)); }
+}
+
+// An address applied from cold: a pasted link, a refresh, or a Back that has
+// gone further than the closures we are holding. Everything here has to be
+// rebuildable from ids alone, which is why it looks up the event's real name
+// and SKU rather than inventing them — the header would otherwise read
+// "Event 55001" for the rest of the visit.
+async function vsApplyRoute(hash) {
+  const parts = String(hash || '').replace(/^#\/?/, '').split('/')
+    .filter(Boolean).map(x => { try { return decodeURIComponent(x); } catch (e) { return x; } });
+  if (!parts.length) return false;
+  const head = parts[0];
+
+  if (parts.length === 1 && VS_URL_TAB[head]) { switchTab(VS_URL_TAB[head]); return true; }
+
+  if (head === 'team' && parts[1]) {
+    switchTab('tournament');
+    const box = document.getElementById('tournamentInput');
+    if (box) box.value = parts[1];
+    await findTournament();
+    return true;
+  }
+
+  if (head === 'jumper' && parts[1]) {
+    switchTab('rewatch');
+    await rwOpenEventById(parts[1]);
+    return true;
+  }
+
+  if (head === 'event' && parts[1]) {
+    const id = Number(parts[1]);
+    if (!id) return false;
+    switchTab('tournament');
+    // Reset first so the detail lookup below is the memo's copy, not a second
+    // round trip that loadTournamentTeams then throws away.
+    tMemoReset(id);
+    let ev = {};
+    try { ev = (await tEventDetail(id))[0] || {}; } catch (e) {}
+    let focusId = null, focusNum = '';
+    if (parts[2] === 'team' && parts[3]) {
+      focusNum = parts[3].toUpperCase();
+      try { focusId = (await sim_resolveTeamCached(focusNum)).id; }
+      catch (e) { focusNum = ''; }   // a number that no longer resolves opens the event plain
+    }
+    await loadTournamentTeams(id, ev.name || `Event ${id}`, focusId, focusNum, ev.sku || null);
+    // A named view within the event, once the event itself is up.
+    if (parts[2] && parts[2] !== 'team' && T_VIEW_LABELS[parts[2]]) await tournamentGo(parts[2]);
+    return true;
+  }
+  return false;
+}
+
+// The browser moved. If it landed on one of our own entries, replay the
+// closure — it restores more faithfully than an address can. Otherwise this is
+// a link from outside our stack, so rebuild it from the address.
+window.addEventListener('popstate', () => {
+  const route = location.hash || '';
+  if (!route || route === vsUrlAt) return;
+  vsUrlAt = route;
+  const j = vsNav.stack.findIndex(e => vsKeyToRoute(e.key) === route);
+  if (j >= 0) { vsNavReplay(j); return; }
+  // Not ours: let vsApplyRoute record its own place on the way through. It
+  // cannot double-push, because vsUrlSync sees the address already matches.
+  Promise.resolve(vsApplyRoute(route))
+    .catch(e => vsNote('nav', String((e && e.message) || e)));
 });
 
 // ── Text from the API is not markup ────────────────────────────────────────
@@ -2588,11 +2771,12 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v58';
+const APP_BUILD = 'v59';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
   apiCalls: 0,
+  offlineHits: 0,    // answers that came from a saved event, not the network
   diag: null,        // server-side config, filled by vsLoadDiag()
   swVersion: null,   // cache name reported by the running service worker
   jumper: null       // last auto-find result
@@ -2867,6 +3051,9 @@ function vsDebugReport() {
     // and per day the ordinal, the label wanted, and the url actually chosen.
     dayAssignment: vsDayAssignment(),
     apiCalls: vsDebug.apiCalls,
+    offlineHits: vsDebug.offlineHits,
+    offlineEvents: Object.entries(vsOfflineIndex())
+      .map(([id, e]) => `${id} ${e.sku || ''} saved ${vsAgo(e.at)}`),
     recentErrors: vsDebug.errors
   };
 }
@@ -3548,6 +3735,28 @@ async function jumpToMatch(eventId, eventName, matchId, teamNumber) {
 
 // Watch a whole event, no team required. Everything downstream is shared with
 // the team-first path; the only difference is that no match gets filtered out.
+// The Jumper, opened by event id rather than by typing its name. An address
+// carries the id; rewatchSelectEvent() needs ctx.events to already hold the
+// event, because that is where it reads the name and SKU from.
+async function rwOpenEventById(eventId) {
+  const id = Number(eventId);
+  if (!id) return false;
+  const ev = (await tEventDetail(id))[0];
+  if (!ev) throw new Error(`Event ${eventId} not found.`);
+  const keep = window._rwCtx;
+  // Keep a team context that already covers this event — arriving by address
+  // should not throw away the team filter you had.
+  if (!(keep && keep.events && keep.events.some(e => String(e.id) === String(id)))) {
+    window._rwCtx = {
+      team: null,
+      events: [{ id: ev.id, name: ev.name, sku: ev.sku, start: ev.start, location: ev.location }],
+      eventId: null, matches: [], videoId: null, cal: {}, calDay: null
+    };
+  }
+  await rewatchSelectEvent(id);
+  return true;
+}
+
 async function rewatchLoadEvent() {
   const input = (document.getElementById('rwEventInput').value || '').trim();
   if (!input) { showError('⚠ Enter an event name or SKU.'); return; }
@@ -4090,6 +4299,98 @@ function rwOffsetFor(m, calByDay) {
   return null;
 }
 
+// ── Moving between matches ─────────────────────────────────────────────────
+//
+// Watching your own six quals back meant scrolling to the list, finding the
+// next one, and clicking — six times, with the player scrolling out of view in
+// between. The order here is deliberately the SCREEN's order, day then round
+// then position, so "next" means the row under the one you are on rather than
+// some other sequence the page never showed you.
+function rwPlayOrder() {
+  const ctx = window._rwCtx;
+  if (!ctx || !ctx.matches) return [];
+  const cal = ctx.cal || {};
+  const byDay = {};
+  for (const m of ctx.matches) (byDay[rwDayKey(m.t)] = byDay[rwDayKey(m.t)] || []).push(m);
+  const roundName = m => m.round === 2 ? 'Qualification' : (m.round === 1 ? 'Practice' : 'Elimination');
+  const out = [];
+  for (const day of Object.keys(byDay).sort()) {
+    const groups = {};
+    for (const m of byDay[day]) (groups[roundName(m)] = groups[roundName(m)] || []).push(m);
+    for (const g of ['Qualification', 'Elimination', 'Practice']) {
+      for (const m of (groups[g] || [])) {
+        // Only what can actually be opened. A match on an unsynced day has no
+        // position, so stepping onto it would leave the player showing nothing.
+        if (rwOffsetFor(m, cal) !== null) out.push(m);
+      }
+    }
+  }
+  return out;
+}
+
+function rwStepInfo() {
+  const ctx = window._rwCtx;
+  if (!ctx || !ctx.playing) return null;
+  const list = rwPlayOrder();
+  const i = list.findIndex(m => String(m.id) === String(ctx.playing.matchId));
+  if (i < 0) return null;
+  return { i, n: list.length, prev: list[i - 1] || null, next: list[i + 1] || null };
+}
+
+function rwStep(delta) {
+  const info = rwStepInfo();
+  if (!info) return;
+  const m = delta < 0 ? info.prev : info.next;
+  if (m) rewatchJump(m.id);
+}
+
+// ── Where you left off ─────────────────────────────────────────────────────
+//
+// Per event, because that is the unit you come back to: you watched four quals
+// on Saturday night and the fifth on Sunday morning. Kept in localStorage
+// rather than the memo, which does not survive closing the tab — and surviving
+// closing the tab is the entire feature.
+const RW_SEEN_KEY = 'vex_rw_seen';
+
+function rwSeenAll() {
+  try { return JSON.parse(lsGet(RW_SEEN_KEY) || '{}') || {}; } catch (e) { return {}; }
+}
+function rwSeenFor(eventId) {
+  const e = rwSeenAll()[String(eventId)];
+  return e && typeof e === 'object' ? e : { ids: [], last: null };
+}
+function rwSeenMark(eventId, matchId, name) {
+  if (!eventId || matchId == null) return;
+  const all = rwSeenAll();
+  const cur = rwSeenFor(eventId);
+  const ids = cur.ids.filter(x => String(x) !== String(matchId));
+  ids.push(String(matchId));
+  // A season of events, one entry each, is small — but a runaway list is not
+  // worth risking against a 5 MB quota shared with everything else.
+  all[String(eventId)] = { ids: ids.slice(-400), last: { id: String(matchId), name: name || '', at: Date.now() } };
+  const keys = Object.keys(all);
+  if (keys.length > 40) for (const k of keys.slice(0, keys.length - 40)) delete all[k];
+  lsSet(RW_SEEN_KEY, JSON.stringify(all));
+}
+function rwSeenHas(eventId, matchId) {
+  return rwSeenFor(eventId).ids.some(x => String(x) === String(matchId));
+}
+function rwForget(eventId) {
+  const all = rwSeenAll();
+  delete all[String(eventId)];
+  lsSet(RW_SEEN_KEY, JSON.stringify(all));
+  rewatchRender();
+}
+
+// Pick up the last match of this event, if there is one and nothing is already
+// playing. Deliberately a button rather than an autoplay: arriving to a video
+// you did not ask for is worse than one click.
+function rwResume() {
+  const ctx = window._rwCtx; if (!ctx) return;
+  const last = rwSeenFor(ctx.eventId).last;
+  if (last) rewatchJump(last.id);
+}
+
 function rewatchJump(matchId) {
   const ctx = window._rwCtx; if (!ctx) return;
   const m = ctx.matches.find(x => String(x.id) === String(matchId));
@@ -4097,6 +4398,7 @@ function rewatchJump(matchId) {
   const off = rwOffsetFor(m, ctx.cal);
   if (off === null) return;
   ctx.playing = { matchId, off };
+  rwSeenMark(ctx.eventId, matchId, m.name);
   rewatchRender();
   const p = document.getElementById('rwPlayer');
   if (p && p.scrollIntoView) p.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -4761,14 +5063,40 @@ function rewatchRender() {
   const multiDay = days.filter(d => d !== 'unknown').length > 1;
   const calAll = ctx.cal || {};
 
+  // Nothing playing, but you were here before: offer the match you stopped on.
+  if (!ctx.playing) {
+    const last = rwSeenFor(ctx.eventId).last;
+    const stillThere = last && ctx.matches.some(x => String(x.id) === String(last.id)
+      && rwOffsetFor(x, calAll) !== null);
+    if (stillThere) {
+      html += `<div class="rw-resume">
+        <div class="rw-resume-text">You were last watching <strong>${esc(last.name || 'a match')}</strong>
+          · ${esc(vsAgo(last.at))}</div>
+        <button class="btn btn-primary" onclick="rwResume()">▶ PICK UP THERE</button>
+        <button class="rw-forget" onclick="rwForget('${teamAttr(ctx.eventId)}')"
+          title="Forget this event's watched marks">CLEAR</button>
+      </div>`;
+    }
+  }
+
   // Player sits above the day list once something is playing
   if (ctx.playing) {
     const m = ctx.matches.find(x => String(x.id) === String(ctx.playing.matchId));
     const pcal = m ? rwCalForMatch(m, calAll) : null;
     if (pcal) {
       const embed = rwEmbedSrc(pcal, ctx.playing.off);
+      const step = rwStepInfo();
       html += `<div class="rw-block" id="rwPlayer">
-        <div class="detail-block-label">${esc(m ? m.name : 'Match')} · ${rwFmtClock(ctx.playing.off)}</div>
+        <div class="rw-playhead">
+          <div class="detail-block-label">${esc(m ? m.name : 'Match')} · ${rwFmtClock(ctx.playing.off)}</div>
+          ${step ? `<div class="rw-step">
+            <button class="rw-step-btn" onclick="rwStep(-1)" ${step.prev ? '' : 'disabled'}
+              title="${step.prev ? 'Previous: ' + esc(step.prev.name) : 'This is the first match with a position'}">‹</button>
+            <span class="rw-step-at">${step.i + 1} / ${step.n}</span>
+            <button class="rw-step-btn" onclick="rwStep(1)" ${step.next ? '' : 'disabled'}
+              title="${step.next ? 'Next: ' + esc(step.next.name) : 'This is the last match with a position'}">›</button>
+          </div>` : ''}
+        </div>
         ${embed ? `<div class="rw-embed">
           <iframe src="${embed}"
             title="Match video" frameborder="0" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
@@ -5006,8 +5334,10 @@ function rewatchRender() {
         const myScore = m.onRed ? m.redScore : m.blueScore;
         const oppScore = m.onRed ? m.blueScore : m.redScore;
         const res = played ? (myScore > oppScore ? 'win' : myScore < oppScore ? 'loss' : 'tie') : 'pending';
-        html += `<div class="rw-row ${res}">
-          <div class="rw-name">${esc(m.name)}${!m.exact && m.t !== null ? '<span class="rw-approx" title="This match has no start time from the API — using its scheduled time, so the jump may be off">~</span>' : ''}</div>
+        const seen = rwSeenHas(ctx.eventId, m.id);
+        const onNow = ctx.playing && String(ctx.playing.matchId) === String(m.id);
+        html += `<div class="rw-row ${res}${seen ? ' watched' : ''}${onNow ? ' playing' : ''}">
+          <div class="rw-name">${seen && !onNow ? '<span class="rw-seen" title="You have opened this one">✓</span>' : ''}${esc(m.name)}${!m.exact && m.t !== null ? '<span class="rw-approx" title="This match has no start time from the API — using its scheduled time, so the jump may be off">~</span>' : ''}</div>
           <div class="rw-teams"><span class="${m.onRed ? 'rw-red' : 'rw-blue'}">${(m.onRed ? m.redNums : m.blueNums).join(' ')}</span>
             <span class="rw-vs">vs</span>
             <span class="${m.onRed ? 'rw-blue' : 'rw-red'}">${(m.onRed ? m.blueNums : m.redNums).join(' ')}</span></div>
@@ -5073,6 +5403,10 @@ window.onload = () => {
   bootStep('theme', () => applyTheme(lsGet('vex_theme') || 'dark-grey'));
   // Restore last viewed tab
   bootStep('restore tab', () => {
+    // An address in the bar is an explicit request and outranks the tab you
+    // happened to be on last time; opening a shared link on the Simulator tab
+    // for a quarter of a second and then moving is worse than not doing it.
+    if (VS_BOOT_ROUTE) return;
     const savedTab = lsGet('vex_active_tab');
     if (savedTab && ['scout','skills','tournament','rewatch','simulator'].includes(savedTab)) {
       switchTab(savedTab);
@@ -5087,6 +5421,20 @@ window.onload = () => {
     vsNavPush('tab:' + tab, TAB_LABELS[tab] || tab,
       () => { switchTab(tab); clearTabPanel(tab); });   // it was empty at load
     vsNavRender();
+  });
+
+  // An address in the bar: a link someone sent, or a refresh of wherever you
+  // were. Applied AFTER the entry above, so going back from a shared link
+  // lands on the tab rather than off the site.
+  bootStep('open the address', () => {
+    const route = VS_BOOT_ROUTE;
+    if (!route) return;
+    // The route is about to be pushed by whatever it opens; recording it here
+    // would make vsUrlSync think there was nothing to do.
+    vsUrlAt = null;
+    Promise.resolve(vsApplyRoute(route)).then(applied => {
+      if (!applied) vsNote('url', 'address not understood: ' + route);
+    }).catch(e => vsNote('url', String((e && e.message) || e)));
   });
 
   // Position tab indicator after layout settles
@@ -5192,6 +5540,118 @@ function apiRelease() {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+// ── Saved for offline ──────────────────────────────────────────────────────
+//
+// The service worker caches API answers, but only ones you happened to open,
+// and it trims the oldest when it fills. Neither is any use in a gym with no
+// signal: what you want there is the schedule you deliberately kept before you
+// left the house.
+//
+// So a save runs the SAME calls the app makes and keeps each page's body under
+// the exact path that produced it. apiGet's fallback then looks up that path
+// when the network fails, which means there is no list of endpoints to keep in
+// step with the app — whatever the views ask for is what was saved.
+//
+// Kept in IndexedDB rather than the service worker's cache because that one is
+// capped and evicts oldest-first: an event saved on Thursday should still be
+// there on Saturday, however much scouting happened in between.
+const VS_OFF_PREFIX = 'off:';
+const VS_OFFLINE_KEY = 'vex_offline_events';
+let vsOfflineCapture = null;   // { id, n } while a save is running
+
+function vsOfflineIndex() {
+  try { return JSON.parse(lsGet(VS_OFFLINE_KEY) || '{}') || {}; } catch (e) { return {}; }
+}
+function vsOfflineNote(eventId, entry) {
+  const ix = vsOfflineIndex();
+  if (entry) ix[String(eventId)] = entry; else delete ix[String(eventId)];
+  lsSet(VS_OFFLINE_KEY, JSON.stringify(ix));
+  vsOfflineAnyAt = null;
+}
+
+// apiGet consults this before every single page, so it must not read
+// localStorage each time. Nobody who has never saved an event pays anything
+// for the feature existing.
+let vsOfflineAnyAt = null;
+function vsOfflineAny() {
+  if (vsOfflineAnyAt === null) vsOfflineAnyAt = Object.keys(vsOfflineIndex()).length > 0;
+  return vsOfflineAnyAt;
+}
+function vsOfflineHas(eventId) { return !!vsOfflineIndex()[String(eventId)]; }
+
+// Used by the saved-event badge and by the Jumper's resume row, so it is named
+// for what it does rather than for the first feature that wanted it.
+function vsAgo(ts) {
+  const mins = Math.round((Date.now() - ts) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return mins + ' min ago';
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return hrs + (hrs === 1 ? ' hour ago' : ' hours ago');
+  const days = Math.round(hrs / 24);
+  return days + (days === 1 ? ' day ago' : ' days ago');
+}
+
+// Everything the Tournament tab reads for one event, fetched for real so the
+// bodies land in the store. The memo is deliberately bypassed — a memo hit
+// answers without a request, and a request is the entire point here.
+async function vsOfflineSave(eventId) {
+  const id = Number(eventId);
+  if (!id) return;
+  const btn = document.getElementById('tOfflineBtn');
+  const say = t => { if (btn) btn.textContent = t; };
+  if (btn) btn.disabled = true;
+  vsOfflineCapture = { id, n: 0 };
+  try {
+    say('SAVING…');
+    const detail = await apiGet('/events', { 'id[]': [id] });
+    const ev = detail[0] || {};
+    const divisions = ev.divisions && ev.divisions.length ? ev.divisions : [{ id: 1 }];
+    const jobs = [
+      () => apiGet(`/events/${id}/teams`),
+      () => apiGet(`/events/${id}/awards`),
+      () => apiGet(`/events/${id}/skills`)
+    ];
+    for (const d of divisions) {
+      jobs.push(() => apiGet(`/events/${id}/divisions/${d.id}/rankings`));
+      jobs.push(() => apiGet(`/events/${id}/divisions/${d.id}/matches`));
+    }
+    // The focused team's own schedule is its own endpoint, and it is the one
+    // view most likely to be wanted with no signal.
+    if (tournamentFocusTeamId && String(tournamentEventId) === String(id)) {
+      jobs.push(() => apiGet(`/teams/${tournamentFocusTeamId}/matches`, { 'event[]': [id] }));
+    }
+    let done = 0;
+    await sim_pool(jobs, async job => {
+      try { await job(); } catch (e) {}
+      say(`SAVING… ${++done}/${jobs.length}`);
+    }, sim_poolSize());
+    // idbSet is fire-and-forget everywhere else; here the index entry is a
+    // PROMISE that the pages are there, so give the transactions a moment.
+    await new Promise(r => setTimeout(r, 60));
+    vsOfflineNote(id, {
+      name: ev.name || tournamentEventName || `Event ${id}`,
+      sku: ev.sku || null, at: Date.now(), calls: vsOfflineCapture.n
+    });
+    showError('');
+  } catch (e) {
+    showError('⚠ Could not save this event: ' + e.message);
+  } finally {
+    vsOfflineCapture = null;
+    if (btn) btn.disabled = false;
+    // Re-render through the view that is open, so the button becomes the badge.
+    if (typeof tournamentView === 'string' && tournamentEventId) tournamentGo(tournamentView);
+  }
+}
+
+// Forget one. The stored pages are left to expire on their own — finding every
+// path an event produced would mean keeping that list, which is exactly what
+// this design avoids. Dropping the index entry is what stops the app claiming
+// the event is saved.
+function vsOfflineForget(eventId) {
+  vsOfflineNote(eventId, null);
+  if (typeof tournamentView === 'string' && tournamentEventId) tournamentGo(tournamentView);
+}
+
 async function apiGet(endpoint, params = {}) {
   // Build path with query string
   const qs = new URLSearchParams();
@@ -5203,14 +5663,40 @@ async function apiGet(endpoint, params = {}) {
 
   // Fetch one page with retry logic for rate limits and transient errors.
   // Builds its own query string so pages can be fetched IN PARALLEL safely.
+  //
+  // Wrapped so that a page an event was SAVED with can answer when the network
+  // cannot. The saved copy is keyed by this exact path, which is why the save
+  // runs these same calls rather than a hand-written list of endpoints — the
+  // two can never describe different requests.
   async function fetchPage(page) {
+    // Nothing has ever been saved on this device → no lookup, no cost.
+    let saved = null;
+    if (vsOfflineAny()) {
+      const pqs0 = new URLSearchParams(qs);
+      pqs0.set('page', page);
+      saved = await idbGet(VS_OFF_PREFIX + endpoint + '?' + pqs0.toString());
+    }
+    try {
+      // The backoff below is for a connection that is STRUGGLING. Holding a
+      // correct answer already changes the arithmetic completely: five attempts
+      // is thirty-one seconds of staring at a spinner in a gym with no signal,
+      // to arrive at the copy we could have shown immediately. So when there is
+      // a saved copy, ask once and fall back.
+      return await fetchPageLive(page, saved ? 1 : 5);
+    } catch (e) {
+      if (saved) { vsDebug.offlineHits = (vsDebug.offlineHits || 0) + 1; return saved; }
+      throw e;
+    }
+  }
+
+  async function fetchPageLive(page, maxAttempts) {
     const pqs = new URLSearchParams(qs);
     pqs.set('page', page);
     const path = endpoint + '?' + pqs.toString();
 
-    // Try up to 5 times with exponential backoff on 429/5xx
+    // Try up to maxAttempts times with exponential backoff on 429/5xx
     let lastErr = null;
-    for (let attempt = 0; attempt < 5; attempt++) {
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
       await apiSlot();
       let res;
       try {
@@ -5227,7 +5713,9 @@ async function apiGet(endpoint, params = {}) {
         // Proxy reports how many API tokens it holds — scale our parallelism to match.
         const tc = parseInt(res.headers.get('X-Token-Count') || '0', 10);
         if (tc > 0) window._apiTokens = tc;
-        return res.json();
+        const body = await res.json();
+        if (vsOfflineCapture) { vsOfflineCapture.n++; idbSet(VS_OFF_PREFIX + path, body); }
+        return body;
       }
 
       if (res.status === 401) throw new Error('API token expired. Contact site owner.');
@@ -7425,8 +7913,29 @@ function tournamentNav(active) {
     ${btn('awards', 'Awards')}
     ${btn('bracket', 'Bracket')}
     ${tournamentFocusTeamNumber ? `<button class="t-nav-btn${active === 'team' ? ' active' : ''}" onclick="tournamentGo('team')">${esc(tournamentFocusTeamNumber)}</button>` : ''}
+    ${tournamentEventId ? tOfflineButton(tournamentEventId) : ''}
     ${tournamentEventId ? reEventLink(tournamentEventId, tournamentEventSku) : ''}
   </div>`;
+}
+
+// Save, or say when it was saved. One control rather than two: once an event is
+// kept, the useful question is how old the copy is, and the answer belongs
+// where the button was.
+function tOfflineButton(eventId) {
+  const saved = vsOfflineIndex()[String(eventId)];
+  const id = String(eventId).replace(/[^0-9]/g, '');
+  if (!id) return '';
+  if (!saved) {
+    return `<button class="t-nav-link t-offline" id="tOfflineBtn" onclick="vsOfflineSave('${id}')"
+      title="Keep this event's schedule, rankings and roster on this device, so it still opens with no signal">⤓ SAVE OFFLINE</button>`;
+  }
+  // Two controls rather than a right-click: this app is used on a phone at an
+  // event, and a context menu is not something a thumb can reach.
+  return `<button class="t-nav-link t-offline is-saved" id="tOfflineBtn" onclick="vsOfflineSave('${id}')"
+      title="Saved ${esc(vsAgo(saved.at))}. Tap to refresh the saved copy from the network."
+    >✓ SAVED ${esc(vsAgo(saved.at)).toUpperCase()}</button
+    ><button class="t-nav-link t-offline t-offline-x" onclick="vsOfflineForget('${id}')"
+      title="Forget this event's saved copy" aria-label="Forget the saved copy of this event">✕</button>`;
 }
 
 // One link, rendered the same way everywhere it appears. An <a> when the SKU is

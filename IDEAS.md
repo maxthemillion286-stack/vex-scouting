@@ -1,6 +1,8 @@
 # Features worth building next
 
-Written at v58, after an optimise-and-audit pass. Ordered by how much each one
+Written at v58, after an optimise-and-audit pass. **3, 5 and 11 were built in
+v59** — they are struck through below, with what shipped, because the reasoning
+that justified them is also the reasoning for the ones still open. Ordered by how much each one
 would change a Saturday at an event, not by how hard it is. Everything here is
 costed against what already exists — most of them are re-using a number the app
 already computes.
@@ -34,7 +36,7 @@ Jumper's `idbSet`/`idbGet` already exist), shown on the team card and in the
 pick list, and exported as text so you can hand it to a partner. Notes should
 survive a season and show up the next time you meet that team.
 
-## 3. Real URLs
+## ~~3. Real URLs~~ — built in v59
 
 The app is one page with no addresses. That is why `vsNav` had to be built by
 hand, and why you cannot send someone "look at 66449A at this event".
@@ -44,18 +46,30 @@ browser Back and Forward for free, and a refresh that lands where you were
 instead of at the top. `vsNav`'s restore closures are most of the work already
 done; this turns them into something the URL bar can express.
 
+**Shipped.** `#/event/55001/team/66449A` and friends, one-to-one with the nav
+keys. The arrows drive `history.go()` so there is one history rather than two,
+and a pasted link opens cold — looking the event up so the header carries its
+real name. See HANDOFF § "Addresses".
+
 ## 4. Compare teams side by side
 
 Pick two to four numbers, get one table: rank, record, average score, AWP rate,
 skills, TrueSkill. Alliance selection is exactly this comparison made under time
 pressure, and right now it means opening three cards and remembering.
 
-## 5. Download this event for offline
+## ~~5. Download this event for offline~~ — built in v59
 
 The service worker caches what you have already opened. An explicit **download**
 button — roster, full schedule, rankings, skills — would mean the schedule still
 works in a gym with no signal, which is most gyms. The memo and the API cache
 make this mostly a matter of pre-fetching the same five calls on purpose.
+
+**Shipped.** A SAVE OFFLINE button on every event view; the save runs the app's
+own calls and keys each page body by the path that produced it, so `apiGet`
+falls back to it with no endpoint list to maintain. Stored in IndexedDB rather
+than the trimmed service-worker cache, and a saved copy answers on the FIRST
+failure rather than after thirty-one seconds of retries. See HANDOFF § "Saved
+for offline".
 
 ## 6. Live alliance selection
 
@@ -88,10 +102,18 @@ Search events by region and date range rather than by name or SKU. "What's near
 me in the next month" is a question the app cannot currently answer, and the
 RobotEvents API answers it directly.
 
-## 11. Jumper: resume where you left off
+## ~~11. Jumper: resume where you left off~~ — built in v59
 
 Remember the playback position per match, and offer **next match** at the end of
 one. Watching your own six quals back should not mean scrubbing six times.
+
+**Shipped, with one part still open.** Prev / next buttons with a position
+counter, greyed out at the ends; a tick on every match you have opened; and a
+"pick up there" row when you come back to an event. What is NOT done is the
+position *within* a match — the embed is a plain `<iframe>`, and reading a
+viewer's current time needs the YouTube IFrame API, which would only ever work
+for YouTube and not for Vimeo or VEX TV. Worth doing only if scrubbing within a
+match turns out to be the part that still hurts.
 
 ## 12. Venue mode
 
