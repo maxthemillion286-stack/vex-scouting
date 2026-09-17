@@ -326,7 +326,7 @@
   @media (hover: hover) { .btn-secondary:hover { border-color: var(--text-muted); color: var(--text); } }
   .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-  .hint { font-family: var(--mono); font-size: 11px; color: var(--text-muted); margin-top: 10px; }
+  .hint { font-family: var(--body); font-size: 11px; color: var(--text-muted); margin-top: 10px; line-height: 1.5;}
   .hint a { color: var(--accent); text-decoration: none; }
 
   /* ── LOADING ── */
@@ -337,7 +337,7 @@
   .loading-text { font-family: var(--mono); font-size: 13px; color: var(--text-muted); letter-spacing: 2px; }
 
   /* ── ERROR ── */
-  .error-box { display: none; background: transparent; border-left: 2px solid #ff6666; padding: 10px 0 10px 14px; font-family: var(--mono); font-size: 13px; color: #ff6666; margin-bottom: 20px; }
+  .error-box { display: none; background: transparent; border-left: 2px solid #ff6666; padding: 10px 0 10px 14px; font-family: var(--body); font-size: 13px; color: #ff6666; margin-bottom: 20px; line-height: 1.5;}
   .error-box.active { display: block; }
 
   /* ── RESULTS ── */
@@ -417,10 +417,10 @@
   @keyframes fadeUp { from { opacity: 0; transform: translateY(20px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
 
   .card-header { padding: 18px 20px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-  .team-number { font-family: var(--display); font-size: 30px; font-weight: 700; color: var(--text); letter-spacing: 2px; line-height: 1; }
+  .team-number { font-family: var(--display); font-size: 30px; font-weight: 700; color: var(--text); letter-spacing: 2px; line-height: 1; font-variant-numeric: tabular-nums; }
   .team-name { font-family: var(--body); font-size: 13px; color: var(--text-dim); margin-top: 4px; font-weight: 500; }
-  .team-location { font-family: var(--mono); font-size: 11px; color: var(--text-muted); margin-top: 3px; }
-  .robot-name { font-family: var(--mono); font-size: 11px; color: var(--accent); text-align: right; letter-spacing: 1px; flex-shrink: 0; }
+  .team-location { font-family: var(--body); font-size: 11px; color: var(--text-muted); margin-top: 3px; line-height: 1.5;}
+  .robot-name { font-family: var(--body); font-size: 11px; color: var(--accent); text-align: right; letter-spacing: 1px; flex-shrink: 0; line-height: 1.5;}
 
   .stats-body { padding: 0; }
   .stat-group { border-bottom: 1px solid var(--border); }
@@ -441,9 +441,9 @@
   @media (hover: hover) { .award-tag.award-clickable:hover { background: var(--card2); } }
   .award-event { display: none; color: var(--text-muted); font-weight: normal; }
   .award-event.show { display: inline; }
-  .no-awards { font-family: var(--mono); font-size: 11px; color: var(--text-muted); padding: 10px 20px 14px; }
+  .no-awards { font-family: var(--body); font-size: 11px; color: var(--text-muted); padding: 10px 20px 14px; line-height: 1.5;}
   .na { color: var(--text-muted) !important; font-size: 13px !important; }
-  .compare-notice { font-family: var(--mono); font-size: 11px; color: var(--text-muted); text-align: center; padding: 20px 0 0; }
+  .compare-notice { font-family: var(--body); font-size: 11px; color: var(--text-muted); text-align: center; padding: 20px 0 0; line-height: 1.5;}
 
   /* ── SKILLS RANKINGS TABLE ── */
   .skill-table { display: flex; flex-direction: column; gap: 1px; background: var(--border); }
@@ -519,7 +519,7 @@
   @media (hover: hover) { .tournament-team-tag:hover { background: var(--card2); } }
   .tournament-team-tag.selected { background: var(--card2); border-color: var(--accent-bright); }
   .tournament-team-tag .tt-row1 { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
-  .tournament-team-tag .tt-num { font-family: var(--display); font-size: 14px; color: var(--accent-bright); font-weight: 700; }
+  .tournament-team-tag .tt-num { font-family: var(--display); font-size: 14px; color: var(--accent-bright); font-weight: 700; font-variant-numeric: tabular-nums; }
   .tournament-team-tag .tt-name { font-family: var(--body); font-size: 12px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
   .tournament-team-tag .tt-row2 { display: flex; gap: 10px; flex-wrap: wrap; }
   .tournament-team-tag .tt-stat { font-family: var(--mono); font-size: 11px; color: var(--text); }
@@ -531,9 +531,8 @@
   .info-bar {
     display: flex; align-items: center; gap: 8px;
     padding: 2px 0 10px; margin-top: 10px;
-    font-family: var(--mono); font-size: 11px; color: var(--text-muted);
-    background: transparent;
-  }
+    font-family: var(--body); font-size: 11px; color: var(--text-muted);
+    background: transparent; line-height: 1.5;}
   .info-icon {
     display: inline-flex; align-items: center; justify-content: center;
     width: 16px; height: 16px; border-radius: 50%;
@@ -645,6 +644,7 @@
   }
   .match-score {
     font-family: var(--mono); font-size: 16px; color: var(--text); text-align: right; font-weight: 700;
+    font-variant-numeric: tabular-nums;
   }
   .match-vs { font-family: var(--mono); font-size: 10px; color: var(--text-muted); text-align: center; }
 
@@ -742,9 +742,9 @@
   .skill-row.rank-top:nth-child(3) { border-left-color: #c0c0c0; }
   .skill-row.rank-top:nth-child(4) { border-left-color: #cd7f32; }
 
-  .skill-rank { font-family: var(--display); font-size: 18px; color: var(--accent-bright); font-weight: 700; letter-spacing: 1px; }
+  .skill-rank { font-family: var(--display); font-size: 18px; color: var(--accent-bright); font-weight: 700; letter-spacing: 1px; font-variant-numeric: tabular-nums; }
   .skill-team { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-  .skill-num { font-family: var(--display); font-size: 18px; font-weight: 700; color: var(--text); letter-spacing: 1px; }
+  .skill-num { font-family: var(--display); font-size: 18px; font-weight: 700; color: var(--text); letter-spacing: 1px; font-variant-numeric: tabular-nums; }
   .skill-name { font-family: var(--body); font-size: 13px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .skill-loc { font-family: var(--mono); font-size: 10px; color: var(--text-muted); }
 
@@ -764,7 +764,7 @@
 
   /* Pagination controls */
   .page-controls { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; gap: 12px; }
-  .page-info { font-family: var(--mono); font-size: 11px; color: var(--text-muted); letter-spacing: 1px; text-align: center; flex: 1; }
+  .page-info { font-family: var(--body); font-size: 11px; color: var(--text-muted); letter-spacing: 1px; text-align: center; flex: 1; line-height: 1.5;}
 
   @media (max-width: 600px) {
     .token-row, .controls-row { flex-direction: column; }
@@ -936,19 +936,19 @@
 
   /* Win probability bar — red/blue lives ONLY inside the bar */
   .sim-winbar-labels { display: flex; justify-content: space-between; font-family: var(--display); font-weight: 700; margin-bottom: 8px; }
-  .sim-winbar-labels .sim-red-pct, .sim-winbar-labels .sim-blue-pct { color: var(--text); font-size: 26px; }
+  .sim-winbar-labels .sim-red-pct, .sim-winbar-labels .sim-blue-pct { color: var(--text); font-size: 26px; font-variant-numeric: tabular-nums; }
   .sim-winbar-names { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 11px; color: var(--text-muted); margin-bottom: 10px; letter-spacing: 1px; }
   .sim-winbar { height: 22px; display: flex; overflow: hidden; border: 1px solid var(--border); background: var(--bg); }
   .sim-winbar .seg-red { background: linear-gradient(90deg, #cc0000, #ee3333); transition: width 0.7s cubic-bezier(0.4,0,0.2,1); }
   .sim-winbar .seg-tie { background: var(--text-muted); transition: width 0.7s; }
   .sim-winbar .seg-blue { background: linear-gradient(90deg, #2277ee, #0055cc); transition: width 0.7s cubic-bezier(0.4,0,0.2,1); }
-  .sim-tie-note { text-align: center; font-family: var(--mono); font-size: 10px; color: var(--text-muted); margin-top: 8px; letter-spacing: 1px; }
+  .sim-tie-note { text-align: center; font-family: var(--body); font-size: 10px; color: var(--text-muted); margin-top: 8px; letter-spacing: 1px; line-height: 1.5;}
 
   /* Team overview — strengths & weaknesses */
   .sim-overview { display: flex; flex-direction: column; gap: 10px; }
   .sim-ov-team { background: var(--card2); padding: 14px 16px; }
   .sim-ov-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
-  .sim-ov-num { font-family: var(--display); font-weight: 700; font-size: 16px; color: var(--text); }
+  .sim-ov-num { font-family: var(--display); font-weight: 700; font-size: 16px; color: var(--text); font-variant-numeric: tabular-nums; }
   .sim-ov-name { font-family: var(--body); font-size: 12px; color: var(--text-muted); flex: 1; }
   .sim-ov-record { font-family: var(--mono); font-size: 12px; color: var(--text-dim); }
   .sim-ov-chips { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -962,7 +962,7 @@
   .sim-rating-head, .sim-rating-row { display: grid; grid-template-columns: 80px 1fr 90px 90px; background: var(--card); align-items: center; gap: 12px; padding: 10px 16px; }
   .sim-rating-head { background: var(--card2); font-family: var(--mono); font-size: 10px; color: var(--text-muted); letter-spacing: 2px; }
   .sim-rating-head > div:nth-child(n+3), .sim-rating-row > div:nth-child(n+3) { text-align: right; }
-  .sim-rating-row .sr-team { font-family: var(--display); font-weight: 700; font-size: 15px; color: var(--text); }
+  .sim-rating-row .sr-team { font-family: var(--display); font-weight: 700; font-size: 15px; color: var(--text); font-variant-numeric: tabular-nums; }
   .sim-rating-row .sr-opr { font-family: var(--mono); font-size: 15px; color: var(--accent-bright); }
   .sim-rating-row .sr-meta { font-family: var(--mono); font-size: 13px; color: var(--text-muted); }
   .sim-caveat { font-family: var(--body); font-size: 12px; color: var(--text-muted); line-height: 1.5; margin-top: 4px; padding: 12px 14px; border-left: 2px solid var(--accent-dim); background: var(--card); }
@@ -1014,15 +1014,15 @@
   .pick-row.first { background: var(--card2); box-shadow: inset 4px 0 0 var(--accent-bright); }
   .pick-rank { font-family: var(--mono); font-size: 15px; color: var(--text-muted); }
   .pick-row.first .pick-rank { color: var(--accent-bright); font-weight: 700; }
-  .pick-team { font-family: var(--display); font-weight: 700; font-size: 16px; color: var(--text); }
+  .pick-team { font-family: var(--display); font-weight: 700; font-size: 16px; color: var(--text); font-variant-numeric: tabular-nums; }
   .pick-name { font-family: var(--body); font-size: 12px; color: var(--text-muted); }
-  .pick-win { font-family: var(--display); font-weight: 700; font-size: 18px; color: var(--accent-bright); text-align: right; }
+  .pick-win { font-family: var(--display); font-weight: 700; font-size: 18px; color: var(--accent-bright); text-align: right; font-variant-numeric: tabular-nums; }
   .pick-opr { font-family: var(--mono); font-size: 12px; color: var(--text-muted); text-align: right; }
 
   /* ── Schedule results ── */
   .sched-summary { background: var(--card2); padding: 16px; margin-bottom: 14px; text-align: center; }
-  .sched-summary .ss-record { font-family: var(--display); font-size: 30px; font-weight: 700; color: var(--text); }
-  .sched-summary .ss-label { font-family: var(--mono); font-size: 11px; color: var(--text-muted); letter-spacing: 1px; margin-top: 4px; }
+  .sched-summary .ss-record { font-family: var(--display); font-size: 30px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+  .sched-summary .ss-label { font-family: var(--body); font-size: 12px; line-height: 1.5; color: var(--text-muted); letter-spacing: 1px; margin-top: 4px; }
   .sched-summary .ss-strength { font-family: var(--mono); font-size: 11px; color: var(--text-dim); letter-spacing: 1px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
   /* Once the event is over the projection above it is gone and this is all that
      is left, so it stops being a card with a rule across the top of nothing. */
@@ -1164,10 +1164,10 @@
   .md-next { border-left: 2px solid var(--accent); background: var(--card); padding: 18px 18px 18px 16px; }
   .md-next-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 14px; }
   .md-next-label { font-family: var(--mono); font-size: 10px; letter-spacing: 3px; color: var(--accent-bright); }
-  .md-next-name { font-family: var(--display); font-size: 26px; font-weight: 700; color: var(--text); }
+  .md-next-name { font-family: var(--display); font-size: 26px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
   .md-opp { border-top: 1px solid var(--border); padding: 12px 0; }
   .md-opp-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 6px; }
-  .md-opp-num { font-family: var(--display); font-size: 20px; font-weight: 700; color: var(--text); }
+  .md-opp-num { font-family: var(--display); font-size: 20px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
   .md-opp-ts { font-family: var(--mono); font-size: 12px; color: var(--text-muted); }
   .md-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
   .md-tags-inline { display: inline-flex; flex-wrap: wrap; gap: 6px; margin-left: 8px; }
@@ -1178,7 +1178,7 @@
   .md-winrow { display: flex; align-items: center; gap: 12px; margin: 14px 0 4px; }
   .md-winbar { flex: 1; height: 14px; background: var(--bg); border: 1px solid var(--border); overflow: hidden; }
   .md-winfill { height: 100%; background: linear-gradient(90deg, var(--accent-dim), var(--accent-bright)); transition: width 0.6s cubic-bezier(0.4,0,0.2,1); }
-  .md-winpct { font-family: var(--display); font-size: 24px; font-weight: 700; color: var(--text); min-width: 58px; text-align: right; }
+  .md-winpct { font-family: var(--display); font-size: 24px; font-weight: 700; color: var(--text); min-width: 58px; text-align: right; font-variant-numeric: tabular-nums; }
   .md-partner { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 10px; font-family: var(--body); font-size: 13px; color: var(--text-dim); display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
   .md-partner-label { font-family: var(--mono); font-size: 10px; letter-spacing: 2px; color: var(--text-muted); margin-right: 4px; }
   .md-rankrow { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-top: 18px; padding: 12px 14px; background: var(--card); font-family: var(--mono); font-size: 11px; letter-spacing: 1px; color: var(--text-muted); }
@@ -1190,7 +1190,7 @@
   .md-clickable.open .md-chev { transform: rotate(90deg); }
   .md-expand { background: var(--card); padding: 6px 16px 14px; margin-top: -4px; margin-bottom: 4px; }
   .md-exp-label { font-family: var(--mono); font-size: 9px; letter-spacing: 2px; color: var(--text-muted); margin: 12px 0 2px; }
-  .md-drift { font-family: var(--mono); font-size: 11px; color: var(--text-dim); letter-spacing: 0.5px; padding: 8px 12px; border: 1px dashed var(--border); margin-bottom: 12px; }
+  .md-drift { font-family: var(--body); font-size: 11px; color: var(--text-dim); letter-spacing: 0.5px; padding: 8px 12px; border: 1px dashed var(--border); margin-bottom: 12px; line-height: 1.5;}
   .md-next.queue-now { border-color: var(--accent-bright); box-shadow: 0 0 24px var(--accent-glow); }
   .md-next.queue-now .md-next-label { animation: mdPulse 1.6s ease-in-out infinite; }
   @keyframes mdPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.45; } }
@@ -1225,13 +1225,12 @@
   }
   .detail-number {
     font-family: var(--display); font-size: 46px; font-weight: 700;
-    color: var(--accent-bright); letter-spacing: 2px; line-height: 0.95;
-  }
+    color: var(--accent-bright); letter-spacing: 2px; line-height: 0.95; font-variant-numeric: tabular-nums; }
   .detail-name {
     font-family: var(--display); font-size: 17px; font-weight: 500;
     color: var(--text-dim); letter-spacing: 0.5px; margin-top: 6px;
   }
-  .detail-robot { font-family: var(--mono); font-size: 11px; color: var(--text-muted); margin-top: 5px; letter-spacing: 1px; }
+  .detail-robot { font-family: var(--body); font-size: 11px; color: var(--text-muted); margin-top: 5px; letter-spacing: 1px; line-height: 1.5;}
   .detail-meta {
     display: flex; flex-wrap: wrap; gap: 10px 30px; align-items: center;
     border: 1px solid var(--border); background: var(--card);
@@ -1432,19 +1431,19 @@
 
   .rw-calibrated { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
   .rw-cal-ok { font-family: var(--mono); font-size: 11px; letter-spacing: 2px; color: #4ccf6a; }
-  .rw-cal-detail { flex: 1; font-family: var(--mono); font-size: 11px; color: var(--text-muted); min-width: 180px; }
+  .rw-cal-detail { flex: 1; font-family: var(--body); font-size: 11px; color: var(--text-muted); min-width: 180px; line-height: 1.5;}
 
   .rw-embed { position: relative; padding-bottom: 56.25%; height: 0; background: #000; border: 1px solid var(--border); }
   .rw-embed iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
   .rw-checks { margin: 6px 0 10px; }
-  .rw-check { font-family: var(--mono); font-size: 11px; line-height: 1.55; padding: 3px 0; }
+  .rw-check { font-family: var(--body); font-size: 11px; line-height: 1.55; padding: 3px 0; }
   .rw-check-tag { display: inline-block; min-width: 42px; font-weight: 700; letter-spacing: 1px; }
   .rw-check-pass .rw-check-tag { color: #35c46a; }
   .rw-check-warn .rw-check-tag { color: #d8a01f; }
   .rw-check-fail .rw-check-tag { color: #e0524a; }
   .rw-check-info .rw-check-tag { color: var(--text-muted); }
   .rw-debug-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 12px; }
-  .rw-fallback { display: inline-block; margin-top: 10px; font-family: var(--mono); font-size: 11px; color: var(--text-muted); text-decoration: none; letter-spacing: 0.5px; }
+  .rw-fallback { display: inline-block; margin-top: 10px; font-family: var(--body); font-size: 11px; color: var(--text-muted); text-decoration: none; letter-spacing: 0.5px; line-height: 1.5;}
   /* The position, for a stream we can compute into but not seek. Large on
      purpose: it is the whole answer when there is no player to jump. */
   .rw-vextv-time { font-family: var(--mono); font-size: 34px; letter-spacing: 2px; margin: 14px 0 4px; color: var(--accent, #4ea1ff); }
@@ -1480,7 +1479,7 @@
     display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
     border: 1px solid var(--accent); background: var(--card); padding: 12px 14px; margin-bottom: 12px;
   }
-  .rw-resume-text { flex: 1 1 200px; font-family: var(--mono); font-size: 12px; color: var(--text-dim); line-height: 1.6; }
+  .rw-resume-text { flex: 1 1 200px; font-family: var(--body); font-size: 12px; color: var(--text-dim); line-height: 1.6; }
   .rw-forget {
     background: transparent; border: 1px solid var(--border); color: var(--text-muted); cursor: pointer;
     font-family: var(--display); font-size: 10px; font-weight: 600; letter-spacing: 1px; padding: 6px 10px;
@@ -1500,7 +1499,7 @@
     padding: 5px 9px; cursor: pointer; transition: all 0.18s; white-space: nowrap;
   }
   @media (hover: hover) { .rw-watch:hover { border-color: var(--accent); color: var(--accent-bright); background: var(--card2); } }
-  .rw-noclock { font-family: var(--mono); font-size: 10px; color: var(--text-muted); }
+  .rw-noclock { font-family: var(--body); font-size: 10px; color: var(--text-muted); line-height: 1.5;}
 
   @media (max-width: 720px) {
     .rw-row { grid-template-columns: 78px 1fr 60px; gap: 8px; padding: 9px 10px; }
@@ -1512,8 +1511,8 @@
   .rw-day-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
   .rw-day-head .detail-block-label::after { display: none; }
   .rw-multiday { border-left: 2px solid var(--accent-dim); padding-left: 12px; margin-bottom: 14px; }
-  .rw-cal-detail { font-family: var(--mono); font-size: 11px; color: var(--text-muted); margin-bottom: 10px; letter-spacing: 0.5px; }
-  .rw-noclock { font-family: var(--mono); font-size: 10px; color: var(--text-muted); letter-spacing: 0.5px; }
+  .rw-cal-detail { font-family: var(--body); font-size: 11px; color: var(--text-muted); margin-bottom: 10px; letter-spacing: 0.5px; line-height: 1.5;}
+  .rw-noclock { font-family: var(--body); font-size: 10px; color: var(--text-muted); letter-spacing: 0.5px; line-height: 1.5;}
 
   .rw-cal-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 10px; }
   .rw-nudge { display: inline-flex; align-items: center; gap: 4px; }
@@ -1586,7 +1585,7 @@
   .t-hidden-note {
     display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
     border-left: 2px solid var(--accent); background: transparent; padding: 8px 0 8px 12px; margin: 10px 0;
-    font-family: var(--mono); font-size: 12px; color: var(--text-dim); line-height: 1.6;
+    font-family: var(--body); font-size: 12px; color: var(--text-dim); line-height: 1.6;
   }
   .t-hidden-note .btn { margin-left: auto; }
   .tt-grade {
@@ -1606,7 +1605,7 @@
   .md-stat-label { font-family: var(--mono); font-size: 9px; letter-spacing: 1px;
     text-transform: uppercase; color: var(--text-muted); margin-bottom: 1px; }
   .md-stat-value { font-family: var(--display); font-size: 16px; font-weight: 700; color: var(--text); line-height: 1.2;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
   .md-stat-sub { font-family: var(--mono); font-size: 10px; color: var(--text-dim);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .md-stat.is-champion .md-stat-value { color: var(--accent-bright); }
@@ -1623,7 +1622,7 @@
     animation: tLivePulse 2s ease-in-out infinite; }
   @keyframes tLivePulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
   @media (prefers-reduced-motion: reduce) { .t-live-dot { animation: none; } }
-  .t-empty { text-align: center; padding: 40px; font-family: var(--mono); font-size: 13px; color: var(--text-muted); }
+  .t-empty { text-align: center; padding: 40px; font-family: var(--body); font-size: 13px; color: var(--text-muted); line-height: 1.5;}
   .rw-eventlink { display: flex; margin: -4px 0 12px; }
 
   /* ── Event-wide match list ── */
@@ -1660,10 +1659,10 @@
   @media (hover: hover) { .t-skills-row:hover { background: var(--card2); } }
   .t-skills-row.self { box-shadow: inset 3px 0 0 var(--accent-bright); }
   .t-sk-rank { font-family: var(--mono); font-size: 13px; color: var(--text-muted); }
-  .t-sk-team { font-family: var(--display); font-weight: 700; font-size: 15px; color: var(--text); }
+  .t-sk-team { font-family: var(--display); font-weight: 700; font-size: 15px; color: var(--text); font-variant-numeric: tabular-nums; }
   .t-skills-row.self .t-sk-team { color: var(--accent-bright); }
   .t-sk-val { font-family: var(--mono); font-size: 13px; color: var(--text-dim); }
-  .t-sk-total { font-family: var(--display); font-weight: 700; font-size: 16px; color: var(--accent-bright); }
+  .t-sk-total { font-family: var(--display); font-weight: 700; font-size: 16px; color: var(--accent-bright); font-variant-numeric: tabular-nums; }
 
   @media (max-width: 700px) {
     .t-nav-btn { font-size: 10px; padding: 9px 9px; letter-spacing: 0.5px; }
@@ -1707,8 +1706,8 @@
   }
   @media (hover: hover) { .t-award-win:hover { color: var(--accent-bright); border-color: var(--accent); } }
   .t-award-win.self { color: var(--accent-bright); border-color: var(--accent-dim); }
-  .t-award-none { font-family: var(--mono); font-size: 11px; color: var(--text-muted); margin-top: 5px; }
-  .t-award-qual { font-family: var(--mono); font-size: 10px; letter-spacing: 0.5px; color: var(--accent-bright); text-align: right; max-width: 190px; line-height: 1.4; }
+  .t-award-none { font-family: var(--body); font-size: 11px; color: var(--text-muted); margin-top: 5px; line-height: 1.5;}
+  .t-award-qual { font-family: var(--body); font-size: 10px; letter-spacing: 0.5px; color: var(--accent-bright); text-align: right; max-width: 190px; line-height: 1.4; }
 
   @media (max-width: 700px) {
     .t-award { grid-template-columns: 30px 1fr; gap: 10px; }
@@ -1720,13 +1719,13 @@
   /* ── Skills ladder ── */
   .ladder-wrap { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
   .ladder-title { font-family: var(--mono); font-size: 9px; letter-spacing: 2px; color: var(--text-muted); margin-bottom: 8px; }
-  .ladder-loading { font-family: var(--mono); font-size: 11px; color: var(--text-muted); letter-spacing: 0.5px; }
+  .ladder-loading { font-family: var(--body); font-size: 11px; color: var(--text-muted); letter-spacing: 0.5px; line-height: 1.5;}
   .ladder-none { font-family: var(--body); font-size: 12px; color: var(--text-muted); }
   .ladder-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--border); }
   .ladder-cell { background: var(--card); padding: 12px 14px; }
   .ladder-cell-label { font-family: var(--mono); font-size: 9px; letter-spacing: 1.5px; color: var(--text-muted); text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .ladder-cell-pos { font-family: var(--display); font-size: 26px; font-weight: 700; color: var(--accent-bright); line-height: 1.1; margin-top: 5px; }
-  .ladder-cell-raw { font-family: var(--mono); font-size: 10px; color: var(--text-muted); margin-top: 4px; letter-spacing: 0.3px; line-height: 1.35; }
+  .ladder-cell-pos { font-family: var(--display); font-size: 26px; font-weight: 700; color: var(--accent-bright); line-height: 1.1; margin-top: 5px; font-variant-numeric: tabular-nums; }
+  .ladder-cell-raw { font-family: var(--body); font-size: 10px; color: var(--text-muted); margin-top: 4px; letter-spacing: 0.3px; line-height: 1.35; }
   .ladder-heading { font-family: var(--body); font-size: 12.5px; color: var(--text-dim); margin-bottom: 9px; }
   @media (max-width: 600px) {
     .ladder-grid { grid-template-columns: 1fr; }
@@ -1743,8 +1742,8 @@
   .rolldown-why { font-family: var(--body); font-size: 12.5px; color: var(--text-dim); margin-top: 5px; line-height: 1.5; }
   .rolldown-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
   .rolldown-team { display: inline-flex; align-items: center; gap: 7px; font-family: var(--mono); font-size: 12px; color: var(--text); border: 1px solid var(--border); background: var(--card); padding: 5px 10px; }
-  .rd-pos { font-size: 9px; color: var(--accent-bright); }
-  .rd-score { font-size: 10px; color: var(--text-muted); }
+  .rd-pos { font-size: 9px; color: var(--accent-bright); font-variant-numeric: tabular-nums; }
+  .rd-score { font-size: 10px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
   .t-skills-row.rolldown-row { background: var(--card2); box-shadow: inset 3px 0 0 #4ccf6a; }
   .rd-badge {
@@ -1771,9 +1770,9 @@
 
   .rw-auto-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
   .rw-auto-note { font-family: var(--body); font-size: 12px; color: var(--text-muted); }
-  .rw-auto-working { font-family: var(--mono); font-size: 11px; color: var(--text-muted); }
+  .rw-auto-working { font-family: var(--body); font-size: 11px; color: var(--text-muted); line-height: 1.5;}
   .rw-auto-fail { font-family: var(--body); font-size: 12px; color: var(--text-dim); display: block; margin: 6px 0; }
-  .rw-auto-tag { font-family: var(--mono); font-size: 10px; color: #4ccf6a; letter-spacing: 0.5px; margin-bottom: 8px; }
+  .rw-auto-tag { font-family: var(--body); font-size: 10px; color: #4ccf6a; letter-spacing: 0.5px; margin-bottom: 8px; line-height: 1.5;}
   /* Amber, not green: an estimate should not read the same as a verified sync. */
   .rw-auto-approx { color: #d6a83a; line-height: 1.5; }
   .rw-or { font-family: var(--mono); font-size: 10px; letter-spacing: 2px; color: var(--text-muted);
@@ -2640,7 +2639,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v62';
+const APP_BUILD = 'v63';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
