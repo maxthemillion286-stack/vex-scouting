@@ -32,12 +32,28 @@ ok('the ratings Map is read by STRING id',
   'the Map is keyed by strings and the roster holds numbers; Map.get is type-strict');
 ok('...and the roster goes through the same conversion',
   /const tIds = list => list\.map\(t => String\(t\.id\)\);/.test(src));
-ok('the toggle lives in the nav strip, not one view\'s header',
-  /function tPredButton\(\)/.test(src) &&
-  /\$\{tournamentEventId \? tPredButton\(\) : ''\}/.test(src));
+ok('the toggle is a switch, not a link that looks like a tab',
+  /function tPredSwitch\(\)/.test(src) &&
+  /role="switch" aria-checked=/.test(src));
+ok('...drawn from the theme\'s own greys, so it inherits every theme',
+  /\.t-switch-track \{[^}]*var\(--card2\)/.test(idx) &&
+  !/\.t-switch[^{]*\{[^}]*#[0-9a-f]{3,6}/i.test(idx));
+ok('...and it sits beside SCOUT in the summary, on every view',
+  (idx.match(/\$\{tPredSwitch\(\)\}/g) || []).length >= 8,
+  (idx.match(/\$\{tPredSwitch\(\)\}/g) || []).length + ' summaries');
+ok('it is out of the tab strip', !/tPredButton/.test(src) && !/t-nav-link t-pred/.test(idx));
 ok('turning it re-renders whichever view is open',
   /if \(tournamentView\) tournamentGo\(tournamentView\);/.test(src));
 ok('the three bands mean the same thing everywhere', /const tPredClass = p =>/.test(src));
+ok('one switch governs the pick list too, not just the matches',
+  /if \(!tShowPred\) \{[\s\S]{0,400}behind the same switch/.test(src),
+  'off should mean nothing modelled anywhere, not most places');
+ok('...and the ratings are not built when it is off',
+  /let R = null;\n  if \(tShowPred\) \{[\s\S]{0,160}R = await tRatings\(say\);/.test(src));
+ok('the pick list mode is a small control on the alliance-size row',
+  /strongest team left\.<\/span>\$\{modeSel\}<\/div>/.test(src) && !/pk-modes/.test(idx),
+  'it was a full-width bar above everything');
+ok('...pushed to the far end of it', /\.pk-mode-wrap \{ margin-left: auto;/.test(idx));
 
 // ══ 2. Every unplayed match carries a number ═══════════════════════════════
 console.log('\n· predictions on the event-wide match list');
@@ -93,7 +109,12 @@ ok('the baseline matches the Simulator\'s own',
   win.switchTab('tournament');
   await win.loadTournamentTeams(55001, 'Bots @ Bristol', 9001, '66449A', 'RE-V5RC-25-0191');
   await settle(win, 800);
-  await win.tournamentGo('picklist'); await settle(win, 2600);
+  await win.tournamentGo('picklist'); await settle(win, 1200);
+  ok('with the switch off it projects nothing and says why',
+    /behind the same switch/.test(html(win, 'tournamentResults')) &&
+    !/class="pk-row/.test(html(win, 'tournamentResults')));
+  win.document.querySelector('#tournamentResults .t-switch').click();
+  await settle(win, 3000);
   let h = html(win, 'tournamentResults');
   ok('it runs without anything being typed in', (h.match(/class="pk-row/g) || []).length >= 4,
     (h.match(/class="pk-row/g) || []).length + ' rows');

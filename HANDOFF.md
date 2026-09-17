@@ -817,6 +817,18 @@ ratings loaded for its own rank card. The tools moved to where the data is:
 | Simulator ▸ Event Scout | the whole Simulator tab |
 | typing four teams in | `PICK LIST ▸ mode: Manual match`, behind the switch |
 
+**The switch (v67).** `tPredSwitch()` draws a real switch — a track and a knob,
+`role="switch"` with `aria-checked` — and it sits in the summary row beside
+SCOUT, on every view, not in the tab strip. A setting is not a place to go, and
+in that strip it read as another tab. It is built from `--card2`, `--border`,
+`--text-muted` and `--text`, so it inherits all fourteen themes rather than
+importing a colour of its own; t94 fails if a hex literal appears in its rules.
+
+**It governs everything modelled, not most of it.** Off means no match
+predictions, no projected bracket, no odds *and* no pick list — the tab shows
+what happened and nothing it guessed. The pick list returns early before
+building any ratings, because building them walks every match at the event.
+
 **One prediction layer.** `tRatings()` fetches the open event's ratings;
 `tPredict(R, red, blue, seed)` gives red's chance or `null` when fewer than two
 of the six teams have played. `tPredClass()` picks the band so the same three
