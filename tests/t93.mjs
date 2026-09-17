@@ -102,6 +102,55 @@ ok('the event sub-nav links match the views beside them',
 ok('the simulator sub-nav uses the display face too',
   /\.sim-subnav \.sub-btn \{[^}]*font-family: var\(--display\)/.test(css));
 
+// ══ 7b. Two faces, two jobs ════════════════════════════════════════════════
+//
+// mono is for numbers, ids, clocks and short labels; body is for sentences.
+// The Jumper already worked this way — .rw-hint and .sim-caveat were on the
+// body face — and v63 finished it across the other tabs.
+console.log('\n· prose vs numbers');
+{
+  const face = (cls) => {
+    const r = new RegExp('^[^\n{]*\\.' + cls + '\\s*\\{[^}]*\\}', 'm').exec(css);
+    if (!r) return null;
+    const f = /font-family: var\(--(\w+)\)/.exec(r[0]);
+    return f ? f[1] : 'inherited';
+  };
+  for (const cls of ['hint', 't-empty', 'no-awards', 'md-drift', 'rw-fallback',
+                     'rw-resume-text', 'rw-check', 't-hidden-note', 'info-bar',
+                     'page-info', 'error-box', 'team-location', 'detail-robot']) {
+    ok(`.${cls} is prose, so it is on the body face`, face(cls) === 'body', '-> ' + face(cls));
+  }
+  for (const cls of ['md-stat-label', 'match-num', 'match-time', 'rw-step-at', 'ov-label']) {
+    ok(`.${cls} is a label or a clock, so it stays mono`, face(cls) === 'mono', '-> ' + face(cls));
+  }
+  ok('prose carries leading, because Rajdhani sits smaller than the mono face',
+    /\.hint \{[^}]*line-height: 1\.5/.test(css));
+}
+
+// ══ 7c. Digits that get compared are tabular ═══════════════════════════════
+//
+// Only matters in a proportional face — monospace digits already align. The
+// trap: a naive `.foo {` regex also matches `.foo.state .foo {`, so the
+// declaration lands on a colour override and never reaches the base rule.
+console.log('\n· tabular figures');
+{
+  const bad = [];
+  for (const cls of ['match-score', 'md-winpct', 't-sk-total', 'pick-win', 'rd-score',
+                     'skill-rank', 'rd-pos', 'ladder-cell-pos', 'ss-record',
+                     'md-stat-value', 'tt-num', 'skill-num', 'sim-ov-num', 'md-opp-num',
+                     't-sk-team', 'sr-team', 'pick-team', 'team-number', 'detail-number',
+                     'md-next-name', 'ov-big', 't-match-score', 'rw-score']) {
+    // the rule that actually sets the type for this class, not a state override
+    const r = new RegExp('^[^\n{]*\\.' + cls + '\\s*\\{[^}]*(?:font-family|font-size)[^}]*\\}', 'm').exec(css);
+    if (!r || !/tabular-nums/.test(r[0])) bad.push(cls);
+  }
+  ok('every compared number column is tabular', bad.length === 0, bad.map(c => '.' + c).join(', '));
+  ok('...and it is on the base rule, not a state override',
+    !/\.match-row\.upcoming \.match-score \{[^}]*tabular/.test(css) &&
+    !/\.skill-row\.selected \.skill-rank \{[^}]*tabular/.test(css),
+    'a colour override is not where type belongs');
+}
+
 // ══ 8. MULTI SCOUT ═════════════════════════════════════════════════════════
 //
 // The Scout tab renders comparison cards for two or more numbers and the full

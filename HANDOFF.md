@@ -769,6 +769,31 @@ track; **the bracket** (`.bracket-input-match`, `.bracket-adv-filled`) — a
 bracket is drawn with boxes; the video frame, the logo, and the `?debug=1`
 panel, which is meant to look like a warning.
 
+### Two faces, two jobs (v63)
+
+`--mono` (Share Tech Mono) is for **numbers, ids, clocks and short labels**.
+`--body` (Rajdhani) is for **sentences a person reads**. The Jumper already
+worked this way — `.rw-hint`, `.sim-caveat`, `.rw-miss` and `.rw-auto-fail` were
+on the body face — and v63 finished the pattern across the other tabs, moving 26
+rules. Monospace is tiring in prose, which is why a paragraph set in it reads as
+shouting even at 11px.
+
+Adding prose? Body face, and give it `line-height: 1.5` — Rajdhani sits smaller
+than the mono face at the same pixel size and needs the leading.
+
+### Digits that are compared must be tabular
+
+Monospace digits already align, so this only matters where numbers are set in a
+**proportional** face (`--display`, or inherited). Twenty such rules now carry
+`font-variant-numeric: tabular-nums`. Without it `111` is narrower than `100`,
+so a column of scores wobbles — and during live tracking, where they refresh
+every 30 seconds, they visibly jitter.
+
+**The trap when adding it:** a naive regex for `.foo {` also matches
+`.foo.state .foo {` and `.parent .foo {`, so the declaration lands on a state
+override that only sets a colour and never reaches the base rule. Check the rule
+you edited is the one that sets `font-family` or `font-size`.
+
 Screenshots are how this was checked, not guesswork: Chromium is preinstalled at
 `/opt/pw-browsers/chromium-1194/chrome-linux/chrome` and `tests/harness.mjs`
 exports `makeRouter`, so a throwaway script can serve `index.html` with the
