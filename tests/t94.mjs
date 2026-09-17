@@ -45,11 +45,18 @@ ok('it is out of the tab strip', !/tPredButton/.test(src) && !/t-nav-link t-pred
 ok('turning it re-renders whichever view is open',
   /if \(tournamentView\) tournamentGo\(tournamentView\);/.test(src));
 ok('the three bands mean the same thing everywhere', /const tPredClass = p =>/.test(src));
-ok('one switch governs the pick list too, not just the matches',
-  /if \(!tShowPred\) \{[\s\S]{0,400}behind the same switch/.test(src),
-  'off should mean nothing modelled anywhere, not most places');
-ok('...and the ratings are not built when it is off',
-  /let R = null;\n  if \(tShowPred\) \{[\s\S]{0,160}R = await tRatings\(say\);/.test(src));
+// v67 gated the pick list on the switch as well; v68 took that back. Every
+// other view has real results to show and the model is an overlay on them —
+// this one IS the model, so gating it leaves an empty screen asking to be
+// switched on. The switch governs the overlays.
+ok('the pick list is not gated on the switch',
+  !/if \(!tShowPred\) \{[\s\S]{0,300}behind the same switch/.test(src),
+  'gating a view that is entirely a projection leaves nothing behind');
+ok('...and it says why, where the next person will look',
+  /this one IS the model, so gating it leaves an\n  \/\/ empty screen/.test(src));
+ok('the views that DO have results underneath are still gated',
+  /if \(tShowPred && rows\.some\(r => !r\.played\)\) \{/.test(src) &&
+  /\} else if \(!tShowPred\) \{[\s\S]{0,200}Turn on <strong>PREDICTIONS/.test(src));
 ok('the pick list mode is a small control on the alliance-size row',
   /strongest team left\.<\/span>\$\{modeSel\}<\/div>/.test(src) && !/pk-modes/.test(idx),
   'it was a full-width bar above everything');
@@ -109,12 +116,11 @@ ok('the baseline matches the Simulator\'s own',
   win.switchTab('tournament');
   await win.loadTournamentTeams(55001, 'Bots @ Bristol', 9001, '66449A', 'RE-V5RC-25-0191');
   await settle(win, 800);
-  await win.tournamentGo('picklist'); await settle(win, 1200);
-  ok('with the switch off it projects nothing and says why',
-    /behind the same switch/.test(html(win, 'tournamentResults')) &&
-    !/class="pk-row/.test(html(win, 'tournamentResults')));
-  win.document.querySelector('#tournamentResults .t-switch').click();
-  await settle(win, 3000);
+  await win.tournamentGo('picklist'); await settle(win, 3000);
+  // Driven with the switch OFF, which is the default — the pick list must
+  // still project, because projecting is all it does.
+  ok('the switch is off', win.document.querySelector('#tournamentResults .t-switch')
+    .getAttribute('aria-checked') === 'false');
   let h = html(win, 'tournamentResults');
   ok('it runs without anything being typed in', (h.match(/class="pk-row/g) || []).length >= 4,
     (h.match(/class="pk-row/g) || []).length + ' rows');

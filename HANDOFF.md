@@ -824,10 +824,16 @@ in that strip it read as another tab. It is built from `--card2`, `--border`,
 `--text-muted` and `--text`, so it inherits all fourteen themes rather than
 importing a colour of its own; t94 fails if a hex literal appears in its rules.
 
-**It governs everything modelled, not most of it.** Off means no match
-predictions, no projected bracket, no odds *and* no pick list — the tab shows
-what happened and nothing it guessed. The pick list returns early before
-building any ratings, because building them walks every match at the event.
+**What it governs, and the one thing it does not.** Off means no match
+predictions and no projected bracket or odds — those views have real results to
+show, and the model is an *overlay* on them, so it can be taken away and
+something still remains.
+
+**The pick list is not gated** (v67 gated it, v68 took that back). That view IS
+the model: projected alliances, your likely captain, your best partners. Gating
+it leaves an empty screen asking to be switched on, which is a worse screen than
+either state. If you add a view, the test is whether anything is left when the
+switch is off — if nothing is, do not gate it.
 
 **One prediction layer.** `tRatings()` fetches the open event's ratings;
 `tPredict(R, red, blue, seed)` gives red's chance or `null` when fewer than two

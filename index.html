@@ -2603,7 +2603,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v67';
+const APP_BUILD = 'v68';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -8068,13 +8068,13 @@ async function renderTournamentPickList() {
     await loadAndRenderTeamList();          // fills the roster and the seeds
     if (tournamentView !== 'picklist') return;   // a grade change moved us
   }
-  let R = null;
-  if (tShowPred) {
-    loadingEl.classList.add('active');
-    say('MODELLING THE FIELD...');
-    R = await tRatings(say);
-    loadingEl.classList.remove('active');
-  }
+  // Not gated on tShowPred. Every other view has real results to show and the
+  // model is an overlay on them; this one IS the model, so gating it leaves an
+  // empty screen asking to be switched on. The switch governs the overlays.
+  loadingEl.classList.add('active');
+  say('MODELLING THE FIELD...');
+  const R = await tRatings(say);
+  loadingEl.classList.remove('active');
 
   const head = `
     <div class="tournament-summary">
@@ -8095,14 +8095,6 @@ async function renderTournamentPickList() {
 
   if (tPickMode === 'manual') {
     resultsEl.innerHTML = head + `<div class="pk-sizes">${modeSel}</div>` + tManualMatchBox(R);
-    enhanceAllSelects();
-    return;
-  }
-
-  if (!tShowPred) {
-    resultsEl.innerHTML = head + `<div class="pk-sizes">${modeSel}</div>
-      <div class="pk-you">Every alliance here is <strong>modelled</strong>, so it is behind the same switch as the rest of it.
-      Turn on <strong>PREDICTIONS</strong> above to project this event's selection.</div>`;
     enhanceAllSelects();
     return;
   }
