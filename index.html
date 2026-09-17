@@ -1643,6 +1643,14 @@
   .t-dash { color: var(--text-muted); margin: 0 3px; font-weight: 400; }
   .t-pending { font-family: var(--mono); font-size: 10px; color: var(--text-muted); font-weight: 400; letter-spacing: 0.5px; }
   .match-team-self { color: var(--accent-bright) !important; font-weight: 700; }
+  /* Every team number in a schedule row opens that team's card. */
+  .mt-team { cursor: pointer; }
+  @media (hover: hover) { .mt-team:hover { text-decoration: underline; } }
+  .match-pred {
+    font-family: var(--mono); font-size: 9px; letter-spacing: 0.5px; margin-top: 2px;
+    color: var(--text-muted); font-weight: 400; font-variant-numeric: tabular-nums;
+  }
+  .btn-secondary.is-on { border-color: var(--accent); color: var(--text); }
 
   /* ── Event skills standings ── */
   .t-skills { display: flex; flex-direction: column; gap: 1px; background: var(--border); margin-top: 4px; }
@@ -2636,7 +2644,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v64';
+const APP_BUILD = 'v65';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -6904,7 +6912,11 @@ async function renderEventTeamMatchesView() {
       <div class="tournament-summary-name">${esc(tournamentEventName)}</div>
       <div class="tournament-summary-count">Matches for <span style="color:var(--accent-bright);font-weight:700;">${esc(tournamentFocusTeamNumber)}</span></div>
       <div class="tournament-summary-actions">
-        <button class="btn btn-primary" onclick="detailScoutFromTournament('${teamAttr(tournamentFocusTeamNumber)}')">SCOUT ${esc(tournamentFocusTeamNumber)}</button>
+        <button class="btn btn-primary" onclick="scoutTeam('${teamAttr(tournamentFocusTeamNumber)}')">SCOUT ${esc(tournamentFocusTeamNumber)}</button>
+        ${myMatches.some(m => m.played && m.win !== null && m.win !== undefined)
+          ? `<button class="btn btn-secondary${tShowPred ? ' is-on' : ''}" onclick="tTogglePred()"
+               title="Show what the model gave you before each match you have already played">${tShowPred ? '✓ ' : ''}PREDICTIONS</button>`
+          : ''}
         <button class="btn btn-secondary" onclick="tournamentRefreshNow()">⟳ REFRESH</button>
       </div>
     </div>
@@ -7078,16 +7090,19 @@ function renderMatchRow(m, focusTeamId) {
       <div class="match-num">${esc(m.name)}${timeStr ? `<div class="match-time">${m.live ? '~' : ''}${timeStr}</div>` : ''}</div>
       <div class="match-alliance ${myColorClass}">
         <div class="match-alliance-label">YOU</div>
-        <div class="match-teams">${m.myNums.map(n => `<span class="${n.toUpperCase() === (tournamentFocusTeamNumber || '').toUpperCase() ? 'match-team-self' : ''}">${n}</span>`).join(' · ')}</div>
+        <div class="match-teams">${m.myNums.map(n => `<span class="mt-team${n.toUpperCase() === (tournamentFocusTeamNumber || '').toUpperCase() ? ' match-team-self' : ''}" title="Open ${esc(n)}'s card" onclick="event.stopPropagation();scoutTeam('${teamAttr(n)}')">${esc(n)}</span>`).join(' · ')}</div>
         <div class="match-score">${scoreCell(m.played)}</div>
       </div>
       <div class="match-vs">VS</div>
       <div class="match-alliance ${oppColorClass}">
         <div class="match-alliance-label">OPP</div>
-        <div class="match-teams">${m.oppNums.map(n => `<span>${n}</span>`).join(' · ')}</div>
+        <div class="match-teams">${m.oppNums.map(n => `<span class="mt-team" title="Open ${esc(n)}'s card" onclick="event.stopPropagation();scoutTeam('${teamAttr(n)}')">${esc(n)}</span>`).join(' · ')}</div>
         <div class="match-score">${oppScoreCell(m.played)}</div>
       </div>
-      <div class="match-outcome ${outcomeClass}">${outcome}</div>
+      <div class="match-outcome ${outcomeClass}">${outcome}${
+        tShowPred && m.played && m.win !== null && m.win !== undefined
+          ? `<div class="match-pred" title="What the model gave this alliance before the match">${m.win.toFixed(0)}%</div>`
+          : ''}</div>
       ${m.played ? `<button class="match-play" title="Watch this match" onclick="event.stopPropagation();jumpToMatch('${teamAttr(tournamentEventId)}', ${esc(JSON.stringify(tournamentEventName || ''))}, '${m.raw ? m.raw.id : m.id}', '${tournamentFocusTeamNumber || ''}')">▶</button>` : ''}
     </div>`;
 }
@@ -7684,13 +7699,33 @@ let tournamentAwardsCache = null;  // event awards, fetched once
 
 // Open one team in the detailed Scout tab
 // (named distinctly — scoutFromTournament() already exists and sends to Multi Scout)
-function detailScoutFromTournament(teamNumber) {
+// Any team number on screen is a way into that team's card. Called from the
+// schedule rows, where the interesting question about an opponent is usually
+// "who ARE they", and from the buttons that already did this.
+function scoutTeam(teamNumber) {
+  const num = String(teamNumber || '').trim().toUpperCase();
+  if (!num) return;
   const input = document.getElementById('detailTeamInput');
-  if (input) input.value = teamNumber;
+  if (input) input.value = num;
   const g = document.getElementById('detailGradeSelect');
   if (g && tournamentGrade) { g.value = tournamentGrade; g.dispatchEvent(new Event('change', { bubbles: true })); }
   switchTab('scout');
   runDetailedScout();
+}
+
+function detailScoutFromTournament(teamNumber) { scoutTeam(teamNumber); }
+
+// ── Predictions on matches already played ──
+//
+// An unplayed match already shows the model's win probability where a played
+// one shows WIN or LOSS. The number is computed for EVERY match though, so
+// turning this on puts the prediction next to what actually happened — which is
+// the only way to see whether the model is worth trusting at this event.
+let tShowPred = lsGet('vex_show_pred') === '1';
+function tTogglePred() {
+  tShowPred = !tShowPred;
+  lsSet('vex_show_pred', tShowPred ? '1' : '0');
+  renderEventTeamMatchesView();
 }
 
 // Comparing several teams lives on the TEAMS view, where MULTI-SELECT picks
@@ -9286,13 +9321,13 @@ function renderEventSchedule(d, eventId) {
           <div class="match-num">${esc(r.name)}</div>
           <div class="match-alliance ${r.color === 'red' ? 'alliance-red' : 'alliance-blue'}">
             <div class="match-alliance-label">YOU</div>
-            <div class="match-teams">${r.myNums.map(n => `<span class="${String(n).toUpperCase() === String(d.team.number).toUpperCase() ? 'match-team-self' : ''}">${n}</span>`).join(' · ')}</div>
+            <div class="match-teams">${r.myNums.map(n => `<span class="mt-team${String(n).toUpperCase() === String(d.team.number).toUpperCase() ? ' match-team-self' : ''}" title="Open ${esc(n)}'s card" onclick="event.stopPropagation();scoutTeam('${teamAttr(n)}')">${esc(n)}</span>`).join(' · ')}</div>
             <div class="match-score">${r.myScore}</div>
           </div>
           <div class="match-vs">VS</div>
           <div class="match-alliance ${r.color === 'red' ? 'alliance-blue' : 'alliance-red'}">
             <div class="match-alliance-label">OPP</div>
-            <div class="match-teams">${r.oppNums.map(n => `<span>${esc(n)}</span>`).join(' · ')}</div>
+            <div class="match-teams">${r.oppNums.map(n => `<span class="mt-team" title="Open ${esc(n)}'s card" onclick="event.stopPropagation();scoutTeam('${teamAttr(n)}')">${esc(n)}</span>`).join(' · ')}</div>
             <div class="match-score">${r.oppScore}</div>
           </div>
           <div class="match-outcome ${r.cls}">${r.label}</div>

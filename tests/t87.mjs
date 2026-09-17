@@ -87,6 +87,48 @@ ok('...and the projection block no longer needs an else',
   ok('the record is stated once, not twice',
     (h.match(/6–0/g) || []).length === 1, (h.match(/6–0/g) || []).length + ' times');
   ok('every match still carries its W/L', (h.match(/match-outcome win/g) || []).length === 8);
+
+  // ── Every team number in a row opens that team's card (v65) ──
+  const nums = [...win.document.querySelectorAll('#tournamentResults .mt-team')];
+  ok('both alliances are clickable, not just yours', nums.length >= 8, nums.length + ' numbers');
+  ok('...including opponents',
+    nums.some(e => !e.classList.contains('match-team-self')),
+    'the interesting question about an opponent is who they are');
+  const opp = nums.find(e => !e.classList.contains('match-team-self'));
+  const want = opp.textContent.trim().toUpperCase();
+  opp.click();
+  await settle(win, 1800);
+  ok('clicking one lands on its card',
+    win.document.getElementById('tab-scout').classList.contains('active') &&
+    win.document.getElementById('detailTeamInput').value.toUpperCase() === want,
+    want + ' -> ' + win.document.getElementById('detailTeamInput').value);
+  ok('...and the card actually rendered',
+    (win.document.getElementById('detailResults').innerHTML || '').length > 1000);
+
+  // ── The prediction on a match already played (v65) ──
+  //
+  // mm.win is computed for EVERY match, played or not — an unplayed row has
+  // always shown it where a played row shows WIN or LOSS. The toggle puts it
+  // next to what actually happened, which is the only way to see whether the
+  // model is worth trusting at this event.
+  win.switchTab('tournament');
+  await win.tournamentGo('team');
+  await settle(win, 600);
+  let th = html(win, 'tournamentResults');
+  ok('the toggle is offered once there are played matches with a prediction',
+    /PREDICTIONS/.test(th));
+  ok('nothing is shown until it is asked for', !/match-pred/.test(th));
+  win.tTogglePred();
+  await settle(win, 700);
+  th = html(win, 'tournamentResults');
+  ok('turning it on puts a prediction on each played row',
+    (th.match(/match-pred/g) || []).length >= 8,
+    (th.match(/match-pred/g) || []).length + ' shown');
+  ok('...and marks the toggle as on', /btn-secondary is-on/.test(th));
+  ok('the choice survives a reload', win.localStorage.getItem('vex_show_pred') === '1');
+  win.tTogglePred();
+  await settle(win, 700);
+  ok('and it turns back off', !/match-pred/.test(html(win, 'tournamentResults')));
   ok('and the loss is marked', /match-outcome loss/.test(h));
   ok('nothing threw', errors.length === 0, errors.join('\n'));
   stop();
