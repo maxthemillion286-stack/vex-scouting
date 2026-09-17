@@ -220,9 +220,13 @@ ok('no JSON.stringify relies on a hand-rolled &quot; pass any more',
   // are built into markup here, so this is the surface that needs the check.
   win.switchTab('tournament');
   try { await win.tournamentGo('picklist'); } catch (e) { errors.push('picklist: ' + e.message); }
-  await settle(win, 2200);
+  await settle(win, 1200);
+  // Everything modelled is behind the switch since v67, so turn it on — an
+  // off pick list renders no team numbers and would prove nothing.
+  const predSw = win.document.querySelector('#tournamentResults .t-switch');
+  if (predSw) { predSw.click(); await settle(win, 3000); }
   ok('the pick list is clean', anyImg().length === 0, anyImg().join(', '));
-  ok('...and it did render', /pk-row|t-empty/.test(html(win, 'tournamentResults') || ''));
+  ok('...and it did render', /pk-row|pk-you|t-empty/.test(html(win, 'tournamentResults') || ''));
 
   win.switchTab('rewatch');
   const rt = win.document.getElementById('rwTeamInput');

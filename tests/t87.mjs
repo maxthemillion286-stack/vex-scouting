@@ -115,8 +115,10 @@ ok('...and the projection block no longer needs an else',
   await win.tournamentGo('team');
   await settle(win, 600);
   let th = html(win, 'tournamentResults');
-  ok('the toggle is offered on every view, from the nav strip',
-    /t-nav-link t-pred/.test(th) && /PREDICTIONS/.test(th));
+  // v67 made it a switch and moved it out of the tab strip into the summary
+  // row, beside SCOUT — it is a setting, not another view to go to.
+  ok('the toggle is offered on every view, as a switch beside SCOUT',
+    /class="t-switch"/.test(th) && /tournament-summary-actions/.test(th));
   ok('nothing is shown until it is asked for', !/match-pred/.test(th));
   win.tTogglePred();
   await settle(win, 700);
@@ -126,7 +128,7 @@ ok('...and the projection block no longer needs an else',
     (th.match(/match-pred/g) || []).length + ' shown');
   // v66 moved the toggle out of the schedule header and into the nav strip, so
   // it governs every view of the event rather than one of them.
-  ok('...and marks the toggle as on', /t-nav-link t-pred is-on/.test(th));
+  ok('...and the switch reads as on', /aria-checked="true"/.test(th));
   ok('the choice survives a reload', win.localStorage.getItem('vex_show_pred') === '1');
   win.tTogglePred();
   await settle(win, 700);

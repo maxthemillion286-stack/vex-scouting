@@ -1633,10 +1633,15 @@
   .t-pred.pred-even { color: #ddaa44; }
 
   /* ── Pick list (Tournament) ── */
-  .pk-modes { display: flex; align-items: center; gap: 10px; margin: 2px 0 14px; }
-  .pk-mode-label { font-family: var(--mono); font-size: 9px; letter-spacing: 1px; color: var(--text-muted); }
-  .pk-modes select { width: auto; min-width: 210px; }
+  /* The mode used to be a full-width bar above everything. It is one setting
+     of two, so it sits on the same line as the other one, at the far end. */
   .pk-sizes { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+  .pk-mode-sel {
+    margin-left: auto; width: auto; min-width: 0; flex: 0 0 auto;
+    font-size: 11px; padding: 5px 22px 5px 8px; letter-spacing: 0.5px;
+  }
+  .pk-mode-wrap { margin-left: auto; flex: 0 0 auto; }
+  .pk-mode-wrap::after { right: 8px; font-size: 10px; }
   .pk-size {
     font-family: var(--mono); font-size: 10px; letter-spacing: 1px; padding: 6px 10px;
     border: 1px solid var(--border); background: transparent; color: var(--text-muted); cursor: pointer;
@@ -1673,7 +1678,8 @@
   @media (max-width: 560px) {
     .pk-row { grid-template-columns: 34px 1fr 52px; gap: 8px; }
     .pk-meta { grid-column: 2 / -1; }
-    .pk-modes select { min-width: 0; flex: 1; }
+    .pk-mode-wrap { margin-left: 0; flex: 1 1 100%; }
+    .pk-mode-sel { width: 100%; }
   }
   .match-team-self { color: var(--accent-bright) !important; font-weight: 700; }
   /* Every team number in a schedule row opens that team's card. */
@@ -1684,7 +1690,28 @@
     color: var(--text-muted); font-weight: 400; font-variant-numeric: tabular-nums;
   }
   .btn-secondary.is-on { border-color: var(--accent); color: var(--text); }
-  .t-nav-link.t-pred.is-on { color: var(--accent-bright); }
+  /* A setting, not a place to go — so a switch, and in the theme's own greys
+     rather than a colour of its own. */
+  .t-switch {
+    display: inline-flex; align-items: center; gap: 7px; flex: 0 0 auto;
+    background: none; border: 0; padding: 4px 0; cursor: pointer; line-height: 1;
+  }
+  .t-switch-track {
+    position: relative; flex: 0 0 auto; width: 28px; height: 15px; border-radius: 999px;
+    background: var(--card2); border: 1px solid var(--border); transition: background 0.18s, border-color 0.18s;
+  }
+  .t-switch-knob {
+    position: absolute; top: 2px; left: 2px; width: 9px; height: 9px; border-radius: 50%;
+    background: var(--text-muted); transition: transform 0.18s, background 0.18s;
+  }
+  .t-switch[aria-checked="true"] .t-switch-track { background: var(--text-muted); border-color: var(--text-muted); }
+  .t-switch[aria-checked="true"] .t-switch-knob { transform: translateX(13px); background: var(--text); }
+  .t-switch-label {
+    font-family: var(--mono); font-size: 9px; letter-spacing: 1px; text-transform: uppercase;
+    color: var(--text-muted); transition: color 0.18s;
+  }
+  .t-switch[aria-checked="true"] .t-switch-label { color: var(--text-dim); }
+  @media (hover: hover) { .t-switch:hover .t-switch-label { color: var(--text); } }
 
   /* ── Event skills standings ── */
   .t-skills { display: flex; flex-direction: column; gap: 1px; background: var(--border); margin-top: 4px; }
@@ -2576,7 +2603,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v66';
+const APP_BUILD = 'v67';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -6844,6 +6871,7 @@ async function renderEventTeamMatchesView() {
       <div class="tournament-summary-name">${esc(tournamentEventName)}</div>
       <div class="tournament-summary-count">Matches for <span style="color:var(--accent-bright);font-weight:700;">${esc(tournamentFocusTeamNumber)}</span></div>
       <div class="tournament-summary-actions">
+            ${tPredSwitch()}
         <button class="btn btn-primary" onclick="scoutTeam('${teamAttr(tournamentFocusTeamNumber)}')">SCOUT ${esc(tournamentFocusTeamNumber)}</button>
         <button class="btn btn-secondary" onclick="tournamentRefreshNow()">⟳ REFRESH</button>
       </div>
@@ -7170,6 +7198,7 @@ async function renderBracketView() {
         <div class="tournament-summary">
           <div class="tournament-summary-name">${esc(tournamentEventName)}</div>
           <div class="tournament-summary-count">${modelled.length ? 'Eliminations have not started — projected from the seeds' : 'No elimination matches yet'}</div>
+              <div class="tournament-summary-actions">${tPredSwitch()}</div>
         </div>
         ${tournamentNav('bracket')}`;
       if (!modelled.length) {
@@ -7208,6 +7237,7 @@ async function renderBracketView() {
       <div class="tournament-summary">
         <div class="tournament-summary-name">${esc(tournamentEventName)} — Elimination Bracket</div>
         <div class="tournament-summary-actions">
+              ${tPredSwitch()}
           ${tournamentFocusTeamId ? `<button class="btn btn-secondary" onclick="renderEventTeamMatchesView()">BACK TO ${esc(tournamentFocusTeamNumber)}'S MATCHES</button>` : ''}
           <button class="btn btn-secondary" onclick="loadAndRenderTeamList()">SHOW ALL TEAMS</button>
         </div>
@@ -7748,17 +7778,24 @@ function tournamentNav(active) {
     ${btn('bracket', 'Bracket')}
     ${btn('picklist', 'Pick List')}
     ${tournamentFocusTeamNumber ? `<button class="t-nav-btn${active === 'team' ? ' active' : ''}" onclick="tournamentGo('team')">${esc(tournamentFocusTeamNumber)}</button>` : ''}
-    ${tournamentEventId ? tPredButton() : ''}
     ${tournamentEventId ? tOfflineButton(tournamentEventId) : ''}
     ${tournamentEventId ? reEventLink(tournamentEventId, tournamentEventSku) : ''}
   </div>`;
 }
 
-// One switch for every modelled number in the tab. In the strip rather than in
-// one view's header, because it governs all of them.
-function tPredButton() {
-  return `<button class="t-nav-link t-pred${tShowPred ? ' is-on' : ''}" onclick="tTogglePred()"
-    title="${tShowPred ? 'Hide' : 'Show'} modelled win probability on unplayed matches, and on matches already played">${tShowPred ? '◉' : '○'} PREDICTIONS</button>`;
+// One switch for everything the app models: match predictions, the projected
+// bracket and its odds, and the pick list. Off means none of it — the tab shows
+// what happened and nothing it guessed.
+//
+// A real switch rather than a text link, because it is a setting, not a place
+// to go. Greyscale from the theme's own tokens, so it inherits every theme
+// instead of importing a colour of its own.
+function tPredSwitch() {
+  return `<button class="t-switch" role="switch" aria-checked="${tShowPred ? 'true' : 'false'}"
+      onclick="tTogglePred()"
+      title="${tShowPred ? 'Turn off' : 'Turn on'} everything modelled: match predictions, the projected bracket and its odds, and the pick list"
+    ><span class="t-switch-track"><span class="t-switch-knob"></span></span
+    ><span class="t-switch-label">Predictions</span></button>`;
 }
 
 // Save, or say when it was saved. One control rather than two: once an event is
@@ -7939,6 +7976,7 @@ async function renderTournamentMatches() {
     <div class="tournament-summary">
       <div class="tournament-summary-name">${esc(tournamentEventName)}</div>
       <div class="tournament-summary-count">${rows.length} matches · ${playedCount} played · ${rows.length - playedCount} upcoming${tournamentLiveBadge()}</div>
+          <div class="tournament-summary-actions">${tPredSwitch()}</div>
     </div>
     ${tournamentNav('matches')}`;
 
@@ -8030,26 +8068,44 @@ async function renderTournamentPickList() {
     await loadAndRenderTeamList();          // fills the roster and the seeds
     if (tournamentView !== 'picklist') return;   // a grade change moved us
   }
-  loadingEl.classList.add('active');
-  say('MODELLING THE FIELD...');
-  const R = await tRatings(say);
-  loadingEl.classList.remove('active');
+  let R = null;
+  if (tShowPred) {
+    loadingEl.classList.add('active');
+    say('MODELLING THE FIELD...');
+    R = await tRatings(say);
+    loadingEl.classList.remove('active');
+  }
 
   const head = `
     <div class="tournament-summary">
       <div class="tournament-summary-name">${esc(tournamentEventName)}</div>
       <div class="tournament-summary-count">Alliance selection, modelled${tournamentLiveBadge()}</div>
+          <div class="tournament-summary-actions">${tPredSwitch()}</div>
     </div>
-    ${tournamentNav('picklist')}
-    <div class="pk-modes">
-      <label class="pk-mode-label" for="pkMode">MODE</label>
-      <select id="pkMode" onchange="tSetPickMode(this.value)">
+    ${tournamentNav('picklist')}`;
+
+  // The mode selector rides on the same row as the alliance-size buttons — see
+  // the .pk-sizes rule. Built here so both branches below can place it.
+  const modeSel = `<div class="select-wrap pk-mode-wrap">
+      <select class="pk-mode-sel" id="pkMode" onchange="tSetPickMode(this.value)" aria-label="Pick list mode">
         <option value="auto"${tPickMode === 'auto' ? ' selected' : ''}>Projected alliances</option>
-        <option value="manual"${tPickMode === 'manual' ? ' selected' : ''}>Manual match — what if</option>
+        <option value="manual"${tPickMode === 'manual' ? ' selected' : ''}>Manual match</option>
       </select>
     </div>`;
 
-  if (tPickMode === 'manual') { resultsEl.innerHTML = head + tManualMatchBox(R); enhanceAllSelects(); return; }
+  if (tPickMode === 'manual') {
+    resultsEl.innerHTML = head + `<div class="pk-sizes">${modeSel}</div>` + tManualMatchBox(R);
+    enhanceAllSelects();
+    return;
+  }
+
+  if (!tShowPred) {
+    resultsEl.innerHTML = head + `<div class="pk-sizes">${modeSel}</div>
+      <div class="pk-you">Every alliance here is <strong>modelled</strong>, so it is behind the same switch as the rest of it.
+      Turn on <strong>PREDICTIONS</strong> above to project this event's selection.</div>`;
+    enhanceAllSelects();
+    return;
+  }
 
   const roster = (tournamentTeamCache || []).filter(t => t.eventRank);
   if (!R || roster.length < 2) {
@@ -8079,7 +8135,7 @@ async function renderTournamentPickList() {
 
   let html = head;
   html += `<div class="pk-sizes">${T_PICK_SIZES.map(n => `<button class="pk-size${size === n ? ' active' : ''}" onclick="tSetPickSize(${n})">${n} alliances</button>`).join('')}
-    <span class="pk-note">Captains are the top seeds still unpicked; each takes the strongest team left.</span></div>`;
+    <span class="pk-note">Captains are the top seeds still unpicked; each takes the strongest team left.</span>${modeSel}</div>`;
 
   html += `<div class="pk-list">`;
   for (const a of alliances) {
@@ -8409,6 +8465,7 @@ async function renderTournamentAwards() {
     <div class="tournament-summary">
       <div class="tournament-summary-name">${esc(tournamentEventName)}</div>
       <div class="tournament-summary-count">${rows.length} award${rows.length === 1 ? '' : 's'}${qualCount ? ` · ${qualCount} carry a qualification` : ''}</div>
+          <div class="tournament-summary-actions">${tPredSwitch()}</div>
     </div>
     ${tournamentNav('awards')}`;
 
@@ -8488,6 +8545,7 @@ async function renderTournamentSkills() {
     <div class="tournament-summary">
       <div class="tournament-summary-name">${esc(tournamentEventName)}</div>
       <div class="tournament-summary-count">Skills standings · ${list.length} team${list.length === 1 ? '' : 's'} with runs${rd.spare ? ` · ${rd.spare} rolled-down spot${rd.spare === 1 ? '' : 's'}` : ''}</div>
+          <div class="tournament-summary-actions">${tPredSwitch()}</div>
     </div>
     ${tournamentNav('skills')}`;
 
@@ -8559,6 +8617,7 @@ function renderTournamentTeams() {
         gradeNorm(tournamentGrade) === 'all' ? (mixedGrades ? ' · both grades, tagged MS/HS' : ' · all grades') : ''}${
         tournamentUngraded ? ` · ${tournamentUngraded} with no grade listed, shown anyway` : ''}${tournamentLiveBadge()}</div>
       <div class="tournament-summary-actions">
+            ${tPredSwitch()}
         <div class="input-wrap select-wrap" style="min-width:180px;">
           <span class="input-label">SORT BY</span>
           <select id="tournamentSortSelect" onchange="renderTournamentTeams()">
