@@ -52,10 +52,15 @@ ok('rankings load in parallel',
   /await sim_pool\(divisions, async div => \{[\s\S]{0,200}tDivRankings\(eventId, div\.id\)/.test(src),
   'ten divisions at Worlds were ten round trips end to end');
 ok('...and still report progress', /LOADING RANKINGS — \$\{\+\+loaded\}\/\$\{divisions\.length\} DIVISIONS/.test(src));
-ok('per-team skills load in parallel',
-  /await sim_pool\(\[\.\.\.seenIds\], async tid => \{/.test(src),
-  'one request per team, in series, at an 80-team event');
-ok('...and still report progress', /PULLING ROBOT SKILLS\.\.\. \$\{fetched\}\/\$\{seenIds\.size\}/.test(src));
+// The per-team skills loop this used to guard lived inside runSimulation's
+// "include robot skills" path. v66 moved match prediction into the Tournament
+// tab, where the event's ratings are already built, and runSimulation went with
+// the typed-in Simulator. There is no per-team skills fetch left to parallelise.
+ok('the per-team skills loop went with the feature that owned it',
+  !/seenIds/.test(src) && !/PULLING ROBOT SKILLS/.test(src),
+  'it was runSimulation\'s, and runSimulation is gone');
+ok('...and the loop it was fixed from has not come back anywhere',
+  !/for \(const \w+ of \w+\) \{[\s\S]{0,140}await apiGet\(`\/teams\//.test(src));
 ok('no `for` loop is left awaiting an apiGet per item',
   !/for \(const tid of seenIds\) \{[\s\S]{0,120}await apiGet/.test(src));
 
@@ -211,13 +216,13 @@ ok('no JSON.stringify relies on a hand-rolled &quot; pass any more',
   ok('the scout card is clean', anyImg().length === 0, anyImg().join(', '));
   ok('...and it did render', (html(win, 'detailResults') || '').length > 1000);
 
-  win.switchTab('simulator');
-  const set = (id, v) => { const e = win.document.getElementById(id); if (e) e.value = v; };
-  set('simRed1', '66449A'); set('simBlue1', '12345B');
-  try { await win.runSimulation(); } catch (e) { errors.push('sim: ' + e.message); }
-  await settle(win, 900);
-  ok('the simulator is clean', anyImg().length === 0, anyImg().join(', '));
-  ok('...and it did render', (html(win, 'simResults') || '').length > 500);
+  // Where the Simulator's match mode went: alliance labels and team numbers
+  // are built into markup here, so this is the surface that needs the check.
+  win.switchTab('tournament');
+  try { await win.tournamentGo('picklist'); } catch (e) { errors.push('picklist: ' + e.message); }
+  await settle(win, 2200);
+  ok('the pick list is clean', anyImg().length === 0, anyImg().join(', '));
+  ok('...and it did render', /pk-row|t-empty/.test(html(win, 'tournamentResults') || ''));
 
   win.switchTab('rewatch');
   const rt = win.document.getElementById('rwTeamInput');
