@@ -238,6 +238,95 @@ and the only way to move to a new phone without losing a season.
 
 ---
 
+# Competition features, not app features
+
+Asked for at v65: things that help you **at a VEX event**, rather than more
+plumbing for the website. Everything below is derivable from data the app
+already loads — worth stating, because it is easy to design a feature the
+RobotEvents API cannot feed.
+
+**What the API actually gives**, confirmed against the code:
+`match.autonomous_winner` (which alliance won auton, per match),
+`alliance.autonomous_win_point`, and per-team `wp` / `ap` / `sp` / `high_score`
+in the rankings, plus every match score. That is a lot more than final scores,
+and it is what makes most of these possible.
+
+**What it does not give**, so do not design for it: element-by-element scoring,
+penalties, defensive play, or anything separating the driver from the robot.
+
+## 23. Find the undervalued picks
+
+The classic alliance-selection mistake is picking by event rank. A team with
+**top-ten skills and a mediocre qual record** is usually a good robot that drew
+bad partners — the best second pick in the room, and the one nobody else has
+noticed.
+
+The app already has all three numbers per team: event rank, skills rank and
+True Skill. The feature is the *disagreement* between them, sorted by how large
+it is. "Ranked 22nd, skills 4th, True Skill 6th — this is the pick."
+
+## 24. Auton specialists
+
+An autonomous win point is **two ranking points**, the same as winning the
+match. A partner who reliably wins auton is therefore worth more than one who
+scores ten more points, and nothing in the app says who those teams are.
+
+`autonomous_winner` is on every match, so per team you can have: auton win rate,
+AWP rate, and whether it is trending up. Then sort the roster by it. This is the
+single most decision-relevant number in VEX that the app does not currently
+surface per opponent.
+
+## 25. Auton call for your next match
+
+Same data, pointed at one match: your alliance's auton record against theirs,
+as a probability. It answers the question actually asked in the queue — do we
+run the AWP route or the safe one?
+
+## 26. Does this team fade?
+
+Every match score, in time order, is loaded. Some teams start strong and drop
+after lunch (battery, driver fatigue, a part working loose); some climb all day.
+A sparkline per team, and a tag — **improving**, **steady**, **fading** — from
+the trend across the day.
+
+At 2pm on a Saturday, "they have dropped 15 points a match since Q20" changes
+who you pick and how you play them.
+
+## 27. Floor or ceiling
+
+`consistency` and `highScore` are both computed already and shown as two
+unrelated rows. They are really one decision: a high floor wins qualification
+matches, a high ceiling wins eliminations.
+
+Label it that way — "floor pick" / "ceiling pick" — and let the pick list sort
+by whichever you need. Two numbers you already have, framed as the choice they
+actually represent.
+
+## 28. What one autonomous win is worth
+
+V5RC ranks on WP, then AP, then SP. The app shows rank and record, so two teams
+on 6–2 look identical when one of them is four places higher and uncatchable.
+
+Show the three columns, and then the useful part: **what moves you**. "One AWP
+takes you from 8th to 5th." "You cannot catch 4th without winning both." The
+arithmetic is small and the data is in the rankings call.
+
+## 29. Run up the score
+
+SP is the **losing** alliance's score, so a blowout win gives you fewer SP than
+a narrow one — and SP is the second tiebreaker. Teams routinely lose a seed
+because nobody on the drive team knows this.
+
+A one-line note on the standings when SP is what is deciding your position.
+
+## 30. Bracket path
+
+Given the current seeds, who you meet in each elimination round, and your
+modelled odds at each step. The bracket view draws the bracket and the Simulator
+computes championship odds; this is the two of them joined, from *your* seat.
+
+---
+
 ## Not recommended
 
 * **Accounts and a server-side database.** The whole app is one HTML file and a
