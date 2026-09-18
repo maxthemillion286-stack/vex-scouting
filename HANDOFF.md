@@ -383,6 +383,11 @@ proxy is at `api/proxy.js`.
 | t88 | Back / forward through where you have been |
 | t87 | The team page: best result, phone layout |
 | t86 | **Why Maker Faire never auto-found — blended grades, the game name, field-prefixed titles — and a search that explains its refusals** |
+| t91 | Round trips through the memo; **stored XSS, driven against a poisoned fixture** |
+| t92 | Offline save and replay; stepping and resuming the Jumper |
+| t93 | The look, written as rules a change can be checked against |
+| t94 | The Simulator's move into Tournament; the pick list and projected bracket |
+| t95 | The legal pages, the link to them, **and whether the policy is still true of the code** |
 | sanity | CSS braces balance, inline JS parses, tabs present |
 | tool_sanity | Same for anchor-tool.html |
 
@@ -1068,7 +1073,41 @@ out — but it's confusing to read. Left from removing Multi Scout.
 
 ---
 
-## 12. Feature ideas
+## 12. The legal pages
+
+`privacy.html`, `terms.html` and the `legal.css` they share are the only pages
+in the deploy besides `index.html`. Three things to know about them.
+
+**The privacy policy is a requirement, not a courtesy.** The YouTube API
+Services terms oblige a client to publish a privacy policy and *link* to it.
+VEX Scout uses both the YouTube Data API (`api/proxy.js`) and the embedded
+player (`rwEmbedUrl`), so this applies. A policy at a URL nothing links to does
+not satisfy it — which is why the `.site-foot` link in `index.html` is part of
+the same change and `t95` asserts it.
+
+**A privacy policy is a claim about the code, and the code drifts.** Everything
+the policy asserts, `t95` checks against the source: no analytics, no
+`document.cookie`, no inlined API key, and — the one most likely to break — that
+every external host `index.html` references is disclosed. Add a new third-party
+host and that assertion goes red until the policy says so. That is the point.
+Do not relax it; update the page.
+
+**Two palettes, not sixteen.** The pages read `vex_theme` only to decide dark
+or light, and use the neutral grey values either way. Copying all sixteen theme
+blocks into `legal.css` would be sixteen more things to keep in sync with
+`index.html`, for pages people read once.
+
+Two things in these pages are the owner's decisions, not the code's: the contact
+address, and the fact that they name Vercel as the host. Both need editing if
+either changes.
+
+One knock-on in `sw.js`: the navigation handler's `/index.html` fallback is now
+scoped with `isApp`. Without it, an uncached offline hit on `/privacy.html`
+would render the entire scouting app under the URL of a legal page.
+
+---
+
+## 13. Feature ideas
 
 `IDEAS.md` holds the list of things worth building next, with what each one
 would cost against what already exists. It also records three things **not** to

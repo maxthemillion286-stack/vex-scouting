@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<!--
+  VEX Scout — terms of use.
+
+  Nothing requires this page the way the YouTube API terms require a privacy
+  policy. It exists for two sentences that do real work: the predictions are a
+  model and can be wrong, and VEX Scout is not VEX.
+
+  The look lives in legal.css, shared with privacy.html.
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Terms · VEX Scout</title>
+<meta name="description" content="What VEX Scout is, what its predictions are worth, and who it is not affiliated with.">
+<link rel="icon" href="/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&family=Oswald:wght@300;400;500;600;700&display=swap">
+<link rel="stylesheet" href="/legal.css">
+</head>
+<body>
+<header>
+  <div class="head-inner">
+    <a class="back" href="/">&#8592; VEX Scout</a>
+    <span class="doc-kind">Terms</span>
+  </div>
+</header>
+
+<div class="wrap">
+  <h1>Terms of Use</h1>
+  <div class="asof">Last updated 18 September 2026</div>
+
+  <div class="lede">
+    <p>VEX Scout is a free, unofficial scouting tool built by one person. It is
+    not made by, affiliated with or endorsed by VEX Robotics or the REC
+    Foundation, and its predictions are estimates, not facts.</p>
+  </div>
+
+  <h2>Not affiliated</h2>
+  <p>VEX Scout is an independent project. VEX, VEX Robotics, VEX IQ, VRC, the
+  REC Foundation and RobotEvents are names and marks of their respective
+  owners, used here only to describe what the tool reads. None of them
+  sponsors, endorses or has reviewed this site.</p>
+  <p>Team, match, ranking and skills data comes from the public RobotEvents API
+  and belongs to RobotEvents. Video comes from YouTube, Vimeo and BoxCast and
+  belongs to whoever published it. VEX Scout does not host any of it.</p>
+
+  <h2>The predictions are a model</h2>
+  <p>Win probabilities, projected alliance selections, bracket odds and event
+  difficulty ratings are produced by a statistical model fitted to past match
+  scores. The model does not know about a broken drivetrain, a driver having a
+  good day, a strategy nobody has run yet, or anything that has not already
+  happened on a field.</p>
+  <p><strong>They will sometimes be wrong, including confidently wrong.</strong>
+  Treat them as one more input, the way you would treat any other scout's
+  opinion. Do not make a decision you cannot afford to get wrong &mdash; an
+  alliance pick, a bracket strategy, which event to register for &mdash; on the
+  strength of a number on this site alone.</p>
+
+  <h2>Using the site</h2>
+  <p>You may use VEX Scout for scouting your own competitions, for free, without
+  asking. In return, please don't:</p>
+  <ul>
+    <li>Script or automate it in a way that hammers the underlying RobotEvents
+      or YouTube APIs. Those are shared quotas, and exhausting them takes the
+      site down for every other team using it.</li>
+    <li>Try to break, overload or gain access to parts of the service that are
+      not public.</li>
+    <li>Use it to harass, impersonate or target anyone.</li>
+  </ul>
+  <p>When you use the video features you are also using YouTube, and the
+  <a href="https://www.youtube.com/t/terms" rel="noopener">YouTube Terms of Service</a>
+  apply to that use.</p>
+
+  <h2>No warranty</h2>
+  <p>VEX Scout is provided as is, with no warranty of any kind. It may be
+  unavailable, show stale or wrong data, or stop working entirely &mdash; it
+  depends on external APIs that can change or go down without notice, and it
+  runs at a competition venue's wifi, which is its own kind of unreliable.
+  There is no uptime commitment and no support obligation.</p>
+  <p>To the fullest extent the law allows, the author is not liable for any loss
+  arising from your use of the site, including decisions made on the strength of
+  anything it displays.</p>
+
+  <h2>Your data</h2>
+  <p>There are no accounts, so there is nothing to terminate and nothing to
+  delete on our side. Everything you create lives in your own browser. The
+  <a href="/privacy.html">privacy policy</a> has the details.</p>
+
+  <h2>Changes</h2>
+  <p>These terms may change. The current version is always this page, with its
+  date at the top.</p>
+
+  <h2>Contact</h2>
+  <p>Questions: email
+  <a href="mailto:maxthemillion286@gmail.com">maxthemillion286@gmail.com</a>.</p>
+
+  <div class="foot-link"><a href="/privacy.html">Privacy Policy</a> &middot; <a href="/">Back to VEX Scout</a></div>
+</div>
+
+<script>
+  // Continue whichever mode the app was last in. Dark vs light only — see the
+  // note at the top of legal.css.
+  try {
+    var t = localStorage.getItem('vex_theme');
+    if (t && t.indexOf('light-') === 0) document.body.classList.add('light');
+  } catch (e) {}
+</script>
+</body>
+</html>

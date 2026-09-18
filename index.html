@@ -1870,6 +1870,23 @@
     .match-row { grid-template-columns: 68px 1fr 28px 1fr 52px 30px; }
     .match-play { padding: 3px 6px; font-size: 10px; }
   }
+  /* ── SITE FOOT ──
+     The privacy policy has to be reachable from the app — the YouTube API
+     terms require a linked one, and a policy nobody can find is not a policy.
+     It also must not compete with anything: so one line of the smallest type
+     on the page, below every tab panel, no rule above it and no box around
+     it. It inherits the muted colour, which every theme already tunes. */
+  .site-foot {
+    max-width: 1100px; margin: 56px auto 22px; padding: 0 24px;
+    text-align: center; font-family: var(--display); font-size: 10px;
+    letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--text-muted); opacity: 0.6;
+  }
+  /* 10px type is a 10px tap target without this. The padding is invisible —
+     it only grows the hit area, on a link a thumb has to find. */
+  .site-foot a { color: inherit; text-decoration: none; display: inline-block; padding: 8px 4px; }
+  @media (hover: hover) { .site-foot a:hover { color: var(--text-dim); text-decoration: underline; } }
+  .site-foot .foot-sep { margin: 0 8px; opacity: 0.5; }
 </style>
 </head>
 <body class="theme-dark-grey">
@@ -2155,6 +2172,10 @@
       <div id="escoutResults"></div>
   </section>
 </div>
+
+<footer class="site-foot">
+  <a href="/privacy.html">Privacy</a><span class="foot-sep">·</span><a href="/terms.html">Terms</a>
+</footer>
 
 <script>
 const BASE = '/api/proxy';
@@ -2603,7 +2624,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v68';
+const APP_BUILD = 'v69';
 
 const vsDebug = {
   errors: [],        // last few failed API calls

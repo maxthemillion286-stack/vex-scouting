@@ -340,6 +340,38 @@ anyway.
 
 ---
 
+## 31. Self-host the three typefaces
+
+`index.html` and `legal.css` pull Rajdhani, Share Tech Mono and Oswald from
+`fonts.googleapis.com` / `fonts.gstatic.com`. Every visitor's IP reaches Google
+before the page paints, which is the single largest third-party exposure the
+site has — a German court found exactly this arrangement unlawful under GDPR in
+2022 (Munich, 20 January 2022). All three faces are openly licensed, so this is
+a legitimate thing to do.
+
+Serving them from `/fonts/` would also kill two DNS lookups and two TLS
+handshakes off the critical path, and make the app genuinely offline-complete
+— today the service worker caches the font files, but only after a first online
+visit has fetched them.
+
+Cost: download the woff2 subsets, add `@font-face` rules, drop the two
+`preconnect` links and the stylesheet link, delete the `fonts.googleapis.com`
+branch in `sw.js`, and update the Third Parties section of `privacy.html`.
+
+## 32. `youtube-nocookie` for the embedded player
+
+`rwEmbedUrl` returns `https://www.youtube.com/embed/...`. The
+`www.youtube-nocookie.com` host is the same player without the tracking cookies
+until playback starts. It is a one-line change and it matters more than usual
+here, because a large share of VEX competitors are minors.
+
+Check first that the Jumper's `start=` seek still behaves — the nocookie host
+is meant to be a drop-in, but §3's history says verify rather than assume, and
+`RW_STREAM_LOGIC` does **not** need bumping for this (the matching logic is
+unchanged; only the host the matched video is played from).
+
+---
+
 ## Not recommended
 
 * **Accounts and a server-side database.** The whole app is one HTML file and a
