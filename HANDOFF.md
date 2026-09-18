@@ -1101,6 +1101,20 @@ Two things in these pages are the owner's decisions, not the code's: the contact
 address, and the fact that they name Vercel as the host. Both need editing if
 either changes.
 
+**The foot is pinned with `position: sticky; top: 100vh`, not flex.** In normal
+flow, a short page — Scout before you have searched anything — leaves the foot
+hanging in the middle of an empty screen directly under the controls, where it
+reads as part of the form rather than as a footnote. Sticky at a full viewport
+height sinks it to the bottom instead; `body` already carries `min-height:
+100vh`, which is the box it sinks into. On a long page the offset is already
+behind it, so it just flows after the content and never floats over anything.
+
+The alternative was `display: flex` on `body` with `margin-top: auto`. That
+works too, and it changes the layout mode of every direct child of `body` — the
+header, the container, the two hidden shim inputs — to buy the same two lines.
+`t95` asserts the sticky pair and `body`'s `min-height` together, because the
+pin silently stops working if either goes.
+
 One knock-on in `sw.js`: the navigation handler's `/index.html` fallback is now
 scoped with `isApp`. Without it, an uncached offline hit on `/privacy.html`
 would render the entire scouting app under the URL of a legal page.
