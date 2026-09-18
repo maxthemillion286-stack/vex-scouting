@@ -68,6 +68,17 @@ ok('the foot links to the terms', /href="\/terms\.html"/.test(idx));
   ok('the foot is muted', /color: var\(--text-muted\)/.test(rule), rule);
   ok('the foot has no frame', !/border:/.test(rule) && !/background:/.test(rule), rule);
   ok('the foot sits clear of the content', /margin: \d\dpx/.test(rule), rule);
+  // As low as it can go. On a short page — Scout before you have searched
+  // anything — normal flow leaves the foot halfway up an empty screen, right
+  // under the controls, where it reads as part of the form. Sticky at a full
+  // viewport height pins it to the bottom, and does nothing on a long page.
+  ok('the foot is pinned to the bottom of the viewport',
+    /position: sticky/.test(rule) && /top: 100vh/.test(rule), rule);
+  // The pin only reaches the bottom if body gives it a box to sink into.
+  ok('body is at least a viewport tall', /^\s*body \{[^}]*min-height: 100vh/m.test(idxCss));
+  // Sticky makes it a positioned element; the fixed background gradient sits
+  // at z-index 0 and the container at 2, so the foot needs to be up there too.
+  ok('the foot is above the background wash', /z-index: 2/.test(rule), rule);
 }
 // And it renders, in a real DOM, at the bottom of the body.
 {

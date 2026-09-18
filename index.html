@@ -1875,8 +1875,20 @@
      terms require a linked one, and a policy nobody can find is not a policy.
      It also must not compete with anything: so one line of the smallest type
      on the page, below every tab panel, no rule above it and no box around
-     it. It inherits the muted colour, which every theme already tunes. */
+     it. It inherits the muted colour, which every theme already tunes.
+
+     `position: sticky; top: 100vh` is what puts it as low as it can go. On a
+     short page — the Scout tab before you have searched anything — normal flow
+     would leave it hanging right under the controls, halfway up an empty
+     screen, reading like part of the form. Sticky with an offset of a full
+     viewport height pins it to the bottom instead, and because body already
+     carries `min-height: 100vh` there is a box for it to sink to.
+
+     On a long page it does nothing at all: the foot's natural position is
+     already past 100vh, so it just flows after the content. No flex on body,
+     no wrapper div, no fixed positioning stealing a strip of the screen. */
   .site-foot {
+    position: sticky; top: 100vh; z-index: 2;
     max-width: 1100px; margin: 56px auto 22px; padding: 0 24px;
     text-align: center; font-family: var(--display); font-size: 10px;
     letter-spacing: 0.14em; text-transform: uppercase;
@@ -2624,7 +2636,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v69';
+const APP_BUILD = 'v70';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
