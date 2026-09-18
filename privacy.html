@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<!--
+  VEX Scout — privacy policy.
+
+  A standalone page, not a view inside the app. Three reasons: the YouTube API
+  terms want a policy at a stable, linkable URL; hash routing was tried and
+  removed (IDEAS.md §3); and a legal page has no business being 500 KB of
+  scouting app.
+
+  The look lives in legal.css, shared with terms.html.
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Privacy · VEX Scout</title>
+<meta name="description" content="What VEX Scout stores, what it sends, and who else sees anything.">
+<link rel="icon" href="/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&family=Oswald:wght@300;400;500;600;700&display=swap">
+<link rel="stylesheet" href="/legal.css">
+</head>
+<body>
+<header>
+  <div class="head-inner">
+    <a class="back" href="/">&#8592; VEX Scout</a>
+    <span class="doc-kind">Privacy</span>
+  </div>
+</header>
+
+<div class="wrap">
+  <h1>Privacy Policy</h1>
+  <div class="asof">Last updated 18 September 2026</div>
+
+  <div class="lede">
+    <p>VEX Scout has no accounts, no sign-up and no user database. Everything you
+    create in it &mdash; saved teams, your theme, Jumper anchors, events saved for
+    offline use &mdash; is stored by your own browser and never sent anywhere.</p>
+  </div>
+
+  <h2>What stays on your device</h2>
+  <p>The app uses your browser's <code>localStorage</code> and <code>IndexedDB</code>.
+  Nothing in either leaves your device. Specifically:</p>
+  <ul>
+    <li>Your chosen colour theme and the tab you had open last.</li>
+    <li>Team numbers you have scouted or compared.</li>
+    <li>Whether the prediction switch is on, and the season list the app caches
+      so it does not refetch it every visit.</li>
+    <li>Jumper video anchors and calibrations, and which matches you have
+      already watched.</li>
+    <li>Events you have saved for offline use, including their match and
+      ranking data.</li>
+  </ul>
+  <p>Clearing your browser's data for this site deletes all of it. There is no
+  copy anywhere else, which also means there is nothing for us to hand back if
+  you lose it.</p>
+
+  <h2>What the server sees</h2>
+  <p>VEX Scout is a static page. It talks to one endpoint of its own,
+  <code>/api/proxy</code>, which forwards requests to the RobotEvents API and the
+  YouTube Data API. It does that server-side so the API keys stay on the server
+  and never reach your browser.</p>
+  <p>Those requests carry <strong>what you asked for</strong> &mdash; a team number,
+  an event ID, a season &mdash; and not who you are. No identifier is attached to
+  them and none is stored. The proxy briefly caches the answers it gets back,
+  keyed by what was asked rather than by who asked, so that two people looking
+  up the same event do not each cost a fresh API call.</p>
+  <p>The site is hosted on Vercel, which keeps standard web server logs (IP
+  address, time, requested path, browser user-agent) for operating and securing
+  the service. That is Vercel's processing, described in
+  <a href="https://vercel.com/legal/privacy-policy" rel="noopener">their privacy policy</a>.</p>
+
+  <h2>No tracking</h2>
+  <p>There is no analytics on this site. No Google Analytics, no Plausible, no
+  advertising, no tracking pixels, no fingerprinting. VEX Scout sets no cookies
+  of its own &mdash; the app never touches <code>document.cookie</code> at all.</p>
+
+  <h2>Third parties</h2>
+  <p>Some parts of the page are loaded from other companies. When your browser
+  fetches from them, it tells them your IP address and browser details, as it
+  must to receive a reply. Their own policies govern what they do with that.</p>
+  <ul>
+    <li><strong>Google Fonts</strong> (<code>fonts.googleapis.com</code>,
+      <code>fonts.gstatic.com</code>) &mdash; the three typefaces the app uses. This
+      happens on every page load.
+      <a href="https://policies.google.com/privacy" rel="noopener">Google's privacy policy</a>.</li>
+    <li><strong>YouTube</strong> &mdash; VEX Scout uses the YouTube Data API to find
+      match videos, and embeds the YouTube player to show them. By using the
+      video features you agree to the
+      <a href="https://www.youtube.com/t/terms" rel="noopener">YouTube Terms of Service</a>,
+      and <a href="https://policies.google.com/privacy" rel="noopener">Google's privacy policy</a>
+      applies to data Google collects. The embedded player may store data and
+      set cookies in your browser. You can review and revoke the data Google
+      holds about you at
+      <a href="https://myaccount.google.com/permissions" rel="noopener">Google's security settings page</a>.</li>
+    <li><strong>Vimeo and BoxCast</strong> &mdash; some events stream on these
+      instead. Their embedded players behave the same way, under
+      <a href="https://vimeo.com/privacy" rel="noopener">Vimeo's</a> and
+      <a href="https://www.boxcast.com/privacy-policy" rel="noopener">BoxCast's</a>
+      policies.</li>
+    <li><strong>RobotEvents</strong> &mdash; where all team, match and skills data
+      comes from. The app reads it through the proxy above; nothing about you is
+      sent to it.</li>
+  </ul>
+  <p>The video embeds only load once you actually open a video. Until then, none
+  of YouTube, Vimeo or BoxCast is contacted.</p>
+  <p>The app also builds ordinary links out to <code>robotevents.com</code>,
+  <code>events.vex.com</code> and <code>vexworlds.tv</code> so you can open an
+  event's official page or a live stream. Following one is a normal navigation
+  to someone else's website, and from that point their policies apply, not
+  this one.</p>
+
+  <h2>Young users</h2>
+  <p>VEX competitors are often under 13, so this matters: VEX Scout does not
+  knowingly collect personal information from anyone, of any age. There is no
+  account to create, no form to fill in, and no field anywhere that asks for a
+  name, an email address or a location. Please don't type personal information
+  into the site &mdash; there is no reason to, and nothing is built to handle it.
+  The third-party embeds listed above are the one place data about a visitor
+  can reach another company, which is why they are listed.</p>
+
+  <h2>Changes</h2>
+  <p>If this policy changes, the updated version appears on this page with a new
+  date at the top.</p>
+
+  <h2>Contact</h2>
+  <p>Questions about this policy, or a request to remove something: email
+  <a href="mailto:maxthemillion286@gmail.com">maxthemillion286@gmail.com</a>.</p>
+
+  <div class="foot-link"><a href="/terms.html">Terms of Use</a> &middot; <a href="/">Back to VEX Scout</a></div>
+</div>
+
+<script>
+  // Continue whichever mode the app was last in. Dark vs light only — see the
+  // note at the top of legal.css.
+  try {
+    var t = localStorage.getItem('vex_theme');
+    if (t && t.indexOf('light-') === 0) document.body.classList.add('light');
+  } catch (e) {}
+</script>
+</body>
+</html>

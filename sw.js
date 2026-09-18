@@ -1,4 +1,4 @@
-// VEX Scout Service Worker — v68
+// VEX Scout Service Worker — v69
 //
 // Built on the v3 network-first design (updates always appear immediately),
 // with three additions aimed at competition venues:
@@ -21,8 +21,8 @@
 //
 // Bump CACHE_NAME whenever index.html changes.
 
-const CACHE_NAME = 'vex-scout-v68';
-const API_CACHE = 'vex-scout-v68-api';
+const CACHE_NAME = 'vex-scout-v69';
+const API_CACHE = 'vex-scout-v69-api';
 
 // How long to wait for the network before showing the cached copy.
 const HTML_TIMEOUT_MS = 2500;
@@ -167,13 +167,19 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // HTML / navigation: network first so updates show up immediately
+  // HTML / navigation: network first so updates show up immediately.
+  //
+  // The /index.html fallback is only for the app itself. privacy.html and
+  // terms.html are navigations too, and without this check an uncached
+  // offline hit on either would quietly render the whole scouting app under
+  // the URL of a legal page.
   if (request.mode === 'navigate' ||
       request.destination === 'document' ||
       url.pathname === '/' ||
       url.pathname === '/index.html') {
+    const isApp = url.pathname === '/' || url.pathname === '/index.html';
     event.respondWith(
-      networkFirstWithTimeout(request, CACHE_NAME, HTML_TIMEOUT_MS, '/index.html')
+      networkFirstWithTimeout(request, CACHE_NAME, HTML_TIMEOUT_MS, isApp ? '/index.html' : null)
     );
     return;
   }

@@ -1,0 +1,88 @@
+/* Shared look for privacy.html and terms.html.
+ *
+ * These pages do NOT carry all sixteen app themes. They read vex_theme only to
+ * pick dark or light, and use the neutral grey palette for either. Copying
+ * sixteen palettes here would mean sixteen more things to keep in sync with
+ * index.html, for pages people read once.
+ *
+ * Same rules as the app: --display for headings and chrome, --body at 1.5 for
+ * prose, --mono for dates and identifiers. A notice is a left rule, not a box.
+ */
+
+:root {
+  --bg: #0a0a0a; --card: #1a1a1a; --border: #404040;
+  --text: #ffffff; --text-dim: #bbbbbb; --text-muted: #707070;
+  --mono: 'Share Tech Mono', monospace;
+  --display: 'Oswald', sans-serif;
+  --body: 'Rajdhani', sans-serif;
+}
+body.light {
+  --bg: #f0f0f0; --card: #d8d8d8; --border: #555555;
+  --text: #000000; --text-dim: #1a1a1a; --text-muted: #444444;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--bg); color: var(--text);
+  font-family: var(--body); font-size: 16px; line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 720px; margin: 0 auto; padding: 0 24px 72px; }
+
+header { border-bottom: 1px solid var(--border); margin-bottom: 40px; }
+.head-inner {
+  max-width: 720px; margin: 0 auto; padding: 22px 24px 18px;
+  display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
+}
+.back, .doc-kind {
+  font-family: var(--display); font-size: 11px; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--text-muted);
+}
+.back { text-decoration: none; }
+.back:hover { color: var(--text); }
+.doc-kind { margin-left: auto; }
+
+h1 {
+  font-family: var(--display); font-weight: 500; font-size: 30px;
+  letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 6px;
+}
+.asof {
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--text-muted); margin-bottom: 30px;
+}
+h2 {
+  font-family: var(--display); font-weight: 500; font-size: 15px;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  margin: 36px 0 12px; color: var(--text-dim);
+}
+p { margin-bottom: 14px; color: var(--text-dim); }
+ul { margin: 0 0 14px 0; list-style: none; }
+li { color: var(--text-dim); margin-bottom: 9px; padding-left: 16px; position: relative; }
+li::before {
+  content: ''; position: absolute; left: 0; top: 0.68em;
+  width: 6px; height: 1px; background: var(--text-muted);
+}
+strong { color: var(--text); font-weight: 600; }
+code { font-family: var(--mono); font-size: 13px; color: var(--text-muted); }
+a { color: var(--text); }
+
+/* The one thing a reader should take away. Set off by a rule rather than a
+   box — the same convention the app uses for a notice. */
+.lede {
+  border-left: 2px solid var(--border); padding: 2px 0 2px 16px;
+  margin-bottom: 30px; font-size: 17px;
+}
+.lede p:last-child { margin-bottom: 0; }
+
+.foot-link {
+  margin-top: 44px; padding-top: 18px; border-top: 1px solid var(--border);
+  font-family: var(--display); font-size: 10px; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--text-muted);
+}
+.foot-link a { color: inherit; text-decoration: none; }
+.foot-link a:hover { color: var(--text-dim); text-decoration: underline; }
+
+@media (max-width: 600px) {
+  body { font-size: 15px; }
+  h1 { font-size: 24px; }
+}
