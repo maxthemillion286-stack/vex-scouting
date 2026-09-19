@@ -388,6 +388,7 @@ proxy is at `api/proxy.js`.
 | t93 | The look, written as rules a change can be checked against |
 | t94 | The Simulator's move into Tournament; the pick list and projected bracket |
 | t95 | The legal pages, the link to them, **and whether the policy is still true of the code** |
+| t96 | **A percentage must say what it is a percentage of** — the card's order, both labels, the column key |
 | sanity | CSS braces balance, inline JS parses, tabs present |
 | tool_sanity | Same for anchor-tool.html |
 
@@ -1073,7 +1074,47 @@ out — but it's confusing to read. Left from removing Multi Scout.
 
 ---
 
-## 12. The legal pages
+## 12. Two things that cost a release each
+
+### `border-style` is the four-sided shorthand
+
+`.match-row.upcoming` said `border-style: dashed`, meaning "make the separator
+I already have dashed". It does not mean that. It is the shorthand for all four
+sides, and a side whose *width* was never declared then computes to `medium`
+— 3px — in `currentColor`, which on a dark theme is white. Every unplayed match
+grew a 3px white box on three sides, and the whole schedule read as a grid of
+white cards. `.match-row.queue-now-row` did the same with `solid`.
+
+`border-color` on its own is harmless: a side whose style is `none` stays 0px
+however it is coloured. Only `border-style` turns sides on. Use
+`border-bottom-style` (or whichever side you mean).
+
+`t93` hunts for this sheet-wide: any rule using the bare shorthand must belong
+to an element that really carries a four-sided border, checked through the
+sibling classes the markup puts on it (`.bracket-bye-match` is always rendered
+with `.bracket-match`, which declares one). It was verified by putting the bug
+back and watching it fail.
+
+### A percentage must say what it is a percentage of
+
+The next-match card ran opponents → bar → your alliance, and the bar carried
+nothing but `54%`. Sitting directly under the last opponent block it read as
+that team's number, not the alliance's odds for the match. Reported exactly
+that way: "hard to tell if it's the chance to win or the chance against that
+individual team."
+
+The card now runs **YOUR ALLIANCE → AGAINST → the bar**, and the bar carries a
+sentence. The wording adapts: no partner, no "alliance". In the match list the
+same number sits in an unheaded column, so the round label carries a key —
+only for rounds that actually hold a prediction.
+
+`t96` keeps the order, both labels, the wording and the key. The rule behind it:
+**a number with no noun attached will be read as belonging to whatever is
+nearest it on screen.**
+
+---
+
+## 13. The legal pages
 
 `privacy.html`, `terms.html` and the `legal.css` they share are the only pages
 in the deploy besides `index.html`. Three things to know about them.
@@ -1121,7 +1162,7 @@ would render the entire scouting app under the URL of a legal page.
 
 ---
 
-## 13. Feature ideas
+## 14. Feature ideas
 
 `IDEAS.md` holds the list of things worth building next, with what each one
 would cost against what already exists. It also records three things **not** to
