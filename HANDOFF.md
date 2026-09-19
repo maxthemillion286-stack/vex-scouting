@@ -389,6 +389,7 @@ proxy is at `api/proxy.js`.
 | t94 | The Simulator's move into Tournament; the pick list and projected bracket |
 | t95 | The legal pages, the link to them, **and whether the policy is still true of the code** |
 | t96 | **A percentage must say what it is a percentage of** — the card's order, both labels, the column key |
+| t97 | **The bracket is a bracket** — the projected tree, its slot arithmetic, and predictions on unplayed slots |
 | sanity | CSS braces balance, inline JS parses, tabs present |
 | tool_sanity | Same for anchor-tool.html |
 
@@ -1114,7 +1115,54 @@ nearest it on screen.**
 
 ---
 
-## 13. The legal pages
+## 13. The bracket
+
+One view, two states, and they now share a shape.
+
+**Played bracket.** Columns of `.bracket-match` boxes with an SVG overlay;
+`drawBracketConnectors()` measures the laid-out boxes and draws the elbows
+between them. `padBracketByes()` reconstructs the real shape first, because a
+10-alliance division only plays a few first-round matches and the rest are byes
+— the connector maths assumes slots 2j and 2j+1 feed match j, so the byes have
+to be in the right places or the lines are nonsense.
+
+**Projected bracket**, for the hours before eliminations start. This used to be
+a flat list of first-round pairings, which answered "who do I open against" and
+left the shape of the event invisible. It is now the same tree, built by
+`tProjectedBracket()` — deliberately separate from its markup so the shape can
+be asserted on its own.
+
+Three things about it that are easy to get wrong:
+
+- **It is laid out over bracket SLOTS, not over the alliance count.** Six
+  alliances play inside eight slots and seeds 1 and 2 get byes. `sim_seedOrder`
+  returns ZERO-based indices, so a slot whose index is past the end of the list
+  *is* one of those byes. Use the alliance count and the pairings come out
+  plausible and wrong.
+- **Rounds after the first are conditional.** They hold whoever the model
+  favours in each preceding match. Chaining favourites is NOT "who wins the
+  event" — it ignores every path where an underdog gets through — so
+  `tOddsBlock` stays the authority on the champion and the key under the tree
+  says as much. Do not add a "projected winner" box: it would contradict the
+  odds sitting right below it.
+- **Both branches must call `bracketPaint()`.** The lines can only be measured
+  after layout, so they are drawn on a timeout and redrawn on resize. The
+  projected branch shipped without that call and rendered as three columns
+  floating apart, with the tree perfectly correct underneath.
+
+**Predictions on a played bracket** go through `bracketPred()`, one helper for
+both the single match and the best-of-3, so they cannot disagree about when a
+slot shows a number. A series stops predicting the moment one game is in — the
+scores are the better answer and the model should not argue with them. A 0-0
+that never started is not a result: `sim_matchPlayed` knows the difference, and
+without it every unplayed slot reads as a tie.
+
+`t97` covers all of it, including the one check that would notice a tree built
+over the wrong count: each round holds exactly half the slots of the one before.
+
+---
+
+## 14. The legal pages
 
 `privacy.html`, `terms.html` and the `legal.css` they share are the only pages
 in the deploy besides `index.html`. Three things to know about them.
@@ -1162,7 +1210,7 @@ would render the entire scouting app under the URL of a legal page.
 
 ---
 
-## 14. Feature ideas
+## 15. Feature ideas
 
 `IDEAS.md` holds the list of things worth building next, with what each one
 would cost against what already exists. It also records three things **not** to

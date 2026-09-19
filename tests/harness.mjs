@@ -162,6 +162,15 @@ function matchesFor(divId, evId) {
     out.push(el('R16 #7-1', 1, 143, 5, 14));
     out.push(el('QF #4-1', 2, 113, 57, 15));
     out.push(el('SF #2-1', 3, 8, 135, 16));   // the run ends here
+    // elimPending: a bracket part-way through, with a final scheduled and not
+    // yet played. That is the slot the bracket's predictions exist for, and
+    // the default fixture has every elimination finished, so without this
+    // there is nothing to predict on a real bracket.
+    if (FIXTURES.elimPending) {
+      const f = el('F #1-1', 4, 0, 0, 17);
+      f.started = null;
+      out.push(f);
+    }
   }
   return out;
 }
