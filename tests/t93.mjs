@@ -64,6 +64,55 @@ ok('the win/loss stripe survives — that one is information',
   /\.match-row\.win \{ border-left: 4px solid/.test(css) &&
   /\.rw-row\.win \{ box-shadow: inset 3px 0 0/.test(css));
 
+// ── The `border-style` trap ────────────────────────────────────────────────
+// `border-style: dashed` looks like "make the border I already have dashed".
+// It is not — it is the four-sided shorthand, and a side whose width was never
+// declared then computes to `medium` (3px) in `currentColor`. On .match-row,
+// whose only border is a 1px bottom, that quietly drew a 3px WHITE box on
+// three sides of every unplayed match, and the schedule read as a grid of
+// white cards. Nothing in the rules above catches it: the base rule is
+// innocent and the state rule never says the word `border:`.
+//
+// `border-color` on its own is harmless — a side whose style is `none` stays
+// 0px however it is coloured. `border-style` is the one that turns sides ON,
+// so that is what this hunts for: any rule using the bare shorthand must
+// belong to an element that really does carry a four-sided border. Sibling
+// classes count: .bracket-bye-match is always rendered with .bracket-match,
+// which declares one.
+{
+  const rules = [...css.matchAll(/([^{}]+)\{([^{}]+)\}/g)]
+    .map(m => ({ sel: m[1].trim(), body: m[2] }));
+  const declaresBox = tok => rules.some(r =>
+    r.sel.split(',').some(one => one.includes(tok)) && /(^|;|\s)border:\s*\d/.test(r.body));
+  const offenders = [];
+  for (const r of rules) {
+    if (!/(^|;|\s)border-style:/.test(r.body)) continue;
+    const own = [...r.sel.matchAll(/\.([a-zA-Z0-9_-]+)/g)].map(m => '.' + m[1]);
+    // A selector with no class of its own (input:focus, and the like) is
+    // checked on its element name instead.
+    if (!own.length) own.push(r.sel.split(',')[0].trim().split(/[:.\s]/)[0]);
+    const family = new Set(own);
+    // Whatever else the markup puts on the same element.
+    for (const tok of own) {
+      if (!tok.startsWith('.')) continue;
+      const re = new RegExp(`class="([^"$]*\\b${tok.slice(1)}\\b[^"$]*)"`, 'g');
+      for (const m of idx.matchAll(re)) {
+        for (const c of m[1].split(/\s+/)) if (c) family.add('.' + c);
+      }
+    }
+    if (![...family].some(declaresBox)) offenders.push(r.sel);
+  }
+  ok('no rule turns on borders it never declared', offenders.length === 0,
+    offenders.join(', ') + ' — use the border-<side>-style longhand');
+}
+// And the two that were actually wrong, named, so a revert is loud.
+ok('an unplayed row dashes only its separator',
+  /\.match-row\.upcoming \{[^}]*border-bottom-style: dashed/.test(css)
+  && !/\.match-row\.upcoming \{[^}]*[^-]border-style:/.test(css));
+ok('the queue-now row is marked, not boxed',
+  /\.match-row\.queue-now-row \{[^}]*border-left: 4px solid var\(--accent-bright\)/.test(css)
+  && !/\.match-row\.queue-now-row \{[^}]*[^-]border-(style|color):/.test(css));
+
 // ══ 4. Both sub-navigations are the same strip ══════════════════════════════
 console.log('\n· sub-navigation');
 // .sim-subnav went with the Simulator's sub-modes in v66 — its rules are gone,

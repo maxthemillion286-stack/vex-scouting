@@ -587,7 +587,12 @@
     font-family: var(--mono); font-size: 11px; color: var(--text-muted); letter-spacing: 2px;
     margin-top: 18px; margin-bottom: 8px; padding-bottom: 4px;
     border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap;
   }
+  /* A bare "54%" in the last column could be read as the odds against the one
+     team sitting next to it. It is the whole alliance's odds for the whole
+     match, so the column says so once, above the list it belongs to. */
+  .match-round-key { font-family: var(--body); font-size: 11px; letter-spacing: 0; color: var(--text-muted); }
   .match-list { display: flex; flex-direction: column; }
   .match-row {
     display: grid; grid-template-columns: 90px 1fr 40px 1fr 70px;
@@ -599,14 +604,29 @@
   .match-row.loss { border-left: 4px solid #ee4444; }
   .match-row.tie { border-left: 4px solid #ddaa44; }
   /* Matches that haven't been played yet: dimmed, with the prediction in place
-     of a score. Hovering restores full contrast so they stay readable. */
-  .match-row.upcoming { opacity: 0.5; background: transparent; border-style: dashed; transition: opacity 0.2s; }
+     of a score. Hovering restores full contrast so they stay readable.
+
+     border-bottom-STYLE, not the `border-style` shorthand. The shorthand sets
+     all four sides, and a side whose width was never declared falls back to
+     `medium` — 3px — in `currentColor`, which here is the body text: white.
+     So every upcoming row quietly grew a 3px white box on three sides and the
+     whole schedule read as a grid of white cards. Only the separator is
+     dashed; a row in a list is a row, not a box. */
+  .match-row.upcoming { opacity: 0.5; background: transparent; border-bottom-style: dashed; transition: opacity 0.2s; }
   @media (hover: hover) { .match-row.upcoming:hover { opacity: 0.85; } }
   .match-row.upcoming .match-score { color: var(--text-muted); }
   .match-row.pred-good { border-left: 4px solid rgba(68,221,68,0.45); }
   .match-row.pred-bad { border-left: 4px solid rgba(238,68,68,0.45); }
   .match-row.pred-even { border-left: 4px solid rgba(221,170,68,0.45); }
-  .match-row.queue-now-row { opacity: 1; border-color: var(--accent-bright); border-style: solid; box-shadow: 0 0 18px var(--accent-glow); }
+  /* The one row that should shout. Same trap as above: `border-color` plus
+     `border-style: solid` drew a 3px ring on all four sides. A left rule, a
+     surface and the glow say "this one" without boxing it. */
+  .match-row.queue-now-row {
+    opacity: 1; background: var(--card2);
+    border-left: 4px solid var(--accent-bright);
+    border-bottom-style: solid;
+    box-shadow: 0 0 18px var(--accent-glow);
+  }
   .match-outcome.pred-good { color: #44dd44; }
   .match-outcome.pred-bad { color: #ee4444; }
   .match-outcome.pred-even { color: #ddaa44; }
@@ -1156,7 +1176,13 @@
   .md-tag.weak { color: #ff6b6b; border-color: rgba(255,107,107,0.35); }
   .md-tag.str { color: #4ccf6a; border-color: rgba(76,207,106,0.3); }
   .md-tag.note { color: var(--text-muted); }
-  .md-winrow { display: flex; align-items: center; gap: 12px; margin: 14px 0 4px; }
+  /* The number is for the whole match, not for whichever team block happens
+     to sit above it. It used to sit between the opponents and your alliance
+     with no label at all, so it read as "your chance against THAT team". Now
+     it comes last, under both sides, and says what it is. */
+  .md-win { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 12px; }
+  .md-win-label { font-family: var(--body); font-size: 13px; line-height: 1.5; color: var(--text-dim); margin-bottom: 7px; }
+  .md-winrow { display: flex; align-items: center; gap: 12px; }
   .md-winbar { flex: 1; height: 14px; background: var(--bg); border: 1px solid var(--border); overflow: hidden; }
   .md-winfill { height: 100%; background: linear-gradient(90deg, var(--accent-dim), var(--accent-bright)); transition: width 0.6s cubic-bezier(0.4,0,0.2,1); }
   .md-winpct { font-family: var(--display); font-size: 24px; font-weight: 700; color: var(--text); min-width: 58px; text-align: right; font-variant-numeric: tabular-nums; }
@@ -2636,7 +2662,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v70';
+const APP_BUILD = 'v71';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -6968,14 +6994,25 @@ async function renderEventTeamMatchesView() {
     const away = (typeof next.away === 'number') ? ` · ${next.away} match${next.away === 1 ? '' : 'es'} ahead of yours` : '';
     html += `<div class="md-next${next.queueNow ? ' queue-now' : ''}">
       <div class="md-next-head"><span class="md-next-label">${next.queueNow ? '⚑ QUEUE NOW' : 'NEXT MATCH'}${when ? ` · ${when}` : ''}${away}</span><span class="md-next-name">${esc(next.name)}</span></div>`;
-    html += next.oppIds.map(id => md_teamBlock(id, R, profiles)).join('');
-    if (next.win !== null && next.win !== undefined) {
-      html += `<div class="md-winrow"><div class="md-winbar"><div class="md-winfill" style="width:${next.win}%"></div></div><div class="md-winpct">${next.win.toFixed(0)}%</div></div>`;
-    }
+    // Order matters here. The percentage used to sit directly under the last
+    // opponent block, unlabelled, which made it read as the chance against
+    // THAT team rather than the chance of winning the match. Your side first,
+    // their side second, and one number at the bottom that says what it is.
     const partners = next.myIds.filter(id => id !== teamId);
     if (partners.length) {
-      html += `<div class="md-exp-label" style="margin-top:10px;">YOUR ALLIANCE</div>`;
+      html += `<div class="md-exp-label">YOUR ALLIANCE</div>`;
       html += partners.map(id => md_teamBlock(id, R, profiles, 'PARTNER')).join('');
+    }
+    html += `<div class="md-exp-label">AGAINST</div>`;
+    html += next.oppIds.map(id => md_teamBlock(id, R, profiles)).join('');
+    if (next.win !== null && next.win !== undefined) {
+      html += `<div class="md-win">
+        <div class="md-win-label">Chance ${partners.length ? 'your alliance wins' : 'you win'} this match</div>
+        <div class="md-winrow">
+          <div class="md-winbar"><div class="md-winfill" style="width:${next.win}%"></div></div>
+          <div class="md-winpct">${next.win.toFixed(0)}%</div>
+        </div>
+      </div>`;
     }
     html += `</div>`;
   }
@@ -6994,7 +7031,11 @@ async function renderEventTeamMatchesView() {
     return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
   });
   for (const round of order) {
-    html += `<div class="match-round-label">${round}</div><div class="match-list">`;
+    // Only where there is actually a prediction to explain.
+    const shows = byRound[round].some(x => !x.played && x.win !== null && x.win !== undefined);
+    html += `<div class="match-round-label"><span>${round}</span>${
+      shows ? `<span class="match-round-key">% = chance your alliance wins that match</span>` : ''
+    }</div><div class="match-list">`;
     for (const m of byRound[round]) html += renderMatchRow(m, teamId);
     html += `</div>`;
   }
@@ -7088,7 +7129,7 @@ function renderMatchRow(m, focusTeamId) {
         <div class="match-teams">${m.oppNums.map(n => `<span class="mt-team" title="Open ${esc(n)}'s card" onclick="event.stopPropagation();scoutTeam('${teamAttr(n)}')">${esc(n)}</span>`).join(' · ')}</div>
         <div class="match-score">${oppScoreCell(m.played)}</div>
       </div>
-      <div class="match-outcome ${outcomeClass}">${outcome}${
+      <div class="match-outcome ${outcomeClass}"${m.played ? '' : ' title="Chance your alliance wins this match"'}>${outcome}${
         tShowPred && m.played && m.win !== null && m.win !== undefined
           ? `<div class="match-pred" title="What the model gave this alliance before the match">${m.win.toFixed(0)}%</div>`
           : ''}</div>
