@@ -757,6 +757,21 @@
   .bracket-teams { font-family: var(--display); font-size: 12px; color: var(--text); }
   .bracket-score { font-family: var(--mono); font-size: 14px; text-align: right; font-weight: 700; color: var(--text); white-space: nowrap; }
   .bracket-series .bracket-score { font-size: 12px; }
+
+  /* ── Projected bracket ──
+     The same tree, drawn before eliminations start. These alliances have not
+     been picked yet, so there is no red or blue to colour them with: the
+     favoured side carries a surface instead, and your own alliance gets the
+     accent rule it gets everywhere else. */
+  .bracket-side.bracket-proj { background: transparent; }
+  .bracket-side.bracket-proj.favoured { background: var(--card2); font-weight: 700; }
+  .bracket-side.bracket-proj.mine, .bracket-match.bracket-bye-match.mine { box-shadow: inset 3px 0 0 var(--accent); }
+  .bracket-seed { font-family: var(--mono); font-size: 10px; color: var(--text-muted); margin-right: 5px; }
+  .bracket-proj-pct { font-size: 12px; font-variant-numeric: tabular-nums; }
+  .bracket-proj-pct.pred-good { color: #44dd44; }
+  .bracket-proj-pct.pred-bad { color: #ee4444; }
+  .bracket-proj-pct.pred-even { color: #ddaa44; }
+  .bracket-key { font-family: var(--body); font-size: 12px; line-height: 1.5; color: var(--text-muted); margin: 10px 0 20px; }
   .skill-row.rank-top { border-left: 3px solid var(--accent); }
   .skill-row.rank-top:nth-child(2) { border-left-color: #ffd700; }
   .skill-row.rank-top:nth-child(3) { border-left-color: #c0c0c0; }
@@ -2662,7 +2677,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v71';
+const APP_BUILD = 'v72';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -7175,31 +7190,92 @@ function tModelledAlliances(R) {
 }
 
 // A bracket drawn from seeds rather than from results, for the hours before
-// eliminations start. sim_seedOrder gives the standard pairing, so seed 1 meets
-// the lowest seed and the top two can only meet in the final.
+// eliminations start.
+//
+// This used to be a flat list of first-round pairings. It answered one
+// question — who do I open against — and left the shape of the event
+// invisible. A bracket is a tree; drawn as a list it stops being a bracket.
+// So this builds the same structure the played bracket uses (columns, an SVG
+// connector overlay, .bracket-match boxes) and the same drawBracketConnectors
+// draws the lines through it.
+//
+// Rounds after the first are conditional: they hold whoever the model favours
+// in each preceding match. That is NOT the same as "who wins the event" —
+// chaining favourites ignores every path where an underdog gets through — so
+// the championship odds below the tree stay the authority on that, and the
+// caveat says so.
+const T_ROUND_BY_MATCHES = { 1: 'Finals', 2: 'Semifinals', 4: 'Quarterfinals',
+  8: 'Round of 16', 16: 'Round of 32', 32: 'Round of 64', 64: 'Round of 128' };
+const T_ROUND_SHORT = { Finals: 'F', Semifinals: 'SF', Quarterfinals: 'QF',
+  'Round of 16': 'R16', 'Round of 32': 'R32', 'Round of 64': 'R64', 'Round of 128': 'R128' };
+
+// The tree itself, with no markup in it, so the shape can be checked directly.
+function tProjectedBracket(alliances) {
+  const n = alliances.length;
+  if (n < 2) return { rounds: [] };
+  // A 6-alliance field is played inside an 8-slot bracket: seeds 1 and 2 get
+  // a bye. sim_seedOrder returns ZERO-based indices, so a slot whose index is
+  // past the end of the list is one of those empty slots.
+  const slots = sim_bracketSlots(n);
+  const order = sim_seedOrder(slots);
+  let entrants = order.map(i => i < n ? { seed: i + 1, a: alliances[i] } : null);
+  const rounds = [];
+  let tick = 0;
+  while (entrants.length > 1) {
+    const matches = [], next = [];
+    for (let i = 0; i < entrants.length; i += 2) {
+      const A = entrants[i], B = entrants[i + 1];
+      if (A && B) {
+        // Fixed seed per slot so the same bracket redraws identically.
+        const p = sim_matchupProb(A.a.mean, A.a.std, B.a.mean, B.a.std, 6000, 101 + (tick++)).redWin;
+        matches.push({ A, B, p });
+        next.push(p >= 50 ? A : B);
+      } else {
+        const solo = A || B;
+        matches.push({ bye: solo });
+        next.push(solo);
+      }
+    }
+    rounds.push(matches);
+    entrants = next;
+  }
+  return { rounds, favourite: entrants[0] || null };
+}
+
 function tProjectedBracketHtml(alliances) {
   if (alliances.length < 2) return '';
-  // sim_seedOrder returns ZERO-based indices — [0, 3, 1, 2] for four alliances
-  // — so these are array positions, and the seed number is the position plus
-  // one. Treating them as seed numbers drops the first pairing entirely.
-  const order = sim_seedOrder(alliances.length);
-  const pairs = [];
-  for (let i = 0; i < order.length; i += 2) {
-    const a = alliances[order[i]], b = alliances[order[i + 1]];
-    if (a && b) pairs.push([order[i] + 1, a, order[i + 1] + 1, b]);
-  }
+  const { rounds } = tProjectedBracket(alliances);
+  if (!rounds.length) return '';
   const focus = (tournamentFocusTeamNumber || '').toUpperCase();
   const mine = lab => (lab || '').toUpperCase().split(/\s*\+\s*/).includes(focus);
-  return `<div class="match-round-label">First round, if seeding held</div>
-    <div class="pk-list">${pairs.map(([sa, a, sb, b]) => {
-      const p = sim_matchupProb(a.mean, a.std, b.mean, b.std, 6000, 31 + sa).redWin;
-      return `<div class="pk-row${mine(a.label) || mine(b.label) ? ' mine' : ''}">
-        <div class="pk-seed">#${sa}</div>
-        <div class="pk-pair">${esc(a.label)}</div>
-        <div class="pk-meta">vs #${sb} ${esc(b.label)}</div>
-        <div class="pk-win ${tPredClass(p)}">${p.toFixed(0)}%</div>
-      </div>`;
-    }).join('')}</div>`;
+
+  const side = (E, favoured, pct) => `<div class="bracket-side bracket-proj${favoured ? ' favoured' : ''}${mine(E.a.label) ? ' mine' : ''}">
+      <div class="bracket-teams"><span class="bracket-seed">#${E.seed}</span>${esc(E.a.label)}</div>
+      <div class="bracket-score bracket-proj-pct ${tPredClass(pct)}">${pct.toFixed(0)}%</div>
+    </div>`;
+
+  let html = `<div class="bracket-wrapper"><div class="bracket-container"><svg class="bracket-svg-overlay"></svg>`;
+  for (const matches of rounds) {
+    const round = T_ROUND_BY_MATCHES[matches.length] || `Round of ${matches.length * 2}`;
+    const short = T_ROUND_SHORT[round] || round;
+    html += `<div class="bracket-column">
+      <div class="bracket-round-label">${round}</div>
+      <div class="bracket-column-inner">${matches.map((m, i) => m.bye
+        ? `<div class="bracket-match bracket-bye-match${mine(m.bye.a.label) ? ' mine' : ''}">
+             <div class="bracket-bye-teams"><span class="bracket-seed">#${m.bye.seed}</span>${esc(m.bye.a.label)}</div>
+             <div class="bracket-bye-tag">BYE</div>
+           </div>`
+        : `<div class="bracket-match bracket-proj-match">
+             <div class="bracket-match-label">${short} #${i + 1}</div>
+             ${side(m.A, m.p >= 50, m.p)}${side(m.B, m.p < 50, 100 - m.p)}
+           </div>`).join('')}</div>
+    </div>`;
+  }
+  html += `</div></div>`;
+  // v71's rule: a number with no noun attached is read as belonging to whatever
+  // is nearest it. Said once, above the whole tree, rather than on 15 boxes.
+  html += `<div class="bracket-key">Each alliance shows its chance of winning <strong>that match</strong>, if it is played. From the second round on, the alliances shown are whoever the model favours in the match before — a projection of the path, not of the winner.</div>`;
+  return html;
 }
 
 async function renderBracketView() {
@@ -7284,6 +7360,7 @@ async function renderBracketView() {
           + `<div class="sim-caveat">Alliances are modelled: captains are the top seeds still unpicked and each takes the strongest team left. Real selection will differ — this is the shape of it, not the result.</div>`;
       }
       resultsEl.innerHTML = ph;
+      bracketPaint();
       loadingEl.classList.remove('active');
       return;
     }
@@ -7306,6 +7383,15 @@ async function renderBracketView() {
     }
 
     const priority = ['Round of 128','Round of 64','Round of 32','Round of 16','Quarterfinals','Semifinals','Finals'];
+
+    // A bracket part-way through still has unplayed series in it, and those are
+    // the ones anyone is looking at. Build the model only when the switch asks
+    // for it — the ratings walk every match at the event.
+    let R = null;
+    if (tShowPred) {
+      loadingText.textContent = 'MODELLING THE REMAINING ROUNDS...';
+      R = await tRatings(t => { loadingText.textContent = t; });
+    }
 
     let html = `
       <div class="tournament-summary">
@@ -7391,7 +7477,7 @@ async function renderBracketView() {
           <div class="bracket-column">
             <div class="bracket-round-label">${r}</div>
             <div class="bracket-column-inner">
-              ${seriesList.map(s => s.bye ? renderBracketBye(s.bye) : renderBracketSeries(s, r)).join('')}
+              ${seriesList.map(s => s.bye ? renderBracketBye(s.bye) : renderBracketSeries(s, r, R)).join('')}
             </div>
           </div>`;
       }
@@ -7399,22 +7485,27 @@ async function renderBracketView() {
     }
 
     resultsEl.innerHTML = html;
-
-    // Draw bracket connector lines after DOM is rendered
-    setTimeout(() => drawBracketConnectors(), 50);
-    // Redraw on resize
-    if (!window._bracketResizeBound) {
-      window._bracketResizeBound = true;
-      window.addEventListener('resize', () => {
-        if (document.querySelector('.bracket-wrapper')) drawBracketConnectors();
-      });
-    }
+    bracketPaint();
 
   } catch(e) {
     showError('⚠ ' + e.message);
     console.error('Bracket error:', e);
   }
   loadingEl.classList.remove('active');
+}
+
+// The lines are measured from laid-out boxes, so they can only be drawn after
+// the browser has laid them out — hence the timeout, and hence redrawing them
+// when the window changes width. Both bracket branches go through here; the
+// projected one used to miss it and rendered as three columns floating apart.
+function bracketPaint() {
+  setTimeout(() => drawBracketConnectors(), 50);
+  if (!window._bracketResizeBound) {
+    window._bracketResizeBound = true;
+    window.addEventListener('resize', () => {
+      if (document.querySelector('.bracket-wrapper')) drawBracketConnectors();
+    });
+  }
 }
 
 function drawBracketConnectors() {
@@ -7528,6 +7619,13 @@ function padBracketByes(seriesByRound, sortedRounds) {
   }
 }
 
+// One place that decides whether an unplayed bracket slot shows a number, so
+// the single match and the best-of-3 cannot disagree about it.
+function bracketPred(R, redTeams, blueTeams, salt) {
+  if (!tShowPred || !R) return null;
+  return tPredict(R, redTeams, blueTeams, 77 + (Number(salt) || 0));
+}
+
 function renderBracketBye(teams) {
   return `<div class="bracket-match bracket-bye-match">
     <div class="bracket-bye-teams">${teams.join(' ')}</div>
@@ -7535,13 +7633,13 @@ function renderBracketBye(teams) {
   </div>`;
 }
 
-function renderBracketSeries(series, roundName) {
+function renderBracketSeries(series, roundName, R) {
   const games = series.games;
   if (!games.length) return '';
 
   // If only 1 game, render as a normal match
   if (games.length === 1) {
-    return renderBracketMatch(games[0]);
+    return renderBracketMatch(games[0], R);
   }
 
   // Multi-game series: tally wins and pick the alliance teams from the first game
@@ -7596,25 +7694,33 @@ function renderBracketSeries(series, roundName) {
 
   const seriesLabel = `${roundName.replace('Quarterfinals','QF').replace('Semifinals','SF').replace('Finals','F').replace('Round of 16','R16').replace('Round of 32','R32').replace('Round of 64','R64')} #${series.seriesNum} · Best of ${games.length}`;
 
-  // Render compact: one row per alliance with score breakdown
-  const redScores = gameRows.map(g => g.played ? g.rs : '—').join(' · ');
-  const blueScores = gameRows.map(g => g.played ? g.bs : '—').join(' · ');
+  // Render compact: one row per alliance with score breakdown.
+  //
+  // A series nobody has played yet shows "— · — · —" three times over, which
+  // is the one slot in the bracket where the model has something to say. Once
+  // a single game is in, the scores are the better answer and the prediction
+  // steps aside rather than arguing with them.
+  const anyPlayed = gameRows.some(g => g.played);
+  const p = anyPlayed ? null : bracketPred(R, redTeams, blueTeams, series.seriesNum);
+  const pct = predicted => `${predicted.toFixed(0)}%`;
+  const redScores = p === null ? gameRows.map(g => g.played ? g.rs : '—').join(' · ') : pct(p);
+  const blueScores = p === null ? gameRows.map(g => g.played ? g.bs : '—').join(' · ') : pct(100 - p);
 
   return `
     <div class="bracket-match bracket-series">
-      <div class="bracket-match-label">${seriesLabel} · ${redWins}-${blueWins}</div>
+      <div class="bracket-match-label">${seriesLabel}${p === null ? ` · ${redWins}-${blueWins}` : ' · chance to win the series'}</div>
       <div class="bracket-side bracket-red ${redWonSeries ? 'winner' : ''}">
         <div class="bracket-teams">${redTeams.join(' ')}</div>
-        <div class="bracket-score">${redScores}</div>
+        <div class="bracket-score${p === null ? '' : ` bracket-proj-pct ${tPredClass(p)}`}">${redScores}</div>
       </div>
       <div class="bracket-side bracket-blue ${blueWonSeries ? 'winner' : ''}">
         <div class="bracket-teams">${blueTeams.join(' ')}</div>
-        <div class="bracket-score">${blueScores}</div>
+        <div class="bracket-score${p === null ? '' : ` bracket-proj-pct ${tPredClass(100 - p)}`}">${blueScores}</div>
       </div>
     </div>`;
 }
 
-function renderBracketMatch(match) {
+function renderBracketMatch(match, R) {
   const al = match.alliances;
   if (!al) return '';
   let redA, blueA;
@@ -7632,24 +7738,28 @@ function renderBracketMatch(match) {
   }
   const redTeams = teamsOf(redA);
   const blueTeams = teamsOf(blueA);
-  const redScore = redA.score ?? '';
-  const blueScore = blueA.score ?? '';
-  const redWon = (redA.score ?? 0) > (blueA.score ?? 0);
-  const blueWon = (blueA.score ?? 0) > (redA.score ?? 0);
+  // A 0-0 that never started is not a 0-0 result — sim_matchPlayed knows the
+  // difference, and without it every unplayed slot would look like a tie.
+  const played = sim_matchPlayed(redA, blueA, match);
+  const p = played ? null : bracketPred(R, redTeams, blueTeams, match.matchnum || 1);
+  const redScore = played ? (redA.score ?? '') : (p === null ? '' : `${p.toFixed(0)}%`);
+  const blueScore = played ? (blueA.score ?? '') : (p === null ? '' : `${(100 - p).toFixed(0)}%`);
+  const redWon = played && (redA.score ?? 0) > (blueA.score ?? 0);
+  const blueWon = played && (blueA.score ?? 0) > (redA.score ?? 0);
 
   // Get the match label — prefer match.name (e.g. "QF #2") then fall back to "Match N"
   const matchLabel = (match.name || `Match ${match.matchnum || ''}`).trim();
 
   return `
     <div class="bracket-match">
-      <div class="bracket-match-label">${matchLabel}</div>
+      <div class="bracket-match-label">${matchLabel}${p === null ? '' : ' · chance to win'}</div>
       <div class="bracket-side bracket-red ${redWon ? 'winner' : ''}">
         <div class="bracket-teams">${redTeams.join(' ')}</div>
-        <div class="bracket-score">${redScore}</div>
+        <div class="bracket-score${p === null ? '' : ` bracket-proj-pct ${tPredClass(p)}`}">${redScore}</div>
       </div>
       <div class="bracket-side bracket-blue ${blueWon ? 'winner' : ''}">
         <div class="bracket-teams">${blueTeams.join(' ')}</div>
-        <div class="bracket-score">${blueScore}</div>
+        <div class="bracket-score${p === null ? '' : ` bracket-proj-pct ${tPredClass(100 - p)}`}">${blueScore}</div>
       </div>
     </div>`;
 }

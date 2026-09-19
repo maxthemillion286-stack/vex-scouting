@@ -157,8 +157,13 @@ ok('the baseline matches the Simulator\'s own',
 console.log('\n· TOURNAMENT ▸ BRACKET, projected');
 ok('championship odds are rendered from one helper', /function tOddsBlock\(alliances, label\)/.test(src));
 ok('the modelled alliances are shared with the pick list', /function tModelledAlliances\(R\)/.test(src));
+// Retargeted in v72: the projected bracket became a tree, so the pairing is
+// now taken over the BRACKET SLOTS rather than the alliance count — a
+// 6-alliance field plays inside 8 slots and seeds 1 and 2 get byes. The
+// concern is unchanged: seed 1 meets the lowest seed and the top two can only
+// meet in the final.
 ok('the projected bracket uses the standard seed pairing',
-  /const order = sim_seedOrder\(alliances\.length\);/.test(src),
+  /const slots = sim_bracketSlots\(n\);/.test(src) && /const order = sim_seedOrder\(slots\);/.test(src),
   'seed 1 meets the lowest seed; the top two can only meet in the final');
 {
   const keepT = FIXTURES.teams, keepP = FIXTURES.playedThrough;
@@ -180,7 +185,11 @@ ok('the projected bracket uses the standard seed pairing',
   ok('...and keeps the nav either way', /t-nav/.test(h));
   win.tTogglePred(); await settle(win, 3200);
   h = html(win, 'tournamentResults');
-  ok('a bracket is drawn before eliminations exist', /First round, if seeding held/.test(h));
+  // Retargeted in v72. This used to check for the flat list's heading; the
+  // projected bracket is now the same tree the played one uses, so the check
+  // is for the tree.
+  ok('a bracket is drawn before eliminations exist',
+    /bracket-wrapper/.test(h) && /bracket-round-label/.test(h) && /Finals/.test(h));
   ok('with championship odds', /Championship odds, projected/.test(h));
   const odds = [...h.matchAll(/bo-pct">([\d.]+)%/g)].map(m => Number(m[1]));
   ok('one row per alliance', odds.length >= 4, odds.length + ' rows');
