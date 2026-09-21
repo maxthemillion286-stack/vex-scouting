@@ -155,7 +155,100 @@ ok('a series stops predicting once a game is in',
   FIXTURES.elimPending = keep;
 }
 
-// ══ 4. The projected sides are styled, not coloured red and blue ════════════
+// ══ 4. Watching what already happened ═══════════════════════════════════════
+//
+// Asked for directly: "for the bracket can you make a way to play the matches
+// that happened in eliminations". The match list has had a ▶ since v40; the
+// bracket — the view you actually open to see how a run went — had none.
+console.log('\n· playing the elimination matches');
+ok('one builder makes the buttons', /function bracketPlayButtons\(games\)/.test(src),
+  'the single match and the best-of-3 must not grow separate copies');
+ok('only played games get one', /\.filter\(g => g && g\.played && g\.id != null\)/.test(src));
+ok('it reuses the match list\'s jump, not a second implementation',
+  /bracketPlayButtons[\s\S]{0,700}jumpToMatch\('\$\{ev\}'/.test(src));
+// v58's rule: the browser decodes entities BEFORE the JS parses, so anything
+// interpolated into an inline onclick goes through teamAttr, not esc.
+ok('the ids in the onclick are stripped, not merely escaped',
+  /const ev = teamAttr\(tournamentEventId\);/.test(src)
+  && /teamAttr\(g\.id\)/.test(src)
+  && /const team = teamAttr\(tournamentFocusTeamNumber \|\| ''\);/.test(src));
+{
+  const keepP = FIXTURES.elimPending, keepB = FIXTURES.elimBestOf3;
+  FIXTURES.elimPending = 1;       // a final scheduled, not played
+  FIXTURES.elimBestOf3 = 1;       // QF #4 goes three games
+  const { win, errors, stop } = await boot();
+  win.switchTab('tournament');
+  await win.loadTournamentTeams(55001, 'Bots @ Bristol', 9001, '66449A', 'RE-V5RC-25-0191');
+  await settle(win, 800);
+  await win.tournamentGo('bracket'); await settle(win, 2400);
+  const doc = win.document;
+
+  const boxFor = re => [...doc.querySelectorAll('#tournamentResults .bracket-match')]
+    .find(m => re.test(m.textContent));
+  const single = boxFor(/R16 #7/);
+  const series = boxFor(/QF #4/);
+  const pending = boxFor(/F #1/);
+
+  ok('a played single match offers one button', !!single
+    && single.querySelectorAll('.bracket-play').length === 1,
+    single && single.querySelectorAll('.bracket-play').length + ' buttons');
+  ok('and it is not numbered', !!single && !single.querySelector('.bracket-play-n'));
+  ok('a best-of-3 offers one per game', !!series
+    && series.querySelectorAll('.bracket-play').length === 3,
+    series && series.querySelectorAll('.bracket-play').length + ' buttons');
+  ok('numbered 1, 2, 3', !!series
+    && [...series.querySelectorAll('.bracket-play-n')].map(e => e.textContent).join('') === '123');
+  // Three buttons pointing at one match would be the easy bug here.
+  {
+    const ids = series ? [...series.querySelectorAll('.bracket-play')]
+      .map(b => (b.getAttribute('onclick').match(/'(\d+)', '[^']*'\)/) || [])[1]) : [];
+    ok('each game points at its own match', new Set(ids).size === 3, ids.join(', '));
+  }
+  ok('an unplayed match offers none', !!pending
+    && pending.querySelectorAll('.bracket-play').length === 0);
+  ok('the series label still shows who won it', !!series && /2-1/.test(series.textContent),
+    series && series.textContent.replace(/\s+/g, ' ').trim());
+
+  // End to end: pressing it leaves the Tournament tab for the Jumper.
+  const before = win.document.querySelector('.tab-btn.active').dataset.tab;
+  single.querySelector('.bracket-play').click();
+  await settle(win, 600);
+  const after = win.document.querySelector('.tab-btn.active').dataset.tab;
+  ok('pressing one opens the Jumper', before === 'tournament' && after === 'rewatch',
+    `${before} → ${after}`);
+  ok('with the event carried over',
+    (win.document.getElementById('rwEventInput') || {}).value === 'Bots @ Bristol');
+  ok('and the team, so the Jumper can filter to its matches',
+    (win.document.getElementById('rwTeamInput') || {}).value === '66449A');
+  ok('nothing threw', errors.length === 0, errors.join('\n'));
+  stop();
+  FIXTURES.elimPending = keepP; FIXTURES.elimBestOf3 = keepB;
+}
+{
+  // Nothing in a projected bracket has been played, so nothing offers a button.
+  const keepP = FIXTURES.playedThrough;
+  FIXTURES.playedThrough = 4;
+  const { win, stop } = await boot();
+  win.switchTab('tournament');
+  await win.loadTournamentTeams(55001, 'Bots @ Bristol', 9001, '66449A', 'RE-V5RC-25-0191');
+  await settle(win, 800);
+  await win.tournamentGo('bracket'); await settle(win, 2400);
+  if (!win.tShowPred) { win.tTogglePred(); await settle(win, 3400); }
+  ok('a projected bracket offers nothing to watch',
+    win.document.querySelectorAll('#tournamentResults .bracket-play').length === 0);
+  stop();
+  FIXTURES.playedThrough = keepP;
+}
+{
+  const rule = (css.match(/\.bracket-match-label \{([^}]*)\}/) || [])[1] || '';
+  ok('the label strip makes room for the buttons',
+    /display: flex/.test(rule) && /space-between/.test(rule), rule);
+  ok('the label yields before the buttons do',
+    /\.bracket-label-text \{[^}]*text-overflow: ellipsis/.test(css)
+    && /\.bracket-plays \{[^}]*flex-shrink: 0/.test(css));
+}
+
+// ══ 5. The projected sides are styled, not coloured red and blue ════════════
 console.log('\n· the look');
 // Alliances that have not been picked yet have no colour. Painting them red
 // and blue would claim an assignment the event has not made.
