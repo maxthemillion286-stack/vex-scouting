@@ -162,6 +162,13 @@ function matchesFor(divId, evId) {
     out.push(el('R16 #7-1', 1, 143, 5, 14));
     out.push(el('QF #4-1', 2, 113, 57, 15));
     out.push(el('SF #2-1', 3, 8, 135, 16));   // the run ends here
+    // elimBestOf3: QF #4 goes the distance. Every elimination in the default
+    // fixture is a single game, so the best-of-3 branch — the series tally,
+    // and one play button per game — is otherwise never exercised.
+    if (FIXTURES.elimBestOf3) {
+      out.push(el('QF #4-2', 2, 44, 98, 15));
+      out.push(el('QF #4-3', 2, 121, 66, 15));
+    }
     // elimPending: a bracket part-way through, with a final scheduled and not
     // yet played. That is the slot the bracket's predictions exist for, and
     // the default fixture has every elimination finished, so without this

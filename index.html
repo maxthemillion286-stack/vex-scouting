@@ -741,7 +741,16 @@
     font-family: var(--mono); font-size: 9px; color: var(--text-muted);
     letter-spacing: 1px; padding: 4px 12px;
     background: var(--card2); border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between; gap: 6px;
   }
+  /* The label yields to the buttons rather than pushing them off the box —
+     bracket columns are narrow by design and a round name is recoverable from
+     the column header above it, a missing play button is not. */
+  .bracket-label-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .bracket-plays { display: flex; gap: 3px; flex-shrink: 0; }
+  /* Small type, but a real tap target — same lesson as the site foot. */
+  .bracket-play { padding: 3px 7px; font-size: 9px; line-height: 1.2; letter-spacing: 0; }
+  .bracket-play-n { font-family: var(--mono); font-size: 8px; margin-left: 2px; }
   .bracket-side {
     display: grid; grid-template-columns: 1fr auto;
     padding: 8px 12px; align-items: center;
@@ -2677,7 +2686,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v72';
+const APP_BUILD = 'v73';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -7619,6 +7628,26 @@ function padBracketByes(seriesByRound, sortedRounds) {
   }
 }
 
+// The bracket is where you go to see how a run actually went, and it was the
+// one place in the app with no way to watch it — the match list has had a ▶
+// since v40. Same jumpToMatch, so a click lands in the Jumper already synced
+// to that match.
+//
+// A best-of-3 is three separate matches with three separate moments on the
+// stream, so a series gets one button per game it actually played, numbered.
+// A single match gets one unnumbered button. Nothing unplayed gets one.
+function bracketPlayButtons(games) {
+  const ev = teamAttr(tournamentEventId);
+  const name = esc(JSON.stringify(tournamentEventName || ''));
+  const team = teamAttr(tournamentFocusTeamNumber || '');
+  const playable = (games || []).filter(g => g && g.played && g.id != null);
+  if (!playable.length) return '';
+  return `<span class="bracket-plays">${playable.map(g => `<button class="match-play bracket-play"
+      title="Watch ${g.label ? 'game ' + esc(g.label) : 'this match'}"
+      onclick="event.stopPropagation();jumpToMatch('${ev}', ${name}, '${teamAttr(g.id)}', '${team}')"
+    >&#9654;${g.label ? `<span class="bracket-play-n">${esc(g.label)}</span>` : ''}</button>`).join('')}</span>`;
+}
+
 // One place that decides whether an unplayed bracket slot shows a number, so
 // the single match and the best-of-3 cannot disagree about it.
 function bracketPred(R, redTeams, blueTeams, salt) {
@@ -7686,13 +7715,17 @@ function renderBracketSeries(series, roundName, R) {
       if (rs > bs) redWins++;
       else if (bs > rs) blueWins++;
     }
-    gameRows.push({ rs, bs, played: gPlayed });
+    // id and number, so each game can be watched on its own.
+    gameRows.push({ rs, bs, played: gPlayed, id: game.id, label: String(gameRows.length + 1) });
   }
 
   const redWonSeries = redWins > blueWins;
   const blueWonSeries = blueWins > redWins;
 
-  const seriesLabel = `${roundName.replace('Quarterfinals','QF').replace('Semifinals','SF').replace('Finals','F').replace('Round of 16','R16').replace('Round of 32','R32').replace('Round of 64','R64')} #${series.seriesNum} · Best of ${games.length}`;
+  // "Bo3", not "Best of 3". The label shares its strip with one play button
+  // per game now, and the column is narrow: spelling it out pushed the series
+  // result — the thing the label is actually for — out to an ellipsis.
+  const seriesLabel = `${roundName.replace('Quarterfinals','QF').replace('Semifinals','SF').replace('Finals','F').replace('Round of 16','R16').replace('Round of 32','R32').replace('Round of 64','R64')} #${series.seriesNum} · Bo${games.length}`;
 
   // Render compact: one row per alliance with score breakdown.
   //
@@ -7708,7 +7741,7 @@ function renderBracketSeries(series, roundName, R) {
 
   return `
     <div class="bracket-match bracket-series">
-      <div class="bracket-match-label">${seriesLabel}${p === null ? ` · ${redWins}-${blueWins}` : ' · chance to win the series'}</div>
+      <div class="bracket-match-label"><span class="bracket-label-text">${seriesLabel}${p === null ? ` · ${redWins}-${blueWins}` : ' · chance to win the series'}</span>${bracketPlayButtons(gameRows)}</div>
       <div class="bracket-side bracket-red ${redWonSeries ? 'winner' : ''}">
         <div class="bracket-teams">${redTeams.join(' ')}</div>
         <div class="bracket-score${p === null ? '' : ` bracket-proj-pct ${tPredClass(p)}`}">${redScores}</div>
@@ -7752,7 +7785,7 @@ function renderBracketMatch(match, R) {
 
   return `
     <div class="bracket-match">
-      <div class="bracket-match-label">${matchLabel}${p === null ? '' : ' · chance to win'}</div>
+      <div class="bracket-match-label"><span class="bracket-label-text">${matchLabel}${p === null ? '' : ' · chance to win'}</span>${bracketPlayButtons([{ played, id: match.id }])}</div>
       <div class="bracket-side bracket-red ${redWon ? 'winner' : ''}">
         <div class="bracket-teams">${redTeams.join(' ')}</div>
         <div class="bracket-score${p === null ? '' : ` bracket-proj-pct ${tPredClass(p)}`}">${redScore}</div>

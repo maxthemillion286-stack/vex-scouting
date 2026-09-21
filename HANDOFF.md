@@ -389,7 +389,7 @@ proxy is at `api/proxy.js`.
 | t94 | The Simulator's move into Tournament; the pick list and projected bracket |
 | t95 | The legal pages, the link to them, **and whether the policy is still true of the code** |
 | t96 | **A percentage must say what it is a percentage of** — the card's order, both labels, the column key |
-| t97 | **The bracket is a bracket** — the projected tree, its slot arithmetic, and predictions on unplayed slots |
+| t97 | **The bracket is a bracket** — the projected tree, its slot arithmetic, predictions on unplayed slots, and watching the played ones |
 | sanity | CSS braces balance, inline JS parses, tabs present |
 | tool_sanity | Same for anchor-tool.html |
 
@@ -1157,8 +1157,31 @@ scores are the better answer and the model should not argue with them. A 0-0
 that never started is not a result: `sim_matchPlayed` knows the difference, and
 without it every unplayed slot reads as a tie.
 
+**Watching an elimination match.** The bracket is the view you open to see how
+a run went, and until v73 it was the only one with no way to watch it — the
+match list has had a ▶ since v40. `bracketPlayButtons()` builds them for both
+renderers, so a single match and a best-of-3 cannot grow separate copies. A
+best-of-3 is three separate matches with three separate moments on the stream,
+so it gets one numbered button per game it actually played; a single match gets
+one unnumbered button; nothing unplayed gets one. They call the same
+`jumpToMatch` the match list does.
+
+Two details worth keeping:
+
+- Everything interpolated into those inline `onclick`s goes through `teamAttr`,
+  never `esc` — §the XSS rule: the browser decodes entities *before* the JS
+  parses. The event NAME is the one exception, and it uses the audited
+  `esc(JSON.stringify(...))` pattern the match list already uses.
+- The label strip is a flex row where `.bracket-label-text` truncates and
+  `.bracket-plays` does not. Bracket columns are narrow by design, and a round
+  name is recoverable from the column header above it — a missing play button
+  is not. "Best of 3" became "Bo3" for the same reason: spelled out, it pushed
+  the series result out to an ellipsis.
+
 `t97` covers all of it, including the one check that would notice a tree built
-over the wrong count: each round holds exactly half the slots of the one before.
+over the wrong count (each round holds exactly half the slots of the one
+before) and an end-to-end press of a play button that has to land on the
+Jumper tab with the event and team carried over.
 
 ---
 
