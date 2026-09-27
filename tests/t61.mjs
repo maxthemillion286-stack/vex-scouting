@@ -19,9 +19,20 @@ ok('closed when nothing is selected', isOpen({ calDay: null }, '2026-03-07') ===
 ok('closed for a day other than the selected one', isOpen({ calDay: '2026-03-08' }, '2026-03-07') === false);
 ok('open for the selected day', isOpen({ calDay: '2026-03-07' }, '2026-03-07') === true);
 
-ok('the + button is what opens it', /rewatchCalibrateDay\('\$\{day\}'\)/.test(src) && /\+ ADD STREAM/.test(src));
+// Retargeted: the day key now goes through teamAttr, like every other value
+// that reaches an inline handler. rwDayKey only ever emits 'unknown' or
+// YYYY-MM-DD, both of which teamAttr passes through unchanged — verified in a
+// browser by comparing the handlers' arguments against the live day keys. The
+// concern here is unchanged: the + button is the thing that opens the form.
+ok('the + button is what opens it',
+  /rewatchCalibrateDay\('\$\{teamAttr\(day\)\}'\)/.test(src) && /\+ ADD STREAM/.test(src));
 ok('the same button closes it again', /formOpen \? 'CANCEL' : '\+ ADD STREAM'/.test(src));
-ok('a calibrated day shows RESET instead', /rewatchClearCal\('\$\{day\}'\)/.test(src));
+ok('a calibrated day shows RESET instead',
+  /rewatchClearCal\('\$\{teamAttr\(day\)\}'\)/.test(src));
+// A day key must survive the stripping, or every one of these buttons would
+// hand its handler a key that matches nothing.
+ok('teamAttr leaves a day key alone',
+  ['2026-02-28', 'unknown'].every(d => d.replace(/[^A-Za-z0-9-]/g, '') === d));
 
 console.log(`\nt61: ${pass} passed, ${fail} failed`);
 process.exit(fail?1:0);

@@ -391,6 +391,8 @@ proxy is at `api/proxy.js`.
 | t96 | **A percentage must say what it is a percentage of** — the card's order, both labels, the column key |
 | t97 | **The bracket is a bracket** — the projected tree, its slot arithmetic, predictions on unplayed slots, and watching the played ones |
 | t98 | **Which region the Event Scout searched** — the funnel, the heading, and a fixture whose API ignores the filter |
+| t99 | **The service worker always answers** — the four paths that could reject inside respondWith |
+| t100 | **The v75 sweep** — every view poisoned, every site named, and the two blanket guards |
 | sanity | CSS braces balance, inline JS parses, tabs present |
 | tool_sanity | Same for anchor-tool.html |
 
@@ -1116,7 +1118,116 @@ nearest it on screen.**
 
 ---
 
-## 13. The Event Scout's region
+## 13. The v75 sweep, and how it was done
+
+A website-wide bug hunt. Four methods, because each one had a blind spot the
+others covered — which is the reusable lesson here.
+
+### What it found
+
+**Twelve stored-XSS holes.** Every one was an API string a team or an event can
+choose, rendered into markup raw, usually on a line whose *neighbouring* field
+was correctly escaped:
+
+| where | what |
+|---|---|
+| Tournament ▸ Teams | the number cell |
+| Tournament ▸ Matches | the alliance spans, handler argument **and** text |
+| Tournament ▸ Skills | the number cell |
+| Tournament ▸ Awards | the winners, plus a hand-rolled `\'` escape that never worked |
+| the bracket | both alliance lists in both renderers, and the bye |
+| Skills Rankings | the number and the location line |
+| the awards rolldown | the doubled team and each recipient |
+| Scout card / QuickScout | the team number |
+| attended events | the "focused on X" hint |
+| Event Scout | the city and region |
+| the Jumper | the anchor it names |
+| the grade badge | its `title` |
+
+Measured in Chromium with a payload that fires rather than one that merely
+looks wrong: **15 executions before, 0 after**. t91's v58 sweep covered the
+Scout tab and never reached these.
+
+**Fourteen inline-handler arguments** were escaped where they had to be
+*stripped*. The rule has been in this file since v58 — the browser decodes
+entities before the JS parses — but ten Jumper day keys, two event ids and two
+match ids still went in raw. They all go through `teamAttr` now. `rwDayKey`
+only ever emits `unknown` or `YYYY-MM-DD`, both of which `teamAttr` passes
+through untouched; that was verified in a browser by comparing every handler's
+argument against the live day keys, not assumed.
+
+**Four service-worker paths that could reject.** `event.respondWith()` on a
+rejected promise does not fall back — it gives the browser its own error page,
+which is the screen sw.js exists to prevent. See §"the service worker" below.
+
+**`vsAgo()` printed "NaN days ago"** on the offline button and the Jumper's
+resume row whenever the stored timestamp was anything but a number.
+
+**Two dead functions**, one of which could only ever have thrown: `setLoading`
+reached for `#scoutBtn`, an id nothing has carried in a long time.
+
+### The four methods, and what each one missed
+
+1. **Static scan of dangling references** — found `#scoutBtn` and
+   `#pickResults`, which no driven test could have found because nothing calls
+   the code that uses them.
+2. **A driven walk of every view in Chromium**, collecting page errors,
+   unhandled rejections, overflow and rendering artefacts — found nothing on
+   its own, which was worth knowing.
+3. **A poisoned fixture** — found six of the twelve XSS holes. It missed the
+   other six because the fixture never reached those templates: the Skills tab
+   rendered no rows at all (the `legacy:` route answered `{data: []}`), and the
+   Scout card was driven with an unpoisoned team.
+4. **A static interpolation scan** — found the six the fixture missed.
+
+**Neither scanning nor driving is sufficient.** A scan cannot tell a real hole
+from an internal label; a drive cannot reach a template its fixture does not
+populate. The fixture now returns real season-skills rows precisely so that tab
+is never again invisible to a driven test.
+
+### Keeping it
+
+`t100` is the sweep, kept: it drives every view with every API string poisoned,
+names each site that was open, and carries two blanket guards — no
+API-controlled value between tags unescaped, no inline-handler argument merely
+escaped. `t99` is the service worker. Both were verified by putting the bugs
+back: **t100 goes red in 27 places, t99 in 11.** A test for a bug that has been
+fixed is worth exactly as much as its failure on the unfixed code, so check
+that before believing it.
+
+Two older tests were **retargeted, not deleted**: `t61` read the day key's
+literal source, and `t85` pulled `gradeBadge` out with `new Function` — which
+broke the moment that function gained an `esc` dependency. §7 warns about
+exactly that; it is now driven through the harness.
+
+### The service worker: every branch must RESOLVE
+
+`event.respondWith(p)` where `p` rejects does not fall back to the network and
+does not reach any `catch` in the page — the browser shows its own error page.
+So every branch in `sw.js` has to settle with a `Response`, including the ones
+that exist because something already went wrong. Four did not:
+
+1. **The timeout branch resolved with `cached().then(hit => hit || network)`
+   and nothing else.** Cache misses, network later fails → that inner promise
+   rejects, and `Promise.race` settles with whichever branch settles *first*.
+   Venue wifi hangs and then drops, which is exactly that order. This is the
+   one that mattered.
+2. **The font branch's `.catch(() => cached)`** returned `cached` — on the only
+   path that can reach it, `cached` is `undefined`, because a miss is *why* we
+   were fetching. `respondWith(undefined)` fails the request outright.
+3. **The static-asset branch had no failure path at all**, which now matters
+   more than it did: `legal.css` is served through it.
+4. **`cache.put()` rejects** on a partial or opaque response, and an unhandled
+   rejection inside a worker is invisible.
+
+`t99` loads the real `sw.js` in a `vm` with stubbed `caches`/`fetch`/`Response`
+and an instant `setTimeout`, so the timeout branch is reachable at all, and
+asserts that every combination **resolves**. It goes red in 11 places on the
+old file.
+
+---
+
+## 14. The Event Scout's region
 
 Reported as "it does not look for events strictly in my region even though I
 set it to my region", and the first thing to know is that **the code as written
@@ -1164,7 +1275,7 @@ parameter so the client-side filter has something to catch.
 
 ---
 
-## 14. The bracket
+## 15. The bracket
 
 One view, two states, and they now share a shape.
 
@@ -1234,7 +1345,7 @@ Jumper tab with the event and team carried over.
 
 ---
 
-## 15. The legal pages
+## 16. The legal pages
 
 `privacy.html`, `terms.html` and the `legal.css` they share are the only pages
 in the deploy besides `index.html`. Three things to know about them.
@@ -1282,7 +1393,7 @@ would render the entire scouting app under the URL of a legal page.
 
 ---
 
-## 16. Feature ideas
+## 17. Feature ideas
 
 `IDEAS.md` holds the list of things worth building next, with what each one
 would cost against what already exists. It also records three things **not** to

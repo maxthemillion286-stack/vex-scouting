@@ -124,7 +124,29 @@ export function makeRouter(opts = {}) {
       }
       return { status: 200, body: j([E]) };
     }
-    if (path.startsWith('legacy:')) return { status: 200, body: { data: [] } };
+    if (path.startsWith('legacy:')) {
+      // The season-skills standings. This answered with an empty list, so the
+      // SKILLS RANKINGS tab has never actually rendered a row in any driven
+      // test — which is how an unescaped team number survived there. One entry
+      // per fixture team, in the legacy API's own shape.
+      if (/\/skills/.test(path)) {
+        const wantMs = /grade_level=Middle/.test(path);
+        const rows = FIXTURES.teams.map((t, i) => ({
+          rank: i + 1, score: 120 - i * 7, type: 0,
+          team: {
+            id: t.id, team: t.number, program: 'V5RC',
+            gradeLevel: t.grade || 'High School',
+            eventRegion: FIXTURES.teamRegion || 'Connecticut',
+            region: FIXTURES.teamRegion || 'Connecticut', country: 'United States',
+            teamName: t.team_name || ''
+          },
+          scores: { score: 120 - i * 7, programming: 60 - i * 3, driver: 60 - i * 4 }
+        })).filter(r => wantMs ? r.team.gradeLevel === 'Middle School'
+                               : r.team.gradeLevel !== 'Middle School');
+        return { status: 200, body: { data: rows } };
+      }
+      return { status: 200, body: { data: [] } };
+    }
     if (path.startsWith('/seasons')) return { status: 200, body: j([{ id: 197, name: '2025-2026' }]) };
     if (path.startsWith('streams') || path.includes('path=streams')) {
       return { status: 200, body: { streams: [], reason: 'none' } };
@@ -158,7 +180,7 @@ function matchesFor(divId, evId) {
         id: ++id, name: `Qualification ${mnum}`, matchnum: mnum, round: 2,
         started: done ? t : null, scheduled: t, event: { id: eventId },
         alliances: divId === 1 ? [
-          { color: 'red', score: done ? 100 + n : 0, teams: [{ team: { id: 9001, name: '66449A' } }, { team: { id: 9002, name: '1234X' } }] },
+          { color: 'red', score: done ? 100 + n : 0, teams: [{ team: { id: 9001, name: '66449A' } }, { team: { id: 9002, name: FIXTURES.poisonAlliance || '1234X' } }] },
           { color: 'blue', score: done ? 90 + n : 0, teams: [{ team: { id: 9003, name: '12345B' } }, { team: { id: 9004, name: '777Z' } }] }
         ] : [
           // Division 2 is other teams. A team plays in one division, so
@@ -180,7 +202,7 @@ function matchesFor(divId, evId) {
       scheduled: `${days[days.length - 1]}T${String(hour).padStart(2, '0')}:00:00-05:00`,
       event: { id: eventId },
       alliances: [
-        { color: 'red', score: mine, teams: [{ team: { id: 9001, name: '66449A' } }, { team: { id: 9002, name: '1234X' } }] },
+        { color: 'red', score: mine, teams: [{ team: { id: 9001, name: '66449A' } }, { team: { id: 9002, name: FIXTURES.poisonAlliance || '1234X' } }] },
         { color: 'blue', score: theirs, teams: [{ team: { id: 9003, name: '12345B' } }, { team: { id: 9004, name: '777Z' } }] }
       ]
     });
