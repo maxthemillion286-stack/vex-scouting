@@ -390,6 +390,7 @@ proxy is at `api/proxy.js`.
 | t95 | The legal pages, the link to them, **and whether the policy is still true of the code** |
 | t96 | **A percentage must say what it is a percentage of** — the card's order, both labels, the column key |
 | t97 | **The bracket is a bracket** — the projected tree, its slot arithmetic, predictions on unplayed slots, and watching the played ones |
+| t98 | **Which region the Event Scout searched** — the funnel, the heading, and a fixture whose API ignores the filter |
 | sanity | CSS braces balance, inline JS parses, tabs present |
 | tool_sanity | Same for anchor-tool.html |
 
@@ -1115,7 +1116,55 @@ nearest it on screen.**
 
 ---
 
-## 13. The bracket
+## 13. The Event Scout's region
+
+Reported as "it does not look for events strictly in my region even though I
+set it to my region", and the first thing to know is that **the code as written
+cannot emit an out-of-region event**. `runEventScout()` filters client-side:
+
+```js
+if ((e.location?.region || '') !== myRegion) continue;
+```
+
+So the complaint is about one of two things the app never showed:
+
+1. **`region` in RobotEvents is a whole state or province.** `myRegion` comes
+   from the team's registration, so "my region" means "Connecticut", not
+   "Texas Region 4". A competitor means the second. The app never said which
+   it was using — see also t90, where the same word cost a release.
+2. **The API may not honour the `region` query parameter.** `apiGet` stops at
+   ten pages, so a query the server ignored comes back as the first 2500 rows
+   of the whole season, filtered down client-side to whatever happened to be in
+   those pages. That looks like a region search with events missing.
+
+Both were invisible, which is the actual defect. v74 makes them legible:
+
+- The heading names the region it searched.
+- A note says where that region came from and warns what RobotEvents means by
+  the word.
+- `vsDebug.escout` counts the funnel — returned, dropped for being past,
+  dropped for being elsewhere, kept — and records **which regions actually came
+  back**. That last number is the evidence: if `regionsReturned` holds regions
+  other than yours, the server ignored the filter.
+- `vsDebug.truncated` records any query answered in part. A region query the
+  API really applied comes back in a page or two; one it ignored comes back as
+  hundreds. That is how to tell them apart from a bug report.
+
+Read them by opening the app with `?debug=1` and pressing the diagnostics
+button. The report whitelists its keys, so anything added to `vsDebug` must
+also be named in `vsDebugReport()` or it is invisible.
+
+**If the answer turns out to be (1)**, narrowing the search means abandoning
+`location.region` for `location.coordinates` and a radius, because RobotEvents
+has no field for a VEX competition region. Do not fake one from a state plus a
+number — t90 is what happens when that is guessed at.
+
+`t98` covers all of this, with a fixture that deliberately ignores the region
+parameter so the client-side filter has something to catch.
+
+---
+
+## 14. The bracket
 
 One view, two states, and they now share a shape.
 
@@ -1185,7 +1234,7 @@ Jumper tab with the event and team carried over.
 
 ---
 
-## 14. The legal pages
+## 15. The legal pages
 
 `privacy.html`, `terms.html` and the `legal.css` they share are the only pages
 in the deploy besides `index.html`. Three things to know about them.
@@ -1233,7 +1282,7 @@ would render the entire scouting app under the URL of a legal page.
 
 ---
 
-## 15. Feature ideas
+## 16. Feature ideas
 
 `IDEAS.md` holds the list of things worth building next, with what each one
 would cost against what already exists. It also records three things **not** to

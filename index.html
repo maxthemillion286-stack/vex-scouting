@@ -2686,7 +2686,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v73';
+const APP_BUILD = 'v74';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -2694,7 +2694,9 @@ const vsDebug = {
   offlineHits: 0,    // answers that came from a saved event, not the network
   diag: null,        // server-side config, filled by vsLoadDiag()
   swVersion: null,   // cache name reported by the running service worker
-  jumper: null       // last auto-find result
+  jumper: null,      // last auto-find result
+  escout: null,      // Event Scout's funnel: what came back, what was dropped
+  truncated: []      // queries that needed more pages than apiGet will fetch
 };
 
 function vsNote(kind, detail) {
@@ -2965,6 +2967,12 @@ function vsDebugReport() {
     // input to the decision is here: the event's day list, what the pool holds,
     // and per day the ordinal, the label wanted, and the url actually chosen.
     dayAssignment: vsDayAssignment(),
+    // "It is not searching my region" cannot be answered from the rendered
+    // list: everything on it already passed the filter, so the numbers that
+    // matter are the ones that did NOT. This is that funnel.
+    escout: vsDebug.escout,
+    // Any query the API answered in part. See the note in apiGet.
+    truncated: vsDebug.truncated,
     apiCalls: vsDebug.apiCalls,
     offlineHits: vsDebug.offlineHits,
     offlineEvents: Object.entries(vsOfflineIndex())
@@ -5645,6 +5653,17 @@ async function apiGet(endpoint, params = {}) {
     // Fetch all remaining pages AT ONCE — a 4-page endpoint costs one round
     // trip instead of four. The global apiSlot gate still caps total in-flight.
     const last = Math.min(data.meta.last_page, 10);
+    // Ten pages is 2500 rows, and anything past that is dropped in silence.
+    // On /events that silence is diagnostic: a query the API really filtered
+    // comes back in a page or two, and one it ignored comes back as the whole
+    // season. Recorded so ?debug=1 can tell those two apart.
+    if (data.meta.last_page > last) {
+      vsDebug.truncated.push({
+        path: endpoint + '?' + qs.toString(),
+        pages: data.meta.last_page, fetched: last, total: data.meta.total ?? null
+      });
+      if (vsDebug.truncated.length > 8) vsDebug.truncated.shift();
+    }
     const pages = [];
     for (let p = 2; p <= last; p++) pages.push(fetchPage(p));
     const rest = await Promise.all(pages);
@@ -10819,14 +10838,36 @@ async function runEventScout() {
       (scope === 'region' || scope === 'both') ? apiGet('/events', { 'season[]': [seasonId], 'region': myRegion }).catch(() => []) : Promise.resolve([]),
       (scope === 'signature' || scope === 'both') ? apiGet('/events', { 'season[]': [seasonId], 'level[]': ['Signature'] }).catch(() => []) : Promise.resolve([])
     ]);
+    // Why the list came out the way it did. Every event that reaches the
+    // rendered list has already passed the region filter, so "it is not
+    // searching my region" is unanswerable from the list alone — the numbers
+    // that matter are the ones that were dropped, and which regions the API
+    // actually sent back. ?debug=1 prints this block.
+    const funnel = {
+      you, scope, season: seasonId,
+      team: {
+        id: me.id, number: me.number || you, region: myRegion,
+        city: me.location?.city || null, country: me.location?.country || null
+      },
+      returned: { region: regionEvs.length, signature: sigEvs.length },
+      dropped: { past: 0, otherRegion: 0 },
+      regionsReturned: {},   // what the API sent, region -> count
+      kept: 0
+    };
+    vsDebug.escout = funnel;
+
     for (const e of regionEvs) {
-      if (!upcoming(e) || (e.location?.region || '') !== myRegion) continue;
+      const got = e.location?.region || '(none)';
+      funnel.regionsReturned[got] = (funnel.regionsReturned[got] || 0) + 1;
+      if (!upcoming(e)) { funnel.dropped.past++; continue; }
+      if ((e.location?.region || '') !== myRegion) { funnel.dropped.otherRegion++; continue; }
       if (!seen.has(e.id)) { seen.add(e.id); wanted.push(e); }
     }
     for (const e of sigEvs) {
       if (!upcoming(e)) continue;
       if (!seen.has(e.id)) { seen.add(e.id); e.__sig = true; wanted.push(e); }
     }
+    funnel.kept = wanted.length;
     if (!wanted.length) throw new Error(scope === 'signature' ? 'No upcoming signature events found this season.' : `No upcoming events found in ${myRegion} this season.`);
     wanted.sort((a, b) => (a.start || '').localeCompare(b.start || ''));
     const CAP = 20;
@@ -10898,8 +10939,18 @@ async function runEventScout() {
       k++;
     }
 
+    // The region was an invisible input: it is derived from the team number,
+    // never shown, and every complaint about "it is not my region" starts
+    // there. Now the list says what it searched, in the heading.
+    const scopeLabel = scope === 'signature' ? 'signature events'
+      : scope === 'both' ? `${esc(myRegion)} + signature events`
+      : esc(myRegion);
     let html = `<div class="sim-result">`;
-    html += `<div class="sim-block-label">Optimal events for ${you}${myTs !== null ? ` (TS ${myTs.toFixed(0)})` : myRank ? ` (world skills #${myRank})` : ''} · easiest field first${wanted.length > CAP ? ` · nearest ${CAP} of ${wanted.length}` : ''}</div>`;
+    html += `<div class="sim-block-label">Optimal events for ${esc(you)} · ${scopeLabel}${myTs !== null ? ` (TS ${myTs.toFixed(0)})` : myRank ? ` (world skills #${myRank})` : ''} · easiest field first${wanted.length > CAP ? ` · nearest ${CAP} of ${wanted.length}` : ''}</div>`;
+    if (scope !== 'signature') {
+      const n = funnel.returned.region, d = funnel.dropped;
+      html += `<div class="sim-caveat">Searching <strong>${esc(myRegion)}</strong> — the region RobotEvents has registered for ${esc(you)}. RobotEvents calls a whole state or province a region, so this is not the same thing as a VEX competition region. ${n} event${n === 1 ? '' : 's'} came back${d.otherRegion ? `, ${d.otherRegion} of them outside ${esc(myRegion)} and dropped` : ''}${d.past ? `, ${d.past} already over` : ''}.</div>`;
+    }
     html += `<div class="pick-list">`;
     rows.forEach((r, i) => {
       const evidence = r.eliteTs !== null
@@ -10914,7 +10965,7 @@ async function runEventScout() {
       </div>`;
     });
     html += `</div>`;
-    if (myTs === null && !myRank) html += `<div class="sim-caveat">⚠ No season data found for ${you} yet, so per-event projections show "—".</div>`;
+    if (myTs === null && !myRank) html += `<div class="sim-caveat">⚠ No season data found for ${esc(you)} yet, so per-event projections show "—".</div>`;
     html += `<div class="sim-caveat">Difficulty comes from <strong>real season match data</strong>: each field's strongest attendees are pooled across all these events (regional fields overlap heavily), their True Skill is computed from actual match scores, and events are ranked by top-field strength. Skills standings pick which teams to scan and cover fields with no match data. "~#N" is where your TS lands among that event's scanned top field. EASY/MEDIUM/HARD are relative to the options on this list. Registration lists grow — re-check closer to the date.</div></div>`;
     resultsEl.innerHTML = html;
   } catch (e) {
