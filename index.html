@@ -2274,7 +2274,7 @@ function gradeBadge(grade) {
   if (g === 'middle school') return '<span class="tt-grade is-ms" title="Middle School">MS</span>';
   if (g === 'high school') return '<span class="tt-grade is-hs" title="High School">HS</span>';
   const short = g.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 3);
-  return `<span class="tt-grade" title="${g.replace(/\b\w/g, c => c.toUpperCase())}">${short}</span>`;
+  return `<span class="tt-grade" title="${esc(g.replace(/\b\w/g, c => c.toUpperCase()))}">${esc(short)}</span>`;
 }
 
 function gradeNorm(g) {
@@ -2686,7 +2686,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v74';
+const APP_BUILD = 'v75';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -4930,7 +4930,7 @@ function rewatchRender() {
   html += `<div class="rw-block">
     <div class="detail-block-label">Event</div>
     <div class="rw-events">
-      ${ctx.events.map(e => `<button class="rw-event${String(e.id) === String(ctx.eventId) ? ' active' : ''}" onclick="rewatchSelectEvent('${e.id}')">
+      ${ctx.events.map(e => `<button class="rw-event${String(e.id) === String(ctx.eventId) ? ' active' : ''}" onclick="rewatchSelectEvent('${teamAttr(e.id)}')">
         <span class="rw-event-name">${esc(e.name || 'Event')}</span>
         <span class="rw-event-meta">${esc([e.sku, fmtDate(e.start), e.location?.region].filter(Boolean).join('  ·  '))}</span>
       </button>`).join('')}
@@ -5133,8 +5133,8 @@ function rewatchRender() {
         ${cal
           ? `<span class="rw-cal-ok">✓ ${cal.segments && cal.segments.length > 1
                 ? `${cal.segments.length} stream segments` : cal.videoId}</span>
-             <button class="draft-btn" onclick="rewatchClearCal('${day}')">RESET</button>`
-          : `<button class="draft-btn" onclick="rewatchCalibrateDay('${day}')">${formOpen ? 'CANCEL' : '+ ADD STREAM'}</button>`}
+             <button class="draft-btn" onclick="rewatchClearCal('${teamAttr(day)}')">RESET</button>`
+          : `<button class="draft-btn" onclick="rewatchCalibrateDay('${teamAttr(day)}')">${formOpen ? 'CANCEL' : '+ ADD STREAM'}</button>`}
       </div>`;
 
     if (cal && !formOpen) {
@@ -5147,22 +5147,22 @@ function rewatchRender() {
               : ''}</div>`) : ''}${cal.published ? '<div class="rw-auto-tag">✓ using a published anchor — no setup needed</div>' : ''}
       <div class="rw-anchors">
         ${anchors.map(a => `<span class="rw-anchor-tag">${esc(a.name)} @ ${rwFmtClock(a.videoSec)}
-          <button title="remove" onclick="rewatchRemoveAnchor('${day}','${a.matchId}')">×</button></span>`).join('')}
-        <button class="draft-btn" onclick="rewatchCalibrateDay('${day}')">+ ADD ANCHOR</button>
+          <button title="remove" onclick="rewatchRemoveAnchor('${teamAttr(day)}','${teamAttr(a.matchId)}')">×</button></span>`).join('')}
+        <button class="draft-btn" onclick="rewatchCalibrateDay('${teamAttr(day)}')">+ ADD ANCHOR</button>
       </div>
       ${anchors.length === 1
-        ? `<div class="rw-hint rw-warn">One anchor only — times drift the further you get from ${anchors[0].name}, because streams pause for lunch and awards. If a distant match is off, add a second anchor near it and everything in between corrects itself.</div>`
+        ? `<div class="rw-hint rw-warn">One anchor only — times drift the further you get from ${esc(anchors[0].name)}, because streams pause for lunch and awards. If a distant match is off, add a second anchor near it and everything in between corrects itself.</div>`
         : `<div class="rw-hint">${anchors.length} anchors — matches between them are interpolated, so breaks in the stream are handled automatically.</div>`}
       <div class="rw-shift-bar">
         <span class="rw-shift-cap">earlier</span>
         <input type="text" class="rw-shift-in" id="rwShiftBack_${day}" placeholder="min"
-          onkeydown="if(event.key==='Enter')rewatchShiftBy('${day}',-1)">
-        <button class="rw-shift-go" onclick="rewatchShiftBy('${day}',-1)">◀</button>
-        <button class="rw-nudge-btn" onclick="rewatchNudge('${day}', -30)">−30s</button>
-        <button class="rw-nudge-btn" onclick="rewatchNudge('${day}', 30)">+30s</button>
-        <button class="rw-shift-go" onclick="rewatchShiftBy('${day}',1)">▶</button>
+          onkeydown="if(event.key==='Enter')rewatchShiftBy('${teamAttr(day)}',-1)">
+        <button class="rw-shift-go" onclick="rewatchShiftBy('${teamAttr(day)}',-1)">◀</button>
+        <button class="rw-nudge-btn" onclick="rewatchNudge('${teamAttr(day)}', -30)">−30s</button>
+        <button class="rw-nudge-btn" onclick="rewatchNudge('${teamAttr(day)}', 30)">+30s</button>
+        <button class="rw-shift-go" onclick="rewatchShiftBy('${teamAttr(day)}',1)">▶</button>
         <input type="text" class="rw-shift-in" id="rwShiftFwd_${day}" placeholder="min"
-          onkeydown="if(event.key==='Enter')rewatchShiftBy('${day}',1)">
+          onkeydown="if(event.key==='Enter')rewatchShiftBy('${teamAttr(day)}',1)">
         <span class="rw-shift-cap">later</span>
       </div>`;
     }
@@ -5192,7 +5192,7 @@ function rewatchRender() {
         }[rwStreamReason] || ''
       ))}
       <div class="rw-auto-row">
-        <button class="btn btn-secondary" onclick="rewatchAutoSync('${day}')">RETRY SYNC</button>
+        <button class="btn btn-secondary" onclick="rewatchAutoSync('${teamAttr(day)}')">RETRY SYNC</button>
         <span class="rw-auto-note">Paste a YouTube link above and it syncs on its own. This retries if it didn't.</span>
       </div>
       <div id="rwAutoStatus"></div>
@@ -5201,7 +5201,7 @@ function rewatchRender() {
       <div class="controls-row">
         <div class="input-wrap" style="flex:2;min-width:220px;"><span class="input-label">STREAM LINK</span>
           <input type="text" id="rwVideoInput" value="${dayLink}" placeholder="Paste a YouTube or Vimeo link — it syncs itself" autocomplete="off"
-            oninput="rwOnLinkPasted('${day}', this.value)"></div>
+            oninput="rwOnLinkPasted('${teamAttr(day)}', this.value)"></div>
         <button class="btn btn-secondary" onclick="rwPreviewVideo()">LOAD VIDEO</button>
       </div>
       <div id="rwCalPlayerWrap" style="display:${dayLink ? '' : 'none'};">
@@ -5213,12 +5213,12 @@ function rewatchRender() {
           <select id="rwAnchorMatch">
             ${pick.map(m => `<option value="${m.id}">${esc(m.name)}${m.mine ? '  ← yours' : ''}</option>`).join('')}
           </select></div>
-        <button class="btn btn-primary" onclick="rwSetAnchorHere('${day}')">SET ANCHOR HERE</button>
+        <button class="btn btn-primary" onclick="rwSetAnchorHere('${teamAttr(day)}')">SET ANCHOR HERE</button>
       </div>
       <div class="rw-manual">
         <span class="rw-manual-label">or type the time yourself</span>
         <input type="text" id="rwAnchorTime" placeholder="1:27:22" autocomplete="off">
-        <button class="draft-btn" onclick="rewatchCalibrate('${day}')">${existing ? 'ADD ANCHOR' : 'CALIBRATE'}</button>
+        <button class="draft-btn" onclick="rewatchCalibrate('${teamAttr(day)}')">${existing ? 'ADD ANCHOR' : 'CALIBRATE'}</button>
       </div>`;
     }
 
@@ -5244,7 +5244,7 @@ function rewatchRender() {
             <span class="${m.onRed ? 'rw-blue' : 'rw-red'}">${(m.onRed ? m.blueNums : m.redNums).join(' ')}</span></div>
           <div class="rw-score">${played ? `${m.redScore}–${m.blueScore}` : '—'}</div>
           <div class="rw-action">${off !== null
-            ? `<button class="rw-watch" onclick="rewatchJump('${m.id}')">▶ ${rwFmtClock(off)}</button>`
+            ? `<button class="rw-watch" onclick="rewatchJump('${teamAttr(m.id)}')">▶ ${rwFmtClock(off)}</button>`
             : `<span class="rw-noclock">${
                 !Object.keys(calAll).length ? ''
                 : (calAll[day] && calAll[day].segments)
@@ -5465,7 +5465,16 @@ function vsOfflineHas(eventId) { return !!vsOfflineIndex()[String(eventId)]; }
 // Used by the saved-event badge and by the Jumper's resume row, so it is named
 // for what it does rather than for the first feature that wanted it.
 function vsAgo(ts) {
-  const mins = Math.round((Date.now() - ts) / 60000);
+  // A stored timestamp is only as trustworthy as whatever wrote it. An entry
+  // from an older build, a truncated write or a hand-edited key gives a value
+  // the arithmetic turns into NaN — and every comparison below is then false,
+  // so this fell through to the last line and put "NaN days ago" on the
+  // offline button and in the Jumper's resume row.
+  const t = typeof ts === 'number' ? ts : Date.parse(ts);
+  if (!Number.isFinite(t)) return 'a while ago';
+  // Clamped at zero: a device whose clock moved backwards would otherwise be
+  // told it saved the event "-3 days ago".
+  const mins = Math.max(0, Math.round((Date.now() - t) / 60000));
   if (mins < 1) return 'just now';
   if (mins < 60) return mins + ' min ago';
   const hrs = Math.round(mins / 60);
@@ -6326,9 +6335,9 @@ function renderSkillsPage() {
       <div class="skill-row ${rankClass}" data-team="${esc(t.number)}" onclick="scoutFromSkillsRow('${teamAttr(t.number)}', event)" title="Click to scout · Shift+click to multi-select">
         <div class="skill-rank">#${displayRank}</div>
         <div class="skill-team">
-          <div class="skill-num">${t.number}</div>
+          <div class="skill-num">${esc(t.number)}</div>
           <div class="skill-name">${esc(t.team_name || '—')}</div>
-          <div class="skill-loc">${locStr}</div>
+          <div class="skill-loc">${esc(locStr)}</div>
         </div>
         <div class="skill-score skill-prog">${t.programming}<span class="skill-label">AUTON</span></div>
         <div class="skill-score skill-driver">${t.driver}<span class="skill-label">DRIVER</span></div>
@@ -7176,7 +7185,7 @@ function renderMatchRow(m, focusTeamId) {
         tShowPred && m.played && m.win !== null && m.win !== undefined
           ? `<div class="match-pred" title="What the model gave this alliance before the match">${m.win.toFixed(0)}%</div>`
           : ''}</div>
-      ${m.played ? `<button class="match-play" title="Watch this match" onclick="event.stopPropagation();jumpToMatch('${teamAttr(tournamentEventId)}', ${esc(JSON.stringify(tournamentEventName || ''))}, '${m.raw ? m.raw.id : m.id}', '${tournamentFocusTeamNumber || ''}')">▶</button>` : ''}
+      ${m.played ? `<button class="match-play" title="Watch this match" onclick="event.stopPropagation();jumpToMatch('${teamAttr(tournamentEventId)}', ${esc(JSON.stringify(tournamentEventName || ''))}, '${teamAttr(m.raw ? m.raw.id : m.id)}', '${tournamentFocusTeamNumber || ''}')">▶</button>` : ''}
     </div>`;
 }
 
@@ -7676,7 +7685,7 @@ function bracketPred(R, redTeams, blueTeams, salt) {
 
 function renderBracketBye(teams) {
   return `<div class="bracket-match bracket-bye-match">
-    <div class="bracket-bye-teams">${teams.join(' ')}</div>
+    <div class="bracket-bye-teams">${teams.map(esc).join(' ')}</div>
     <div class="bracket-bye-tag">BYE</div>
   </div>`;
 }
@@ -7762,11 +7771,11 @@ function renderBracketSeries(series, roundName, R) {
     <div class="bracket-match bracket-series">
       <div class="bracket-match-label"><span class="bracket-label-text">${seriesLabel}${p === null ? ` · ${redWins}-${blueWins}` : ' · chance to win the series'}</span>${bracketPlayButtons(gameRows)}</div>
       <div class="bracket-side bracket-red ${redWonSeries ? 'winner' : ''}">
-        <div class="bracket-teams">${redTeams.join(' ')}</div>
+        <div class="bracket-teams">${redTeams.map(esc).join(' ')}</div>
         <div class="bracket-score${p === null ? '' : ` bracket-proj-pct ${tPredClass(p)}`}">${redScores}</div>
       </div>
       <div class="bracket-side bracket-blue ${blueWonSeries ? 'winner' : ''}">
-        <div class="bracket-teams">${blueTeams.join(' ')}</div>
+        <div class="bracket-teams">${blueTeams.map(esc).join(' ')}</div>
         <div class="bracket-score${p === null ? '' : ` bracket-proj-pct ${tPredClass(100 - p)}`}">${blueScores}</div>
       </div>
     </div>`;
@@ -7806,11 +7815,11 @@ function renderBracketMatch(match, R) {
     <div class="bracket-match">
       <div class="bracket-match-label"><span class="bracket-label-text">${matchLabel}${p === null ? '' : ' · chance to win'}</span>${bracketPlayButtons([{ played, id: match.id }])}</div>
       <div class="bracket-side bracket-red ${redWon ? 'winner' : ''}">
-        <div class="bracket-teams">${redTeams.join(' ')}</div>
+        <div class="bracket-teams">${redTeams.map(esc).join(' ')}</div>
         <div class="bracket-score${p === null ? '' : ` bracket-proj-pct ${tPredClass(p)}`}">${redScore}</div>
       </div>
       <div class="bracket-side bracket-blue ${blueWon ? 'winner' : ''}">
-        <div class="bracket-teams">${blueTeams.join(' ')}</div>
+        <div class="bracket-teams">${blueTeams.map(esc).join(' ')}</div>
         <div class="bracket-score${p === null ? '' : ` bracket-proj-pct ${tPredClass(100 - p)}`}">${blueScore}</div>
       </div>
     </div>`;
@@ -8227,8 +8236,11 @@ async function renderTournamentMatches() {
     for (const r of groups[g]) {
       const redWon = r.played && r.redScore > r.blueScore;
       const blueWon = r.played && r.blueScore > r.redScore;
+      // teamAttr for the handler argument, esc for the text. The browser
+      // decodes entities BEFORE the JS parses, so escaping is not a defence
+      // inside an inline onclick — stripping is.
       const mark = list => list.map(n =>
-        `<span class="${String(n).toUpperCase() === focus ? 'match-team-self' : ''}" onclick="event.stopPropagation();tournamentFocusOn('${n}')">${n}</span>`).join(' ');
+        `<span class="${String(n).toUpperCase() === focus ? 'match-team-self' : ''}" onclick="event.stopPropagation();tournamentFocusOn('${teamAttr(n)}')">${esc(n)}</span>`).join(' ');
       html += `<div class="t-match-row${r.played ? '' : ' upcoming'}">
         <div class="t-match-name">${esc(r.name)}${r.div ? `<div class="t-match-div">${esc(r.div)}</div>` : ''}</div>
         <div class="t-match-side red${redWon ? ' won' : ''}">${mark(r.red)}</div>
@@ -8706,9 +8718,9 @@ async function renderTournamentAwards() {
   if (rolldown) {
     html += `<div class="rolldown">
       <div class="rolldown-head">${rolldown.spare} spot${rolldown.spare === 1 ? '' : 's'} rolled down</div>
-      <div class="rolldown-why">${rolldown.doubles.map(([team, n]) => `<strong>${team}</strong> qualified ${n}× here`).join(' · ')} — the extra${rolldown.spare === 1 ? '' : 's'} pass to the top unqualified team${rolldown.spare === 1 ? '' : 's'} on this event's skills board.</div>
+      <div class="rolldown-why">${rolldown.doubles.map(([team, n]) => `<strong>${esc(team)}</strong> qualified ${n}× here`).join(' · ')} — the extra${rolldown.spare === 1 ? '' : 's'} pass to the top unqualified team${rolldown.spare === 1 ? '' : 's'} on this event's skills board.</div>
       ${rolldown.recipients.length
-        ? `<div class="rolldown-list">${rolldown.recipients.map((t, i) => `<span class="rolldown-team"><span class="rd-pos">${i + 1}</span>${t.number}<span class="rd-score">${t.total} pts</span></span>`).join('')}</div>`
+        ? `<div class="rolldown-list">${rolldown.recipients.map((t, i) => `<span class="rolldown-team"><span class="rd-pos">${i + 1}</span>${esc(t.number)}<span class="rd-score">${t.total} pts</span></span>`).join('')}</div>`
         : `<div class="rolldown-why">No unqualified team on this event's skills board to receive it.</div>`}
     </div>`;
   }
@@ -8721,7 +8733,7 @@ async function renderTournamentAwards() {
         <div class="t-award-title">${esc(r.title)}</div>
         ${r.winners.length
           ? `<div class="t-award-winners">${r.winners.map(w =>
-              `<span class="t-award-win${String(w).toUpperCase() === focus ? ' self' : ''}" onclick="tournamentFocusOn('${String(w).replace(/'/g, "\\'")}')">${w}</span>`).join('')}</div>`
+              `<span class="t-award-win${String(w).toUpperCase() === focus ? ' self' : ''}" onclick="tournamentFocusOn('${teamAttr(w)}')">${esc(w)}</span>`).join('')}</div>`
           : `<div class="t-award-none">Not awarded</div>`}
       </div>
       ${r.qual ? `<div class="t-award-qual${r.qual.inferred ? ' inferred' : ''}">${esc(r.qual.text)}${r.qual.inferred ? '<span class="inf-mark" title="The event didn\'t record a qualification for this award, so this is inferred from the award title and event level.">?</span>' : ''}</div>` : ''}
@@ -8791,7 +8803,7 @@ async function renderTournamentSkills() {
     const rdPos = rd.byTeam[String(e.number).toUpperCase()];
     html += `<div class="t-skills-row${e.number.toUpperCase() === focus ? ' self' : ''}${rdPos ? ' rolldown-row' : ''}" onclick="tournamentFocusOn('${teamAttr(e.number)}')">
       <div class="t-sk-rank">${i + 1}</div>
-      <div class="t-sk-team">${e.number}${rdPos ? `<span class="rd-badge" title="A team here qualified more than once, so a spare Worlds spot rolls down to the highest-ranked team without one.">${QUAL_ICONS.worlds}QUALIFIES BY ROLLDOWN</span>` : ''}</div>
+      <div class="t-sk-team">${esc(e.number)}${rdPos ? `<span class="rd-badge" title="A team here qualified more than once, so a spare Worlds spot rolls down to the highest-ranked team without one.">${QUAL_ICONS.worlds}QUALIFIES BY ROLLDOWN</span>` : ''}</div>
       <div class="t-sk-val">${e.driver || '—'}</div>
       <div class="t-sk-val">${e.prog || '—'}</div>
       <div class="t-sk-total">${e.total}</div>
@@ -8905,7 +8917,7 @@ function renderTournamentTeams() {
         return `
         <div class="tournament-team-tag" data-team="${esc(t.number)}" onclick="onTournamentTeamClick('${teamAttr(t.number)}', event)">
           <div class="tt-row1">
-            <span class="tt-num">${t.number}</span>${gradeTag}
+            <span class="tt-num">${esc(t.number)}</span>${gradeTag}
             <span class="tt-name">${esc(t.team_name || '')}</span>
           </div>
           <div class="tt-row2">
@@ -9044,11 +9056,11 @@ function showError(msg) {
   box.classList.toggle('active', !!msg);
 }
 
-function setLoading(active, text = 'FETCHING TEAM DATA...') {
-  document.getElementById('loading').classList.toggle('active', active);
-  document.getElementById('loadingText').textContent = text;
-  document.getElementById('scoutBtn').disabled = active;
-}
+// setLoading() lived here and had no callers. It also could not have worked:
+// its last line reached for #scoutBtn, and no element has carried that id for
+// a long time, so the first call would have thrown on a null. Removed rather
+// than repaired — a helper nothing uses is not worth an id to hang it on.
+// Each view drives its own .loading element directly.
 
 // ── SCOUT ─────────────────────────────────────
 let scoutInProgress = false;
@@ -9656,7 +9668,7 @@ async function buildTeamCard(teamNumber, seasonId, gradeLevel = 'High School') {
   card.innerHTML = `
     <div class="card-header">
       <div>
-        <div class="team-number">${team.number}</div>
+        <div class="team-number">${esc(team.number)}</div>
         <div class="team-name">${esc(team.team_name || '—')}</div>
         <div class="team-location">${esc(locationStr || '—')}</div>
       </div>
@@ -9790,7 +9802,7 @@ function renderEventPicker(d, eventFilter) {
             <span class="ev-row-meta">combined totals</span>
           </button>
           ${d.eventsList.map(e => `
-            <button class="ev-row${String(eventFilter) === String(e.id) ? ' active' : ''}" onclick="detailFilterEvent('${e.id}')">
+            <button class="ev-row${String(eventFilter) === String(e.id) ? ' active' : ''}" onclick="detailFilterEvent('${teamAttr(e.id)}')">
               <span class="ev-row-name">${esc(e.name || 'Event')}</span>
               <span class="ev-row-meta">${esc([e.sku, fmtDate(e.start), e.region].filter(Boolean).join('  ·  '))}</span>
             </button>`).join('')}
@@ -9806,7 +9818,7 @@ function renderEventsAttended(d) {
   const fmtDate = s => { const t = Date.parse(s || ''); return isNaN(t) ? '' : new Date(t).toLocaleDateString(); };
   return `<div class="detail-block">
     <div class="detail-block-label">Events Attended (${d.eventsList.length})</div>
-    <div class="ev-attend-hint">Click an event to open it in Tournament, focused on ${d.team.number}.</div>
+    <div class="ev-attend-hint">Click an event to open it in Tournament, focused on ${esc(d.team.number)}.</div>
     <div class="ev-attend-list">
       ${d.eventsList.map(e => `
         <button class="ev-attend" onclick="openEventInTournament('${teamAttr(e.id)}', ${esc(JSON.stringify(e.name || 'Event'))})">
@@ -10000,7 +10012,7 @@ function renderDetailedTeam(d, eventFilter) {
   // ── Header ──
   let html = `
     <div class="detail-head">
-      <div class="detail-number">${t.number}</div>
+      <div class="detail-number">${esc(t.number)}</div>
       <div class="detail-name">${esc(t.team_name || '—')}</div>
       ${t.robot_name ? `<div class="detail-robot">⬡ ${esc(t.robot_name)}</div>` : ''}
     </div>
@@ -10716,56 +10728,11 @@ function sim_teamProfile(p) {
   return { items, record };
 }
 
-// ── Render the pick list as a live draft board: best available on top,
-//    tap TAKEN as alliances get picked, UNDO for mis-taps. Taken state
-//    persists per event so a page reload mid-selection loses nothing. ──
-function pickToggle(idx) {
-  const ctx = window._pickCtx;
-  if (!ctx || !ctx.rows[idx]) return;
-  ctx.rows[idx].taken = !ctx.rows[idx].taken;
-  lsSet(ctx.takenKey, JSON.stringify(ctx.rows.filter(r => r.taken).map(r => r.num)));
-  pickRender();
-}
-
-function pickRender() {
-  const ctx = window._pickCtx;
-  const el = document.getElementById('pickResults');
-  if (!ctx || !el) return;
-  const avail = [], gone = [];
-  ctx.rows.forEach((r, idx) => (r.taken ? gone : avail).push({ ...r, idx }));
-
-  let html = `<div class="sim-result">`;
-  html += `<div class="sim-block-label">Pick list for ${esc(ctx.you)} vs ${esc(ctx.oppLabel)} · best available first · ${avail.length} on the board${gone.length ? `, ${gone.length} taken` : ''}</div>`;
-  html += `<div class="pick-list">`;
-  avail.forEach((r, i) => {
-    html += `<div class="pick-row${i === 0 ? ' first' : ''}">
-      <div class="pick-rank">${i + 1}</div>
-      <div><div class="pick-team">${r.num}</div><div class="pick-name">${esc((r.name || '').slice(0, 30))}</div>
-           <button class="draft-btn" style="margin-top:5px;" onclick="pickToggle(${r.idx})">TAKEN</button></div>
-      <div class="pick-win">${r.win.toFixed(1)}%</div>
-      <div class="pick-opr">TS ${r.opr.toFixed(1)}<br>${r.matches} m</div>
-    </div>`;
-  });
-  html += `</div>`;
-  if (gone.length) {
-    html += `<div class="sim-block-label" style="margin-top:16px;">Off the board</div><div class="pick-list">`;
-    gone.forEach(r => {
-      html += `<div class="pick-row taken">
-        <div class="pick-rank">—</div>
-        <div><div class="pick-team">${r.num}</div><div class="pick-name">${esc((r.name || '').slice(0, 30))}</div>
-             <button class="draft-btn undo" style="margin-top:5px;" onclick="pickToggle(${r.idx})">UNDO</button></div>
-        <div class="pick-win">${r.win.toFixed(1)}%</div>
-        <div class="pick-opr">TS ${r.opr.toFixed(1)}</div>
-      </div>`;
-    });
-    html += `</div>`;
-  }
-  const basisNote = ctx.basis === 'event'
-    ? `from <strong>this event's own matches</strong> — the most accurate basis on selection day`
-    : `from real season match data (recent matches weigh most)`;
-  html += `<div class="sim-caveat">Win % is how often <strong>you + that partner</strong> beat ${esc(ctx.oppLabel)} across 10,000 simulated matches, ${basisNote}. During alliance selection, tap <strong>TAKEN</strong> the moment a team is picked or declines — the top of the board is always your best available call. Taken state is saved per event, so a reload loses nothing.</div></div>`;
-  el.innerHTML = html;
-}
+// The old Simulator's live draft board went with the Simulator's sub-modes
+// in v66 — pickToggle/pickRender/window._pickCtx rendered into #pickResults,
+// which no element has had since. Nothing reached them: pickRender was only
+// called by pickToggle, and pickToggle only by markup pickRender emitted.
+// The Pick List inside TOURNAMENT replaced all of it.
 
 
 // ═══════════════════════════════════════════════
@@ -10959,7 +10926,7 @@ async function runEventScout() {
       html += `<div class="pick-row${i === 0 ? ' first' : ''}">
         <div class="pick-rank">${i + 1}</div>
         <div><div class="pick-team">${esc(r.name.slice(0, 44))}${r.sig ? ' <span class="es-sig">SIG</span>' : ''}</div>
-             <div class="pick-name">${r.start}${r.loc ? ' · ' + r.loc : ''} · ${r.teams} teams · ${evidence}</div></div>
+             <div class="pick-name">${esc(r.start)}${r.loc ? ' · ' + esc(r.loc) : ''} · ${r.teams} teams · ${evidence}</div></div>
         <div class="pick-win">${r.myPos ? '~#' + r.myPos : '—'}</div>
         <div class="pick-opr">${r.tag}</div>
       </div>`;

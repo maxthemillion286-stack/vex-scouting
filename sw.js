@@ -1,4 +1,4 @@
-// VEX Scout Service Worker — v74
+// VEX Scout Service Worker — v75
 //
 // Built on the v3 network-first design (updates always appear immediately),
 // with three additions aimed at competition venues:
@@ -21,8 +21,8 @@
 //
 // Bump CACHE_NAME whenever index.html changes.
 
-const CACHE_NAME = 'vex-scout-v74';
-const API_CACHE = 'vex-scout-v74-api';
+const CACHE_NAME = 'vex-scout-v75';
+const API_CACHE = 'vex-scout-v75-api';
 
 // How long to wait for the network before showing the cached copy.
 const HTML_TIMEOUT_MS = 2500;
@@ -85,8 +85,12 @@ function networkFirstWithTimeout(request, cacheName, timeoutMs, fallbackKey) {
   const network = fetch(request).then((response) => {
     if (response && response.ok) {
       const copy = response.clone();
+      // cache.put rejects on a partial or opaque response, and an unhandled
+      // rejection in a worker is invisible. Storing is a nicety; answering is
+      // not, so a failed store must never disturb the answer.
       caches.open(cacheName)
-        .then((cache) => cache.put(request, copy).then(() => trim(cache, cacheName)));
+        .then((cache) => cache.put(request, copy).then(() => trim(cache, cacheName)))
+        .catch(() => {});
     }
     return response;
   });
@@ -104,9 +108,20 @@ function networkFirstWithTimeout(request, cacheName, timeoutMs, fallbackKey) {
         }));
       });
 
+  // The timeout branch used to resolve with `cached().then(hit => hit || network)`
+  // and nothing else. When the cache missed AND the network eventually failed,
+  // that inner promise REJECTED — and Promise.race settles with whichever
+  // branch settles first, so on a connection that hangs and then drops the
+  // race rejected. event.respondWith() on a rejected promise gives the
+  // browser's own network-error page, which is precisely the screen this file
+  // exists to prevent. Venue wifi is exactly that: it hangs, then it drops.
   const timeout = new Promise((resolve) => {
     setTimeout(() => {
-      if (!settled) resolve(cached().then((hit) => hit || network));
+      if (!settled) {
+        resolve(cached()
+          .then((hit) => hit || network)
+          .catch(() => offlineResponse(request)));
+      }
     }, timeoutMs);
   });
 
@@ -158,11 +173,15 @@ self.addEventListener('fetch', (event) => {
         cached || fetch(request).then((response) => {
           if (response && (response.ok || response.type === 'opaque')) {
             const copy = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, copy)).catch(() => {});
           }
           return response;
-        }).catch(() => cached)
-      )
+        // `|| offlineResponse` because `cached` is undefined on this path — it
+        // is the branch we are in BECAUSE the cache missed. Returning it gave
+        // respondWith() an undefined, which fails the request outright instead
+        // of letting the page render with a fallback typeface.
+        }).catch(() => cached || offlineResponse(request))
+      ).catch(() => offlineResponse(request))
     );
     return;
   }
@@ -184,18 +203,20 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Static assets (icons, manifest): cache-first is fine
+  // Static assets (icons, manifest, legal.css): cache-first is fine — but a
+  // miss while offline used to reject, and a rejected respondWith() is a hard
+  // subresource failure rather than a graceful one.
   event.respondWith(
     caches.match(request).then((cached) => {
       if (cached) return cached;
       return fetch(request).then((response) => {
         if (response.ok) {
           const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, copy)).catch(() => {});
         }
         return response;
       });
-    })
+    }).catch(() => offlineResponse(request))
   );
 });
 

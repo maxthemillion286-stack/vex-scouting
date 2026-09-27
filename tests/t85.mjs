@@ -269,8 +269,16 @@ ok('a live refresh cannot undo a deliberate pick',
   'the tick calls loadAndRenderTeamList, never loadTournamentTeams');
 
 // The badge itself.
-const badgeSrc = src.slice(src.indexOf('function gradeBadge(grade)'), src.indexOf('function gradeOfTeam(t)'));
-const gradeBadge = new Function(badgeSrc + '; return gradeBadge;')();
+//
+// Retargeted: this used to pull gradeBadge out with `new Function` and call it
+// in isolation. The moment the badge started escaping its title — a team's
+// grade is an API string like everything else — the extraction broke on a
+// missing `esc`, which is HANDOFF §7 exactly: an extraction goes stale as soon
+// as its function gains a dependency. Driven through the real page instead,
+// where esc and the rest are simply there.
+const { win: badgeWin, stop: badgeStop } = await boot();
+await settle(badgeWin, 200);
+const gradeBadge = g => badgeWin.eval(`gradeBadge(${JSON.stringify(g)})`);
 ok('Middle School reads MS', /">MS</.test(gradeBadge('Middle School')));
 ok('High School reads HS', /">HS</.test(gradeBadge('High School')));
 ok('the two are told apart by colour as well as text',
@@ -282,6 +290,11 @@ ok('a grade we do not know about still gets initials',
   /">ES</.test(gradeBadge('Elementary School')));
 ok('the badge only appears when the list holds more than one grade',
   /const gradeTag = mixedGrades \? gradeBadge\(t\.grade\) : '';/.test(src));
+// The title is an attribute holding an API string, so it must be escaped.
+ok('a grade cannot break out of the title attribute',
+  !/<img/i.test(gradeBadge('<img src=x onerror=alert(1)> School')),
+  gradeBadge('<img src=x onerror=alert(1)> School'));
+badgeStop();
 
 // Driven: the exact reported shape — mixed grades, one division.
 {
