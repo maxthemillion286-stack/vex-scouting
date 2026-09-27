@@ -69,7 +69,14 @@ export function makeRouter(opts = {}) {
       const m = path.match(/number\[\]=([^&]+)/);
       const num = m ? decodeURIComponent(m[1]).toUpperCase() : null;
       const v5rc = /program\[\]=1/.test(path);
-      const hit = FIXTURES.teams.filter(t => !num || t.number === num);
+      let hit = FIXTURES.teams.filter(t => !num || t.number === num);
+      // The Event Scout derives "my region" from the team's registration, so a
+      // team with no location cannot be scouted at all. Opt-in, so every other
+      // test's fixture stays exactly as it was.
+      if (FIXTURES.teamRegion) {
+        hit = hit.map(t => ({ ...t, location: {
+          city: 'Bristol', region: FIXTURES.teamRegion, country: 'United States' } }));
+      }
       return { status: 200, body: j(v5rc ? hit : []) };
     }
     if (/^\/teams\/\d+\/events/.test(path)) return { status: 200, body: j([E]) };
@@ -97,7 +104,25 @@ export function makeRouter(opts = {}) {
     if (/^\/events\/\d+\/awards/.test(path)) return { status: 200, body: j(FIXTURES.awards || []) };
     if (path.startsWith('/events?')) {
       const wantB = /id\[\]=55002/.test(path) || /sku\[\]=RE-V5RC-25-0649/.test(path);
-      return { status: 200, body: j([wantB ? FIXTURES.eventB : E]) };
+      if (wantB) return { status: 200, body: j([FIXTURES.eventB]) };
+      // A season-wide /events query, the shape the Event Scout sends. The
+      // fixture deliberately IGNORES the region parameter and answers with a
+      // spread of regions, because that is the case worth testing: if the API
+      // ever stops honouring the filter, the client-side one is all that keeps
+      // another state's events off the list.
+      if (FIXTURES.eventSpread && /season\[\]=/.test(path) && !/id\[\]=/.test(path)) {
+        const soon = d => new Date(Date.now() + d * 86400000).toISOString();
+        const rows = FIXTURES.eventSpread.map((e, i) => ({
+          id: 57000 + i, sku: `RE-V5RC-25-9${String(i).padStart(3, '0')}`,
+          name: e.name, start: soon(e.inDays ?? (7 + i)), end: soon(e.inDays ?? (7 + i)),
+          season: { id: 197 },
+          level: e.level || 'Other',
+          location: { city: e.city || 'Somewhere', region: e.region, country: 'United States' },
+          divisions: [{ id: 1, name: 'Alpha' }]
+        }));
+        return { status: 200, body: j(rows) };
+      }
+      return { status: 200, body: j([E]) };
     }
     if (path.startsWith('legacy:')) return { status: 200, body: { data: [] } };
     if (path.startsWith('/seasons')) return { status: 200, body: j([{ id: 197, name: '2025-2026' }]) };
