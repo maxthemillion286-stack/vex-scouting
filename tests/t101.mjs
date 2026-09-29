@@ -120,7 +120,49 @@ console.log('\n· driven');
   stop();
 }
 
-// ══ 6. The three release markers still agree ═══════════════════════════════
+// ══ 6. The trailer itself ══════════════════════════════════════════════════
+// The iframe's src is only as good as the file behind it. This is the check
+// that would have caught shipping the tab without the trailer.
+console.log('\n· trailer.html');
+{
+  ok('the file the iframe points at exists', fs.existsSync('../trailer.html'));
+  const tr = fs.readFileSync('../trailer.html', 'utf8');
+  ok('it is a whole document of its own',
+    /^<!doctype html>/i.test(tr) && /<\/html>\s*$/.test(tr));
+  ok('it is deployed, not ignored',
+    !fs.readFileSync('../.vercelignore', 'utf8').split('\n')
+      .map(l => l.trim()).includes('trailer.html'));
+
+  // Both halves of the contract have to exist, or the tab's pause is a no-op
+  // that nothing reports.
+  ok('it listens for the app\'s messages', /vsTrailer/.test(tr));
+  ok('it honours both pause and play',
+    /d\.vsTrailer==='pause'/.test(tr) && /d\.vsTrailer==='play'/.test(tr));
+  ok('and only from this origin',
+    /e\.origin!==location\.origin/.test(tr),
+    'a frame that takes messages from anywhere takes them from anyone');
+
+  // The 64px in .info-trailer is the control bar plus the gap above it. If the
+  // trailer ever restyles either, the ratio box is wrong and the video is
+  // cropped or floating — measured in Chromium at 54 and 10.
+  const bar = (tr.match(/\.bar\{height:(\d+)px\}/) || [])[1];
+  const gap = (tr.match(/\.player\{[^}]*gap:(\d+)px/) || [])[1];
+  ok('its control bar is still 54px', bar === '54', String(bar));
+  ok('and still sits 10px below the frame', gap === '10', String(gap));
+  ok('...which is the 64px the app reserves for it',
+    Number(bar) + Number(gap) === 64, `${bar} + ${gap}`);
+
+  // The app frames it rather than inlining it because these would collide.
+  ok('its class names are the generic ones that forced an iframe',
+    /\.a\{/.test(tr) && /\.up\{/.test(tr) && /\.left\{/.test(tr));
+
+  // It reaches Google Fonts on its own, so t95's disclosure scan covers it.
+  ok('t95 scans the trailer for undisclosed hosts',
+    /for \(const page of \[idx, fs\.readFileSync\('\.\.\/trailer\.html', 'utf8'\)\]\)/
+      .test(fs.readFileSync('./t95.mjs', 'utf8')));
+}
+
+// ══ 7. The three release markers still agree ═══════════════════════════════
 // t58 owns this, but a new tab is exactly the kind of change that ships with
 // one of the three forgotten.
 console.log('\n· release');

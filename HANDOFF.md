@@ -1154,9 +1154,23 @@ viewport the box is therefore about 27px taller than the video needs, and the
 trailer letterboxes against its own `#050506`. Harmless, and left as specified
 rather than quietly changed.
 
-`t101` covers all of it. The contract was also driven in Chromium against a
-stub obeying the same messages: `src` null before opening, one request on open,
-`["pause"]` on leaving, `["pause","play"]` on return, and still one request.
+`t101` covers all of it, including that `trailer.html` **exists** — the iframe's
+`src` is only as good as the file behind it, and the tab was once a merge away
+from shipping without it. It also pins the trailer's own `54px` bar and `10px`
+gap, because if either is restyled the app's `64px` reservation is wrong and
+the video crops or floats.
+
+The contract was driven in Chromium with the real file: 0 requests before the
+tab is opened, 1 on open, `paused` on leaving, playing again on return with the
+clock continuing rather than resetting, and still 1 request.
+
+The trailer pulls its own Google Fonts URL, and it asks for **one face the rest
+of the site does not use** (JetBrains Mono). No new host, so nothing broke — but
+`t95`'s disclosure scan now covers `trailer.html` as well as `index.html`, and
+the privacy policy no longer says "the three typefaces". The legal pages are
+deliberately *not* scanned: they cite other companies' policies by URL, and the
+scan cannot tell an `<a href>` a reader may follow from a `<link>` the browser
+fetches on its own.
 
 A sixth tab does not crowd the strip: `@media (max-width: 720px)` already makes
 `.tabs-nav` a scroller with `flex-shrink: 0` on the buttons, so INFO scrolls
