@@ -393,6 +393,7 @@ proxy is at `api/proxy.js`.
 | t98 | **Which region the Event Scout searched** — the funnel, the heading, and a fixture whose API ignores the filter |
 | t99 | **The service worker always answers** — the four paths that could reject inside respondWith |
 | t100 | **The v75 sweep** — every view poisoned, every site named, and the two blanket guards |
+| t101 | **The INFO tab** — the trailer loads once, pauses on leaving, resumes on return |
 | sanity | CSS braces balance, inline JS parses, tabs present |
 | tool_sanity | Same for anchor-tool.html |
 
@@ -1118,7 +1119,66 @@ nearest it on screen.**
 
 ---
 
-## 13. The v75 sweep, and how it was done
+## 13. The INFO tab
+
+`trailer.html` is a standalone page at the repo root, shown in an **iframe**.
+Not inline markup: the trailer's class names (`.a`, `.up`, `.left`, `.fade`…)
+are short and generic, and would collide with the app's stylesheet the moment
+the two shared a document.
+
+The loading contract is the part that matters, because each third of it fails
+silently:
+
+- **It does not load until the tab is first opened.** The `<iframe>` ships with
+  `data-src`, never `src`. An `src` in the markup would make every visitor
+  download a video they never asked for, on venue wifi.
+- **Leaving the tab pauses it.** A trailer playing behind the Tournament tab is
+  a battery drain nobody can see to stop.
+- **Coming back resumes it.** Re-setting `src` would restart it from zero and
+  re-download it, so `infoTrailerFor()` sets `src` exactly once and thereafter
+  only posts.
+
+The page listens for `{vsTrailer: 'pause' | 'play'}` from the same origin, and
+both `postMessage` calls name `location.origin` rather than `'*'`. Both are
+wrapped, because a frame that has not finished loading must not be able to
+break a tab switch.
+
+The box is a padding-bottom ratio box — an iframe cannot size itself to its
+content. `56.25%` is the 16:9 video and the `64px` is the trailer's own control
+bar (54px) plus the 10px above it.
+
+One wrinkle worth knowing: the `@media (min-width: 1101px)` rule pins the
+height to `1100px * 0.5625`, but `.container` is `max-width: 1100px` with
+`0 24px` padding, so the element never exceeds **1052px**. Past a 1101px
+viewport the box is therefore about 27px taller than the video needs, and the
+trailer letterboxes against its own `#050506`. Harmless, and left as specified
+rather than quietly changed.
+
+`t101` covers all of it, including that `trailer.html` **exists** — the iframe's
+`src` is only as good as the file behind it, and the tab was once a merge away
+from shipping without it. It also pins the trailer's own `54px` bar and `10px`
+gap, because if either is restyled the app's `64px` reservation is wrong and
+the video crops or floats.
+
+The contract was driven in Chromium with the real file: 0 requests before the
+tab is opened, 1 on open, `paused` on leaving, playing again on return with the
+clock continuing rather than resetting, and still 1 request.
+
+The trailer pulls its own Google Fonts URL, and it asks for **one face the rest
+of the site does not use** (JetBrains Mono). No new host, so nothing broke — but
+`t95`'s disclosure scan now covers `trailer.html` as well as `index.html`, and
+the privacy policy no longer says "the three typefaces". The legal pages are
+deliberately *not* scanned: they cite other companies' policies by URL, and the
+scan cannot tell an `<a href>` a reader may follow from a `<link>` the browser
+fetches on its own.
+
+A sixth tab does not crowd the strip: `@media (max-width: 720px)` already makes
+`.tabs-nav` a scroller with `flex-shrink: 0` on the buttons, so INFO scrolls
+into reach on a phone exactly as SIMULATOR did, with no page overflow.
+
+---
+
+## 14. The v75 sweep, and how it was done
 
 A website-wide bug hunt. Four methods, because each one had a blind spot the
 others covered — which is the reusable lesson here.
@@ -1227,7 +1287,7 @@ old file.
 
 ---
 
-## 14. The Event Scout's region
+## 15. The Event Scout's region
 
 Reported as "it does not look for events strictly in my region even though I
 set it to my region", and the first thing to know is that **the code as written
@@ -1275,7 +1335,7 @@ parameter so the client-side filter has something to catch.
 
 ---
 
-## 15. The bracket
+## 16. The bracket
 
 One view, two states, and they now share a shape.
 
@@ -1345,7 +1405,7 @@ Jumper tab with the event and team carried over.
 
 ---
 
-## 16. The legal pages
+## 17. The legal pages
 
 `privacy.html`, `terms.html` and the `legal.css` they share are the only pages
 in the deploy besides `index.html`. Three things to know about them.
@@ -1393,7 +1453,7 @@ would render the entire scouting app under the URL of a legal page.
 
 ---
 
-## 17. Feature ideas
+## 18. Feature ideas
 
 `IDEAS.md` holds the list of things worth building next, with what each one
 would cost against what already exists. It also records three things **not** to

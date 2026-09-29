@@ -157,8 +157,17 @@ console.log('\n· the disclosures match the code');
   const disclosed = ['fonts.googleapis.com', 'fonts.gstatic.com', 'youtube.com',
                      'vimeo.com', 'boxcast.tv', 'robotevents.com', 'vercel.com',
                      'events.vex.com', 'vexworlds.tv'];
+  // index.html AND trailer.html, because the trailer is its own document with
+  // its own <link> tags — a host it reaches is a host the policy has to name.
+  //
+  // The legal pages are deliberately NOT scanned. They cite other companies'
+  // policies by URL, and this scan cannot tell an <a href> the reader may
+  // follow from a <link> the browser fetches on its own. Including them just
+  // made the policy fail for quoting Google's privacy policy at Google.
   const seen = new Set();
-  for (const m of idx.matchAll(/https:\/\/([a-z0-9.-]+)/g)) seen.add(m[1]);
+  for (const page of [idx, fs.readFileSync('../trailer.html', 'utf8')]) {
+    for (const m of page.matchAll(/https:\/\/([a-z0-9.-]+)/g)) seen.add(m[1]);
+  }
   const undisclosed = [...seen].filter(h =>
     !disclosed.some(d => h === d || h.endsWith('.' + d) || h.includes(d.split('.')[0])));
   ok('every external host the page contacts is disclosed', undisclosed.length === 0,

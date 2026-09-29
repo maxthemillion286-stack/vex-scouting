@@ -393,6 +393,16 @@
     animation: tabFadeIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
+  /* The trailer sits in a padding-bottom box because an iframe cannot size
+     itself to its content. 56.25% is the 16:9 video; the 64px is the
+     trailer's own control bar (54px) plus the 10px gap above it. Past
+     1100px the percentage would keep growing with the viewport, so the
+     ratio is pinned to the max-width instead. */
+  .info-trailer { position: relative; width: 100%; max-width: 1100px; padding-bottom: calc(56.25% + 64px); height: 0; }
+  @media (min-width: 1101px) { .info-trailer { padding-bottom: calc(1100px * 0.5625 + 64px); } }
+  .info-trailer iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #050506; }
+  .info-blurb { max-width: 68ch; margin-top: 18px; color: var(--text-dim); font-size: 15px; line-height: 1.5; }
+
   @keyframes tabFadeIn {
     from { opacity: 0; transform: translateY(8px); }
     to { opacity: 1; transform: translateY(0); }
@@ -2053,6 +2063,7 @@
     <button class="tab-btn" data-tab="tournament" onclick="switchTab('tournament')">TOURNAMENT</button>
     <button class="tab-btn" data-tab="rewatch" onclick="switchTab('rewatch')">JUMPER</button>
     <button class="tab-btn" data-tab="simulator" onclick="switchTab('simulator')">SIMULATOR</button>
+    <button class="tab-btn" data-tab="info" onclick="switchTab('info')">INFO</button>
     <div class="tab-indicator" id="tabIndicator"></div>
   </div>
 
@@ -2232,6 +2243,17 @@
       <div class="loading" id="escoutLoading"><div class="loading-spinner"></div>
         <div class="loading-text" id="escoutLoadingText">FINDING EVENTS...</div></div>
       <div id="escoutResults"></div>
+  </section>
+  <!-- ═══════════ INFO ═══════════ -->
+  <section class="search-section tab-panel" id="tab-info">
+    <div class="section-label">Info <span class="section-info" title="What VEX Scout does, in 37 seconds.">i</span></div>
+    <!-- An iframe, not inline markup: the trailer's class names (.a, .up,
+         .left, .fade…) are short and generic, and would collide with the
+         app's own stylesheet the moment they shared a document. -->
+    <div class="info-trailer">
+      <iframe id="infoTrailer" title="VEX Scout trailer" data-src="/trailer.html" allow="fullscreen" allowfullscreen loading="lazy"></iframe>
+    </div>
+    <p class="info-blurb">Scout any team or compare several side by side, check global, regional and state skills rankings, follow a tournament live with win predictions, a pick list and bracket odds, jump to any match in the event stream, and save an event for offline.</p>
   </section>
 </div>
 
@@ -2686,7 +2708,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v75';
+const APP_BUILD = 'v76';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -5305,7 +5327,7 @@ window.onload = () => {
   // Restore last viewed tab
   bootStep('restore tab', () => {
     const savedTab = lsGet('vex_active_tab');
-    if (savedTab && ['scout','skills','tournament','rewatch','simulator'].includes(savedTab)) {
+    if (savedTab && ['scout','skills','tournament','rewatch','simulator','info'].includes(savedTab)) {
       switchTab(savedTab);
     }
   });
@@ -6522,7 +6544,7 @@ function scoutSelectedSkills() {
 }
 
 const TAB_LABELS = { scout: 'Scout', skills: 'Skills Rankings', tournament: 'Tournament',
-  rewatch: 'Jumper', simulator: 'Simulator' };
+  rewatch: 'Jumper', simulator: 'Simulator', info: 'Info' };
 
 // The results area each tab fills in. Going back to a tab you found EMPTY has
 // to leave it empty, or the press does nothing visible: Tournament → search →
@@ -9073,6 +9095,7 @@ function switchTab(tabName) {
   // one in your pocket.
   if (tabName !== 'tournament') tournamentLiveStop();
   else if (tournamentIsLive()) tournamentLiveStart();
+  infoTrailerFor(tabName);
   // Hide all panels
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
   // Show the selected panel
@@ -9088,6 +9111,19 @@ function switchTab(tabName) {
   lsSet('vex_active_tab', tabName);
   // Scroll to top of tab content
   window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// The INFO trailer loads the first time the tab opens and pauses whenever you
+// leave it. Coming back resumes it rather than restarting.
+function infoTrailerFor(tabName) {
+  const f = document.getElementById('infoTrailer');
+  if (!f) return;
+  if (tabName === 'info') {
+    if (!f.getAttribute('src')) f.setAttribute('src', f.dataset.src);
+    else try { f.contentWindow.postMessage({ vsTrailer: 'play' }, location.origin); } catch (e) {}
+  } else if (f.getAttribute('src')) {
+    try { f.contentWindow.postMessage({ vsTrailer: 'pause' }, location.origin); } catch (e) {}
+  }
 }
 
 function positionTabIndicator() {
