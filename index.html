@@ -2233,13 +2233,13 @@
           <input type="text" id="simEscoutYou" placeholder="e.g. 66449A" autocomplete="off"></div>
         <div class="input-wrap select-wrap" style="min-width:170px;"><span class="input-label">SEARCH</span>
           <select id="simEscoutScope">
-            <option value="region" selected>My region</option>
+            <option value="region" selected>My VEX region</option>
             <option value="signature">Signature events</option>
             <option value="both">Both</option>
           </select></div>
         <button class="btn btn-primary" onclick="runEventScout()">CALCULATE OPTIMAL EVENT</button>
       </div>
-      <div class="sim-hint">Finds upcoming events you could enter and ranks them <strong>easiest field first</strong>, measured by attendees' season skills standings — plus where you'd project to land at each one.</div>
+      <div class="sim-hint">Finds upcoming events you could enter and ranks them <strong>easiest field first</strong>, measured by attendees' season skills standings — plus where you'd project to land at each one. <strong>My VEX region</strong> means your competition region, like California - Region 4, not the whole state.</div>
       <div class="loading" id="escoutLoading"><div class="loading-spinner"></div>
         <div class="loading-text" id="escoutLoadingText">FINDING EVENTS...</div></div>
       <div id="escoutResults"></div>
@@ -2708,7 +2708,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v77';
+const APP_BUILD = 'v78';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -10829,8 +10829,15 @@ async function runEventScout() {
 
     setStatus('FINDING YOUR TEAM...');
     const me = await sim_resolveTeamCached(you);
-    const myRegion = me.location?.region || null;
-    if (scope !== 'signature' && !myRegion) throw new Error(`Couldn't determine ${you}'s region — try Signature events scope.`);
+    // RobotEvents calls a whole state or province a "region", and that is the
+    // only one the /events endpoint can filter on. The VEX COMPETITION region
+    // — "California - Region 4" — exists only on the legacy skills endpoint,
+    // as a team's eventRegion, and only on teams: no event carries one.
+    //
+    // So the state is the coarse filter the API can do, and the sub-region is
+    // worked out below from the teams who actually registered for each event.
+    const myState = me.location?.region || null;
+    if (scope !== 'signature' && !myState) throw new Error(`Couldn't determine ${you}'s state — try Signature events scope.`);
 
     // ── Gather candidate events (region + signatures fetched in parallel) ──
     setStatus('LOADING SEASON EVENTS...');
@@ -10838,7 +10845,7 @@ async function runEventScout() {
     const seen = new Set();
     const upcoming = e => { const t = Date.parse(e.end || e.start || ''); return !isNaN(t) && t >= Date.now() - 86400000; };
     const [regionEvs, sigEvs] = await Promise.all([
-      (scope === 'region' || scope === 'both') ? apiGet('/events', { 'season[]': [seasonId], 'region': myRegion }).catch(() => []) : Promise.resolve([]),
+      (scope === 'region' || scope === 'both') ? apiGet('/events', { 'season[]': [seasonId], 'region': myState }).catch(() => []) : Promise.resolve([]),
       (scope === 'signature' || scope === 'both') ? apiGet('/events', { 'season[]': [seasonId], 'level[]': ['Signature'] }).catch(() => []) : Promise.resolve([])
     ]);
     // Why the list came out the way it did. Every event that reaches the
@@ -10849,55 +10856,123 @@ async function runEventScout() {
     const funnel = {
       you, scope, season: seasonId,
       team: {
-        id: me.id, number: me.number || you, region: myRegion,
+        id: me.id, number: me.number || you, state: myState, vexRegion: null,
         city: me.location?.city || null, country: me.location?.country || null
       },
-      returned: { region: regionEvs.length, signature: sigEvs.length },
-      dropped: { past: 0, otherRegion: 0 },
-      regionsReturned: {},   // what the API sent, region -> count
-      kept: 0
+      returned: { state: regionEvs.length, signature: sigEvs.length },
+      dropped: { past: 0, otherState: 0, otherVexRegion: 0, unplaceable: 0 },
+      statesReturned: {},    // what the API sent, state -> count
+      placed: {},            // what each event was placed in, sub-region -> count
+      scanned: 0, kept: 0
     };
     vsDebug.escout = funnel;
 
+    // Everything in my STATE first. The sub-region narrowing needs rosters,
+    // and rosters need a shortlist.
+    const inState = [];
     for (const e of regionEvs) {
       const got = e.location?.region || '(none)';
-      funnel.regionsReturned[got] = (funnel.regionsReturned[got] || 0) + 1;
+      funnel.statesReturned[got] = (funnel.statesReturned[got] || 0) + 1;
       if (!upcoming(e)) { funnel.dropped.past++; continue; }
-      if ((e.location?.region || '') !== myRegion) { funnel.dropped.otherRegion++; continue; }
-      if (!seen.has(e.id)) { seen.add(e.id); wanted.push(e); }
+      if ((e.location?.region || '') !== myState) { funnel.dropped.otherState++; continue; }
+      inState.push(e);
+    }
+    inState.sort((a, b) => (a.start || '').localeCompare(b.start || ''));
+
+    // ── Standings carry the VEX sub-region, so they come first now ──
+    setStatus('LOADING SKILLS STANDINGS...');
+    let standings = await getFullSeasonSkills(seasonId, 'High School').catch(() => null);
+    if (!standings?.byId[me.id]) {
+      const ms = await getFullSeasonSkills(seasonId, 'Middle School').catch(() => null);
+      if (ms?.byId[me.id]) standings = ms;
+    }
+    const myRank = standings?.byId[me.id]?.globalRank || null;
+    // RobotEvents sometimes records eventRegion as just the state name with no
+    // number — loadSubregions() has carried that note for a while. That is not
+    // a sub-region, and a note claiming it narrowed to one would be a lie, so
+    // it is treated as "none" and the state wording is used instead.
+    const rawRegion = (standings?.byId[me.id]?.eventRegion || '').trim();
+    const myVexRegion = (rawRegion && rawRegion.toLowerCase() !== (myState || '').toLowerCase())
+      ? rawRegion : null;
+    funnel.team.vexRegion = myVexRegion;
+    funnel.team.eventRegionRaw = rawRegion || null;
+
+    // ── Place each in-state event in a VEX sub-region ──
+    //
+    // No event carries one, so an event is placed by the teams who registered
+    // for it: the sub-region most of its roster belongs to. The rosters are
+    // fetched for the strength model anyway, so the ones we were going to
+    // analyse cost nothing extra — only the shortlist beyond the analysis cap
+    // is new, and that is exactly what makes "my region" mean Region 4 rather
+    // than the whole of California.
+    const SCAN = 60;
+    const scanned = inState.slice(0, SCAN);
+    funnel.scanned = scanned.length;
+    const rosterById = new Map();
+    if (scanned.length) {
+      setStatus(`PLACING ${scanned.length} EVENT${scanned.length === 1 ? '' : 'S'} BY REGION...`);
+      await sim_pool(scanned, async ev => {
+        try { rosterById.set(ev.id, await apiGet(`/events/${ev.id}/teams`)); }
+        catch (e) { rosterById.set(ev.id, []); }
+      }, 8);
+    }
+    const placeOf = ev => {
+      const tally = {};
+      for (const t of (rosterById.get(ev.id) || [])) {
+        const r = (standings?.byId[t.id]?.eventRegion || '').trim();
+        if (r) tally[r] = (tally[r] || 0) + 1;
+      }
+      let best = null, n = 0;
+      for (const k of Object.keys(tally)) if (tally[k] > n) { best = k; n = tally[k]; }
+      // One team in a sub-region is a coincidence — a team travelling, or a
+      // stale registration. Two is a plurality worth placing an event on.
+      return n >= 2 ? best : null;
+    };
+
+    for (const ev of scanned) {
+      const place = placeOf(ev);
+      const key = place || '(could not place)';
+      funnel.placed[key] = (funnel.placed[key] || 0) + 1;
+      // With no sub-region of my own to compare against, the state filter is
+      // the most this can honestly do — and the note below says so.
+      if (myVexRegion) {
+        if (!place) { funnel.dropped.unplaceable++; continue; }
+        if (place !== myVexRegion) { funnel.dropped.otherVexRegion++; continue; }
+      }
+      if (!seen.has(ev.id)) { seen.add(ev.id); ev.__place = place; wanted.push(ev); }
     }
     for (const e of sigEvs) {
       if (!upcoming(e)) continue;
       if (!seen.has(e.id)) { seen.add(e.id); e.__sig = true; wanted.push(e); }
     }
     funnel.kept = wanted.length;
-    if (!wanted.length) throw new Error(scope === 'signature' ? 'No upcoming signature events found this season.' : `No upcoming events found in ${myRegion} this season.`);
+    if (!wanted.length) {
+      throw new Error(scope === 'signature'
+        ? 'No upcoming signature events found this season.'
+        : myVexRegion
+          ? `No upcoming events found in ${myVexRegion} this season. ${inState.length} are coming up elsewhere in ${myState} — switch the search to Signature events, or check back closer to the season.`
+          : `No upcoming events found in ${myState} this season.`);
+    }
     wanted.sort((a, b) => (a.start || '').localeCompare(b.start || ''));
     const CAP = 20;
     const analyze = wanted.slice(0, CAP);
 
-    // ── Standings (bulk) + all rosters, in parallel ──
-    setStatus('LOADING STANDINGS + ROSTERS...');
-    const standingsP = getFullSeasonSkills(seasonId, 'High School').catch(() => null);
-    const rosters = new Array(analyze.length).fill(null);
-    await Promise.all([
-      standingsP,
-      sim_pool(analyze.map((ev, i) => ({ ev, i })), async ({ ev, i }) => {
-        try { rosters[i] = await apiGet(`/events/${ev.id}/teams`); } catch (e) { rosters[i] = []; }
-      }, 8)
-    ]);
-    let standings = await standingsP;
-    if (!standings?.byId[me.id]) {
-      const ms = await getFullSeasonSkills(seasonId, 'Middle School').catch(() => null);
-      if (ms?.byId[me.id]) standings = ms;
+    // Signature events were never in the shortlist, so their rosters are still
+    // missing. Everything else was placed and is already in hand.
+    const missing = analyze.filter(ev => !rosterById.has(ev.id));
+    if (missing.length) {
+      setStatus('LOADING ROSTERS...');
+      await sim_pool(missing, async ev => {
+        try { rosterById.set(ev.id, await apiGet(`/events/${ev.id}/teams`)); }
+        catch (e) { rosterById.set(ev.id, []); }
+      }, 8);
     }
-    const myRank = standings?.byId[me.id]?.globalRank || null;
 
     // ── Pick each field's likely-strongest teams (by skills), dedupe ACROSS events,
     //    then pull real season MATCH data for that shared pool in parallel. Regional
     //    fields overlap heavily, so ~20 events usually collapse to a modest pool. ──
-    const perEvent = analyze.map((ev, i) => {
-      const teams = rosters[i] || [];
+    const perEvent = analyze.map((ev) => {
+      const teams = rosterById.get(ev.id) || [];
       const rated = teams
         .map(t => { const s = standings?.byId[t.id]; return s ? { number: (t.number || '').toUpperCase(), rank: s.globalRank } : null; })
         .filter(Boolean)
@@ -10945,14 +11020,24 @@ async function runEventScout() {
     // The region was an invisible input: it is derived from the team number,
     // never shown, and every complaint about "it is not my region" starts
     // there. Now the list says what it searched, in the heading.
+    // Name the sub-region when there is one, because that is what was
+    // actually searched. Falling back to the state is not a detail to hide —
+    // the note below says which of the two happened and why.
+    const where = myVexRegion || myState;
     const scopeLabel = scope === 'signature' ? 'signature events'
-      : scope === 'both' ? `${esc(myRegion)} + signature events`
-      : esc(myRegion);
+      : scope === 'both' ? `${esc(where)} + signature events`
+      : esc(where);
     let html = `<div class="sim-result">`;
     html += `<div class="sim-block-label">Optimal events for ${esc(you)} · ${scopeLabel}${myTs !== null ? ` (TS ${myTs.toFixed(0)})` : myRank ? ` (world skills #${myRank})` : ''} · easiest field first${wanted.length > CAP ? ` · nearest ${CAP} of ${wanted.length}` : ''}</div>`;
     if (scope !== 'signature') {
-      const n = funnel.returned.region, d = funnel.dropped;
-      html += `<div class="sim-caveat">Searching <strong>${esc(myRegion)}</strong> — the region RobotEvents has registered for ${esc(you)}. RobotEvents calls a whole state or province a region, so this is not the same thing as a VEX competition region. ${n} event${n === 1 ? '' : 's'} came back${d.otherRegion ? `, ${d.otherRegion} of them outside ${esc(myRegion)} and dropped` : ''}${d.past ? `, ${d.past} already over` : ''}.</div>`;
+      const d = funnel.dropped;
+      html += myVexRegion
+        ? `<div class="sim-caveat">Searching <strong>${esc(myVexRegion)}</strong> — the VEX competition region ${esc(you)} competes in, not just the state. RobotEvents does not record a region on an event, so each of the ${funnel.scanned} upcoming ${esc(myState)} event${funnel.scanned === 1 ? '' : 's'} was placed by the sub-region most of its registered teams belong to: <strong>${funnel.kept}</strong> in ${esc(myVexRegion)}${d.otherVexRegion ? `, ${d.otherVexRegion} elsewhere in ${esc(myState)}` : ''}${d.unplaceable ? `, ${d.unplaceable} with too few registered teams to place yet` : ''}.</div>`
+        : `<div class="sim-caveat">Searching <strong>${esc(myState)}</strong>, the whole state. ${
+            funnel.team.eventRegionRaw
+              ? `RobotEvents records ${esc(you)}'s region as just &ldquo;${esc(funnel.team.eventRegionRaw)}&rdquo;, with no region number, so there is no sub-region to narrow to.`
+              : `${esc(you)} is not on this season's skills board yet, and a team's competition region is only recorded there — so this cannot narrow any further until you have a skills run.`
+          }</div>`;
     }
     html += `<div class="pick-list">`;
     rows.forEach((r, i) => {
