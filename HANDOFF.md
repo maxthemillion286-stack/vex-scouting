@@ -1289,51 +1289,60 @@ old file.
 
 ## 15. The Event Scout's region
 
-Reported as "it does not look for events strictly in my region even though I
-set it to my region", and the first thing to know is that **the code as written
-cannot emit an out-of-region event**. `runEventScout()` filters client-side:
+**"My region" means the VEX COMPETITION region** — `California - Region 4` —
+not the state. That was the answer to a complaint the v74 diagnostics were
+built to settle, and the diagnostics settled it.
 
-```js
-if ((e.location?.region || '') !== myRegion) continue;
-```
+The awkward part is where the data lives:
 
-So the complaint is about one of two things the app never showed:
+- RobotEvents records a sub-region on a **team**, as `eventRegion`, and only on
+  the **legacy skills endpoint**. `loadSubregions()` has used it for a while;
+  it is the official sub-region, not a guess.
+- It records **nothing** on an event. `/events` can filter on `region`, and
+  that `region` is a whole state or province.
 
-1. **`region` in RobotEvents is a whole state or province.** `myRegion` comes
-   from the team's registration, so "my region" means "Connecticut", not
-   "Texas Region 4". A competitor means the second. The app never said which
-   it was using — see also t90, where the same word cost a release.
-2. **The API may not honour the `region` query parameter.** `apiGet` stops at
-   ten pages, so a query the server ignored comes back as the first 2500 rows
-   of the whole season, filtered down client-side to whatever happened to be in
-   those pages. That looks like a region search with events missing.
+So the state is the coarse filter the API can do, and the sub-region is worked
+out from the teams who actually registered: **an event is placed in the
+sub-region most of its roster belongs to.** Two teams is the threshold — one is
+a coincidence, a team travelling or a stale registration.
 
-Both were invisible, which is the actual defect. v74 makes them legible:
+This costs almost nothing. The Event Scout already fetches the season skills
+standings and every candidate's roster for the strength model, so placing the
+events it was going to analyse is free; only the shortlist beyond the analysis
+cap (`SCAN = 60`, nearest first) is new work, and that is exactly what makes
+"my region" mean Region 4 rather than all of California.
 
-- The heading names the region it searched.
-- A note says where that region came from and warns what RobotEvents means by
-  the word.
-- `vsDebug.escout` counts the funnel — returned, dropped for being past,
-  dropped for being elsewhere, kept — and records **which regions actually came
-  back**. That last number is the evidence: if `regionsReturned` holds regions
-  other than yours, the server ignored the filter.
-- `vsDebug.truncated` records any query answered in part. A region query the
-  API really applied comes back in a page or two; one it ignored comes back as
-  hundreds. That is how to tell them apart from a bug report.
+**Do not derive a sub-region from an event's name or from a state plus a
+number.** t90 is what happens when that is guessed at.
 
-Read them by opening the app with `?debug=1` and pressing the diagnostics
-button. The report whitelists its keys, so anything added to `vsDebug` must
-also be named in `vsDebugReport()` or it is invisible.
+Two ways there is no sub-region to narrow to, and they are different:
 
-**If the answer turns out to be (1)**, narrowing the search means abandoning
-`location.region` for `location.coordinates` and a radius, because RobotEvents
-has no field for a VEX competition region. Do not fake one from a state plus a
-number — t90 is what happens when that is guessed at.
+1. The team has no skills run this season, so nothing is recorded.
+2. RobotEvents records the `eventRegion` as **just the state name with no
+   number** — a shape it really does use, and one `loadSubregions()` has
+   carried a note about for a long time.
 
-`t98` covers all of this, with a fixture that deliberately ignores the region
-parameter so the client-side filter has something to catch.
+Both fall back to the whole state, and the note **says which one happened**.
+Claiming a sub-region was searched when it was the state would be the same
+invisible-input problem v74 fixed.
 
----
+`vsDebug.escout` carries the whole funnel: the team's state and sub-region,
+what the API returned, what was dropped for being in another state, another
+sub-region, or unplaceable, and `placed` — a tally of which sub-region each
+in-state event landed in. That tally is the evidence; without it "why did that
+event disappear" is unanswerable.
+
+`t98` covers it with a California fixture split across Regions 1, 2 and 4, plus
+both fallbacks.
+
+**A note on the test drivers.** `makeRouter` takes the **full URL** and pulls
+`?path=` out of it. Several Playwright drivers in this session handed it the
+already-extracted path instead, which made `legacy:/seasons/.../skills` parse
+with `legacy:` as a URL *scheme* — so `searchParams.get('path')` was null, the
+fallback used `pathname`, and every skills request silently matched the
+`/seasons` route. The standings came back empty and the Event Scout looked
+broken when it was not. If a driven check shows no skills data, check that
+first.
 
 ## 16. The bracket
 

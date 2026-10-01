@@ -81,7 +81,14 @@ export function makeRouter(opts = {}) {
     }
     if (/^\/teams\/\d+\/events/.test(path)) return { status: 200, body: j([E]) };
     if (/^\/teams\/\d+\/matches/.test(path)) return { status: 200, body: j(matchesFor(1)) };
-    if (/^\/events\/\d+\/teams/.test(path)) return { status: 200, body: j(FIXTURES.teams) };
+    if (/^\/events\/\d+\/teams/.test(path)) {
+      // Per-event rosters when a fixture supplies them. The Event Scout places
+      // an event in a VEX sub-region by who registered for it, so every event
+      // answering with the same roster makes that untestable.
+      const evId = Number(path.match(/^\/events\/(\d+)\/teams/)[1]);
+      const byEv = FIXTURES.rosterOf && FIXTURES.rosterOf[evId];
+      return { status: 200, body: j(byEv || FIXTURES.teams) };
+    }
     if (/^\/events\/\d+\/divisions\/(\d+)\/rankings/.test(path)) {
       const div = +path.match(/divisions\/(\d+)/)[1];
       // Every team is ranked, so a test can see which ranks a filter removes.
@@ -136,7 +143,14 @@ export function makeRouter(opts = {}) {
           team: {
             id: t.id, team: t.number, program: 'V5RC',
             gradeLevel: t.grade || 'High School',
-            eventRegion: FIXTURES.teamRegion || 'Connecticut',
+            // The VEX COMPETITION region, which is what eventRegion really is
+            // ("California - Region 4"). Per team, so a fixture can put an
+            // event's roster mostly in one sub-region and place it there.
+            // Taken verbatim when a fixture supplies it, empty string included
+            // — "this team has no sub-region on record" is a case worth being
+            // able to set up, and || would have swallowed it.
+            eventRegion: FIXTURES.vexRegionOf
+              ? FIXTURES.vexRegionOf(t) : (FIXTURES.teamRegion || 'Connecticut'),
             region: FIXTURES.teamRegion || 'Connecticut', country: 'United States',
             teamName: t.team_name || ''
           },
