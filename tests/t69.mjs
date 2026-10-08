@@ -65,6 +65,7 @@ const pick = (startDay, days) => new Function('startDay', 'days',
   'let rwEventStartDay = startDay;\nlet rwEventDays = days || [];\nlet rwEventGrade = null;\nlet rwTeamDivision = null;\n' +
   grab(/function rwGradeOf\(text\)[\s\S]*?\n\}/) + '\n' +
   grab(/function rwTitleMatchesDivision\(title, division\)[\s\S]*?\n\}/) + '\n' +
+  grab(/let rwEventTzOffMin = [^;]+;/) + '\n' +
   grab(/function rwDayKey\(ms\)[\s\S]*?\n\}/) + '\n' +
   grab(/function rwEventDayOrdinal\(dayKey, fallbackIndex\)[\s\S]*?\n\}/) + '\n' +
   grab(/const RW_WEEKDAYS = \[[^\]]*\];/) + '\n' +

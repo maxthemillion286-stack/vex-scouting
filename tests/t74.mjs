@@ -246,7 +246,9 @@ const daysNote = new Function('list', 'rwEventDays', 'rwDayKey', `
     .map(t => rwDayKey(t)))].sort();
   if (!days.length) return 'none';
   return days.join(',');`);
-const dayKey = new Function('return ' + src.slice(src.indexOf('function rwDayKey'), src.indexOf('function rwDayLabel')))();
+const dayKey = new Function(
+  (src.match(/let rwEventTzOffMin = [^;]+;/) || [''])[0] + '\n' +
+  'return ' + src.slice(src.indexOf('function rwDayKey'), src.indexOf('// The venue\'s offset as an ISO suffix')))();
 ok('the real Worlds capture reduces to its two days',
   daysNote([
     { actualStartTime: '2026-04-23T13:15:00Z' },
