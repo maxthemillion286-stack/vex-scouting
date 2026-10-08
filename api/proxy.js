@@ -18,7 +18,7 @@ export const config = { maxDuration: 60 };
 // Bumped whenever the streams lookup changes. Surfaced in `diag` and in every
 // streams response so the debug page can prove WHICH proxy is actually live —
 // a stale cached reply is otherwise indistinguishable from a fresh failure.
-const PROXY_BUILD = 'v78';
+const PROXY_BUILD = 'v79';
 // A failed stream lookup is expensive (page race + a YouTube search), and the
 // answer rarely changes within a session. Cache the miss too, or every revisit
 // pays the full cost again.
@@ -30,6 +30,27 @@ const cache = new Map(); // path -> { data, status, expires }
 const DEFAULT_TTL_MS = 60 * 1000;       // 1 min for general data
 const LONG_TTL_MS = 5 * 60 * 1000;      // 5 min for stable data
 const SHORT_TTL_MS = 15 * 1000;         // 15s for live match data
+
+// ── An event's dates are dates, not moments ─────────────────────────────────
+//
+// RobotEvents hands start/end over as ISO 8601 carrying the VENUE's offset, so
+// the first ten characters already name the day. Anything that answers "which
+// day" or "how many days" works on that, never on elapsed milliseconds — see
+// the matching helpers in index.html for the whole story.
+function evDayKey(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso == null ? '' : iso));
+  return m ? m[0] : null;
+}
+
+// Calendar days between two ISO dates, both ends counted.
+function evDayCount(startISO, endISO) {
+  const a = evDayKey(startISO);
+  if (!a) return 1;
+  const b = evDayKey(endISO || startISO) || a;
+  const ms = Date.parse(b + 'T12:00:00Z') - Date.parse(a + 'T12:00:00Z');
+  if (!Number.isFinite(ms) || ms < 0) return 1;
+  return Math.max(1, Math.round(ms / 86400e3) + 1);
+}
 
 // Round-robin counter persists across requests in the same Vercel instance
 let tokenCursor = 0;
@@ -1202,8 +1223,14 @@ async function handleRequest(req, res) {
       // widens what is found without loosening what is accepted.
       const expandKey = process.env.YOUTUBE_API_KEY;
       const seedChannel = found.map(f => f.channelId).find(Boolean);
-      const eventDays = Math.max(1, Math.round(
-        (Date.parse(endISO || startISO) - Date.parse(startISO)) / 86400e3) + 1);
+      // Calendar days, both ends counted. Dividing elapsed milliseconds got
+      // this wrong for any event whose first and last listed times are more
+      // than twelve hours apart on the SAME day: 08:00 to 21:00 is 13 hours,
+      // which rounds to a whole day and came back as two. That inflated the
+      // `found.length < eventDays * 2` gate below and let the targeted
+      // per-day searches go looking for a Day 2 that does not exist — 100
+      // units each, against §3's 10,000 a day.
+      const eventDays = evDayCount(startISO, endISO);
       let expanded = 0;
       if (expandKey && seedChannel && startISO && found.length < eventDays * 2) {
         try {

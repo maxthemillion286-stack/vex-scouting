@@ -15,6 +15,7 @@ const env = new Function(
   // disagree about how early a match may start. Pulled from source rather than
   // restated, so a change to it is exercised here too.
   grab(/const RW_PRESTART_GRACE_SEC = [^;]+;/) + '\n' +
+  grab(/let rwEventTzOffMin = [^;]+;/) + '\n' +
   grab(/function rwDayKey\(ms\)[\s\S]*?\n\}/) + '\n' +
   grab(/function rwPickSegment\(segments, t\)[\s\S]*?\n\}/) + '\n' +
   grab(/function rwCalForMatch\(m, calByDay\)[\s\S]*?\n\}/) + '\n' +

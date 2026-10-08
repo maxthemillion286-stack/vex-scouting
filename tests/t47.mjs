@@ -20,6 +20,7 @@ const fn = [
   'let rwTeamDivision = null;',
   grab(/function rwGradeOf\(text\)[\s\S]*?\n\}/),
   grab(/function rwTitleMatchesDivision\(title, division\)[\s\S]*?\n\}/),
+  grab(/let rwEventTzOffMin = [^;]+;/),
   grab(/function rwDayKey\(ms\)[\s\S]*?\n\}/),
   grab(/function rwEventDayOrdinal\(dayKey, fallbackIndex\)[\s\S]*?\n\}/),
   grab(/const RW_WEEKDAYS = \[[^\]]*\];/),

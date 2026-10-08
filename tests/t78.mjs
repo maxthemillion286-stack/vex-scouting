@@ -23,6 +23,7 @@ const mk = (days, grade, division) => new Function('days', 'grade', 'division',
   'let rwEventStartDay = null;\nlet rwEventDays = days || [];\nlet rwEventGrade = grade || null;\nlet rwTeamDivision = division || null;\n' +
   grab(/function rwGradeOf\(text\)[\s\S]*?\n\}/) + '\n' +
   grab(/function rwTitleMatchesDivision\(title, division\)[\s\S]*?\n\}/) + '\n' +
+  grab(/let rwEventTzOffMin = [^;]+;/) + '\n' +
   grab(/function rwDayKey\(ms\)[\s\S]*?\n\}/) + '\n' +
   grab(/function rwEventDayOrdinal\(dayKey, fallbackIndex\)[\s\S]*?\n\}/) + '\n' +
   grab(/const RW_WEEKDAYS = \[[^\]]*\];/) + '\n' +

@@ -1462,7 +1462,149 @@ would render the entire scouting app under the URL of a legal page.
 
 ---
 
-## 18. Feature ideas
+## 18. An event's dates are dates, not moments
+
+Reported as "some of the dates on events are not perfectly accurate", and
+**"some" was the whole clue.**
+
+RobotEvents hands an event's `start` and `end` over as ISO 8601 carrying the
+**venue's** offset:
+
+```
+"2026-10-11T00:00:00-04:00"   →  the 11th of October, in New York
+```
+
+The offset is what fixes which day the string names, so **the first ten
+characters already are the answer.** What the app did instead was pass the whole
+string to `new Date()` and format it with `toLocaleDateString()`, which
+re-projects that instant into the **reader's** timezone. Midnight on the 11th in
+New York is 9pm on the 10th in California, so an away event advertised the day
+before it ran — while every local event looked right, because for those the two
+zones agree.
+
+Measured in node across five zones before the fix:
+
+| reader | what came out wrong |
+| --- | --- |
+| `America/Los_Angeles` | every midnight-start event east of the Rockies, and every event the API records in plain UTC, a day early |
+| `Pacific/Honolulu` | the above, plus midnight-start **California** events |
+| `Asia/Tokyo` | every US event a day late |
+| `America/New_York` | only the plain-UTC ones |
+| `Europe/London` | none — which is why this was easy to miss |
+
+Driven in Chromium with `timezoneId: 'America/Los_Angeles'` against a
+midnight-start Connecticut event: `2/27/2026` before, `2/28/2026` after, in the
+Tournament event list, the Scout filter rows and Events Attended alike.
+
+### The rule
+
+**Anything that answers "which day" or "how many days" works on the calendar
+date. Never on the instant.** Five helpers sit beside `esc`/`teamAttr` in
+`index.html`, and `evDayKey`/`evDayCount` are duplicated in `api/proxy.js`
+because there is no shared module:
+
+| helper | answers |
+| --- | --- |
+| `evDayKey(iso)` | the `YYYY-MM-DD` the string names, or `null` |
+| `evDayDate(iso)` | that day as a local `Date` at **noon** — some zones move at midnight |
+| `evTzOffMin(iso)` | the venue's offset in minutes east of UTC, `null` when the string carries none |
+| `evDate(iso, opts)` | one date, formatted, with no timezone projection |
+| `evDayCount(s, e)` | calendar days, both ends counted |
+| `evTodayKey()` | today in the **reader's** calendar — "is this still ahead of me" is a question about your calendar, not the venue's |
+
+`t102` guards it two ways. The driven half renders a real page in
+`Pacific/Honolulu` and reads the dates back out of the DOM. The static half
+asserts that **every `.toLocaleDateString(` in the script lives in one of four
+functions** — `evDate`, `rwDayLabel`, `md_time` (a match's time really is a
+moment on your own clock) and `vsDateReport` (which reproduces the old
+rendering on purpose). A new one anywhere else is the bug coming back.
+
+### Four other things this was also breaking
+
+**Elapsed milliseconds cannot count days.** `dayCount` in the client and
+`eventDays` in the proxy both did `Math.round((end - start) / 86400e3) + 1`. An
+event running **08:00 to 21:00 on one day** is 13 hours, which rounds to a whole
+day and came back as **two** — so the Jumper went shopping for a Day 2 video
+that does not exist, and the proxy's targeted per-day search is 100 units a go
+against §3's 10,000 a day. Both now call `evDayCount`.
+
+**`rwDayKey` now reduces to the venue's day, not the reader's.** It buckets two
+different things — a match's `scheduled`, which carries the venue's offset, and
+a broadcast's `actualStartTime`, which YouTube reports in UTC. Reducing both to
+the reader's day kept them agreeing *with each other*, so nothing looked wrong,
+but it disagreed with `rwEventStartDay`, which is sliced straight out of the API
+string and is therefore the venue's day. `rwEventDayOrdinal` compares those two,
+so a mismatch asks for the wrong "Day N" video — §3's worst outcome. A
+late-evening match on a US event read from Europe was also enough to split one
+event day into two groups.
+
+`rwEventTzOffMin` holds the offset, set in `rwRecordEventMeta` beside
+`rwEventStartDay` and cleared in `rwResetEventState`. **It falls back to the
+reader's own offset while it is null, which is exactly what the function used to
+do** — so nothing moves for a reader sitting in the venue's timezone, which is
+most readers most of the time. `await metaLoaded` had to move **earlier** in
+`rewatchSelectEvent`, ahead of the first `rwDayKey` call: one event holding both
+kinds of key would be worse than the old behaviour, which was at least
+consistently one or the other. Both requests are still in flight together, so
+nothing is serialised. `t102` asserts that ordering by source position.
+
+`RW_STREAM_LOGIC` went to **`L5`** for this — it changes which day a broadcast
+is matched to, so every cached answer older than it is suspect. `t86`'s pin was
+retargeted.
+
+**The manual-paste path sends the venue's day.** `rwTzSuffix()` renders the
+offset so `&start=` carries `T00:00:00-05:00` rather than `T00:00:00Z`, matching
+what the auto-find path sends straight off `e0.start`. It is now encoded whole,
+because **a `+09:00` appended raw to a query string arrives as a space.**
+
+**"Upcoming" in the Event Scout compares calendar days.** It used to parse the
+end into a moment and allow a flat 24 hours of slack so that an event ending
+this evening did not vanish at noon — but the slack also kept *yesterday's*
+events on a list of events you can still go and register for.
+
+**The Scout tab's fallback date is the first day.** Each event's date is seeded
+from a match's own time until the `/events` lookup fills in the real one, and
+the seed was whichever match the loop reached first. On a two-day event that was
+a coin toss, so a failed lookup dated the event to day 2 about half the time. It
+now keeps the earliest.
+
+### The diagnostic
+
+A wrong date is wrong in one of two ways and **on screen they look identical**:
+the API sent a day we did not expect, or the right instant was rendered in the
+wrong timezone. `?debug=1` now carries a `dates` block — `vsDateNote` records
+every event's dates exactly as the API sent them, from the Jumper, the
+Tournament tab, the Scout tab and the Event Scout, and `vsDateReport` prints the
+raw string, the day sliced out of it, the venue's offset, the reader's zone and
+offset, the day count, what is on screen now, and **what the old code would have
+shown**. When those last two differ the timezone was the whole problem; when
+they agree, the API sent a day we did not expect and the fix is not here.
+
+### The six test drivers this broke, and why
+
+`t47`, `t63`, `t69`, `t73`, `t74` and `t78` all extract `rwDayKey` from source
+with `new Function` and eval it — §7's anti-pattern. Giving the function one new
+free variable broke all six at once, in the *driver*, not the app. Each already
+pulls the declarations its slice needs out of source rather than restating them
+(`grab(/const RW_PRESTART_GRACE_SEC = [^;]+;/)`), so each now also grabs `let
+rwEventTzOffMin = [^;]+;`. `t74` slices between `rwDayKey` and `rwDayLabel` and
+had to be re-anchored, because `rwTzSuffix` now sits between them.
+
+### Deliberately not changed
+
+`md_time` still formats a match's scheduled time as a moment in the reader's
+zone. A match time genuinely is an instant, and at a venue your device is in the
+venue's zone anyway.
+
+**Event dates still show the start day only, not the range.** `evDayCount` and
+the `dates` diagnostic both know the span, so showing `Oct 11 – 12` is a small
+change — but it alters the shape of five meta lines nobody asked to have
+altered, and the measured defect was the off-by-one. If it is wanted, that is a
+look change to make deliberately.
+
+---
+
+## 19. Feature ideas
 
 `IDEAS.md` holds the list of things worth building next, with what each one
 would cost against what already exists. It also records three things **not** to

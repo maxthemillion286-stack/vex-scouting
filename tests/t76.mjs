@@ -118,13 +118,15 @@ ok('boxcast bypasses the SW cache', /path=\(\?:[a-z|]*boxcast/.test(sw));
 
 // ── 5. The day assignment is in the debug report ──
 ok('the report includes it', /dayAssignment: vsDayAssignment\(\)/.test(src));
-const fn = src.slice(src.indexOf('function vsDayAssignment'), src.indexOf('function vsDebugReport'));
+const fn = src.slice(src.indexOf('function vsDayAssignment'), src.indexOf('function vsDateReport'));
 ok('it reports the event day list', /eventDays: rwEventDays/.test(fn),
   'if this holds only the team\'s days, the ordinals are wrong — that is the bug');
 ok('it reports the team days separately', /teamDays: days/.test(fn));
 ok('it reports the start day it fell back to', /eventStartDay: rwEventStartDay/.test(fn));
 ok('it lists the pool with titles and labels', /label: typeof rwTitleDayLabel === 'function'/.test(fn));
-ok('it shows each pool entry\'s local broadcast day', /startedLocalDay:/.test(fn));
+// Renamed from startedLocalDay when rwDayKey moved from the reader's timezone
+// to the venue's: the field means the same thing, in the zone that is correct.
+ok('it shows each pool entry\'s broadcast day', /startedEventDay:/.test(fn));
 ok('per day it shows the ordinal', /ordinal: rwEventDayOrdinal\(d, i\)/.test(fn));
 ok('per day it shows which label was wanted', /wantsDayLabel: rwEventDayOrdinal\(d, i\) \+ 1/.test(fn));
 ok('per day it shows the url actually picked', /picked: rwPickStreamForDay\(rwStreamPool, d, rwEventDayOrdinal\(d, i\)\)/.test(fn));

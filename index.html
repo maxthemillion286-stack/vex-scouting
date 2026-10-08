@@ -2445,6 +2445,79 @@ const teamAttr = (n) => String(n == null ? '' : n).replace(/[^A-Za-z0-9-]/g, '')
 // angle brackets are the only things being taken away.
 const listAttr = (v) => String(v == null ? '' : v).replace(/[^A-Za-z0-9 ,-]/g, '');
 
+// ── An event's dates are dates, not moments ────────────────────────────────
+//
+// RobotEvents gives an event's start and end as ISO 8601 carrying the VENUE's
+// offset: "2026-10-11T00:00:00-04:00" means the 11th of October in New York.
+// The offset is what fixes which day the string names, so the first ten
+// characters already ARE the answer.
+//
+// What the app did instead was hand the whole string to `new Date()` and
+// format it with toLocaleDateString(), which re-projects that instant into the
+// READER's timezone. Midnight on the 11th in New York is 9pm on the 10th in
+// California, so an away event advertised the day before it runs — while every
+// local event looked right, because for those the two zones agree. That is why
+// only SOME dates were off.
+//
+// Measured across five zones: from America/Los_Angeles every midnight-start
+// event east of the Rockies came out a day early, and so did every event the
+// API records in plain UTC; from Asia/Tokyo every US event came out a day
+// late. Nothing below ever touches the instant.
+
+// The day an ISO date string names, as YYYY-MM-DD. Null for anything else.
+function evDayKey(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso == null ? '' : iso));
+  return m ? m[0] : null;
+}
+
+// That day as a local Date, parked at noon so that no DST transition — some
+// zones move at midnight — can nudge it into a neighbouring day.
+function evDayDate(iso) {
+  const k = evDayKey(iso);
+  if (!k) return null;
+  const [y, m, d] = k.split('-').map(Number);
+  const dt = new Date(y, m - 1, d, 12);
+  return isNaN(dt.getTime()) ? null : dt;
+}
+
+// The venue's offset in minutes east of UTC, or null when the string carries
+// none. Same shape as the regex api/proxy.js uses for the same job.
+function evTzOffMin(iso) {
+  const s = String(iso == null ? '' : iso);
+  const m = /([+-])(\d{2}):?(\d{2})$/.exec(s);
+  if (m) return (m[1] === '-' ? -1 : 1) * (+m[2] * 60 + +m[3]);
+  return /Z$/.test(s) ? 0 : null;
+}
+
+// One date, formatted. Deliberately the same shape as the call it replaced —
+// the only thing that changes is which day comes out.
+function evDate(iso, opts) {
+  const d = evDayDate(iso);
+  return d ? d.toLocaleDateString([], opts) : '';
+}
+
+// Today, in the reader's own calendar, as YYYY-MM-DD. For deciding whether an
+// event is still ahead of you — which is a question about your calendar, not
+// the venue's.
+function evTodayKey() {
+  const n = new Date();
+  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
+}
+
+// How many calendar days an event covers, counting both ends.
+//
+// Elapsed milliseconds cannot answer this. An event running 08:00 to 21:00 on
+// a single day is 13 hours, which rounded to a whole day and claimed to be
+// two — which in turn made the Jumper go shopping for a second day's video it
+// was never going to find, and the proxy spend a 100-unit search looking.
+function evDayCount(startIso, endIso) {
+  const a = evDayDate(startIso);
+  if (!a) return 1;
+  const b = evDayDate(endIso || startIso);
+  if (!b || b < a) return 1;
+  return Math.max(1, Math.round((b - a) / 86400000) + 1);
+}
+
 // ── Storage that cannot take the page down with it ─────────────────────────
 //
 // Reading localStorage is not safe. Safari private browsing, "block all
@@ -2708,7 +2781,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v78';
+const APP_BUILD = 'v79';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -2718,8 +2791,24 @@ const vsDebug = {
   swVersion: null,   // cache name reported by the running service worker
   jumper: null,      // last auto-find result
   escout: null,      // Event Scout's funnel: what came back, what was dropped
+  dates: [],         // every event date rendered, beside the string it came from
   truncated: []      // queries that needed more pages than apiGet will fetch
 };
+
+// Record an event's dates exactly as the API sent them.
+//
+// A date is wrong in one of two ways and on screen they look identical: the
+// API sent a day we did not expect, or the right instant was rendered in the
+// wrong timezone. Keeping the raw string next to the day sliced out of it
+// tells the two apart from a single ?debug=1 capture, which a screenshot of
+// the rendered date never could.
+function vsDateNote(where, startIso, endIso) {
+  if (!startIso && !endIso) return;
+  const key = where + '|' + startIso;
+  if (vsDebug.dates.some(d => d.key === key)) return;
+  vsDebug.dates.push({ key, where, start: startIso || null, end: endIso || null });
+  if (vsDebug.dates.length > 24) vsDebug.dates.shift();
+}
 
 function vsNote(kind, detail) {
   vsDebug.errors.push({ at: new Date().toISOString().slice(11, 19), kind, detail: String(detail).slice(0, 300) });
@@ -2774,7 +2863,7 @@ function vsDayAssignment() {
       pool: (rwStreamPool || []).map(s => ({
         title: s.title || null,
         url: s.url,
-        startedLocalDay: s.publishedAt && !isNaN(Date.parse(s.publishedAt))
+        startedEventDay: s.publishedAt && !isNaN(Date.parse(s.publishedAt))
           ? rwDayKey(Date.parse(s.publishedAt)) : null,
         durationSec: s.durationSec ?? null,
         label: typeof rwTitleDayLabel === 'function' ? rwTitleDayLabel(s.title) : null
@@ -2955,6 +3044,39 @@ async function vsHardReset() {
   location.replace(u.toString());
 }
 
+// Every date the page is currently showing, next to the string it came from.
+//
+// A date is wrong in one of two ways and they look identical on screen: the
+// API sent a day we did not expect, or we rendered the right instant in the
+// wrong timezone. Printing the raw string, the day sliced out of it, the
+// venue's offset and the reader's own tells the two apart at a glance.
+function vsDateReport() {
+  const n = new Date();
+  const out = {
+    readerZone: (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch (e) { return 'unknown'; } })(),
+    readerOffsetMin: -n.getTimezoneOffset(),
+    today: evTodayKey(),
+    events: []
+  };
+  for (const d of vsDebug.dates) {
+    const raw = d.start || d.end;
+    out.events.push({
+      where: d.where,
+      raw: String(raw),
+      day: evDayKey(raw),
+      end: d.end || null,
+      venueOffsetMin: evTzOffMin(raw),
+      days: evDayCount(d.start, d.end),
+      shows: evDate(raw),
+      // What the old code would have put on screen. When these two differ,
+      // the timezone was the whole problem; when they agree, the API sent a
+      // day we did not expect and the fix is not here.
+      wasShowing: (() => { const t = Date.parse(raw); return isNaN(t) ? '' : new Date(t).toLocaleDateString(); })()
+    });
+  }
+  return out;
+}
+
 function vsDebugReport() {
   const sw = navigator.serviceWorker && navigator.serviceWorker.controller;
   return {
@@ -2993,6 +3115,11 @@ function vsDebugReport() {
     // list: everything on it already passed the filter, so the numbers that
     // matter are the ones that did NOT. This is that funnel.
     escout: vsDebug.escout,
+    // "Some of the dates are not quite right" is unanswerable from a
+    // screenshot: the date on screen is two unknowns at once — what the API
+    // sent, and which timezone it got rendered in. This prints both, for every
+    // event the page has a date for, so one capture settles it.
+    dates: vsDateReport(),
     // Any query the API answered in part. See the note in apiGet.
     truncated: vsDebug.truncated,
     apiCalls: vsDebug.apiCalls,
@@ -3150,9 +3277,15 @@ const RW_MAX_BROADCAST_SEC = 14 * 3600;
 //
 // Bump this ONLY when the lookup changes in a way that makes old answers
 // wrong. A cosmetic or client-side release should reuse what is cached.
-const RW_STREAM_LOGIC = 'L4';
+const RW_STREAM_LOGIC = 'L5';
 
 let rwEventStartDay = null;
+
+// The venue's UTC offset, in minutes, taken off the event's own start string.
+// Null until an event is loaded, and null for an event whose start carries no
+// offset — in both of those rwDayKey falls back to the reader's own offset,
+// which is what it always used. See rwDayKey for why this exists.
+let rwEventTzOffMin = null;
 
 // Every day the EVENT runs, as rwDayKey strings, oldest first. Built from all
 // divisions' matches, so it is the event's real shape rather than one team's
@@ -3334,14 +3467,17 @@ function rwPickStreamForDay(pool, dayKey, dayIndex) {
   if (!pool || !pool.length) return null;
   const dated = pool.filter(s => s.publishedAt);
   if (dated.length) {
-    // Both sides through rwDayKey, which reads a LOCAL date.
+    // Both sides through rwDayKey, which reads the day in the VENUE's zone.
     //
     // This used to slice the first ten characters off the ISO string, i.e. the
     // UTC date, and compare that to a day key built from getFullYear/getMonth/
     // getDate. Those two disagree whenever a broadcast's UTC date differs from
     // its local one — a 5pm Pacific start is already tomorrow in UTC — so the
     // day that owned a video failed to claim it and the next day claimed it
-    // instead. Off by one, in the direction of showing the previous day.
+    // instead. Off by one, in the direction of showing the previous day. The
+    // zone rwDayKey reduces to is now the venue's rather than the reader's,
+    // which is the same fix one step further: it also agrees with
+    // rwEventStartDay, which is sliced straight out of the API string.
     // Every video that aired on this day, then ranked — not the first one
     // found. Two grades streamed the same day tie here, and array order was
     // deciding between them.
@@ -3487,13 +3623,42 @@ const rwCalKey = eid => 'vex_rewatch_' + eid;
 // so calibrations are stored per day rather than per event.
 function rwDayKey(ms) {
   if (ms === null || ms === undefined) return 'unknown';
-  const d = new Date(ms);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  // In the EVENT's timezone, not the reader's.
+  //
+  // Both sides of every comparison in this file come through here — a match's
+  // scheduled time, which carries the venue's offset, and a broadcast's
+  // actualStartTime, which YouTube reports in UTC. Reducing both to the
+  // reader's calendar day kept them agreeing with each other, so it looked
+  // fine, but it disagreed with rwEventStartDay, which is sliced straight out
+  // of the API string and is therefore the venue's day. For a reader in the
+  // venue's timezone the two are the same date and nothing showed. For anyone
+  // else they could differ by one, and then rwEventDayOrdinal compares a
+  // reader-local day against a venue-local start and answers an ordinal too
+  // high — so the day labelled "Day 1" is asked for as "Day 2", and §3's worst
+  // outcome follows: another day's recording, every match time wrong, nothing
+  // on screen saying so. A late-evening match on a US event read from Europe
+  // was also enough to split one event day into two groups.
+  //
+  // Falls back to the reader's own offset until an event is loaded, which is
+  // exactly what this function used to do, so nothing moves for a reader
+  // sitting in the venue's timezone.
+  const base = new Date(ms);
+  if (isNaN(base.getTime())) return 'unknown';
+  const off = rwEventTzOffMin === null ? -base.getTimezoneOffset() : rwEventTzOffMin;
+  return new Date(base.getTime() + off * 60000).toISOString().slice(0, 10);
+}
+// The venue's offset as an ISO suffix, for handing a day back to the proxy as
+// the venue's day rather than UTC's. 'Z' until an event is loaded.
+function rwTzSuffix() {
+  if (rwEventTzOffMin === null) return 'Z';
+  const a = Math.abs(rwEventTzOffMin);
+  return (rwEventTzOffMin < 0 ? '-' : '+') +
+    String(Math.floor(a / 60)).padStart(2, '0') + ':' + String(a % 60).padStart(2, '0');
 }
 function rwDayLabel(dayKey) {
   if (dayKey === 'unknown') return 'Undated matches';
-  const [y, m, d] = dayKey.split('-').map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
+  const d = evDayDate(dayKey);
+  return d ? d.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' }) : dayKey;
 }
 
 // Calibrations are an object keyed by day: { '2025-10-18': {videoId, ...}, ... }
@@ -3751,6 +3916,7 @@ function rwResetEventState() {
   rwAutoSyncFail = {};
   rwEventDays = [];
   rwEventStartDay = null;
+  rwEventTzOffMin = null;
   rwEventGrade = null;
   rwTeamDivision = null;
   vsDebug.jumper = null;
@@ -3763,7 +3929,11 @@ function rwResetEventState() {
 async function rwRecordEventMeta(eventId) {
   try {
     const e0 = (await rwEventDetail(eventId))[0] || {};
-    rwEventStartDay = (typeof e0.start === 'string' && e0.start.slice(0, 10)) || null;
+    rwEventStartDay = evDayKey(e0.start);
+    vsDateNote('jumper', e0.start, e0.end);
+    // Before anything calls rwDayKey for this event, so every day key in the
+    // Jumper is the venue's day and agrees with rwEventStartDay above.
+    rwEventTzOffMin = evTzOffMin(e0.start);
     rwEventGrade = rwGradeOf(e0.name || '');
     return e0;
   } catch (e) { return {}; }
@@ -3808,11 +3978,13 @@ async function rwAutoFindStream(eventId) {
     }
 
     // How many days does this event actually cover?
-    const dayCount = (() => {
-      const s = Date.parse(e0.start), en = Date.parse(e0.end);
-      if (isNaN(s) || isNaN(en)) return 1;
-      return Math.max(1, Math.round((en - s) / 86400000) + 1);
-    })();
+    //
+    // Counted in calendar days. This used to divide elapsed milliseconds, and
+    // an event running 08:00 to 21:00 on ONE day is 13 hours — which rounds up
+    // to a whole day and came back as two. That made needPool below true for a
+    // single-day event whose description already named its broadcast, so the
+    // Jumper went to the proxy for a second day's video that does not exist.
+    const dayCount = evDayCount(e0.start, e0.end);
 
     // A single link from the event description CANNOT cover a multi-day event.
     // Organisers publish one broadcast per day and put one of them — usually
@@ -3969,6 +4141,14 @@ async function rewatchSelectEvent(eventId) {
         }
       } catch (e) {}
     }
+    // Both requests were in flight together; this is the first point at which
+    // the event's own record is needed, so nothing is serialised by waiting
+    // here. It has to be BEFORE the first rwDayKey call below, because that is
+    // where the venue's offset starts deciding which calendar day a match
+    // belongs to — mixing a reader-local day key with a venue-local one inside
+    // a single event would be worse than the old behaviour, which was at least
+    // consistently one or the other.
+    await metaLoaded;
     const teamId = ctx.team ? String(ctx.team.id) : null;
     const matches = [];
     for (const m of raw) {
@@ -4064,10 +4244,10 @@ async function rewatchSelectEvent(eventId) {
     // Auto-find runs alongside the render instead of before it. The matches
     // are already loaded; show them now and let the stream drop in when it
     // arrives, rather than holding a blank panel for several seconds.
-    // Start day and grade must be known before any day ordinal is computed —
-    // including on the manual-paste path, which runs whether or not auto-find
-    // does. (The per-event globals were already cleared at the top.)
-    await metaLoaded;
+    // Start day, grade and the venue's offset were awaited above, before the
+    // first day key was computed — they are needed earlier than any day
+    // ordinal, and on the manual-paste path too, which runs whether or not
+    // auto-find does. (The per-event globals were cleared at the top.)
     // If every day already has an anchor — published or local — there is
     // nothing to find, and searching would spend quota to answer a question
     // nobody asked. anchors.json has to be loaded before this can be known;
@@ -4603,8 +4783,12 @@ async function rwTryAutoSync(day, linkText, { quiet = false, knownStart = null, 
     if (chan) {
       try {
         const q = `${BASE}?path=${encodeURIComponent('boxcast:' + chan)}` +
-          (rwEventDays.length ? `&start=${encodeURIComponent(rwEventDays[0])}T00:00:00Z` : '') +
-          (rwEventDays.length ? `&end=${encodeURIComponent(rwEventDays[rwEventDays.length - 1])}T23:59:59Z` : '') +
+          // The event's own days, in the venue's timezone — the same thing the
+          // auto-find path sends straight off e0.start, so the proxy slices
+          // identical day keys out of either. Encoded whole, because a "+09:00"
+          // offset appended raw would arrive as a space.
+          (rwEventDays.length ? `&start=${encodeURIComponent(rwEventDays[0] + 'T00:00:00' + rwTzSuffix())}` : '') +
+          (rwEventDays.length ? `&end=${encodeURIComponent(rwEventDays[rwEventDays.length - 1] + 'T23:59:59' + rwTzSuffix())}` : '') +
           `&b=${encodeURIComponent(RW_STREAM_LOGIC)}` +
           ((rwDebugOn() || rwForceRefresh) ? `&_t=${Date.now()}` : '');
         const r = await fetch(q);
@@ -4945,7 +5129,6 @@ function rewatchRender() {
   const ctx = window._rwCtx;
   const out = document.getElementById('rwResults');
   if (!ctx) { out.innerHTML = ''; return; }
-  const fmtDate = s => { const t = Date.parse(s || ''); return isNaN(t) ? '' : new Date(t).toLocaleDateString(); };
   let html = '';
 
   // Event chooser
@@ -4954,7 +5137,7 @@ function rewatchRender() {
     <div class="rw-events">
       ${ctx.events.map(e => `<button class="rw-event${String(e.id) === String(ctx.eventId) ? ' active' : ''}" onclick="rewatchSelectEvent('${teamAttr(e.id)}')">
         <span class="rw-event-name">${esc(e.name || 'Event')}</span>
-        <span class="rw-event-meta">${esc([e.sku, fmtDate(e.start), e.location?.region].filter(Boolean).join('  ·  '))}</span>
+        <span class="rw-event-meta">${esc([e.sku, evDate(e.start), e.location?.region].filter(Boolean).join('  ·  '))}</span>
       </button>`).join('')}
     </div>
   </div>`;
@@ -6691,7 +6874,7 @@ async function findTournament() {
           ${events.slice(0, 50).map(ev => `
             <div class="tournament-item" onclick="loadTournamentTeams(${teamAttr(ev.id)}, ${esc(JSON.stringify(ev.name || 'Unnamed'))}, ${teamAttr(team.id)}, '${teamAttr(input.toUpperCase())}', '${reSkuAttr(ev.sku)}')">
               <div class="tournament-name">${esc(ev.name || 'Unnamed')}</div>
-              <div class="tournament-meta">${esc(ev.sku || '')} · ${ev.start ? new Date(ev.start).toLocaleDateString() : ''} · ${esc(ev.location?.region || '')}</div>
+              <div class="tournament-meta">${esc(ev.sku || '')} · ${evDate(ev.start)} · ${esc(ev.location?.region || '')}</div>
             </div>
           `).join('')}
         </div>`;
@@ -6722,7 +6905,7 @@ async function findTournament() {
           ${events.slice(0, 30).map(ev => `
             <div class="tournament-item" onclick="loadTournamentTeams(${teamAttr(ev.id)}, ${esc(JSON.stringify(ev.name || 'Unnamed'))}, null, '', '${reSkuAttr(ev.sku)}')">
               <div class="tournament-name">${esc(ev.name || 'Unnamed')}</div>
-              <div class="tournament-meta">${esc(ev.sku || '')} · ${ev.start ? new Date(ev.start).toLocaleDateString() : ''} · ${esc(ev.location?.region || '')}</div>
+              <div class="tournament-meta">${esc(ev.sku || '')} · ${evDate(ev.start)} · ${esc(ev.location?.region || '')}</div>
             </div>
           `).join('')}
         </div>`;
@@ -8557,6 +8740,7 @@ function tournamentIsLive() {
 // a date rather than a moment, so the day it names counts in full.
 function tournamentNoteWindow(ev) {
   if (!ev) return;
+  vsDateNote('tournament', ev.start, ev.end);
   const startMs = Date.parse(ev.start || '');
   const endMs = Date.parse(ev.end || ev.start || '');
   tournamentEventWindow = {
@@ -9394,7 +9578,18 @@ async function gatherTeamData(teamNumber, seasonId, gradeLevel = 'High School') 
   for (const m of matches) {
     const ev = m.event;
     if (!ev || ev.id == null) continue;
-    if (!eventMap.has(ev.id)) eventMap.set(ev.id, { id: ev.id, name: ev.name || ev.code || `Event ${ev.id}`, start: m.scheduled || m.started || '' });
+    // The real start comes from the /events lookup below. Until then a match's
+    // own time stands in — and it has to be the EARLIEST match, not whichever
+    // one the list happened to reach first. On a two-day event that was a coin
+    // toss between the two days, so whenever the lookup failed the event was
+    // dated to day 2.
+    const seed = m.scheduled || m.started || '';
+    const cur = eventMap.get(ev.id);
+    if (!cur) {
+      eventMap.set(ev.id, { id: ev.id, name: ev.name || ev.code || `Event ${ev.id}`, start: seed });
+    } else if (seed && (!cur.start || seed < cur.start)) {
+      cur.start = seed;
+    }
   }
   let eventsList = [...eventMap.values()].sort((a, b) => String(b.start).localeCompare(String(a.start)));
   // Match payloads only carry an event's id/name — pull the real records so the
@@ -9406,6 +9601,7 @@ async function gatherTeamData(teamNumber, seasonId, gradeLevel = 'High School') 
       for (const e of full) byId[e.id] = e;
       eventsList = eventsList.map(e => {
         const f = byId[e.id];
+        if (f) vsDateNote('scout:' + (f.sku || f.id), f.start, f.end);
         return f ? {
           id: e.id,
           name: f.name || e.name,
@@ -9822,7 +10018,6 @@ function renderEventPicker(d, eventFilter) {
   if (!d.eventsList.length) return '';
   const sel = eventFilter !== 'all' ? d.eventsList.find(e => String(e.id) === String(eventFilter)) : null;
   const open = !!window._detailPickerOpen;
-  const fmtDate = s => { const t = Date.parse(s || ''); return isNaN(t) ? '' : new Date(t).toLocaleDateString(); };
   const short = n => (n || 'Event').length > 42 ? (n || 'Event').slice(0, 42) + '…' : (n || 'Event');
   return `
     <div class="ev-filter${open ? ' open' : ''}">
@@ -9840,7 +10035,7 @@ function renderEventPicker(d, eventFilter) {
           ${d.eventsList.map(e => `
             <button class="ev-row${String(eventFilter) === String(e.id) ? ' active' : ''}" onclick="detailFilterEvent('${teamAttr(e.id)}')">
               <span class="ev-row-name">${esc(e.name || 'Event')}</span>
-              <span class="ev-row-meta">${esc([e.sku, fmtDate(e.start), e.region].filter(Boolean).join('  ·  '))}</span>
+              <span class="ev-row-meta">${esc([e.sku, evDate(e.start), e.region].filter(Boolean).join('  ·  '))}</span>
             </button>`).join('')}
         </div>
       </div>
@@ -9851,7 +10046,6 @@ function renderEventPicker(d, eventFilter) {
 // ── Events attended: a browsable list that hands off to the Tournament tab ──
 function renderEventsAttended(d) {
   if (!d.eventsList.length) return '';
-  const fmtDate = s => { const t = Date.parse(s || ''); return isNaN(t) ? '' : new Date(t).toLocaleDateString(); };
   return `<div class="detail-block">
     <div class="detail-block-label">Events Attended (${d.eventsList.length})</div>
     <div class="ev-attend-hint">Click an event to open it in Tournament, focused on ${esc(d.team.number)}.</div>
@@ -9860,7 +10054,7 @@ function renderEventsAttended(d) {
         <button class="ev-attend" onclick="openEventInTournament('${teamAttr(e.id)}', ${esc(JSON.stringify(e.name || 'Event'))})">
           <span class="ev-attend-main">
             <span class="ev-attend-name">${esc(e.name || 'Event')}</span>
-            <span class="ev-attend-meta">${esc([e.sku, fmtDate(e.start), e.region].filter(Boolean).join('  ·  '))}</span>
+            <span class="ev-attend-meta">${esc([e.sku, evDate(e.start), e.region].filter(Boolean).join('  ·  '))}</span>
           </span>
           <span class="ev-attend-go">→</span>
         </button>`).join('')}
@@ -10507,7 +10701,7 @@ function sim_renderEventPicker(containerId, choices, skuInputId, runFnName) {
   if (!el) return;
   el.innerHTML = `<div class="sim-event-picker"><div class="sim-event-pick-label">MULTIPLE EVENTS MATCH — PICK ONE</div>` +
     choices.map(ev => {
-      const meta = [ev.sku || '', ev.start ? new Date(ev.start).toLocaleDateString() : '', ev.location?.region || ''].filter(Boolean).join(' · ');
+      const meta = [ev.sku || '', evDate(ev.start), ev.location?.region || ''].filter(Boolean).join(' · ');
       return `<div class="sim-event-item" onclick="document.getElementById('${skuInputId}').value='${reSkuAttr(ev.sku)}'; document.getElementById('${containerId}').innerHTML=''; ${runFnName}();">
         <div class="ei-name">${esc(ev.name || 'Unnamed')}</div>
         <div class="ei-meta">${meta}</div>
@@ -10843,7 +11037,13 @@ async function runEventScout() {
     setStatus('LOADING SEASON EVENTS...');
     const wanted = [];
     const seen = new Set();
-    const upcoming = e => { const t = Date.parse(e.end || e.start || ''); return !isNaN(t) && t >= Date.now() - 86400000; };
+    // Still ahead of you if its LAST day has not passed, compared as calendar
+    // days. This used to parse the end into a moment and allow 24 hours of
+    // slack to stop an event that ends this evening disappearing at noon — but
+    // the slack also kept yesterday's events on a list of events you could
+    // still go and register for.
+    const todayKey = evTodayKey();
+    const upcoming = e => { const k = evDayKey(e.end || e.start); return !!k && k >= todayKey; };
     const [regionEvs, sigEvs] = await Promise.all([
       (scope === 'region' || scope === 'both') ? apiGet('/events', { 'season[]': [seasonId], 'region': myState }).catch(() => []) : Promise.resolve([]),
       (scope === 'signature' || scope === 'both') ? apiGet('/events', { 'season[]': [seasonId], 'level[]': ['Signature'] }).catch(() => []) : Promise.resolve([])
@@ -10987,6 +11187,7 @@ async function runEventScout() {
 
     // ── Score every event from real match data (skills as tiebreak/fallback) ──
     const rows = perEvent.map(p => {
+      vsDateNote('escout:' + (p.ev.sku || p.ev.id), p.ev.start, p.ev.end);
       const topTs = p.topNums.map(tsOf).filter(v => v !== null).sort((a, b) => b - a).slice(0, 8);
       const eliteTs = topTs.length >= 3 ? topTs.reduce((s, v) => s + v, 0) / topTs.length : null;
       const median = p.rated.length ? p.rated[Math.floor(p.rated.length / 2)].rank : null;
@@ -10994,7 +11195,7 @@ async function runEventScout() {
         : (myRank && p.rated.length) ? 1 + p.rated.filter(r => r.rank < myRank).length : null;
       return {
         name: p.ev.name || p.ev.sku, sig: !!p.ev.__sig,
-        start: p.ev.start ? new Date(p.ev.start).toLocaleDateString([], { month: 'short', day: 'numeric' }) : '',
+        start: evDate(p.ev.start, { month: 'short', day: 'numeric' }),
         loc: [p.ev.location?.city, p.ev.location?.region].filter(Boolean).join(', '),
         teams: p.teams.length, scanned: topTs.length, eliteTs, median, myPos
       };
