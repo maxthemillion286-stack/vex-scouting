@@ -135,13 +135,28 @@ console.log('\n· how many days the event covers');
   for (const [s, e, want, why] of cases) {
     ok(`the proxy also says ${want} for: ${why}`, pEvDayCount(s, e) === want, String(pEvDayCount(s, e)));
   }
-  // Dividing an elapsed interval by a DAY is the bug. Dividing one by 1000 for
-  // a duration in seconds is not, and an earlier draft of this flagged it.
-  const byDay = /\(\s*Date\.parse\([^;]{0,120}?\)\s*-\s*Date\.parse\([^;]{0,120}?\)\s*\)\s*\/\s*864000?00?e?3?/;
+  // Dividing an elapsed interval by a DAY is the bug. Two things are not:
+  // dividing one by 1000 for a duration in seconds, and subtracting two days
+  // that have BOTH been pinned to the same time of day — that pinning is
+  // exactly how evDayCount and tWhen avoid the bug, so flagging it would be
+  // flagging the fix. An earlier draft of this guard did both.
+  // A day, however it is spelled. The first draft of this wrote the literal
+  // by hand and silently never matched `86400e3` — which is the spelling the
+  // proxy uses, so the proxy half of this guard was passing on nothing.
+  const DAY_MS = '(?:86400000|86400e3|864e5|24 ?\\* ?60 ?\\* ?60 ?\\* ?1000)';
+  const DIV_BY_DAY = new RegExp(
+    '\\(\\s*Date\\.parse\\([^;]{0,160}?\\)\\s*-\\s*Date\\.parse\\([^;]{0,160}?\\)\\s*\\)\\s*/\\s*' + DAY_MS, 'g');
+  const offenders = t => [...t.matchAll(DIV_BY_DAY)]
+    .map(m => m[0])
+    .filter(x => (x.match(/T12:00:00Z/g) || []).length < 2);
   ok('the client no longer divides elapsed milliseconds to count days',
-    !byDay.test(code), (code.match(byDay) || [''])[0]);
-  ok('nor does the proxy', !byDay.test(proxy.replace(/^[ \t]*\/\/.*$/gm, '')),
-    (proxy.match(byDay) || [''])[0]);
+    offenders(code).length === 0, offenders(code).join(' | '));
+  ok('nor does the proxy', offenders(proxy.replace(/^[ \t]*\/\/.*$/gm, '')).length === 0,
+    offenders(proxy.replace(/^[ \t]*\/\/.*$/gm, '')).join(' | '));
+  // And the exemption is not a hole: the real shape is still caught.
+  ok('...but the old shape would still be caught',
+    offenders('x = Math.max(1, Math.round((Date.parse(end) - Date.parse(start)) / 86400e3) + 1);').length === 1,
+    'the guard has been loosened into uselessness');
   stop();
 }
 

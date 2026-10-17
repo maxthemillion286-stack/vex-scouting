@@ -1664,6 +1664,15 @@
   @keyframes tLivePulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
   @media (prefers-reduced-motion: reduce) { .t-live-dot { animation: none; } }
   .t-empty { text-align: center; padding: 40px; font-family: var(--body); font-size: 13px; color: var(--text-muted); line-height: 1.5;}
+  /* Before the event: a section heading and the one-line strength read. The
+     list below them is .pick-list, unchanged — a field ranked by True Skill is
+     the same object the Event Scout and the pick list already draw. */
+  .t-pre-label { font-family: var(--display); font-size: 11px; font-weight: 600; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--text-muted); margin: 14px 0 2px; }
+  .t-pre-strength { font-family: var(--body); font-size: 13px; color: var(--text-muted);
+    line-height: 1.5; margin: 2px 0 4px; }
+  .t-pre-strength strong { font-family: var(--mono); color: var(--accent-bright); }
+  .t-pre-row { cursor: pointer; }
   .rw-eventlink { display: flex; margin: -4px 0 12px; }
 
   /* ── Event-wide match list ── */
@@ -2781,7 +2790,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v79';
+const APP_BUILD = 'v80';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -7026,6 +7035,15 @@ async function loadTournamentTeams(eventId, eventName, focusTeamId, focusTeamNum
 //   · projected qual record and schedule favorability
 // ═══════════════════════════════════════════════════════════════
 async function renderEventTeamMatchesView() {
+  // Say which view this is, like every sibling render does.
+  //
+  // It never did, so arriving at an event through your own team — the common
+  // path, and the one loadTournamentTeams takes — left tournamentView on
+  // 'teams' while this view was on screen. The live tick dispatches on that
+  // global, so every 30 seconds at a running event it rebuilt the whole TEAM
+  // LIST over the top of the match view you were reading. tournamentFocusOn,
+  // reached by clicking a team number in the match list, had the same hole.
+  tournamentView = 'team';
   const loadingText = document.getElementById('tournamentLoadingText');
   const setStatus = t => { if (loadingText) loadingText.textContent = t; };
   setStatus(`LOADING ${tournamentFocusTeamNumber}'S MATCHES...`);
@@ -7195,8 +7213,34 @@ async function renderEventTeamMatchesView() {
     ${tournamentNav('team')}`;
 
   if (!myMatches.length) {
-    html += `<div style="text-align:center;padding:40px;font-family:var(--mono);color:var(--text-muted);">No matches found for ${esc(tournamentFocusTeamNumber)} at this event.</div>`;
-    resultsEl.innerHTML = html;
+    // Two different nothings, and they must not be told the same way.
+    //
+    // `allMatches` is every match at the event when the ratings were built, so
+    // a non-empty one with an empty `myMatches` means the schedule IS up and
+    // this team simply is not on it — withdrawn, a late scratch, or registered
+    // in a division that has not been posted. Telling THAT person "the
+    // organiser has not posted the schedule yet" would be a plain lie.
+    const eventHasMatches = Array.isArray(allMatches) && allMatches.length > 0;
+    if (eventHasMatches) {
+      html += `<div class="t-empty"><strong>${esc(tournamentFocusTeamNumber)}</strong> does not appear in this event's schedule, though ${allMatches.length} match${allMatches.length === 1 ? '' : 'es'} ${allMatches.length === 1 ? 'is' : 'are'} posted for it. A team that withdrew, or one whose division has not been published, looks like this.</div>
+        <div class="t-empty" style="padding-top:0;"><button class="btn btn-secondary" onclick="tournamentGo('matches')">SEE EVERY MATCH AT THIS EVENT</button></div>`;
+      resultsEl.innerHTML = html;
+      return;
+    }
+    // Otherwise the event has not been played yet — which is exactly when you
+    // are looking at it. A grey line saying "no matches" was a dead end for
+    // the whole week before an event; show what the API does know instead.
+    resultsEl.innerHTML = html + `<div class="t-empty">Reading the field…</div>`;
+    let block;
+    try { block = await tPreviewRender(setStatus); }
+    catch (e) {
+      vsNote('preview', e && e.message || e);
+      block = `<div class="t-empty">No matches for ${esc(tournamentFocusTeamNumber)} at this event yet, and the registered field could not be read: ${esc(e && e.message || e)}</div>`;
+    }
+    // The view can have moved on while the season data was coming back.
+    if (tournamentView === 'team' && String(tournamentEventId) === String(eventId)) {
+      resultsEl.innerHTML = html + block;
+    }
     return;
   }
 
@@ -8175,6 +8219,246 @@ async function loadAndRenderTeamList() {
 
 
 // ═══════════════════════════════════════════════════════════════
+// BEFORE THE EVENT — what to show when there are no matches yet
+//
+// Reported as: "when the event date nears and i check it just says no matches
+// played and i can't see any tournament info."
+//
+// That is the single worst moment for this tab to be empty. The schedule is
+// set by the organiser and usually does not appear until the day before or the
+// morning of, so for the whole week you are actually deciding things — who to
+// scout, what you are walking into — every view was a dead end. Measured
+// against a realistic pre-event fixture: six of the seven views rendered one
+// grey line, and the seventh showed a team list with every column a dash.
+//
+// Everything below is built from what RobotEvents DOES have before an event:
+// the roster, the season skills board, and those teams' matches at their other
+// events. That is the same model the Event Scout uses to rank a field, pointed
+// at one event instead of twenty.
+// ═══════════════════════════════════════════════════════════════
+
+// Where the event sits relative to today, in the venue's calendar (§18).
+function tWhen(ev) {
+  const sk = evDayKey(ev && ev.start);
+  if (!sk) return null;
+  const ek = evDayKey((ev && ev.end) || (ev && ev.start)) || sk;
+  const today = evTodayKey();
+  const dayNo = k => Math.round(
+    (Date.parse(k + 'T12:00:00Z') - Date.parse(today + 'T12:00:00Z')) / 86400000);
+  const from = dayNo(sk), to = dayNo(ek);
+  const span = evDayCount(ev.start, ev.end);
+  const dates = span > 1
+    ? `${evDate(ev.start, { weekday: 'short', month: 'short', day: 'numeric' })} – ${evDate(ev.end, { weekday: 'short', month: 'short', day: 'numeric' })}`
+    : evDate(ev.start, { weekday: 'long', month: 'long', day: 'numeric' });
+  if (to < 0) {
+    const n = -to;
+    return { state: 'past', days: n, dates, span,
+      label: n === 1 ? 'Ended yesterday' : `Ended ${n} days ago` };
+  }
+  if (from <= 0) {
+    return { state: 'now', days: 0, dates, span,
+      label: span > 1 ? `Running now — day ${from * -1 + 1} of ${span}` : 'Running today' };
+  }
+  return { state: 'ahead', days: from, dates, span,
+    label: from === 1 ? 'Starts tomorrow' : `Starts in ${from} days` };
+}
+
+// Who is registered, and how strong they are — from the season, not from this
+// event, because this event has not happened.
+//
+// Capped at TOP teams by world skills rank plus you. A field's character is
+// set by its top end, and an unbounded version of this would pull a season of
+// matches for all 800 teams at Worlds.
+const T_PREVIEW_SCAN = 16;
+async function tPreviewField(event, setStatus) {
+  const out = { teams: 0, hs: 0, ms: 0, ungraded: 0, rated: [], you: null, scanned: 0, roster: [] };
+  let roster = [];
+  try { roster = await tEventTeams(event.id); } catch (e) { return out; }
+  out.roster = roster;
+  out.teams = roster.length;
+  for (const t of roster) {
+    const g = gradeOfTeam(t);
+    if (g === 'middle school') out.ms++;
+    else if (g) out.hs++;
+    else out.ungraded++;
+  }
+  if (!roster.length) return out;
+
+  // The world skills board, per grade, so a Middle School team is not ranked
+  // against High School. Both are cached by the Teams view.
+  const seasonId = document.getElementById('tournamentSeasonSelect')?.value;
+  let hsBook = null, msBook = null;
+  if (seasonId) {
+    if (setStatus) setStatus('LOADING WORLD SKILLS RANKINGS...');
+    [hsBook, msBook] = await Promise.all([
+      getFullSeasonSkills(seasonId, 'High School').catch(() => null),
+      out.ms ? getFullSeasonSkills(seasonId, 'Middle School').catch(() => null) : Promise.resolve(null)
+    ]);
+  }
+  const worldOf = t => {
+    const book = (gradeOfTeam(t) === 'middle school' && msBook) ? msBook : hsBook;
+    return book?.byId[t.id]?.globalRank ?? null;
+  };
+
+  // Who to scan: the best of the board, then anyone unranked to fill the quota,
+  // and your own team whatever its rank — the whole point is where YOU land.
+  const you = (tournamentFocusTeamNumber || '').toUpperCase();
+  const withWorld = roster.map(t => ({ t, world: worldOf(t) }));
+  const ranked = withWorld.filter(r => r.world !== null).sort((a, b) => a.world - b.world);
+  const unranked = withWorld.filter(r => r.world === null);
+  const picked = ranked.slice(0, T_PREVIEW_SCAN);
+  for (const r of unranked) {
+    if (picked.length >= T_PREVIEW_SCAN) break;
+    picked.push(r);
+  }
+  const mine = withWorld.find(r => (r.t.number || '').toUpperCase() === you);
+  if (mine && !picked.includes(mine)) picked.push(mine);
+  out.scanned = picked.length;
+
+  if (setStatus) setStatus(`READING ${picked.length} TEAMS' SEASON FORM...`);
+  let R = null;
+  try { R = await sim_buildRatingsFromIds(picked.map(r => r.t.id), seasonId, setStatus); }
+  catch (e) { R = null; }
+
+  out.rated = picked.map(r => ({
+    id: r.t.id,
+    number: (r.t.number || '').toUpperCase(),
+    name: r.t.team_name || '',
+    grade: gradeOfTeam(r.t) || null,
+    world: r.world,
+    ts: R ? (R.ratings.get(String(r.t.id)) ?? null) : null
+  })).sort((a, b) => {
+    if (a.ts !== null && b.ts !== null) return b.ts - a.ts;
+    if (a.ts !== null) return -1;
+    if (b.ts !== null) return 1;
+    return (a.world ?? 1e9) - (b.world ?? 1e9);
+  });
+
+  if (you) {
+    const i = out.rated.findIndex(r => r.number === you);
+    if (i >= 0) out.rated[i].self = true;
+    const me = i >= 0 ? out.rated[i] : null;
+    if (me) out.you = { number: you, ts: me.ts, world: me.world, pos: i + 1, of: out.rated.length };
+  }
+  return out;
+}
+
+// The panel. Everything it says is something the API actually knows today.
+function tPreviewBlock(event, when, field) {
+  const loc = [event.location?.city, event.location?.region].filter(Boolean).join(', ');
+  const venue = event.location?.venue || '';
+
+  // Named for where the event actually is. "Before the event" over a heading
+  // that reads "Ended 4 days ago" is the panel contradicting itself.
+  const heading = !when ? 'This event'
+    : when.state === 'past' ? 'After the event'
+    : when.state === 'now' ? 'The event is on'
+    : 'Before the event';
+  let html = `<div class="t-pre-label">${heading}</div>`;
+
+  // ── Headline: when, where, how big ──
+  const cards = [];
+  if (when) {
+    cards.push(`<div class="md-stat${when.state === 'now' ? ' is-champion' : ''}">
+      <div class="md-stat-label">${when.state === 'past' ? 'Ran' : 'Starts'}</div>
+      <div class="md-stat-value">${esc(when.label)}</div>
+      <div class="md-stat-sub">${esc(when.dates)}</div>
+    </div>`);
+  }
+  if (loc || venue) {
+    cards.push(`<div class="md-stat">
+      <div class="md-stat-label">Where</div>
+      <div class="md-stat-value" style="font-size:14px;">${esc(loc || venue)}</div>
+      ${venue && loc ? `<div class="md-stat-sub">${esc(venue)}</div>` : ''}
+    </div>`);
+  }
+  if (field.teams) {
+    const split = field.ms && field.hs ? `${field.hs} HS · ${field.ms} MS`
+      : field.ms ? 'all Middle School' : field.hs ? 'all High School' : 'grade not recorded';
+    cards.push(`<div class="md-stat">
+      <div class="md-stat-label">Registered</div>
+      <div class="md-stat-value">${field.teams} team${field.teams === 1 ? '' : 's'}</div>
+      <div class="md-stat-sub">${esc(split)}</div>
+    </div>`);
+  }
+  if (field.you && field.you.ts !== null) {
+    cards.push(`<div class="md-stat">
+      <div class="md-stat-label">${esc(field.you.number)} lands</div>
+      <div class="md-stat-value">~#${field.you.pos}<span style="font-size:13px;color:var(--text-muted);"> / ${field.you.of}</span></div>
+      <div class="md-stat-sub">${field.teams > field.scanned
+        ? `of the ${field.scanned} strongest of ${field.teams}`
+        : 'of the whole field'}</div>
+    </div>`);
+  }
+
+  if (cards.length) html += `<div class="md-headline">${cards.join('')}</div>`;
+
+  // ── Why this page is not full of matches ──
+  html += `<div class="sim-caveat">${
+    when && when.state === 'past'
+      ? `No matches were ever posted for this event. That usually means the organiser did not upload results to RobotEvents — it is not something this page can recover.`
+      : when && when.state === 'now'
+        ? `<strong>Nothing has been posted for today yet.</strong> Matches appear here as the organiser uploads them, which at a running event is usually within minutes of the first one being played. Leave this open — it refreshes itself while the event is live.`
+        : `<strong>The match schedule is set by the event organiser</strong>, and it usually appears the day before or the morning of. Rankings, the bracket and skills fill in from there. Nothing to do but check back — this page picks them up by itself.`
+  }</div>`;
+
+  // ── The field, from the season ──
+  if (field.rated.length) {
+    const withTs = field.rated.filter(r => r.ts !== null);
+    const top = withTs.slice(0, 8);
+    // An AVERAGE of the top end, which is what the Event Scout ranks fields
+    // by. Said as an average rather than as "top-field True Skill", because
+    // printed beside your own rating that reads like a ceiling you are over.
+    const eliteTs = top.length >= 3 ? top.reduce((s, r) => s + r.ts, 0) / top.length : null;
+    html += `<div class="detail-block-label" style="margin-top:14px;">The field, from this season's matches</div>`;
+    if (eliteTs !== null) {
+      html += `<div class="t-pre-strength">The strongest ${top.length} average <strong>${eliteTs.toFixed(0)}</strong> True Skill${
+        field.you && field.you.ts !== null
+          ? `, and ${esc(field.you.number)} rates <strong>${field.you.ts.toFixed(0)}</strong>`
+          : ''}.</div>`;
+    }
+    html += `<div class="ev-attend-hint">Click a team to scout it.</div>`;
+    html += `<div class="pick-list">`;
+    field.rated.forEach((r, i) => {
+      // The last column carries the GRADE, not a repeated "TS" — at a mixed
+      // event that is the column you read, and a label that says the same
+      // thing on all sixteen rows is not a column.
+      const sub = [r.name, r.world ? `world skills #${r.world}` : null].filter(Boolean).join(' · ');
+      html += `<div class="pick-row t-pre-row${r.self ? ' first' : ''}" onclick="scoutTeam('${teamAttr(r.number)}')">
+        <div class="pick-rank">${i + 1}</div>
+        <div><div class="pick-team">${esc(r.number)}</div>
+             <div class="pick-name">${esc(sub) || '&nbsp;'}</div></div>
+        <div class="pick-win">${r.ts !== null ? r.ts.toFixed(0) : '<span style="color:var(--text-dim);">—</span>'}</div>
+        <div class="pick-opr">${r.grade ? (r.grade === 'middle school' ? 'MS' : 'HS') : ''}</div>
+      </div>`;
+    });
+    html += `</div>`;
+    html += `<div class="sim-caveat">True Skill here comes from each team's matches at their <strong>other</strong> events this season, so it is a read on form rather than on anything that has happened here. ${
+      field.teams > field.scanned
+        ? `The ${field.scanned} scanned are the top of the world skills board out of ${field.teams} registered — a field's character is set by its top end.`
+        : 'Every registered team was scanned.'
+    } A team with no matches yet shows no rating.</div>`;
+  } else if (field.teams) {
+    html += `<div class="t-empty">${field.teams} team${field.teams === 1 ? ' is' : 's are'} registered, but none of them has played a match this season yet, so there is nothing to rate them on.</div>`;
+  } else {
+    html += `<div class="t-empty">No teams have registered for this event yet.</div>`;
+  }
+  return html;
+}
+
+// Fetch what the preview needs and render it into the open view.
+async function tPreviewRender(setStatus) {
+  let event = { id: tournamentEventId, location: {} };
+  try {
+    const evs = await tEventDetail(tournamentEventId);
+    if (evs.length) event = evs[0];
+  } catch (e) {}
+  const when = tWhen(event);
+  const field = await tPreviewField(event, setStatus);
+  return tPreviewBlock(event, when, field);
+}
+
+// ═══════════════════════════════════════════════════════════════
 // TOURNAMENT SUB-VIEWS
 // A shared header lets you move between the team list, every match at the
 // event, the event's skills standings, and the elimination bracket.
@@ -8431,8 +8715,17 @@ async function renderTournamentMatches() {
     ${tournamentNav('matches')}`;
 
   if (!rows.length) {
-    html += `<div class="t-empty">No match schedule posted for this event yet.</div>`;
-    resultsEl.innerHTML = html;
+    // Same dead end, reached the other way. Same answer.
+    resultsEl.innerHTML = html + `<div class="t-empty">Reading the field…</div>`;
+    let pre;
+    try { pre = await tPreviewRender(t => { if (loadingText) loadingText.textContent = t; }); }
+    catch (e) {
+      vsNote('preview', e && e.message || e);
+      pre = `<div class="t-empty">No match schedule posted for this event yet, and the registered field could not be read: ${esc(e && e.message || e)}</div>`;
+    }
+    html += pre;
+    // The view can have moved on while the season data was coming back.
+    if (tournamentView === 'matches') resultsEl.innerHTML = html;
     return;
   }
 
@@ -10646,6 +10939,20 @@ async function sim_buildRatingsFromTeams(numbers, seasonId, setStatus) {
   }, sim_poolSize());
 
   const uniqueIds = [...new Set(Object.values(byNumber).map(t => t.id))];
+  const out = await sim_buildRatingsFromIds(uniqueIds, seasonId, setStatus);
+  const idToNum = {};
+  for (const [num, t] of Object.entries(byNumber)) idToNum[t.id] = t.displayNum;
+  return { ...out, byNumber, idToNum };
+}
+
+// The second half of the above, on its own.
+//
+// Resolving a team number costs a request each; a caller that already holds
+// ids — an event's roster, say — has no business buying them back. Split out
+// rather than copied, so the upcoming-event preview rates a field with exactly
+// the model the Simulator and the Event Scout use.
+async function sim_buildRatingsFromIds(ids, seasonId, setStatus) {
+  const uniqueIds = [...new Set((ids || []).map(String).filter(Boolean))];
   const uniqueMatches = new Map();
   if (setStatus) setStatus(`PULLING MATCHES FOR ${uniqueIds.length} TEAMS...`);
   let doneM = 0;
@@ -10669,9 +10976,7 @@ async function sim_buildRatingsFromTeams(numbers, seasonId, setStatus) {
   }
   const { ratings, matchCount } = sim_computeOPR(observations, 0.5);
   const { stdByTeam, globalStd } = sim_residualStd(observations, ratings);
-  const idToNum = {};
-  for (const [num, t] of Object.entries(byNumber)) idToNum[t.id] = t.displayNum;
-  return { ratings, stdByTeam, globalStd, matchCount, byNumber, idToNum, observations };
+  return { ratings, stdByTeam, globalStd, matchCount, observations };
 }
 
 // ── Shared: resolve an event by SKU, fetch ALL its matches, build event-wide OPR ──
