@@ -45,6 +45,57 @@ FIXTURES.eventB = {
   season: { id: 197 }, location: { region: 'Vermont' }, divisions: [{ id: 1, name: null }]
 };
 
+// The week before an event: teams have registered, and nothing else exists.
+//
+// The organiser posts the schedule the day before or the morning of, so until
+// then every per-event endpoint answers empty — matches, rankings, skills,
+// awards — while the roster and the season-wide skills board are both full.
+// That is the state the Tournament tab used to have nothing to say about.
+//
+// Set FIXTURES.scheduleUnposted to the event id to put that event in it.
+FIXTURES.scheduleUnposted = null;
+
+// A wider field than the three default teams, so a ranked list is a list.
+// Each gets a season of matches at an event of its own, which is what the
+// upcoming-event preview rates them on.
+FIXTURES.wideRoster = null;   // set to a team count
+
+function wideTeams(n) {
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    out.push({
+      id: 9100 + i,
+      number: `${100 + i}${'ABCDEFGH'[i % 8]}`,
+      team_name: `Field Team ${i + 1}`,
+      grade: i % 5 === 0 ? 'Middle School' : 'High School'
+    });
+  }
+  return out;
+}
+
+// One past event per wide-roster team, with scores that fall off as the index
+// rises — so True Skill has a real order to find rather than a flat field.
+function seasonMatchesFor(teamId) {
+  const i = teamId - 9100;
+  if (i < 0 || !FIXTURES.wideRoster || i >= FIXTURES.wideRoster) return null;
+  const out = [];
+  const base = 160 - i * 4;
+  for (let n = 1; n <= 4; n++) {
+    const t = `2026-01-1${n}T11:00:00-05:00`;
+    out.push({
+      id: 700000 + teamId * 10 + n, name: `Qualification ${n}`, matchnum: n, round: 2,
+      started: t, scheduled: t, event: { id: 56000 + i },
+      alliances: [
+        { color: 'red', score: base + n, teams: [{ team: { id: teamId, name: `${100 + i}${'ABCDEFGH'[i % 8]}` } },
+                                                 { team: { id: 9500, name: 'FILLER' } }] },
+        { color: 'blue', score: 90 + n, teams: [{ team: { id: 9501, name: 'OPP1' } },
+                                                { team: { id: 9502, name: 'OPP2' } }] }
+      ]
+    });
+  }
+  return out;
+}
+
 const j = (data, meta) => ({ data, meta: meta || { last_page: 1, current_page: 1 } });
 
 // The proxy, as far as the app can tell. Every route the UI actually calls;
@@ -65,6 +116,29 @@ export function makeRouter(opts = {}) {
     for (const frag of empty) if (path.includes(frag)) return { status: 200, body: j([]) };
 
     const E = FIXTURES.event;
+
+    // ── The week before an event ──
+    // Matches, rankings, skills and awards for that event do not exist yet.
+    // Everything else — its record, its roster, the season skills board, and
+    // those teams' matches at OTHER events — does.
+    const unposted = FIXTURES.scheduleUnposted;
+    if (unposted != null) {
+      const forThisEvent = new RegExp(`^/events/${unposted}/(divisions/\\d+/)?(matches|rankings|skills|awards)`);
+      if (forThisEvent.test(path)) return { status: 200, body: j([]) };
+      // A team's matches filtered to this event: none, by definition.
+      if (/^\/teams\/\d+\/matches/.test(path) && path.includes(`event[]=${unposted}`)) {
+        return { status: 200, body: j([]) };
+      }
+    }
+    // A wide-roster team's season, at its own past events.
+    {
+      const m = path.match(/^\/teams\/(\d+)\/matches/);
+      if (m && !/event\[\]=/.test(path)) {
+        const season = seasonMatchesFor(Number(m[1]));
+        if (season) return { status: 200, body: j(season) };
+      }
+    }
+
     if (path.startsWith('/teams?')) {
       const m = path.match(/number\[\]=([^&]+)/);
       const num = m ? decodeURIComponent(m[1]).toUpperCase() : null;
@@ -87,7 +161,12 @@ export function makeRouter(opts = {}) {
       // answering with the same roster makes that untestable.
       const evId = Number(path.match(/^\/events\/(\d+)\/teams/)[1]);
       const byEv = FIXTURES.rosterOf && FIXTURES.rosterOf[evId];
-      return { status: 200, body: j(byEv || FIXTURES.teams) };
+      if (byEv) return { status: 200, body: j(byEv) };
+      // A field wide enough to rank. The default three teams stay the default.
+      if (FIXTURES.wideRoster) {
+        return { status: 200, body: j([...FIXTURES.teams, ...wideTeams(FIXTURES.wideRoster)]) };
+      }
+      return { status: 200, body: j(FIXTURES.teams) };
     }
     if (/^\/events\/\d+\/divisions\/(\d+)\/rankings/.test(path)) {
       const div = +path.match(/divisions\/(\d+)/)[1];
@@ -138,7 +217,10 @@ export function makeRouter(opts = {}) {
       // per fixture team, in the legacy API's own shape.
       if (/\/skills/.test(path)) {
         const wantMs = /grade_level=Middle/.test(path);
-        const rows = FIXTURES.teams.map((t, i) => ({
+        const board = FIXTURES.wideRoster
+          ? [...FIXTURES.teams, ...wideTeams(FIXTURES.wideRoster)]
+          : FIXTURES.teams;
+        const rows = board.map((t, i) => ({
           rank: i + 1, score: 120 - i * 7, type: 0,
           team: {
             id: t.id, team: t.number, program: 'V5RC',

@@ -1580,6 +1580,15 @@ offset, the day count, what is on screen now, and **what the old code would have
 shown**. When those last two differ the timezone was the whole problem; when
 they agree, the API sent a day we did not expect and the fix is not here.
 
+**One correction to this section, made in v80.** `t102`'s "nobody divides
+elapsed milliseconds" guard wrote the day literal by hand and **never matched
+`86400e3`** — the spelling `api/proxy.js` uses — so the proxy half of it was
+passing on nothing. It now matches every spelling, and exempts the one correct
+construction: subtracting two days that have BOTH been pinned to the same time
+of day (`+ 'T12:00:00Z'`) is how `evDayCount` and `tWhen` avoid the bug, so
+flagging it would be flagging the fix. The guard self-checks that it would
+still catch the original shape.
+
 ### The six test drivers this broke, and why
 
 `t47`, `t63`, `t69`, `t73`, `t74` and `t78` all extract `rwDayKey` from source
@@ -1604,7 +1613,118 @@ look change to make deliberately.
 
 ---
 
-## 19. Feature ideas
+## 19. The week before an event
+
+Reported as: *"when the event date nears and i check it just says no matches
+played and i can't see any tournament info."*
+
+**That is the worst possible moment for this tab to be empty.** The match
+schedule is set by the organiser and usually does not appear until the day
+before or the morning of, so for the whole week you are actually deciding
+things — who to scout, what you are walking into — every view was a dead end.
+
+Measured against a realistic pre-event fixture, before the fix:
+
+| view | what it rendered |
+| --- | --- |
+| the one you land on | 209 chars — *"No matches found for 66449A at this event."* |
+| ▸ Matches | 203 chars — *"No match schedule posted for this event yet."* |
+| ▸ Skills | 204 chars |
+| ▸ Awards | 172 chars |
+| ▸ Bracket | 246 chars |
+| ▸ Pick List | 215 chars |
+| ▸ Teams | 481 chars — a list with every column a dash |
+
+Six of seven views, one grey line each.
+
+### What there IS to say
+
+RobotEvents has plenty before an event: **who registered**, **where they stand
+on the world skills board**, and **how they have played at their other events
+this season.** That last one is the model the Event Scout already ranks twenty
+fields with — pointed at one event instead.
+
+`tPreviewRender` builds the panel, shown on the two views that were dead ends
+(the focused-team view and the all-matches view):
+
+- **When** — `tWhen` places the event relative to today in the venue's calendar
+  (§18): *Starts in 6 days* / *Starts tomorrow* / *Running now — day 2 of 2* /
+  *Ended 3 days ago*, with the dates and the day count.
+- **Where** — city, region, venue.
+- **Who** — teams registered and the HS/MS split.
+- **Where you land** — `~#4 / 16`.
+- **The field** — every scanned team ranked by season True Skill, clickable
+  through to Scout, with its world skills rank and grade.
+- **Why the page is not full of matches** — one sentence naming the organiser
+  as the one who posts the schedule, and saying the page fills in by itself.
+
+The panel is named for where the event actually is — **Before the event** /
+**The event is on** / **After the event** — and the sentence changes with it.
+"Before the event" over a heading that reads *Ended 4 days ago* is the panel
+contradicting itself, and telling someone standing at the venue that the
+schedule "usually appears the day before" is advice about a day that has
+already passed.
+
+### The two numbers that needed care
+
+**The scan is capped at `T_PREVIEW_SCAN` (16)**, taken off the top of the world
+skills board, plus your own team wherever it sits. A field's character is set
+by its top end; rating all 800 teams at Worlds would be a season of matches
+each. The caveat says which teams were scanned and out of how many, so the
+cap is never silent.
+
+**The strength line is said as an average.** It is the mean True Skill of the
+strongest eight — the same quantity the Event Scout calls "top-field TS". Under
+that name, printed beside your own rating, it reads like a ceiling you are
+somehow over. It now says *"The strongest 8 average 31 True Skill, and 66449A
+rates 42."*
+
+### Three things found on the way
+
+**`renderEventTeamMatchesView` never set `tournamentView`.** Arriving at an
+event through your own team — the common path, and the one `loadTournamentTeams`
+takes — left the global on `'teams'` while the match view was on screen. The
+live tick dispatches on that global, so **every 30 seconds at a running event
+it rebuilt the whole TEAM LIST over the top of the match view you were
+reading.** `tournamentFocusOn`, reached by clicking a team number in the match
+list, had the same hole. One line fixes both.
+
+**`sim_buildRatingsFromTeams` was split, not copied.** Its second half is now
+`sim_buildRatingsFromIds`. Resolving a team number costs a request each, and a
+caller holding ids already — an event's roster — has no business buying them
+back. `t103` asserts the match-walking loop exists exactly once.
+
+**An event that ran and posted nothing reaches the same empty shape from the
+other side of the date.** Telling someone to "check back" for an event that
+finished last week is wrong, so the past branch says the organiser did not
+upload results instead.
+
+**"No matches" is two different nothings.** `allMatches` holds every match at
+the event once the ratings are built, so a non-empty one with an empty
+`myMatches` means the schedule IS up and this team is not on it — withdrawn, a
+late scratch, or a division not yet published. That person gets told exactly
+that, with a button through to the full match list, rather than the preview.
+
+### Cost
+
+The panel runs **only when there are no matches** — `t103` asserts that a
+played event buys no season match data at all. When it does run it is: the
+roster (memoed per event), the season skills board (cached, and the Teams view
+wants it anyway), and one `sim_teamMatchesCached` per scanned team. All of them
+RobotEvents, none of them YouTube, so §3's quota is untouched.
+
+### The fixture
+
+`FIXTURES.scheduleUnposted = <event id>` puts one event in the pre-event state:
+every per-event endpoint — matches, rankings, skills, awards, and a team's
+matches filtered to that event — answers empty, while the roster and the season
+board stay full. `FIXTURES.wideRoster = <n>` adds a field wide enough to rank,
+each team with a season of matches at an event of its own, scored so True Skill
+has a real order to find.
+
+---
+
+## 20. Feature ideas
 
 `IDEAS.md` holds the list of things worth building next, with what each one
 would cost against what already exists. It also records three things **not** to
