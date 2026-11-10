@@ -19,7 +19,10 @@ console.log('t92 — offline, and stepping through matches');
 console.log('\n· an event kept on the device');
 
 ok('the save reuses the app\'s own calls',
-  /async function vsOfflineSave\(eventId\)[\s\S]{0,900}apiGet\(`\/events\/\$\{id\}\/teams`\)/.test(src),
+  // v82: the requests moved into vsOfflineFetchAll so the automatic save for a
+  // favorite's event makes exactly the same ones as the button.
+  /async function vsOfflineFetchAll\(id, teamId, onProgress\)[\s\S]{0,900}apiGet\(`\/events\/\$\{id\}\/teams`\)/.test(src) &&
+  /async function vsOfflineSave\(eventId\)[\s\S]{0,900}await vsOfflineFetchAll\(id, teamId/.test(src),
   'a separate list of endpoints would drift out of step with the views');
 ok('and bypasses the memo, because a memo hit is not a request',
   /The memo is deliberately bypassed/.test(src));
@@ -35,7 +38,8 @@ ok('holding a saved copy skips the backoff',
 ok('the retry count is actually wired to it',
   /for \(let attempt = 0; attempt < maxAttempts; attempt\+\+\)/.test(src));
 ok('the index entry waits for the writes',
-  /await new Promise\(r => setTimeout\(r, 60\)\);[\s\S]{0,80}vsOfflineNote\(id, \{/.test(src));
+  /await new Promise\(r => setTimeout\(r, 60\)\);\s*return \{ ev, calls: vsOfflineCapture\.n \};/.test(src) &&
+  /await vsOfflineFetchAll\(id, teamId[^\n]*\n\s*vsOfflineNote\(id, \{/.test(src));
 ok('the debug panel reports what came from a saved copy',
   /offlineHits: vsDebug\.offlineHits/.test(src) && /offlineEvents:/.test(src));
 

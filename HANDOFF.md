@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v81**. Everything green: 65 test files. (The `v19` in §8's
+Current release: **v82**. Everything green: 65 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -398,6 +398,7 @@ proxy is at `api/proxy.js`.
 | t102 | **An event's dates are dates** — §18, driven in another timezone and guarded statically |
 | t103 | **The week before an event** — §19 |
 | t104 | **v81** — round trips, the phone layout, favorites (incl. a poisoned list), and form at an event — §21 |
+| t105 | **v82** — suggestions, live picks, last match, swipe, pull to refresh, automatic offline, the softer look — §22 |
 | sanity | CSS braces balance, inline JS parses, tabs present |
 | tool_sanity | Same for anchor-tool.html |
 
@@ -1876,7 +1877,95 @@ No request is made for it: it reads `R.matches`, which the ratings loaded.
 
 ---
 
-## 22. Feature ideas
+## 22. v82 — softer, and "imagine you were at a tournament"
+
+### The look
+
+Asked for as: *"I don't like how big the theme box is … how blocky everything
+is — can it have a softer tone"*, then *fewer boxes and borders*, *rounded
+corners*, on phone and computer both, and: *"research what vibe coded apps look
+like … then check what good websites look like … and copy."*
+
+What the reading agreed on (sources at the end of this section), as rules:
+
+- **The tell is sameness, not any one style.** One radius, one outline and one
+  shadow on every element is what reads as generated. So the radius is a
+  **scale** — `--r-sm / --r-md / --r-lg / --r-pill`, by how much a thing holds:
+  a chip, a control, a panel — and never one number. t105 asserts more than one
+  step is in use.
+- **Fewer borders.** Separate with spacing and a different surface; keep a line
+  only where it says something. On a dark page depth is a *lighter surface*,
+  not a shadow. So controls are filled surfaces with a transparent outline, and
+  the outline comes back for **state**: the focused input, the active size.
+- **Effects that carry no information go.** The scanline layer (`body::after`)
+  is off at every width now, not only on phones.
+- **Template chrome was not added**: no gradients, no glass, no new typeface
+  (§"Chrome" still holds; t105 asserts the block sets no `font-family`), no
+  entrance animations. The all-caps tracked labels that already exist were
+  left — changing them is a typography decision nobody asked for yet.
+
+All of it is one block, `SOFTER (v82)`, late in the sheet so it overrides by
+order. **The bracket's boxes are rounded but otherwise untouched.**
+
+**The theme control is a dot** — 32px, 36px on phones — with an `aria-label`,
+since it no longer has a word in it.
+
+**The top of an event page on a phone** lost three rows: REFRESH is hidden
+(pull does it), and SAVE OFFLINE and the RobotEvents link fold behind a
+**More** cell that completes the 4×2 grid of views. On a wide screen there is
+room, so nothing moved.
+
+### At the event
+
+- **Suggestions while typing** (`vsSuggestInit`). From the third digit, under
+  every team box. RobotEvents has no starts-with search — `number[]` is exact —
+  but a V5RC number is digits and ONE letter, so everything that can follow
+  `3050` is 26 names, and `number[]` takes a list: **one request**. Teams the
+  device already knows (favorites, `vex_team_ids`, the open roster) also match
+  on longer numbers, so `664` finds `66449A`. A chip fills the box and runs the
+  search; in a comma list it completes the last entry and waits. V5RC only.
+- **Live alliance selection** (`tLivePickBlock`). The partner list on PICK LIST
+  has a **Taken** button per team; taken teams drop out, the best one still
+  available is always the top row, and there is an undo and a Clear all.
+  `vex_taken` is per event in localStorage, narrowed with `teamAttr` on the way
+  out like `vex_favs`. The privacy page says so.
+- **An opponent's last match** (`tLastMatchButtons`), on the next-match card
+  above the win chance: one tap into the Jumper at that team's most recent
+  played match here. Read from `R.matches`; no request.
+- **Swipe between an event's views** (`tSwipeInit`). Phones. Mostly-sideways
+  only, no wrap at the ends, and never from inside something that scrolls
+  sideways itself (the bracket) or a control.
+- **Pull to refresh** (`vsPullToRefresh` → `vsRefreshCurrent`). Drops
+  `apiFresh` first, or the pull would be answered from memory. The browser's
+  own pull-to-reload is held off with `overscroll-behavior-y: contain`, on
+  phones only. The pill is the FIRST child of the body — t95 requires the foot
+  to be the last.
+- **A favorite's event saves itself** (`vsAutoOffline`). When the Favorites
+  card for a team fills in, its event is saved if it is running, starts within
+  three days, or ended yesterday, and the copy is stale (20 minutes at a
+  running event, 6 hours otherwise). Never on Save-Data, never offline, at
+  most three per visit, one at a time, never over a save somebody pressed the
+  button for. The requests are `vsOfflineFetchAll`, shared with the button so
+  the two cannot save different things. RobotEvents only — §3's quota is
+  untouched.
+
+**Checked in Chromium at 390px and 1280px. Not checked on a real iPhone**:
+the swipe, the pull, and Safari's own edge gestures are the things to try.
+
+Sources read for the look:
+[Fountain Institute](https://www.thefountaininstitute.com/blog/signs-vibe-coded-ui) ·
+[Utsubo](https://www.utsubo.com/blog/built-with-ai-trust-signals-2026) ·
+[925 Studios](https://www.925studios.co/blog/ai-slop-design-tells) ·
+[Capital & Compute](https://capitalandcompute.net/blog/fix-ai-slop-design/) ·
+[Spot the slop](https://world.hey.com/kostac/spot-the-slop-a-ui-designer-s-guide-to-fixing-ai-defaults-4c448c9c) ·
+[CodeMySpec](https://codemyspec.com/blog/vibe-coded-websites-look-the-same) ·
+[Refactoring UI notes](https://alexanderweichart.de/5_Archive/3_Resources/Library/Refactoring-UI/Refactoring-UI-design-principles) ·
+[Atmos, dark mode](https://atmos.style/blog/dark-mode-ui-best-practices) ·
+[Apple HIG, toolbars](https://developer.apple.com/design/human-interface-guidelines/toolbars)
+
+---
+
+## 23. Feature ideas
 
 `IDEAS.md` holds the list of things worth building next, with what each one
 would cost against what already exists. It also records three things **not** to

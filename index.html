@@ -1969,6 +1969,83 @@
   @media (hover: hover) { .site-foot a:hover { color: var(--text-dim); text-decoration: underline; } }
   .site-foot .foot-sep { margin: 0 8px; opacity: 0.5; }
 
+  /* ════════════════════════════════════════════════════════════════
+     SOFTER (v82)
+
+     Asked for as: "I don't like how blocky everything is — can it have a
+     softer tone", then "fewer boxes and borders" and "rounded corners", on
+     phone and desktop both. HANDOFF §22 has the research this follows.
+
+     The short version of that research, as rules:
+       · A corner radius is a SCALE, not one number. The same radius and the
+         same outline on every element is the single most-cited sign of a
+         page nobody designed. Three steps here, by how much a thing holds:
+         a chip, a control, a panel.
+       · On a dark page, depth is a LIGHTER SURFACE, not a line. So a control
+         is a filled surface and its outline is spent only on state — the
+         active size, the focused input.
+       · An effect that carries no information goes. The scanline layer did
+         not, and it sat over everything.
+     Typefaces are untouched (§"Chrome").
+     ════════════════════════════════════════════════════════════════ */
+  :root { --r-sm: 6px; --r-md: 10px; --r-lg: 16px; --r-pill: 999px; }
+  body::after { display: none; }
+
+  /* Controls: a surface you press, not a wireframe of one. */
+  input[type="text"], input[type="password"], select, .cs-bar, .ev-filter-bar,
+  .btn, .draft-btn, .pk-size, .multi-select-btn, .btn-detail, .rw-step-btn, .rw-forget,
+  .rw-watch, .rw-nudge button, .rw-shift-go, .rw-nudge-btn, .match-play, .bracket-size-btn,
+  .fav-act, .phone-find, .cs-list, .ev-filter-list, .theme-dropdown { border-radius: var(--r-md); }
+  input[type="text"], input[type="password"], select, .cs-bar, .ev-filter-bar,
+  .draft-btn, .pk-size, .multi-select-btn, .btn-detail, .rw-step-btn, .rw-forget, .rw-watch,
+  .rw-nudge button, .rw-shift-go, .rw-nudge-btn, .match-play, .bracket-size-btn, .fav-act { border-color: transparent; }
+  .draft-btn, .pk-size, .multi-select-btn, .btn-detail, .rw-step-btn, .rw-forget, .rw-watch,
+  .rw-nudge button, .rw-shift-go, .rw-nudge-btn, .match-play, .bracket-size-btn { background: var(--card2); }
+  /* The outline comes back exactly where it says something. */
+  input:focus, select:focus, .cs.open .cs-bar { border-color: var(--accent-bright); }
+  .pk-size.active, .draft-btn.active, .multi-select-btn.active, .bracket-size-btn.active { border-color: var(--accent); }
+  .fav-act.primary { border-color: transparent; background: var(--accent-dim); color: var(--text); }
+  /* A floating list needs an edge to sit on the page; it keeps a quiet one. */
+  .cs-list, .ev-filter-list, .theme-dropdown { border-color: var(--border); }
+
+  /* Panels: the big step. Clipped where a child paints its own background, so
+     a square fill cannot poke out of a round corner. */
+  .team-card, .detail-block, .detail-radar, .detail-meta, .rw-block, .sched-summary, .md-headline,
+  .md-next, .md-expand, .sim-block, .sim-alliance, .sim-caveat, .pk-manual, .rolldown, .fav-card,
+  .tournament-list, .ov-grid, .rw-embed, .rw-resume, .skills-selection-bar, .t-skills, .t-awards { border-radius: var(--r-lg); }
+  .md-headline, .tournament-list, .ov-grid, .rw-embed, .t-skills, .t-awards, .team-card { overflow: hidden; }
+  .detail-meta { border-color: transparent; }
+  /* Things in a list: the middle step. */
+  .tournament-team-tag, .rw-event, .ev-attend, .sim-event-item, .match-alliance, .bracket-match,
+  .bracket-input-match, .bracket-adv-match, .logo-mark { border-radius: var(--r-md); }
+  .logo-mark::before { border-radius: 6px; }
+  .match-alliance.alliance-red, .match-alliance.alliance-blue { border-color: transparent; }
+
+  /* Chips: a filled pill. The shape says "tag"; it does not also need a line. */
+  .md-tag, .award-tag, .detail-pill, .sim-chip, .es-sig, .status-badge, .tournament-rank-badge,
+  .rolldown-team, .tt-grade, .t-live, .rw-anchor-tag, .t-award-win, .rd-badge { border-radius: var(--r-pill); }
+  .md-tag, .detail-pill, .sim-chip, .status-badge, .rolldown-team, .t-award-win { border-color: transparent; background: var(--card2); }
+  .md-tag { padding: 4px 11px; }
+  .md-tag.weak { border-color: transparent; background: rgba(255,107,107,0.13); }
+  .md-tag.str { border-color: transparent; background: rgba(76,207,106,0.13); }
+  .status-badge { padding: 5px 11px; }
+  /* Meters: a rounded track, clipped so the fill follows it. */
+  .sim-winbar, .bo-bar-wrap, .md-winbar, .stat-bar-wrap { border-radius: var(--r-pill); overflow: hidden; border-color: transparent; }
+  .t-switch-track { border-color: transparent; }
+
+  /* The theme control is a dot. It was a labelled box the size of the status
+     badge, for something changed once and then never again. */
+  .theme-btn {
+    width: 32px; height: 32px; padding: 0; justify-content: center;
+    font-size: 0; letter-spacing: 0; gap: 0;
+    border-radius: 50%; border-color: transparent; background: var(--card2);
+  }
+  .theme-dot { width: 14px; height: 14px; }
+
+  /* The event's views. Leaving-the-event links fold behind "More" on a phone;
+     on a wide screen there is room, so they stay where they were. */
+  .t-more-btn { display: none; }
+
   /* Form at this event: seed, team, the line, the range, the tags. */
   .fm-row { display: grid; grid-template-columns: 40px 78px 76px 70px 1fr; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--border); }
   .fm-row:last-child { border-bottom: 0; }
@@ -2218,6 +2295,24 @@
     .t-nav-btn { min-height: 44px; padding: 0 2px; font-size: 12px; letter-spacing: 0.3px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .t-nav-link, .t-nav-link:first-of-type { grid-column: span 2; margin-left: 0; min-height: 40px; display: flex; align-items: center; justify-content: center; font-size: 11px; }
 
+    /* The top of an event page (v82). Before: name, a line, a row of three
+       buttons, two rows of views and a row of links — six rows before the
+       rank. REFRESH is the pull gesture now, and the two links that LEAVE the
+       event sit behind More, which takes the eighth cell of the grid. */
+    .tournament-summary { gap: 4px 10px; padding: 6px 0 4px; }
+    .tournament-summary-name { font-size: 15px; }
+    .tournament-summary-count { flex: 1 1 auto; }
+    .tournament-summary-actions { flex: 0 1 auto; align-items: center; }
+    .tournament-summary .btn[onclick^="tournamentRefreshNow"] { display: none; }
+    .t-more-btn { display: block; }
+    .t-nav .t-nav-link { display: none; }
+    .t-nav.more-open .t-nav-link { display: flex; }
+    .t-nav.more-open .t-offline-x { grid-column: span 1; }
+    .theme-btn { width: 36px; height: 36px; min-height: 36px; }
+
+    /* Pull to refresh. The browser's own would reload the whole app. */
+    html, body { overscroll-behavior-y: contain; }
+
     /* Rank and record side by side — the two numbers this page is opened for
        — instead of three full-width rows before the schedule starts. */
     .md-headline .md-stat { flex: 1 1 40%; padding: 10px 12px; }
@@ -2251,6 +2346,45 @@
 
   /* The favorites tab itself. Reachable only from the phone bar, but styled at
      any width so a narrow desktop window dragged wider does not fall apart. */
+
+  /* Suggestions under a team box: chips, full width, thumb-sized. */
+  .sg { display: flex; flex-wrap: wrap; gap: 8px; }
+  .sg:not(:empty) { margin: 10px 0 4px; }
+  .sg-chip { min-height: 44px; padding: 0 14px; border: 0; border-radius: var(--r-pill); background: var(--card2);
+    color: var(--text-dim); cursor: pointer; font-family: var(--body); font-size: 14px; max-width: 100%;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sg-chip b { font-family: var(--display); font-weight: 700; color: var(--text); letter-spacing: 0.5px; }
+
+  /* Live picks. */
+  .lp-help { font-family: var(--body); font-size: 14px; line-height: 1.5; color: var(--text-dim); margin: 0 0 10px; }
+  .lp-list { background: var(--card); border-radius: var(--r-lg); padding: 2px 14px; }
+  .lp-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .lp-row:last-child { border-bottom: 0; }
+  .lp-main { flex: 1; min-width: 0; }
+  .lp-top { display: flex; align-items: baseline; gap: 10px; font-family: var(--display); font-size: 18px; font-weight: 700; color: var(--text); }
+  .lp-row.best .lp-top { font-size: 22px; }
+  .lp-win { font-family: var(--mono); font-size: 14px; font-weight: 400; color: var(--accent-bright); font-variant-numeric: tabular-nums; }
+  .lp-meta { font-family: var(--body); font-size: 13px; line-height: 1.5; color: var(--text-muted); }
+  .lp-take { flex: 0 0 auto; min-width: 76px; min-height: 44px; border: 0; border-radius: var(--r-md); background: var(--card2);
+    color: var(--text); cursor: pointer; font-family: var(--display); font-size: 13px; font-weight: 600; letter-spacing: 0.5px; }
+  .lp-gone { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0 0; font-family: var(--body); font-size: 13px; color: var(--text-muted); }
+  .lp-undo { min-height: 40px; padding: 0 12px; border: 0; border-radius: var(--r-pill); background: var(--card2); color: var(--text-muted);
+    cursor: pointer; font-family: var(--display); font-size: 13px; font-weight: 600; text-decoration: line-through; }
+  .lp-undo.lp-reset { text-decoration: none; background: none; color: var(--accent-bright); }
+
+  /* An opponent's last match, from the next-match card. */
+  .md-watch-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 2px; }
+  .md-watch { min-height: 44px; padding: 0 14px; border: 0; border-radius: var(--r-md); background: var(--card2); color: var(--text);
+    cursor: pointer; font-family: var(--body); font-size: 14px; }
+  /* Pull to refresh: one pill that follows the finger, then says what it did. */
+  .ptr { position: fixed; left: 50%; top: 0; z-index: 99995; transform: translate(-50%, -48px);
+    padding: 8px 16px; border-radius: var(--r-pill); background: var(--card2); color: var(--text);
+    font-family: var(--body); font-size: 14px; line-height: 1.5; pointer-events: none; opacity: 0;
+    transition: transform 0.2s, opacity 0.2s; box-shadow: 0 6px 18px rgba(0,0,0,0.35); }
+  .ptr.pulling { transition: none; }
+  .ptr.show { opacity: 1; }
+  @media (prefers-reduced-motion: reduce) { .ptr { transition: none; } }
+  .fav-saved { font-family: var(--body); font-size: 13px; line-height: 1.5; color: var(--text-muted); margin-top: 2px; }
   .fav-add { display: flex; gap: 8px; margin-bottom: 14px; }
   .fav-add input { flex: 1; min-width: 0; }
   .fav-add .btn { width: auto; flex: 0 0 auto; }
@@ -2295,9 +2429,8 @@
 
         <!-- Theme Switcher -->
         <div class="theme-switcher">
-          <button class="theme-btn" onclick="toggleThemeMenu()">
+          <button class="theme-btn" onclick="toggleThemeMenu()" aria-label="Change color theme" title="Change color theme">
             <div class="theme-dot" id="themeDot"></div>
-            THEME
           </button>
           <div class="theme-dropdown" id="themeDropdown">
 
@@ -3102,7 +3235,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v81';
+const APP_BUILD = 'v82';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -5842,6 +5975,9 @@ window.onload = () => {
   // there to a team's schedule. Without any, the tab you used last still wins —
   // an empty favorites list is not somewhere anyone asked to be taken.
   bootStep('phone forms', vsPhoneForms);
+  bootStep('pull to refresh', vsPullToRefresh);
+  bootStep('team suggestions', vsSuggestInit);
+  bootStep('swipe views', tSwipeInit);
   bootStep('favorites', () => {
     favsRender();
     const add = document.getElementById('favAddInput');
@@ -6068,7 +6204,11 @@ async function favFill(n, seq) {
     if (!ev) nowEl.textContent = 'No events this season yet.';
     else {
       const w = tWhen(ev);
-      nowEl.innerHTML = `<strong>${esc(ev.name || 'Event')}</strong><br>${esc(w.label)} · ${esc(w.dates)}`;
+      const saved = vsOfflineIndex()[String(ev.id)];
+      const evId = String(ev.id).replace(/[^0-9]/g, '');
+      nowEl.innerHTML = `<strong>${esc(ev.name || 'Event')}</strong><br>${esc(w.label)} · ${esc(w.dates)}` +
+        `<div class="fav-saved" data-favsaved="${evId}">${saved ? 'Saved for offline ' + esc(vsAgo(saved.at)) : ''}</div>`;
+      vsAutoOffline(ev, team.id);
     }
   }
   if (favOpenEvents.has(n)) favDrawEvents(n, team, events);
@@ -6198,6 +6338,252 @@ function vsPhoneForms() {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// AT THE EVENT (v82) — suggestions, live picks, last match, swipe
+//
+// Four answers to "imagine you were at a tournament":
+//   · "start suggesting teams while I type … 3050 → 3050X 3050W 3050V, only
+//     from the third number";
+//   · captain during alliance selection → "tap to cross off";
+//   · five minutes before a match → "last match video and win chance";
+//   · one-handed → "swipe between views".
+// ═══════════════════════════════════════════════════════════════
+
+// ── Team suggestions ───────────────────────────────────────────────────────
+//
+// RobotEvents has no "starts with" search for team numbers — number[] is an
+// exact match. But a V5RC number is digits and ONE letter, so every team that
+// can follow "3050" is one of 26 names, and number[] takes a list. That is one
+// request for the whole answer, cached like any other /teams lookup.
+const VS_SUGGEST_MIN = 3;        // digits typed before anything is suggested
+const VS_SUGGEST_WAIT = 220;     // ms of quiet before asking
+const VS_SUGGEST_INPUTS = {
+  detailTeamInput: () => runDetailedScout(),
+  tournamentInput: () => findTournament(),
+  rwTeamInput: () => rewatchLoadTeam(),
+  favAddInput: () => favAddFromInput(),
+  simEscoutYou: null
+};
+// The piece being typed: the last comma-separated entry, if it is 3–5 digits
+// and nothing else. A letter already typed means the number is finished.
+function vsSuggestStem(value) {
+  const parts = String(value || '').split(',');
+  const last = parts[parts.length - 1].trim();
+  return /^\d{3,5}$/.test(last) && last.length >= VS_SUGGEST_MIN ? last : null;
+}
+async function vsSuggestTeams(stem) {
+  if (!/^\d{3,5}$/.test(stem)) return [];
+  const numbers = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map(l => stem + l);
+  // Teams this device already knows — favorites, ones looked up before, the
+  // roster of the open event — match on ANY longer number too ("664" finds
+  // 66449A), which the 26-letter request cannot do. They come first.
+  const known = new Map();
+  const note = (number, name) => {
+    const n = String(number || '').toUpperCase();
+    if (n.startsWith(stem) && /^\d+[A-Z]$/.test(n) && !known.has(n)) known.set(n, { number: n, team_name: name || '' });
+  };
+  for (const n of vsFavs()) note(n);
+  for (const hit of Object.values(vsTeamIds())) if (hit && hit.team) note(hit.team.number, hit.team.team_name);
+  for (const t of (tournamentTeamCache || [])) note(t.number, t.team_name);
+  let teams = [];
+  try { teams = await apiGet('/teams', { 'number[]': numbers, 'program[]': [1] }); } catch (e) { teams = []; }
+  const fromApi = teams
+    .filter(t => t && typeof t.number === 'string' && t.number.toUpperCase().startsWith(stem))
+    // Teams still registered first; then by letter.
+    .sort((a, b) => (b.registered === false ? 0 : 1) - (a.registered === false ? 0 : 1) || a.number.localeCompare(b.number));
+  for (const t of fromApi) {
+    const n = t.number.toUpperCase();
+    // The API's record wins: it has the name a bare favorite does not.
+    if (!known.has(n) || !known.get(n).team_name) known.set(n, { number: n, team_name: t.team_name || '' });
+  }
+  return [...known.values()].slice(0, 12);
+}
+function vsSuggestHost(input) {
+  let host = document.getElementById(input.id + 'Suggest');
+  if (host) return host;
+  host = document.createElement('div');
+  host.className = 'sg';
+  host.id = input.id + 'Suggest';
+  // Under the whole row the input sits in, so the chips get the full width.
+  const row = input.closest('.controls-row, .fav-add') || input;
+  row.parentNode.insertBefore(host, row.nextSibling);
+  return host;
+}
+function vsSuggestPick(inputId, number) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  const parts = input.value.split(',');
+  parts[parts.length - 1] = (parts.length > 1 ? ' ' : '') + number;
+  input.value = parts.join(',');
+  const host = document.getElementById(inputId + 'Suggest');
+  if (host) host.innerHTML = '';
+  // One team typed → go. A list being built in Scout → keep typing.
+  const run = VS_SUGGEST_INPUTS[inputId];
+  if (run && parts.length === 1) run();
+  else input.focus();
+}
+function vsSuggestInit() {
+  for (const id of Object.keys(VS_SUGGEST_INPUTS)) {
+    const input = document.getElementById(id);
+    if (!input) continue;
+    let timer = null, seq = 0;
+    input.addEventListener('input', () => {
+      clearTimeout(timer);
+      const mine = ++seq;
+      const host = vsSuggestHost(input);
+      const stem = vsSuggestStem(input.value);
+      if (!stem) { host.innerHTML = ''; return; }
+      timer = setTimeout(async () => {
+        let teams = [];
+        try { teams = await vsSuggestTeams(stem); } catch (e) { teams = []; }
+        // Typed on since → this answer is for a number nobody is asking about.
+        if (mine !== seq || vsSuggestStem(input.value) !== stem) return;
+        host.innerHTML = teams.map(t => {
+          const n = teamAttr(t.number.toUpperCase());
+          return `<button type="button" class="sg-chip" onclick="vsSuggestPick('${id}', '${n}')"><b>${n}</b>${t.team_name ? ` <span>${esc(t.team_name)}</span>` : ''}</button>`;
+        }).join('');
+      }, VS_SUGGEST_WAIT);
+    });
+  }
+}
+
+// ── Live alliance selection: tap to cross off ──────────────────────────────
+//
+// For a captain. The partner list is ranked once; during selection the only
+// thing that changes is who is GONE. So: tap a team when it is picked (or
+// declines), and the list is always "best still available", best first.
+// Kept per event on the device — a refresh mid-selection must not lose it.
+const VS_TAKEN_KEY = 'vex_taken';
+function vsTakenAll() {
+  try { const v = JSON.parse(lsGet(VS_TAKEN_KEY) || '{}'); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; }
+  catch (e) { return {}; }
+}
+function vsTaken(eventId) {
+  const list = vsTakenAll()[String(eventId)];
+  return Array.isArray(list) ? list.map(n => teamAttr(String(n || '').toUpperCase())).filter(Boolean) : [];
+}
+function vsTakenWrite(eventId, list) {
+  const all = vsTakenAll();
+  if (list.length) all[String(eventId)] = list; else delete all[String(eventId)];
+  // A handful of events at most: the oldest keys go first.
+  const keys = Object.keys(all);
+  for (const k of keys.slice(0, Math.max(0, keys.length - 12))) delete all[k];
+  lsSet(VS_TAKEN_KEY, JSON.stringify(all));
+}
+function tTakenToggle(number) {
+  const n = teamAttr(String(number || '').toUpperCase());
+  if (!n || !tournamentEventId) return;
+  const list = vsTaken(tournamentEventId);
+  const i = list.indexOf(n);
+  if (i === -1) list.push(n); else list.splice(i, 1);
+  vsTakenWrite(tournamentEventId, list);
+  renderTournamentPickList();
+}
+function tTakenReset() {
+  if (!tournamentEventId) return;
+  vsTakenWrite(tournamentEventId, []);
+  renderTournamentPickList();
+}
+// cands: [{ t, win }] best first, every team but the focused one.
+function tLivePickBlock(focus, cands, partnerForm) {
+  const taken = new Set(vsTaken(tournamentEventId));
+  const open = cands.filter(c => !taken.has(String(c.t.number).toUpperCase()));
+  const gone = cands.filter(c => taken.has(String(c.t.number).toUpperCase()));
+  const row = (c, i) => {
+    const f = partnerForm.get(String(c.t.id));
+    const n = teamAttr(c.t.number);
+    return `<div class="lp-row${i === 0 ? ' best' : ''}">
+      <div class="lp-main">
+        <div class="lp-top"><span class="mt-team" onclick="scoutTeam('${n}')">${esc(c.t.number)}</span><span class="lp-win">${c.win.toFixed(0)}%</span></div>
+        <div class="lp-meta">${i === 0 ? 'Best still available. ' : ''}Seed ${esc(c.t.eventRank)}, ${esc(c.t.wins)}–${esc(c.t.losses)}${c.t.ties ? '–' + esc(c.t.ties) : ''}${f && f.trend && f.trend !== 'steady' ? ', ' + T_FORM_LABEL[f.trend].toLowerCase() : ''}</div>
+      </div>
+      <button class="lp-take" onclick="tTakenToggle('${n}')" aria-label="Mark ${n} as taken">Taken</button>
+    </div>`;
+  };
+  return `<div class="detail-block-label">Best partners for ${esc(focus)}</div>
+    <div class="lp-help">During alliance selection, tap <strong>Taken</strong> as each team is picked or declines. The best team still available stays on top.</div>
+    <div class="lp-list">${open.slice(0, 12).map(row).join('') || '<div class="lp-help">Every team is marked taken.</div>'}</div>
+    ${gone.length ? `<div class="lp-gone"><span>Taken (tap to undo):</span>${gone.map(c =>
+      `<button class="lp-undo" onclick="tTakenToggle('${teamAttr(c.t.number)}')">${esc(c.t.number)}</button>`).join('')}<button class="lp-undo lp-reset" onclick="tTakenReset()">Clear all</button></div>` : ''}
+    <div class="sim-caveat">Win % is this pairing against an average alliance at this event, over 6,000 simulated matches. It is a ranking device, not a forecast.</div>`;
+}
+
+// ── An opponent's last match, one tap from your next one ───────────────────
+function tMatchSides(m) {
+  const al = m && m.alliances;
+  if (!al) return [null, null];
+  if (Array.isArray(al)) {
+    return [al.find(a => (a.color || '').toLowerCase() === 'red') || al[0],
+            al.find(a => (a.color || '').toLowerCase() === 'blue') || al[1]];
+  }
+  return [al.red || al.Red, al.blue || al.Blue];
+}
+function tLastPlayedMatch(R, teamId) {
+  let best = null, bestT = -1;
+  for (const m of ((R && R.matches) || [])) {
+    const [redA, blueA] = tMatchSides(m);
+    if (!redA || !blueA || !sim_matchPlayed(redA, blueA, m)) continue;
+    const on = [redA, blueA].some(a => (a.teams || []).some(t => String(t?.team?.id ?? t?.id ?? t) === String(teamId)));
+    if (!on) continue;
+    const t = sim_matchTime(m) || 0;
+    if (t > bestT || (t === bestT && best && (m.matchnum || 0) > (best.matchnum || 0)) || !best) { best = m; bestT = t; }
+  }
+  return best;
+}
+function tLastMatchButtons(R, oppIds) {
+  const ev = String(tournamentEventId == null ? '' : tournamentEventId).replace(/[^0-9]/g, '');
+  if (!ev) return '';
+  const btns = oppIds.map(id => {
+    const m = tLastPlayedMatch(R, id);
+    const num = teamAttr(R.numById[id] || '');
+    const mid = m ? String(m.id == null ? '' : m.id).replace(/[^0-9]/g, '') : '';
+    if (!m || !num || !mid) return '';
+    return `<button class="md-watch" onclick="jumpToMatch('${ev}', ${esc(JSON.stringify(tournamentEventName || ''))}, '${mid}', '${num}')">▶ Watch ${num}'s last match</button>`;
+  }).join('');
+  return btns ? `<div class="md-watch-row">${btns}</div>` : '';
+}
+
+// ── Swipe between an event's views ─────────────────────────────────────────
+const T_SWIPE_MIN = 70;
+function tSwipeViews() {
+  const order = ['teams', 'matches', 'skills', 'awards', 'bracket', 'picklist'];
+  if (tournamentFocusTeamNumber) order.push('team');
+  return order;
+}
+function tSwipeTarget(view, dir) {
+  const order = tSwipeViews();
+  const i = order.indexOf(view);
+  if (i === -1) return null;
+  return order[i + dir] || null;   // no wrap: the ends are ends
+}
+function tSwipeInit() {
+  const el = document.getElementById('tournamentResults');
+  if (!el || !('ontouchstart' in window)) return;
+  let x0 = null, y0 = 0;
+  el.addEventListener('touchstart', e => {
+    x0 = null;
+    if (!vsIsPhone() || !tournamentEventId || e.touches.length !== 1) return;
+    // Not from inside anything that scrolls sideways itself — the bracket, a
+    // wide table — and not from a control.
+    let n = e.target;
+    while (n && n !== el) {
+      if (n.scrollWidth > n.clientWidth + 4 && /(auto|scroll)/.test(getComputedStyle(n).overflowX)) return;
+      if (n.tagName === 'INPUT' || n.tagName === 'SELECT' || n.tagName === 'IFRAME') return;
+      n = n.parentNode;
+    }
+    x0 = e.touches[0].clientX; y0 = e.touches[0].clientY;
+  }, { passive: true });
+  el.addEventListener('touchend', e => {
+    if (x0 === null) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - x0, dy = t.clientY - y0;
+    x0 = null;
+    if (Math.abs(dx) < T_SWIPE_MIN || Math.abs(dx) < 2 * Math.abs(dy)) return;
+    const to = tSwipeTarget(tournamentView, dx < 0 ? 1 : -1);
+    if (to) { tournamentGo(to); window.scrollTo(0, 0); }
+  }, { passive: true });
+}
+
 // ── STATUS BADGE ──────────────────────────────
 function setBadge(connected) {
   const b = document.getElementById('statusBadge');
@@ -6294,18 +6680,12 @@ function vsAgo(ts) {
   return days + (days === 1 ? ' day ago' : ' days ago');
 }
 
-// Everything the Tournament tab reads for one event, fetched for real so the
-// bodies land in the store. The memo is deliberately bypassed — a memo hit
-// answers without a request, and a request is the entire point here.
-async function vsOfflineSave(eventId) {
-  const id = Number(eventId);
-  if (!id) return;
-  const btn = document.getElementById('tOfflineBtn');
-  const say = t => { if (btn) btn.textContent = t; };
-  if (btn) btn.disabled = true;
+// The requests themselves, with no opinion about what is on screen. Shared by
+// the button and by the automatic save for a favorite's event, so the two can
+// never save different things.
+async function vsOfflineFetchAll(id, teamId, onProgress) {
   vsOfflineCapture = { id, n: 0 };
   try {
-    say('SAVING…');
     const detail = await apiGet('/events', { 'id[]': [id] });
     const ev = detail[0] || {};
     const divisions = ev.divisions && ev.divisions.length ? ev.divisions : [{ id: 1 }];
@@ -6320,30 +6700,188 @@ async function vsOfflineSave(eventId) {
     }
     // The focused team's own schedule is its own endpoint, and it is the one
     // view most likely to be wanted with no signal.
-    if (tournamentFocusTeamId && String(tournamentEventId) === String(id)) {
-      jobs.push(() => apiGet(`/teams/${tournamentFocusTeamId}/matches`, { 'event[]': [id] }));
-    }
+    if (teamId) jobs.push(() => apiGet(`/teams/${teamId}/matches`, { 'event[]': [id] }));
     let done = 0;
     await sim_pool(jobs, async job => {
       try { await job(); } catch (e) {}
-      say(`SAVING… ${++done}/${jobs.length}`);
+      if (onProgress) onProgress(++done, jobs.length);
     }, sim_poolSize());
     // idbSet is fire-and-forget everywhere else; here the index entry is a
     // PROMISE that the pages are there, so give the transactions a moment.
     await new Promise(r => setTimeout(r, 60));
+    return { ev, calls: vsOfflineCapture.n };
+  } finally {
+    vsOfflineCapture = null;
+  }
+}
+
+// Everything the Tournament tab reads for one event, fetched for real so the
+// bodies land in the store. The memo is deliberately bypassed — a memo hit
+// answers without a request, and a request is the entire point here.
+async function vsOfflineSave(eventId) {
+  const id = Number(eventId);
+  if (!id) return;
+  if (vsOfflineCapture) return;   // one save at a time; the capture is global
+  const btn = document.getElementById('tOfflineBtn');
+  const say = t => { if (btn) btn.textContent = t; };
+  if (btn) btn.disabled = true;
+  try {
+    say('SAVING…');
+    const teamId = (tournamentFocusTeamId && String(tournamentEventId) === String(id)) ? tournamentFocusTeamId : null;
+    const { ev, calls } = await vsOfflineFetchAll(id, teamId, (done, n) => say(`SAVING… ${done}/${n}`));
     vsOfflineNote(id, {
       name: ev.name || tournamentEventName || `Event ${id}`,
-      sku: ev.sku || null, at: Date.now(), calls: vsOfflineCapture.n
+      sku: ev.sku || null, at: Date.now(), calls
     });
     showError('');
   } catch (e) {
     showError('⚠ Could not save this event: ' + e.message);
   } finally {
-    vsOfflineCapture = null;
     if (btn) btn.disabled = false;
     // Re-render through the view that is open, so the button becomes the badge.
     if (typeof tournamentView === 'string' && tournamentEventId) tournamentGo(tournamentView);
   }
+}
+
+// ── A favorite's event saves itself (v82) ──────────────────────────────────
+//
+// Asked for as "auto offline". The SAVE OFFLINE button only helps someone who
+// remembered to press it before walking into a gym with no signal, which is
+// the moment nobody remembers.
+//
+// So the event a favorite team is AT, or about to be at, is kept without being
+// asked. Bounded on every side, because this spends other people's data:
+//
+//   · only events near today — running, starting within three days, or ended
+//     yesterday (for the results). A season of events is not a thing to mirror;
+//   · only when the copy is stale — twenty minutes at a running event, six
+//     hours otherwise;
+//   · never on a connection that has asked for less (Save-Data), never offline;
+//   · at most three per visit, one at a time, and never over a save in flight.
+//
+// It asks RobotEvents only, so §3's YouTube quota is untouched.
+const VS_AUTO_OFFLINE_MAX = 3;
+let vsAutoOfflineCount = 0;
+const vsAutoOfflineQueue = [];
+let vsAutoOfflineBusy = false;
+function vsAutoOfflineWanted(ev) {
+  const w = tWhen(ev);
+  if (!w) return false;
+  const near = w.state === 'now' || (w.state === 'ahead' && w.days <= 3) || (w.state === 'past' && w.days <= 1);
+  if (!near) return false;
+  const saved = vsOfflineIndex()[String(ev.id)];
+  const age = saved ? Date.now() - (Number(saved.at) || 0) : Infinity;
+  return age > (w.state === 'now' ? 20 * 60000 : 6 * 3600000);
+}
+function vsAutoOfflineAllowed() {
+  try {
+    if (navigator.onLine === false) return false;
+    const c = navigator.connection;
+    if (c && c.saveData) return false;
+  } catch (e) {}
+  return true;
+}
+function vsAutoOffline(ev, teamId) {
+  if (!ev || ev.id == null || !vsAutoOfflineAllowed() || !vsAutoOfflineWanted(ev)) return false;
+  if (vsAutoOfflineCount >= VS_AUTO_OFFLINE_MAX) return false;
+  if (vsAutoOfflineQueue.some(j => String(j.ev.id) === String(ev.id))) return false;
+  vsAutoOfflineCount++;
+  vsAutoOfflineQueue.push({ ev, teamId });
+  vsAutoOfflineRun();
+  return true;
+}
+async function vsAutoOfflineRun() {
+  if (vsAutoOfflineBusy) return;
+  vsAutoOfflineBusy = true;
+  try {
+    while (vsAutoOfflineQueue.length) {
+      // Never over the top of a save somebody pressed the button for.
+      if (vsOfflineCapture) { await sleep(400); continue; }
+      const { ev, teamId } = vsAutoOfflineQueue[0];
+      try {
+        const got = await vsOfflineFetchAll(Number(ev.id), teamId, null);
+        // Nothing came back at all → the network went, and claiming the event
+        // is saved would be the one lie this feature must not tell.
+        if (got.calls > 0) {
+          vsOfflineNote(ev.id, { name: ev.name || `Event ${ev.id}`, sku: ev.sku || null, at: Date.now(), calls: got.calls, auto: true });
+          document.querySelectorAll(`[data-favsaved="${String(ev.id).replace(/[^0-9]/g, '')}"]`).forEach(el => { el.textContent = 'Saved for offline just now'; });
+        }
+      } catch (e) { vsNote('auto-offline', (ev.sku || ev.id) + ': ' + (e && e.message || e)); }
+      vsAutoOfflineQueue.shift();
+    }
+  } finally { vsAutoOfflineBusy = false; }
+}
+
+// ── Pull to refresh (v82) ──────────────────────────────────────────────────
+//
+// Each tab already knows how to load what it shows; this is the gesture for
+// asking again. What "again" means is per tab, and for the remembered answers
+// it means dropping them first — otherwise the pull would be answered from
+// memory and look like it did nothing.
+async function vsRefreshCurrent() {
+  const open = document.querySelector('.tab-btn.active');
+  const tab = (open && open.dataset.tab) || '';
+  apiFreshClear();
+  if (tab === 'favs') { favsRender(); return 'Updated'; }
+  if (tab === 'tournament' && tournamentEventId) {
+    tMemoDropLive();
+    tournamentMatchCache = null; tournamentTeamCache = null; tournamentSkillsCache = null;
+    await tournamentGo(tournamentView);
+    return 'Updated';
+  }
+  if (tab === 'scout' && document.getElementById('detailResults').innerHTML.trim()) { await runDetailedScout(); return 'Updated'; }
+  if (tab === 'rewatch' && window._rwCtx && window._rwCtx.eventId) { await rewatchSelectEvent(window._rwCtx.eventId); return 'Updated'; }
+  if (tab === 'skills' && document.getElementById('skillsTableWrap').innerHTML.trim()) { await loadSkillsRankings(); return 'Updated'; }
+  return 'Nothing to refresh here';
+}
+const VS_PTR_PULL = 80;   // px of finger travel that commits
+function vsPullToRefresh() {
+  if (!('ontouchstart' in window)) return;
+  const pill = document.createElement('div');
+  pill.className = 'ptr';
+  pill.setAttribute('role', 'status');
+  // First in the body, not last: the foot has to stay the last thing in it.
+  document.body.insertBefore(pill, document.body.firstChild);
+  let y0 = null, dy = 0, busy = false;
+  const place = d => { pill.style.transform = `translate(-50%, ${Math.min(d * 0.5, 64) - 36}px)`; };
+  const hide = () => { pill.classList.remove('show', 'pulling'); pill.style.transform = ''; };
+  document.addEventListener('touchstart', e => {
+    y0 = null; dy = 0;
+    if (busy || !vsIsPhone() || e.touches.length !== 1) return;
+    if ((window.scrollY || document.documentElement.scrollTop || 0) > 0) return;
+    // Not from inside something that scrolls on its own — a dropdown, the
+    // bracket — or the gesture would fire while scrolling THAT back to its top.
+    let el = e.target;
+    while (el && el !== document.body) {
+      if (el.scrollTop > 0 || (el.classList && (el.classList.contains('cs-list') || el.classList.contains('theme-dropdown')))) return;
+      el = el.parentNode;
+    }
+    y0 = e.touches[0].clientY;
+  }, { passive: true });
+  document.addEventListener('touchmove', e => {
+    if (y0 === null) return;
+    dy = e.touches[0].clientY - y0;
+    if (dy <= 8) { hide(); return; }
+    pill.classList.add('show', 'pulling');
+    pill.textContent = dy >= VS_PTR_PULL ? 'Release to refresh' : 'Pull to refresh';
+    place(dy);
+  }, { passive: true });
+  const end = async () => {
+    if (y0 === null) return;
+    const go = dy >= VS_PTR_PULL;
+    y0 = null; dy = 0;
+    if (!go) { hide(); return; }
+    busy = true;
+    pill.classList.remove('pulling');
+    pill.textContent = 'Refreshing…';
+    place(VS_PTR_PULL);
+    let said = 'Updated';
+    try { said = await vsRefreshCurrent(); } catch (e) { said = 'Could not refresh'; }
+    pill.textContent = said;
+    setTimeout(() => { hide(); busy = false; }, 900);
+  };
+  document.addEventListener('touchend', end, { passive: true });
+  document.addEventListener('touchcancel', () => { y0 = null; dy = 0; hide(); }, { passive: true });
 }
 
 // Forget one. The stored pages are left to expire on their own — finding every
@@ -8043,6 +8581,7 @@ async function renderEventTeamMatchesView() {
     }
     html += `<div class="md-exp-label">AGAINST</div>`;
     html += next.oppIds.map(id => md_teamBlock(id, R, profiles)).join('');
+    html += tLastMatchButtons(R, next.oppIds);
     if (next.win !== null && next.win !== undefined) {
       html += `<div class="md-win">
         <div class="md-win-label">Chance ${partners.length ? 'your alliance wins' : 'you win'} this match</div>
@@ -9260,6 +9799,7 @@ function tournamentNav(active) {
     ${btn('bracket', 'Bracket')}
     ${btn('picklist', 'Pick List')}
     ${tournamentFocusTeamNumber ? `<button class="t-nav-btn${active === 'team' ? ' active' : ''}" onclick="tournamentGo('team')">${esc(tournamentFocusTeamNumber)}</button>` : ''}
+    ${tournamentEventId ? `<button class="t-nav-btn t-more-btn" aria-expanded="false" onclick="tNavMore(this)">More</button>` : ''}
     ${tournamentEventId ? tOfflineButton(tournamentEventId) : ''}
     ${tournamentEventId ? reEventLink(tournamentEventId, tournamentEventSku) : ''}
   </div>`;
@@ -9272,6 +9812,16 @@ function tournamentNav(active) {
 // A real switch rather than a text link, because it is a setting, not a place
 // to go. Greyscale from the theme's own tokens, so it inherits every theme
 // instead of importing a colour of its own.
+// Phones only (the button is hidden above that width): shows the links that
+// leave the event. A class on the strip, so a re-render closes it again.
+function tNavMore(btn) {
+  const nav = btn && btn.parentNode;
+  if (!nav) return;
+  const open = nav.classList.toggle('more-open');
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  btn.textContent = open ? 'Less' : 'More';
+}
+
 function tPredSwitch() {
   return `<button class="t-switch" role="switch" aria-checked="${tShowPred ? 'true' : 'false'}"
       onclick="tTogglePred()"
@@ -9791,18 +10341,8 @@ async function renderTournamentPickList() {
       const cands = roster
         .filter(t => t.id !== you.id)
         .map(t => ({ t, win: pairWin(you, t) }))
-        .sort((a, b) => b.win - a.win)
-        .slice(0, 12);
-      if (cands.length) {
-        html += `<div class="detail-block-label">Best partners for ${esc(focus)}</div>
-          <div class="pk-list">${cands.map((c, i) => `<div class="pk-row">
-            <div class="pk-seed">${i + 1}</div>
-            <div class="pk-pair"><span class="mt-team" onclick="scoutTeam('${teamAttr(c.t.number)}')">${esc(c.t.number)}</span></div>
-            <div class="pk-meta">seed ${c.t.eventRank} · ${c.t.wins}–${c.t.losses}${c.t.ties ? '–' + c.t.ties : ''}${(f => f && f.trend && f.trend !== 'steady' ? ' · ' + T_FORM_LABEL[f.trend].toLowerCase() : '')(partnerForm.get(String(c.t.id)))}</div>
-            <div class="pk-win">${c.win.toFixed(0)}%</div>
-          </div>`).join('')}</div>
-          <div class="sim-caveat">Win % is this pairing against an average alliance at this event, over 6,000 simulated matches. It is a ranking device, not a forecast.</div>`;
-      }
+        .sort((a, b) => b.win - a.win);
+      if (cands.length) html += tLivePickBlock(focus, cands, partnerForm);
     }
   }
 
