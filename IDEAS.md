@@ -288,7 +288,7 @@ Same data, pointed at one match: your alliance's auton record against theirs,
 as a probability. It answers the question actually asked in the queue — do we
 run the AWP route or the safe one?
 
-## 26. Does this team fade?
+## ~~26. Does this team fade?~~ — built in v81 (PICK LIST ▸ Form at this event)
 
 Every match score, in time order, is loaded. Some teams start strong and drop
 after lunch (battery, driver fatigue, a part working loose); some climb all day.
@@ -298,7 +298,7 @@ the trend across the day.
 At 2pm on a Saturday, "they have dropped 15 points a match since Q20" changes
 who you pick and how you play them.
 
-## 27. Floor or ceiling
+## ~~27. Floor or ceiling~~ — built in v81, same table
 
 `consistency` and `highScore` are both computed already and shown as two
 unrelated rows. They are really one decision: a high floor wins qualification
@@ -369,6 +369,11 @@ Check first that the Jumper's `start=` seek still behaves — the nocookie host
 is meant to be a drop-in, but §3's history says verify rather than assume, and
 `RW_STREAM_LOGIC` does **not** need bumping for this (the matching logic is
 unchanged; only the host the matched video is played from).
+
+## 33. Favorites — built in v81
+
+Not on this list when it was written; asked for directly. Phones only. See
+HANDOFF §21.
 
 ---
 

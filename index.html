@@ -1968,6 +1968,308 @@
   .site-foot a { color: inherit; text-decoration: none; display: inline-block; padding: 8px 4px; }
   @media (hover: hover) { .site-foot a:hover { color: var(--text-dim); text-decoration: underline; } }
   .site-foot .foot-sep { margin: 0 8px; opacity: 0.5; }
+
+  /* Form at this event: seed, team, the line, the range, the tags. */
+  .fm-row { display: grid; grid-template-columns: 40px 78px 76px 70px 1fr; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--border); }
+  .fm-row:last-child { border-bottom: 0; }
+  .fm-row.mine { box-shadow: inset 3px 0 0 var(--accent-bright); padding-left: 8px; }
+  .fm-line { color: var(--text-dim); line-height: 0; }
+  .fm-range { font-family: var(--mono); font-size: 13px; color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .fm-tags { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+  @media (max-width: 560px) {
+    .fm-row { grid-template-columns: 36px 1fr 76px 64px; row-gap: 6px; }
+    .fm-tags { grid-column: 1 / -1; justify-content: flex-start; }
+  }
+
+  /* ════════════════════════════════════════════════════════════════
+     PHONES (v81)
+
+     Measured in Chromium at 390px before this block existed: 155 rules set
+     text at 11px or under (several at 7 and 8), the tab buttons were 27px
+     tall, the team numbers in a match row were a 12px-tall tap target, and the
+     search form filled the whole first screen so a team's rank started 640px
+     down the page. HANDOFF §21 has the numbers and the rules that follow.
+
+     Everything here is inside one width query, so a desktop window is
+     untouched. Nothing here sets a typeface — §"Chrome" forbids that.
+     ════════════════════════════════════════════════════════════════ */
+  .tab-ico { display: none; }
+  .tab-phone-only { display: none; }
+  .fav-star { display: none; }
+  .phone-find { display: none; }
+
+  @media (max-width: 720px) {
+    /* ── Bottom bar: every tab visible at once, under the thumb ── */
+    .tabs-nav {
+      position: fixed; left: 0; right: 0; bottom: 0; z-index: 99990;
+      display: grid; grid-template-columns: repeat(7, 1fr);
+      margin: 0; overflow: visible;
+      background: var(--bg); border-bottom: 0; border-top: 1px solid var(--border);
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+    .tab-btn, .tab-btn.tab-phone-only {
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+      min-width: 0; min-height: 56px; padding: 7px 0 6px;
+      font-size: 0; letter-spacing: 0; border-top: 2px solid transparent;
+    }
+    .tab-btn::after { content: attr(data-short); font-size: 10px; letter-spacing: 0.4px; line-height: 1; }
+    .tab-btn.active { border-top-color: var(--accent-bright); }
+    .tab-ico { display: block; order: -1; width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+    .tab-indicator { display: none; }
+    body { padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
+
+    /* ── Header: one short row instead of two tall ones ── */
+    header { padding: 10px 0 8px; }
+    .header-inner { flex-wrap: nowrap; gap: 10px; }
+    .logo-mark { width: 30px; height: 30px; }
+    .logo-mark svg { width: 16px; height: 16px; }
+    .logo-title { font-size: 18px; letter-spacing: 2px; }
+    .logo-sub { display: none; }
+    .header-right { width: auto; margin-left: auto; flex-wrap: nowrap; gap: 6px; }
+    .nav-history { margin: 2px 0 2px -8px; }
+    .nav-arrow { font-size: 18px; min-width: 44px; min-height: 40px; }
+    .section-label { margin-bottom: 10px; }
+
+    /* ── The search form gets out of the way once it has answered ──
+       .has-results is set by vsPhoneForms() when a tab's results panel fills.
+       The form is one tap away behind .phone-find; .show-controls puts it back. */
+    .tab-panel.has-results > .section-label,
+    .tab-panel.has-results > .section-label-row,
+    .tab-panel.has-results > .controls-row,
+    .tab-panel.has-results > .rw-or-row,
+    .tab-panel.has-results > .sim-hint,
+    .tab-panel.has-results > #rwEventPicker:empty { display: none; }
+    .tab-panel.has-results.show-controls > .section-label,
+    .tab-panel.has-results.show-controls > .rw-or-row,
+    .tab-panel.has-results.show-controls > .sim-hint { display: block; }
+    .tab-panel.has-results.show-controls > .controls-row,
+    .tab-panel.has-results.show-controls > .section-label-row { display: flex; }
+    .tab-panel.has-results > .phone-find {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      width: 100%; min-height: 44px; margin: 0 0 10px; padding: 0 12px;
+      background: var(--card); border: 0; color: var(--text-dim); cursor: pointer;
+      font-family: var(--mono); font-size: 13px; letter-spacing: 0.5px; text-align: left;
+    }
+    .phone-find b { color: var(--text); font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .phone-find span { flex: 0 0 auto; color: var(--accent-bright); font-size: 12px; letter-spacing: 1px; }
+
+    /* ── Nothing is set smaller than 11px. Generated from the sheet: every
+       rule that resolved under 12px at this width, lifted one step. ── */
+    .badge,
+    .btn-detail,
+    .es-sig,
+    .ev-filter-arrow,
+    .ev-filter-label,
+    .inf-mark,
+    .input-label,
+    .ladder-cell-label,
+    .ladder-title,
+    .logo-sub,
+    .match-alliance-label,
+    .match-pred,
+    .match-time,
+    .md-exp-label,
+    .md-stat-label,
+    .ov-label,
+    .rd-pos,
+    .rw-group-label,
+    .sched-tag,
+    .section-info,
+    .section-label,
+    .skill-label,
+    .skill-loc,
+    .stat-group-label,
+    .status-badge,
+    .t-match-div,
+    .t-skills-head,
+    .t-switch-label,
+    .theme-btn,
+    .theme-section-label,
+    .tournament-team-tag .tt-stat-label,
+    .tt-grade { font-size: 11px; }
+    .award-tag,
+    .btn-secondary,
+    .detail-block-label,
+    .detail-meta em,
+    .draft-btn,
+    .ev-filter-clear,
+    .ev-row-meta,
+    .ladder-cell-raw,
+    .match-num,
+    .match-play,
+    .match-vs,
+    .md-next-label,
+    .md-partner-label,
+    .md-row-time,
+    .md-stat-sub,
+    .md-updated,
+    .multi-select-btn,
+    .page-info,
+    .pk-meta,
+    .pk-mode-wrap::after,
+    .pk-size,
+    .rd-score,
+    .rw-auto-tag,
+    .rw-debug-head,
+    .rw-event-meta,
+    .rw-forget,
+    .rw-noclock,
+    .rw-nudge button,
+    .rw-nudge-btn,
+    .rw-or,
+    .rw-or-row,
+    .rw-seen,
+    .rw-shift-go,
+    .rw-step-at,
+    .select-wrap::after,
+    .sim-block-label,
+    .sim-event-pick-label,
+    .sim-ov-col-label,
+    .sim-tie-note,
+    .site-foot,
+    .skill-name,
+    .t-award-qual,
+    .t-match-name,
+    .t-match-side,
+    .t-match-side.won::after,
+    .t-nav-btn,
+    .t-nav-link,
+    .t-pending,
+    .team-location,
+    .tournament-list-label,
+    .tournament-meta,
+    .tournament-summary .btn,
+    input[type="text"].rw-shift-in { font-size: 12px; }
+    .btn,
+    .compare-notice,
+    .detail-pill,
+    .detail-robot,
+    .ev-attend-meta,
+    .ev-filter-bar,
+    .hint,
+    .info-bar,
+    .info-icon,
+    .ladder-loading,
+    .match-outcome,
+    .match-round-key,
+    .match-round-label,
+    .match-teams,
+    .md-drift,
+    .md-rankrow,
+    .md-tag,
+    .no-awards,
+    .pk-mode-sel,
+    .pk-note,
+    .radar-missing,
+    .robot-name,
+    .rw-anchor-tag,
+    .rw-auto-working,
+    .rw-cal-detail,
+    .rw-cal-ok,
+    .rw-check,
+    .rw-debug textarea,
+    .rw-fallback,
+    .rw-manual-label,
+    .rw-name,
+    .rw-nudge-label,
+    .rw-shift-cap,
+    .rw-teams,
+    .rw-watch,
+    .scout-all-disabled,
+    .sim-alliance-label,
+    .sim-chip,
+    .sim-event-item .ei-meta,
+    .sim-rating-head,
+    .sim-rating-row,
+    .sim-toggle,
+    .sim-winbar-names,
+    .skill-header-row,
+    .skill-row,
+    .stat-name,
+    .t-award-none,
+    .t-award-win,
+    .t-live,
+    .t-pre-label,
+    .theme-option,
+    .tournament-summary-count,
+    .tournament-team-tag .tt-stat,
+    .wl-display { font-size: 12.5px; }
+    /* Wide tracking is what makes a small label wrap; at this width it goes. */
+    .detail-block-label,
+    .md-next-label,
+    .sim-alliance-label,
+    .sim-block-label,
+    .theme-section-label { letter-spacing: 1.5px; }
+
+    /* ── A finger is 44px wide ── */
+    .btn, .draft-btn, .pk-size, .multi-select-btn, .rw-step-btn, .rw-watch,
+    .btn-detail, .rw-forget, .bracket-size-btn { min-height: 44px; }
+    .tournament-summary .btn { min-height: 40px; font-size: 12px; }
+    .theme-btn { min-height: 36px; padding-top: 0; padding-bottom: 0; }
+    .match-play { min-width: 44px; min-height: 40px; }
+    /* The numbers in a match row are links. Same place on screen, a target
+       three times the height: the padding is taken straight back as margin. */
+    .mt-team, .t-match-side span { display: inline-block; padding: 12px 5px; margin: -12px -5px; }
+    button, a, input, select, [onclick] { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+
+    /* ── The event's views: all of them on screen, none scrolled off the edge.
+       Was one sideways strip 709px wide in a 390px window. ── */
+    .t-nav { display: grid; grid-template-columns: repeat(4, 1fr); overflow: visible; }
+    .t-nav-btn { min-height: 44px; padding: 0 2px; font-size: 12px; letter-spacing: 0.3px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .t-nav-link, .t-nav-link:first-of-type { grid-column: span 2; margin-left: 0; min-height: 40px; display: flex; align-items: center; justify-content: center; font-size: 11px; }
+
+    /* Rank and record side by side — the two numbers this page is opened for
+       — instead of three full-width rows before the schedule starts. */
+    .md-headline .md-stat { flex: 1 1 40%; padding: 10px 12px; }
+    .md-headline .md-stat + .md-stat { border-top: 0; border-left: 1px solid var(--border); }
+    .md-headline .md-stat:nth-child(odd):last-child { flex-basis: 100%; border-left: 0; border-top: 1px solid var(--border); }
+    .md-headline .md-stat-value { font-size: 22px; }
+
+    /* The pairing's win chance belongs on the pairing's line. The row's meta
+       spans the last two columns, which pushed the number onto a third line
+       by itself, under the seed, where it read as belonging to nothing. */
+    .pk-row .pk-win { grid-column: 3; grid-row: 1; }
+
+    /* ── Smoothness. Two fixed full-screen layers sat over the page, one of
+       them ABOVE the content, so every scrolled frame was blended through a
+       scanline pattern. And every card in a long list animated in. ── */
+    body::after { display: none; }
+    body::before { position: absolute; }
+    body { transition: none; }
+    .tab-panel.active, .team-card, .tournament-team-tag, .match-row, .t-match-row, .skill-row { animation: none; }
+    .tournament-team-tag, .t-match-row, .skill-row, .t-skills-row, .rw-match { content-visibility: auto; contain-intrinsic-size: auto 64px; }
+
+    /* ── Favorites ── */
+    .fav-star {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-width: 44px; min-height: 44px; margin-left: 4px; padding: 0;
+      background: none; border: 0; cursor: pointer; vertical-align: middle;
+      color: var(--text-muted); font-size: 24px; line-height: 1;
+    }
+    .fav-star.on { color: var(--accent-bright); }
+  }
+
+  /* The favorites tab itself. Reachable only from the phone bar, but styled at
+     any width so a narrow desktop window dragged wider does not fall apart. */
+  .fav-add { display: flex; gap: 8px; margin-bottom: 14px; }
+  .fav-add input { flex: 1; min-width: 0; }
+  .fav-add .btn { width: auto; flex: 0 0 auto; }
+  .fav-empty { font-family: var(--body); font-size: 15px; line-height: 1.5; color: var(--text-dim); padding: 6px 0 20px; }
+  .fav-card { background: var(--card); padding: 14px 14px 12px; margin-bottom: 10px; }
+  .fav-top { display: flex; align-items: baseline; gap: 10px; }
+  .fav-num { font-family: var(--display); font-size: 26px; font-weight: 700; letter-spacing: 1px; color: var(--text); line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .fav-name { flex: 1; min-width: 0; font-family: var(--body); font-size: 15px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fav-x { flex: 0 0 auto; min-width: 40px; min-height: 40px; margin: -8px -8px -8px 0; background: none; border: 0; color: var(--text-muted); font-size: 18px; cursor: pointer; }
+  .fav-now { font-family: var(--body); font-size: 14px; line-height: 1.5; color: var(--text-dim); margin: 6px 0 2px; min-height: 21px; }
+  .fav-now strong { color: var(--text); font-weight: 600; }
+  .fav-rank { font-family: var(--display); font-size: 20px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; margin: 4px 0 0; }
+  .fav-rank small { font-family: var(--mono); font-size: 12px; font-weight: 400; color: var(--text-muted); margin-left: 8px; }
+  .fav-acts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 12px; }
+  .fav-act { min-height: 46px; padding: 0 2px; background: var(--card2); border: 1px solid var(--border); color: var(--text); cursor: pointer; font-family: var(--display); font-size: 12px; font-weight: 600; letter-spacing: 0.8px; }
+  .fav-act.primary { border-color: var(--accent); color: var(--accent-bright); }
+  .fav-events { margin-top: 10px; }
+  .fav-ev { display: block; width: 100%; text-align: left; background: none; border: 0; border-top: 1px solid var(--border); padding: 11px 0; cursor: pointer; color: var(--text); font-family: var(--body); font-size: 15px; line-height: 1.5; }
+  .fav-ev small { display: block; font-family: var(--mono); font-size: 12px; color: var(--text-muted); }
 </style>
 </head>
 <body class="theme-dark-grey">
@@ -2067,12 +2369,13 @@
 
   <!-- Tab navigation -->
   <div class="tabs-nav">
-    <button class="tab-btn active" data-tab="scout" onclick="switchTab('scout')">SCOUT</button>
-    <button class="tab-btn" data-tab="skills" onclick="switchTab('skills')">SKILLS RANKINGS</button>
-    <button class="tab-btn" data-tab="tournament" onclick="switchTab('tournament')">TOURNAMENT</button>
-    <button class="tab-btn" data-tab="rewatch" onclick="switchTab('rewatch')">JUMPER</button>
-    <button class="tab-btn" data-tab="simulator" onclick="switchTab('simulator')">SIMULATOR</button>
-    <button class="tab-btn" data-tab="info" onclick="switchTab('info')">INFO</button>
+    <button class="tab-btn tab-phone-only" data-short="FAVS" data-tab="favs" onclick="switchTab('favs')">FAVORITES<svg class="tab-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3.5l2.6 5.3 5.9.9-4.2 4.1 1 5.8L12 16.9 6.700 19.6l1-5.8-4.200-4.100 5.900-.900z"/></svg></button>
+    <button class="tab-btn active" data-short="SCOUT" data-tab="scout" onclick="switchTab('scout')">SCOUT<svg class="tab-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.500 4.500"/></svg></button>
+    <button class="tab-btn" data-short="SKILLS" data-tab="skills" onclick="switchTab('skills')">SKILLS RANKINGS<svg class="tab-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 20V10M12 20V4M19 20v-7"/></svg></button>
+    <button class="tab-btn" data-short="EVENT" data-tab="tournament" onclick="switchTab('tournament')">TOURNAMENT<svg class="tab-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 4h10v5a5 5 0 0 1-10 0zM7 6H4v1a3 3 0 0 0 3 3M17 6h3v1a3 3 0 0 1-3 3M12 14v4M8.500 20h7"/></svg></button>
+    <button class="tab-btn" data-short="JUMPER" data-tab="rewatch" onclick="switchTab('rewatch')">JUMPER<svg class="tab-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3.500" y="5.500" width="17" height="13" rx="1.500"/><path d="M10 9.500v5l4.500-2.500z"/></svg></button>
+    <button class="tab-btn" data-short="FINDER" data-tab="simulator" onclick="switchTab('simulator')">SIMULATOR<svg class="tab-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 19l5-6 4 3 7-9"/><path d="M16 7h4v4"/></svg></button>
+    <button class="tab-btn" data-short="INFO" data-tab="info" onclick="switchTab('info')">INFO<svg class="tab-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.500"/><path d="M12 11v5.500M12 7.600v.200"/></svg></button>
     <div class="tab-indicator" id="tabIndicator"></div>
   </div>
 
@@ -2252,6 +2555,15 @@
       <div class="loading" id="escoutLoading"><div class="loading-spinner"></div>
         <div class="loading-text" id="escoutLoadingText">FINDING EVENTS...</div></div>
       <div id="escoutResults"></div>
+  </section>
+  <!-- ═══════════ FAVORITES (phones) ═══════════ -->
+  <section class="search-section tab-panel" id="tab-favs">
+    <div class="section-label">Favorites</div>
+    <div class="fav-add">
+      <input type="text" id="favAddInput" placeholder="Add a team, e.g. 66449A" autocomplete="off" autocapitalize="characters" enterkeyhint="done">
+      <button class="btn btn-primary" onclick="favAddFromInput()">ADD</button>
+    </div>
+    <div id="favsResults"></div>
   </section>
   <!-- ═══════════ INFO ═══════════ -->
   <section class="search-section tab-panel" id="tab-info">
@@ -2790,7 +3102,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v80';
+const APP_BUILD = 'v81';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -3951,7 +4263,7 @@ function rwMemoed(key, fn) {
   if (!(key in rwMemo)) rwMemo[key] = fn().catch(e => { delete rwMemo[key]; throw e; });
   return rwMemo[key];
 }
-const rwEventDetail = eventId => rwMemoed('ev', () => apiGet('/events', { 'id[]': [eventId] }));
+const rwEventDetail = eventId => rwMemoed('ev', () => vsEventRecord(eventId));
 // Every division's matches, fetched once and shared by both callers.
 const rwAllDivisionMatches = eventId => rwMemoed('divm', async () => {
   const evd = await rwEventDetail(eventId);
@@ -4133,6 +4445,9 @@ async function rewatchSelectEvent(eventId) {
     'Jumper — ' + ((ctx.events.find(e => String(e.id) === String(eventId)) || {}).name || 'event'),
     () => rewatchSelectEvent(eventId));
   const metaLoaded = rwRecordEventMeta(eventId);
+  // Every division's matches are needed a few lines down, for the day anchors.
+  // Asked for now so they travel WITH the team's own matches instead of after.
+  rwAllDivisionMatches(eventId).catch(() => null);
   const loading = document.getElementById('rwLoading');
   const status = t => { const el = document.getElementById('rwLoadingText'); if (el) el.textContent = t; };
   loading.classList.add('active');
@@ -5523,6 +5838,16 @@ window.onload = () => {
       switchTab(savedTab);
     }
   });
+  // On a phone with favorites saved, that is the first screen: one tap from
+  // there to a team's schedule. Without any, the tab you used last still wins —
+  // an empty favorites list is not somewhere anyone asked to be taken.
+  bootStep('phone forms', vsPhoneForms);
+  bootStep('favorites', () => {
+    favsRender();
+    const add = document.getElementById('favAddInput');
+    if (add) add.addEventListener('keydown', e => { if (e.key === 'Enter') favAddFromInput(); });
+    if (vsIsPhone() && vsFavs().length) switchTab('favs');
+  });
   // Whatever tab you land on is the first place you have been, so the arrow
   // can bring you back to it. Without this the tab showing at load was absent
   // from the stack and unreachable by going back.
@@ -5574,6 +5899,7 @@ window.onload = () => {
   });
 };
 
+
 // ── THEME ─────────────────────────────────────
 function toggleThemeMenu() {
   document.getElementById('themeDropdown').classList.toggle('open');
@@ -5599,6 +5925,277 @@ function applyTheme(name) {
 
   document.getElementById('themeDropdown').classList.remove('open');
   lsSet('vex_theme', name);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PHONES (v81) — favorites, and a search form that gets out of the way
+//
+// Reported as: "info isn't something I can attain almost instantly — I have to
+// go through a hassle of steps to even get to my team match schedule."
+//
+// Counted before this existed: open the app, tap TOURNAMENT, type the team
+// number, tap FIND EVENT, wait, pick the event from a list, wait, then scroll
+// 640px past the search form to reach the rank. Seven actions and two waits
+// for the one screen a team opens the app for.
+//
+// A favorite is that whole walk kept as one tap. Phones only, on purpose: it
+// was asked for that way, and on a desktop the search box is already on screen
+// next to its results.
+// ═══════════════════════════════════════════════════════════════
+const VS_FAVS_KEY = 'vex_favs';
+const VS_FAVS_MAX = 24;
+function vsIsPhone() {
+  try { return !!(window.matchMedia && window.matchMedia('(max-width: 720px)').matches); } catch (e) { return false; }
+}
+function vsFavs() {
+  try {
+    const v = JSON.parse(lsGet(VS_FAVS_KEY) || '[]');
+    // teamAttr on the way OUT as well as in: this is a stored string that ends
+    // up inside inline handlers, and storage can be edited by hand.
+    return Array.isArray(v) ? v.map(n => teamAttr(String(n || '').toUpperCase())).filter(Boolean).slice(0, VS_FAVS_MAX) : [];
+  } catch (e) { return []; }
+}
+function vsFavHas(num) { return vsFavs().includes(teamAttr(String(num || '').toUpperCase())); }
+function vsFavSet(num, on) {
+  const n = teamAttr(String(num || '').toUpperCase());
+  if (!n) return;
+  let list = vsFavs().filter(x => x !== n);
+  if (on) list.push(n);
+  lsSet(VS_FAVS_KEY, JSON.stringify(list.slice(-VS_FAVS_MAX)));
+  // Every star on screen for this team, wherever it was drawn.
+  document.querySelectorAll('.fav-star').forEach(b => {
+    if (b.dataset.fav === n) { b.classList.toggle('on', !!on); b.setAttribute('aria-pressed', on ? 'true' : 'false'); b.textContent = on ? '★' : '☆'; }
+  });
+  favsRender();
+}
+function vsFavToggle(num) { vsFavSet(num, !vsFavHas(num)); }
+// The star, for any view that names a team. Hidden by the stylesheet above
+// phone width, so views can include it without asking what they are drawn on.
+function favStar(num) {
+  const n = teamAttr(String(num || '').toUpperCase());
+  if (!n) return '';
+  const on = vsFavHas(n);
+  return `<button class="fav-star${on ? ' on' : ''}" data-fav="${n}" aria-pressed="${on}" aria-label="Favorite ${n}" onclick="event.stopPropagation();vsFavToggle('${n}')">${on ? '★' : '☆'}</button>`;
+}
+
+function favSeasonId() {
+  for (const id of ['tournamentSeasonSelect', 'detailSeasonSelect', 'rwSeasonSelect']) {
+    const el = document.getElementById(id);
+    if (el && el.value) return el.value;
+  }
+  return null;
+}
+// Which of a team's events is "the" one right now: the one running, else the
+// next one coming, else the last one played. Calendar days, per §18.
+function favPickEvent(events) {
+  let now = null, next = null, last = null;
+  for (const ev of (events || [])) {
+    const w = tWhen(ev); if (!w) continue;
+    const sk = evDayKey(ev.start);
+    if (w.state === 'now') { if (!now || sk < evDayKey(now.start)) now = ev; }
+    else if (w.state === 'ahead') { if (!next || sk < evDayKey(next.start)) next = ev; }
+    else if (!last || sk > evDayKey(last.start)) last = ev;
+  }
+  return now || next || last || null;
+}
+async function favTeamEvents(team) {
+  const seasonId = favSeasonId();
+  const events = await apiGet(`/teams/${team.id}/events`, seasonId ? { 'season[]': [seasonId] } : {});
+  return events.sort((a, b) => String(b.start || '').localeCompare(String(a.start || '')));
+}
+
+async function favAddFromInput() {
+  const el = document.getElementById('favAddInput');
+  const num = teamAttr(String((el && el.value) || '').trim().toUpperCase());
+  if (!num) { showError('⚠ Enter a team number.'); return; }
+  showError('');
+  try {
+    await sim_resolveTeamCached(num);   // a favorite that does not exist helps nobody
+    if (el) el.value = '';
+    vsFavSet(num, true);
+  } catch (e) { showError('⚠ ' + e.message); }
+}
+
+const favOpenEvents = new Set();   // numbers whose event list is expanded
+let favsRenderSeq = 0;
+function favsRender() {
+  const host = document.getElementById('favsResults');
+  if (!host) return;
+  // Only while it is the tab on screen. A star tapped in Scout must not send
+  // the hidden favorites list off to refetch every team's rank.
+  const panel = document.getElementById('tab-favs');
+  if (!panel || !panel.classList.contains('active')) return;
+  const seq = ++favsRenderSeq;
+  const list = vsFavs();
+  if (!list.length) {
+    host.innerHTML = `<div class="fav-empty">No favorites yet. Add your own team above, or tap the ☆ next to any team's number in Scout or at an event. Each favorite gets one-tap buttons for its schedule, stats, events and match video.</div>`;
+    return;
+  }
+  host.innerHTML = list.map(n => `
+    <div class="fav-card" data-favcard="${n}">
+      <div class="fav-top">
+        <div class="fav-num">${n}</div>
+        <div class="fav-name" data-favname="${n}"></div>
+        <button class="fav-x" aria-label="Remove ${n} from favorites" onclick="vsFavSet('${n}', false)">✕</button>
+      </div>
+      <div class="fav-now" data-favnow="${n}">Loading…</div>
+      <div data-favrank="${n}"></div>
+      <div class="fav-acts">
+        <button class="fav-act primary" onclick="favGo('${n}', 'schedule')">SCHEDULE</button>
+        <button class="fav-act" onclick="favGo('${n}', 'stats')">STATS</button>
+        <button class="fav-act" onclick="favToggleEvents('${n}')">EVENTS</button>
+        <button class="fav-act" onclick="favGo('${n}', 'watch')">WATCH</button>
+      </div>
+      <div class="fav-events" data-favevents="${n}"></div>
+    </div>`).join('');
+  // Fill each card as its own answers land; one slow team holds up nobody.
+  for (const n of list) favFill(n, seq).catch(() => {});
+}
+async function favFill(n, seq) {
+  const q = sel => document.querySelector(`[${sel}="${n}"]`);
+  const live = () => seq === favsRenderSeq;
+  let team;
+  try { team = await sim_resolveTeamCached(n); }
+  catch (e) { if (live() && q('data-favnow')) q('data-favnow').textContent = 'Could not load this team right now.'; return; }
+  if (!live()) return;
+  if (q('data-favname')) q('data-favname').textContent = team.team_name || '';
+  let events = [];
+  try { events = await favTeamEvents(team); } catch (e) {}
+  if (!live()) return;
+  const ev = favPickEvent(events);
+  const nowEl = q('data-favnow');
+  if (nowEl) {
+    if (!ev) nowEl.textContent = 'No events this season yet.';
+    else {
+      const w = tWhen(ev);
+      nowEl.innerHTML = `<strong>${esc(ev.name || 'Event')}</strong><br>${esc(w.label)} · ${esc(w.dates)}`;
+    }
+  }
+  if (favOpenEvents.has(n)) favDrawEvents(n, team, events);
+  // Rank and record, for an event that has started. An event still ahead has
+  // neither, and asking would be a request spent on an empty answer.
+  if (!ev || tWhen(ev).state === 'ahead') return;
+  const divs = ev.divisions && ev.divisions.length ? ev.divisions : [{ id: 1 }];
+  let best = null;
+  await Promise.all(divs.map(async d => {
+    try {
+      const ranks = await apiGet(`/events/${ev.id}/divisions/${d.id}/rankings`);
+      for (const r of ranks) {
+        if (String(r.team?.id) !== String(team.id)) continue;
+        const played = (r.wins || 0) + (r.losses || 0) + (r.ties || 0);
+        if (!best || played > best.played) best = { r, played, total: ranks.length };
+      }
+    } catch (e) {}
+  }));
+  const rankEl = q('data-favrank');
+  if (live() && rankEl && best && best.r.rank) {
+    const r = best.r;
+    rankEl.innerHTML = `<div class="fav-rank">#${esc(r.rank)} <span style="color:var(--text-muted);font-weight:400;">/ ${esc(best.total)}</span><small>${esc(r.wins || 0)}–${esc(r.losses || 0)}–${esc(r.ties || 0)}</small></div>`;
+  }
+}
+function favDrawEvents(n, team, events) {
+  const host = document.querySelector(`[data-favevents="${n}"]`);
+  if (!host) return;
+  if (!events.length) { host.innerHTML = `<div class="fav-now">No events this season yet.</div>`; return; }
+  host.innerHTML = events.slice(0, 30).map(fe => `
+    <button class="fav-ev" onclick="favOpenEvent('${n}', ${teamAttr(fe.id)})">${esc(fe.name || 'Unnamed')}
+      <small>${evDate(fe.start)} · ${esc((tWhen(fe) || {}).label || '')}</small></button>`).join('');
+}
+async function favToggleEvents(n) {
+  const host = document.querySelector(`[data-favevents="${n}"]`);
+  if (favOpenEvents.has(n)) { favOpenEvents.delete(n); if (host) host.innerHTML = ''; return; }
+  favOpenEvents.add(n);
+  if (host) host.innerHTML = `<div class="fav-now">Loading…</div>`;
+  try {
+    const team = await sim_resolveTeamCached(n);
+    favDrawEvents(n, team, await favTeamEvents(team));
+  } catch (e) { if (host) host.innerHTML = `<div class="fav-now">Could not load events right now.</div>`; }
+}
+// A team's page at one event: rank and record on top, the whole schedule under.
+async function favOpenEvent(n, eventId) {
+  try {
+    const team = await sim_resolveTeamCached(n);
+    const ev = (await vsEventRecord(eventId))[0];
+    if (!ev) throw new Error('That event could not be loaded.');
+    switchTab('tournament');
+    const input = document.getElementById('tournamentInput');
+    if (input) input.value = n;
+    setSelectValue(document.getElementById('tournamentGradeSelect'), gradeOfTeam(team));
+    await loadTournamentTeams(ev.id, ev.name || 'Event', team.id, n, ev.sku);
+  } catch (e) { showError('⚠ ' + e.message); }
+}
+async function favGo(n, where) {
+  showError('');
+  try {
+    const team = await sim_resolveTeamCached(n);
+    if (where === 'stats') {
+      switchTab('scout');
+      document.getElementById('detailTeamInput').value = n;
+      setSelectValue(document.getElementById('detailGradeSelect'), gradeOfTeam(team));
+      return runDetailedScout();
+    }
+    if (where === 'watch') {
+      switchTab('rewatch');
+      document.getElementById('rwTeamInput').value = n;
+      return rewatchLoadTeam();
+    }
+    const ev = favPickEvent(await favTeamEvents(team));
+    if (!ev) { showError(`⚠ ${n} has no events this season yet.`); return; }
+    return favOpenEvent(n, ev.id);
+  } catch (e) { showError('⚠ ' + e.message); }
+}
+
+// ── The search form steps aside once it has answered ──
+//
+// On a phone the form above each tab's results is a whole screen tall. Once
+// there ARE results it is in the way, so the section is marked and the
+// stylesheet folds the form behind one row that says what was searched.
+// Watching the results panels, rather than hooking every function that fills
+// one, means a new view needs nothing added here.
+const VS_PHONE_PANELS = { scout: ['detailResults', 'detailTeamInput'], skills: ['skillsTableWrap', null],
+  tournament: ['tournamentResults', 'tournamentInput'], rewatch: ['rwResults', 'rwTeamInput'],
+  simulator: ['escoutResults', 'simEscoutYou'] };
+function vsPhoneFormSync(tab) {
+  const [panelId, inputId] = VS_PHONE_PANELS[tab] || [];
+  const panel = document.getElementById(panelId || '');
+  const section = document.getElementById('tab-' + tab);
+  if (!panel || !section) return;
+  const has = !!panel.innerHTML.trim();
+  if (has && !section.classList.contains('has-results')) section.classList.remove('show-controls');
+  section.classList.toggle('has-results', has);
+  if (!has) section.classList.remove('show-controls');
+  const find = section.querySelector('.phone-find');
+  if (find) {
+    const input = document.getElementById(inputId || '');
+    const what = (input && input.value.trim()) || (document.getElementById('rwEventInput') && tab === 'rewatch' && document.getElementById('rwEventInput').value.trim()) || 'Search';
+    find.firstElementChild.textContent = what;
+    find.lastElementChild.textContent = section.classList.contains('show-controls') ? 'HIDE' : 'CHANGE';
+  }
+}
+function vsPhoneFormToggle(tab) {
+  const section = document.getElementById('tab-' + tab);
+  if (!section) return;
+  section.classList.toggle('show-controls');
+  vsPhoneFormSync(tab);
+}
+function vsPhoneForms() {
+  for (const tab of Object.keys(VS_PHONE_PANELS)) {
+    const section = document.getElementById('tab-' + tab);
+    const panel = document.getElementById(VS_PHONE_PANELS[tab][0]);
+    if (!section || !panel) continue;
+    if (!section.querySelector('.phone-find')) {
+      const b = document.createElement('button');
+      b.className = 'phone-find';
+      b.type = 'button';
+      b.innerHTML = '<b></b><span>CHANGE</span>';
+      b.addEventListener('click', () => vsPhoneFormToggle(tab));
+      section.insertBefore(b, section.firstChild);
+    }
+    if (typeof MutationObserver === 'function') {
+      new MutationObserver(() => vsPhoneFormSync(tab)).observe(panel, { childList: true });
+    }
+    vsPhoneFormSync(tab);
+  }
 }
 
 // ── STATUS BADGE ──────────────────────────────
@@ -5758,7 +6355,140 @@ function vsOfflineForget(eventId) {
   if (typeof tournamentView === 'string' && tournamentEventId) tournamentGo(tournamentView);
 }
 
+// ── Round trips nobody needs to pay twice (v81) ────────────────────────────
+//
+// Measured with a fixed delay per request: looking up a team you had looked up
+// thirty seconds ago cost the same six requests, three deep, as the first
+// time. The proxy caches all of them, so the ANSWERS were free — but a round
+// trip on venue wifi is the whole cost, and the client paid it every time.
+//
+// Three layers, each for data that does not move while you watch:
+//
+//   apiFresh       answers held in memory for a short while, and shared while
+//                  IN FLIGHT, so two views asking at once make one request.
+//                  Every lifetime here is at or under the proxy's own TTL for
+//                  that path (ttlFor in api/proxy.js), so nothing on screen is
+//                  staler than it already could be.
+//   vex_team_ids   a team NUMBER resolved to its record, kept on the device.
+//                  Every lookup starts by turning "66449A" into an id, which
+//                  was a whole round trip before anything useful could start.
+//   vsKnownEvents  event records seen in any list, so opening one of them does
+//                  not ask for the record it was just handed.
+//
+// What is deliberately NOT here: an event's matches and rankings. Those are
+// the live half, the Tournament memo owns them, and a refresh must refetch.
+const API_FRESH_RULES = [
+  [/^\/teams$/, 10 * 60000],
+  [/^\/teams\/\d+\/(matches|skills|rankings|awards|events)$/, 2 * 60000],
+  [/^\/events$/, 5 * 60000],
+  [/^\/events\/\d+\/teams$/, 5 * 60000]
+];
+const API_FRESH_MAX = 160;
+const apiFresh = new Map();   // endpoint?qs → { at, ttl, p }
+function apiFreshTtl(endpoint) {
+  for (const [re, ttl] of API_FRESH_RULES) if (re.test(endpoint)) return ttl;
+  return 0;
+}
+function apiFreshClear() { apiFresh.clear(); }
+
+const VS_TEAM_IDS_KEY = 'vex_team_ids';
+const VS_TEAM_IDS_TTL = 3 * 24 * 3600000;
+const VS_TEAM_IDS_MAX = 80;
+let vsTeamIdsMem = null;
+function vsTeamIds() {
+  if (!vsTeamIdsMem) {
+    try { vsTeamIdsMem = JSON.parse(lsGet(VS_TEAM_IDS_KEY) || '{}') || {}; } catch (e) { vsTeamIdsMem = {}; }
+  }
+  return vsTeamIdsMem;
+}
+// Only a lookup of ONE number in ONE programme — the shape every "find this
+// team" path sends. Anything broader is a search, and is not remembered.
+function vsTeamIdKey(endpoint, params) {
+  if (endpoint !== '/teams') return null;
+  const n = params['number[]'], pr = params['program[]'];
+  if (!Array.isArray(n) || n.length !== 1 || !Array.isArray(pr) || pr.length !== 1) return null;
+  if (Object.keys(params).some(k => k !== 'number[]' && k !== 'program[]' && k !== 'per_page')) return null;
+  return String(n[0]).toUpperCase() + '|' + pr[0];
+}
+function vsTeamIdGet(key) {
+  const hit = vsTeamIds()[key];
+  return (hit && hit.team && hit.team.id != null && Date.now() - hit.at < VS_TEAM_IDS_TTL) ? hit.team : null;
+}
+function vsTeamIdPut(key, team) {
+  const all = vsTeamIds();
+  all[key] = { at: Date.now(), team };
+  const keys = Object.keys(all);
+  if (keys.length > VS_TEAM_IDS_MAX) {
+    keys.sort((a, b) => (all[a].at || 0) - (all[b].at || 0));
+    for (const k of keys.slice(0, keys.length - VS_TEAM_IDS_MAX)) delete all[k];
+  }
+  lsSet(VS_TEAM_IDS_KEY, JSON.stringify(all));
+}
+
+const VS_KNOWN_EVENT_TTL = 10 * 60000;
+const vsKnownEvents = new Map();   // id → { at, ev }
+function vsKnownEventNote(list) {
+  for (const ev of (list || [])) {
+    // Only a full record: the ones nested inside a match carry an id and a name
+    // and nothing else, and answering "what divisions does this event have"
+    // from one of those would be answering with nothing.
+    if (ev && ev.id != null && ev.sku && ev.start && Array.isArray(ev.divisions)) {
+      vsKnownEvents.set(String(ev.id), { at: Date.now(), ev });
+    }
+  }
+  if (vsKnownEvents.size > 400) {
+    for (const k of [...vsKnownEvents.keys()].slice(0, vsKnownEvents.size - 400)) vsKnownEvents.delete(k);
+  }
+}
+function vsKnownEvent(eventId) {
+  const hit = vsKnownEvents.get(String(eventId));
+  return (hit && Date.now() - hit.at < VS_KNOWN_EVENT_TTL) ? hit.ev : null;
+}
+// The event's own record: from a list it already appeared in, else the API.
+async function vsEventRecord(eventId) {
+  const known = vsKnownEvent(eventId);
+  if (known) return [known];
+  return apiGet('/events', { 'id[]': [eventId] });
+}
+
 async function apiGet(endpoint, params = {}) {
+  // A save for offline exists to MAKE requests, so it goes around all of this.
+  if (vsOfflineCapture) return apiGetLive(endpoint, params);
+
+  const teamKey = vsTeamIdKey(endpoint, params);
+  if (teamKey) {
+    const team = vsTeamIdGet(teamKey);
+    if (team) return [team];
+  }
+
+  const ttl = apiFreshTtl(endpoint);
+  let key = null;
+  if (ttl) {
+    const kqs = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => {
+      if (k === 'per_page') return;
+      if (Array.isArray(v)) v.forEach(val => kqs.append(k, val)); else kqs.set(k, v);
+    });
+    key = endpoint + '?' + kqs.toString();
+    const hit = apiFresh.get(key);
+    // A copy of the array, never the array: callers sort what they are given.
+    if (hit && Date.now() - hit.at < hit.ttl) return (await hit.p).slice();
+  }
+
+  const p = apiGetLive(endpoint, params);
+  if (key) {
+    apiFresh.set(key, { at: Date.now(), ttl, p });
+    // A failure is not an answer. Dropped so the next ask tries again.
+    p.catch(() => { if (apiFresh.get(key) && apiFresh.get(key).p === p) apiFresh.delete(key); });
+    if (apiFresh.size > API_FRESH_MAX) apiFresh.delete(apiFresh.keys().next().value);
+  }
+  const results = await p;
+  if (teamKey && results.length === 1) vsTeamIdPut(teamKey, results[0]);
+  if (endpoint === '/events' || /^\/teams\/\d+\/events$/.test(endpoint)) vsKnownEventNote(results);
+  return key ? results.slice() : results;
+}
+
+async function apiGetLive(endpoint, params = {}) {
   // Build path with query string
   const qs = new URLSearchParams();
   params.per_page = 250;
@@ -6736,7 +7466,7 @@ function scoutSelectedSkills() {
 }
 
 const TAB_LABELS = { scout: 'Scout', skills: 'Skills Rankings', tournament: 'Tournament',
-  rewatch: 'Jumper', simulator: 'Simulator', info: 'Info' };
+  rewatch: 'Jumper', simulator: 'Simulator', info: 'Info', favs: 'Favorites' };
 
 // The results area each tab fills in. Going back to a tab you found EMPTY has
 // to leave it empty, or the press does nothing visible: Tournament → search →
@@ -6792,7 +7522,7 @@ function tMemoDropLive() {
   try { _evCache.delete(Number(tMemoKey)); _evCache.delete(tMemoKey); } catch (e) {}
 }
 
-const tEventDetail = eventId => tMemoed(eventId, 'ev', () => apiGet('/events', { 'id[]': [eventId] }));
+const tEventDetail = eventId => tMemoed(eventId, 'ev', () => vsEventRecord(eventId));
 const tEventTeams = eventId => tMemoed(eventId, 'teams', () => apiGet(`/events/${eventId}/teams`));
 const tEventAwards = eventId => tMemoed(eventId, 'awards', () => apiGet(`/events/${eventId}/awards`));
 const tDivRankings = (eventId, divId) =>
@@ -7059,16 +7789,23 @@ async function renderEventTeamMatchesView() {
     if (evs.length) event = evs[0];
   } catch (e) {}
 
+  // Rankings — one call per division rather than per team.
+  //
+  // Asked for BEFORE the ratings are awaited, not after: the ratings walk every
+  // division's matches, and the rankings waited for all of that to land before
+  // they were even requested. They share nothing, so they share the wait.
+  const divisions = event.divisions && event.divisions.length ? event.divisions : [{ id: 1 }];
+  const ranksByDiv = divisions.map(div => tDivRankings(event.id, div.id).catch(() => null));
+
   let R = null;
   try { R = await sim_buildRatingsFromEvent(event, setStatus); } catch (e) { R = null; }
 
-  // Rankings — one call per division rather than per team
   setStatus('LOADING RANKINGS...');
   let focusRank = null;
-  const divisions = event.divisions && event.divisions.length ? event.divisions : [{ id: 1 }];
-  await sim_pool(divisions, async div => {
+  await sim_pool(divisions, async (div, di) => {
     try {
-      const ranks = await tDivRankings(event.id, div.id);
+      const ranks = await ranksByDiv[di];
+      if (!ranks) return;
       for (const r of ranks) {
         if (String(r.team?.id) !== teamId) continue;
         const played = (r.wins || 0) + (r.losses || 0) + (r.ties || 0);
@@ -7203,7 +7940,7 @@ async function renderEventTeamMatchesView() {
   let html = `
     <div class="tournament-summary">
       <div class="tournament-summary-name">${esc(tournamentEventName)}</div>
-      <div class="tournament-summary-count">Matches for <span style="color:var(--accent-bright);font-weight:700;">${esc(tournamentFocusTeamNumber)}</span></div>
+      <div class="tournament-summary-count">Matches for <span style="color:var(--accent-bright);font-weight:700;">${esc(tournamentFocusTeamNumber)}</span>${favStar(tournamentFocusTeamNumber)}</div>
       <div class="tournament-summary-actions">
             ${tPredSwitch()}
         <button class="btn btn-primary" onclick="scoutTeam('${teamAttr(tournamentFocusTeamNumber)}')">SCOUT ${esc(tournamentFocusTeamNumber)}</button>
@@ -8087,6 +8824,17 @@ async function loadAndRenderTeamList() {
   loadingText.textContent = `LOADING TEAMS FROM ${eventName}...`;
 
   try {
+    // Everything this view reads, asked for at once. The skills boards used to
+    // wait for the roster and the rankings for the skills boards — three round
+    // trips end to end for three things that do not depend on each other. Which
+    // board is WANTED still depends on the roster's grades, so both are warmed
+    // (they are cached on the device, and the other views want them anyway).
+    const seasonIdEarly = document.getElementById('tournamentSeasonSelect')?.value;
+    if (seasonIdEarly) {
+      getFullSeasonSkills(seasonIdEarly, 'High School').catch(() => null);
+      getFullSeasonSkills(seasonIdEarly, 'Middle School').catch(() => null);
+    }
+    tDivisions(eventId).then(divs => { for (const d of divs) tDivRankings(eventId, d.id).catch(() => null); }).catch(() => null);
     const teams = await tEventTeams(eventId);
 
     // An event that runs BOTH grades shows both, tagged MS/HS on each card.
@@ -8803,6 +9551,138 @@ function tProjectAlliances(seeds, R, size) {
   return { alliances: out, unpicked: left };
 }
 
+
+// ═══════════════════════════════════════════════════════════════
+// FORM AT THIS EVENT (v81) — trend, floor and ceiling
+//
+// IDEAS §26 and §27. The pick list ranks teams by one number, their rating,
+// and a rating is an average: it cannot tell a team that has scored 100 every
+// match from one that opened at 130 and is now putting up 70. At 2pm on a
+// Saturday those are different picks.
+//
+// Everything here is read from the event's own qualification matches, which
+// the ratings already loaded — no request is made for it.
+//
+// What the numbers ARE, because §12's rule applies: these are ALLIANCE scores.
+// RobotEvents does not publish what one robot scored, so a team's line is the
+// scores of the alliances it was on. Partners move it. The caveat under the
+// table says so, and nothing here should be worded as a robot's own output.
+// ═══════════════════════════════════════════════════════════════
+const T_FORM_MIN = 4;          // fewer scored quals than this and nothing is claimed
+const T_FORM_DRIFT = 0.15;     // fitted first→last change, as a share of the mean
+function tQuantile(sorted, q) {
+  if (!sorted.length) return null;
+  const pos = (sorted.length - 1) * q, lo = Math.floor(pos), hi = Math.ceil(pos);
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
+}
+// `scores` in the order they were played.
+function tFormOf(scores) {
+  const xs = (scores || []).filter(v => typeof v === 'number' && Number.isFinite(v));
+  const n = xs.length;
+  if (!n) return { n: 0, mean: null, floor: null, ceil: null, cv: null, drift: null, trend: null, kind: null, scores: [] };
+  const mean = xs.reduce((a, b) => a + b, 0) / n;
+  const sorted = xs.slice().sort((a, b) => a - b);
+  const out = { n, mean, floor: tQuantile(sorted, 0.25), ceil: tQuantile(sorted, 0.75),
+    cv: null, drift: null, trend: null, kind: null, scores: xs };
+  if (n < T_FORM_MIN || mean <= 0) return out;
+  const sd = Math.sqrt(xs.reduce((a, b) => a + (b - mean) * (b - mean), 0) / n);
+  out.cv = sd / mean;
+  // Least squares over match order. The fitted line's rise from the first
+  // match to the last, as a share of the mean, is the drift: it uses every
+  // match, where "last three against first three" would turn on one bad game.
+  const mx = (n - 1) / 2;
+  let num = 0, den = 0;
+  xs.forEach((y, i) => { num += (i - mx) * (y - mean); den += (i - mx) * (i - mx); });
+  const slope = den ? num / den : 0;
+  out.drift = slope * (n - 1) / mean;
+  out.trend = out.drift >= T_FORM_DRIFT ? 'improving' : out.drift <= -T_FORM_DRIFT ? 'fading' : 'steady';
+  // Floor or ceiling: one decision, said as the choice it is. A tight band is
+  // a team you can count on in qualification; a wide one is a team whose best
+  // day wins an elimination and whose worst loses one.
+  out.kind = out.cv <= 0.2 ? 'floor' : out.cv >= 0.35 ? 'ceiling' : null;
+  return out;
+}
+// Every team's qualification scores at the open event, in played order.
+function tFormByTeam(R) {
+  const byId = new Map();
+  const ms = ((R && R.matches) || []).filter(m => m && m.round === 2)
+    .slice().sort((a, b) => (sim_matchTime(a) || 0) - (sim_matchTime(b) || 0) || (a.matchnum || 0) - (b.matchnum || 0));
+  for (const m of ms) {
+    const al = m.alliances; if (!al) continue;
+    let redA, blueA;
+    if (Array.isArray(al)) {
+      redA = al.find(a => (a.color || '').toLowerCase() === 'red') || al[0];
+      blueA = al.find(a => (a.color || '').toLowerCase() === 'blue') || al[1];
+    } else { redA = al.red || al.Red; blueA = al.blue || al.Blue; }
+    if (!redA || !blueA || !sim_matchPlayed(redA, blueA, m)) continue;
+    for (const a of [redA, blueA]) {
+      for (const t of (a.teams || [])) {
+        const id = String(t?.team?.id ?? t?.id ?? t);
+        if (!byId.has(id)) byId.set(id, []);
+        byId.get(id).push(a.score ?? 0);
+      }
+    }
+  }
+  const out = new Map();
+  for (const [id, scores] of byId) out.set(id, tFormOf(scores));
+  return out;
+}
+const T_FORM_LABEL = { improving: 'Improving', steady: 'Steady', fading: 'Fading' };
+function tFormTag(f) {
+  if (!f || !f.trend) return '';
+  const cls = f.trend === 'improving' ? 'str' : f.trend === 'fading' ? 'weak' : 'note';
+  const arrow = f.trend === 'improving' ? '↗' : f.trend === 'fading' ? '↘' : '→';
+  return `<span class="md-tag ${cls}">${arrow} ${T_FORM_LABEL[f.trend]}</span>`;
+}
+function tFormKindTag(f) {
+  if (!f || !f.kind) return '';
+  return `<span class="md-tag note">${f.kind === 'floor' ? 'Floor pick' : 'Ceiling pick'}</span>`;
+}
+// The scores as a line. No axis: it is read for its shape, and the numbers
+// that matter are printed beside it.
+function tFormSpark(f) {
+  const xs = (f && f.scores) || [];
+  if (xs.length < 2) return '';
+  const lo = Math.min(...xs), hi = Math.max(...xs), span = hi - lo || 1;
+  const W = 72, H = 22, pad = 2;
+  const pts = xs.map((y, i) =>
+    `${(pad + i * (W - 2 * pad) / (xs.length - 1)).toFixed(1)},${(H - pad - (y - lo) * (H - 2 * pad) / span).toFixed(1)}`).join(' ');
+  return `<svg class="fm-spark" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" aria-hidden="true" focusable="false"><polyline points="${pts}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+}
+let tFormSort = 'trend';
+function tSetFormSort(k) { tFormSort = ['trend', 'floor', 'ceiling', 'rank'].includes(k) ? k : 'trend'; renderTournamentPickList(); }
+function tFormBlock(R, roster, focus) {
+  const forms = tFormByTeam(R);
+  const rows = roster.map(t => ({ t, f: forms.get(String(t.id)) || tFormOf([]) })).filter(r => r.f.n > 0);
+  if (!rows.length) return '';
+  const val = { trend: r => r.f.drift, floor: r => r.f.floor, ceiling: r => r.f.ceil, rank: r => -r.t.eventRank };
+  const key = val[tFormSort] || val.trend;
+  // Teams with too few matches to have a trend sink to the bottom of the
+  // trend sort instead of sitting in the middle as if they were "steady".
+  rows.sort((a, b) => {
+    const av = key(a), bv = key(b);
+    if (av == null && bv == null) return a.t.eventRank - b.t.eventRank;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    return bv - av || a.t.eventRank - b.t.eventRank;
+  });
+  const btn = (k, label) => `<button class="pk-size${tFormSort === k ? ' active' : ''}" onclick="tSetFormSort('${k}')">${label}</button>`;
+  const few = rows.filter(r => !r.f.trend).length;
+  return `<div class="detail-block-label">Form at this event</div>
+    <div class="pk-sizes">${btn('trend', 'Trend')}${btn('floor', 'Floor')}${btn('ceiling', 'Ceiling')}${btn('rank', 'Seed')}
+      <span class="pk-note">Sorted by ${tFormSort === 'trend' ? 'who is improving most' : tFormSort === 'floor' ? 'highest usual low score' : tFormSort === 'ceiling' ? 'highest usual high score' : 'seed'}.</span></div>
+    <div class="pk-list fm-list">${rows.map(r => {
+      const f = r.f, mine = String(r.t.number).toUpperCase() === focus;
+      return `<div class="fm-row${mine ? ' mine' : ''}">
+        <div class="pk-seed">#${esc(r.t.eventRank)}</div>
+        <div class="pk-pair"><span class="mt-team" onclick="scoutTeam('${teamAttr(r.t.number)}')">${esc(r.t.number)}</span></div>
+        <div class="fm-line">${tFormSpark(f)}</div>
+        <div class="fm-range">${Math.round(f.floor)}–${Math.round(f.ceil)}</div>
+        <div class="fm-tags">${f.trend ? tFormTag(f) + tFormKindTag(f) : `<span class="md-tag note">${f.n} played</span>`}</div>
+      </div>`; }).join('')}</div>
+    <div class="sim-caveat">The range is each team's usual low to usual high <strong>alliance</strong> score in qualification here (the middle half of its matches), and the line is those scores in the order they were played. RobotEvents does not publish one robot's score, so partners move every number on this list. A trend needs ${T_FORM_MIN} scored matches${few ? `; ${few} team${few === 1 ? ' has' : 's have'} fewer so far` : ''}. A <strong>floor pick</strong> scores in a tight band; a <strong>ceiling pick</strong> swings, with a best day well above its usual.</div>`;
+}
+
 async function renderTournamentPickList() {
   tournamentView = 'picklist';
   const resultsEl = document.getElementById('tournamentResults');
@@ -8907,6 +9787,7 @@ async function renderTournamentPickList() {
     // Best partners still available to the focused team.
     const you = roster.find(t => String(t.number).toUpperCase() === focus);
     if (you) {
+      const partnerForm = tFormByTeam(R);
       const cands = roster
         .filter(t => t.id !== you.id)
         .map(t => ({ t, win: pairWin(you, t) }))
@@ -8917,13 +9798,15 @@ async function renderTournamentPickList() {
           <div class="pk-list">${cands.map((c, i) => `<div class="pk-row">
             <div class="pk-seed">${i + 1}</div>
             <div class="pk-pair"><span class="mt-team" onclick="scoutTeam('${teamAttr(c.t.number)}')">${esc(c.t.number)}</span></div>
-            <div class="pk-meta">seed ${c.t.eventRank} · ${c.t.wins}–${c.t.losses}${c.t.ties ? '–' + c.t.ties : ''}</div>
+            <div class="pk-meta">seed ${c.t.eventRank} · ${c.t.wins}–${c.t.losses}${c.t.ties ? '–' + c.t.ties : ''}${(f => f && f.trend && f.trend !== 'steady' ? ' · ' + T_FORM_LABEL[f.trend].toLowerCase() : '')(partnerForm.get(String(c.t.id)))}</div>
             <div class="pk-win">${c.win.toFixed(0)}%</div>
           </div>`).join('')}</div>
           <div class="sim-caveat">Win % is this pairing against an average alliance at this event, over 6,000 simulated matches. It is a ranking device, not a forecast.</div>`;
       }
     }
   }
+
+  html += tFormBlock(R, seeds, focus);
 
   resultsEl.innerHTML = html;
   enhanceAllSelects();
@@ -9253,6 +10136,8 @@ async function renderTournamentSkills() {
     loadingEl.classList.add('active');
     if (loadingText) loadingText.textContent = 'LOADING EVENT SKILLS...';
     try {
+      // The rolldown below reads the awards; ask now so the two share a wait.
+      if (!tournamentAwardsCache) tEventAwards(tournamentEventId).catch(() => null);
       tournamentSkillsCache = await apiGet(`/events/${tournamentEventId}/skills`);
     } catch (e) {
       tournamentSkillsCache = [];
@@ -9578,6 +10463,7 @@ function switchTab(tabName) {
   // Show the selected panel
   const target = document.getElementById('tab-' + tabName);
   if (target) target.classList.add('active');
+  if (tabName === 'favs') favsRender();
   // Update tab button styles
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   const btn = document.querySelector('.tab-btn[data-tab="' + tabName + '"]');
@@ -9661,6 +10547,10 @@ async function scoutTeams() {
 // card and the full Scout page so the two can never disagree.
 async function gatherTeamData(teamNumber, seasonId, gradeLevel = 'High School') {
   // Search V5RC first (program 1), then fall back to VEX U (program 4) for university teams
+  // The season skills board does not depend on which team this is, and it is
+  // the slowest thing on the card — so it starts NOW, alongside the lookup,
+  // rather than a round trip later.
+  const seasonSkillsP = seasonId ? getFullSeasonSkills(seasonId, gradeLevel).catch(() => null) : Promise.resolve(null);
   let teams = await apiGet('/teams', { 'number[]': [teamNumber], 'program[]': [1] });
   if (!teams.length) {
     teams = await apiGet('/teams', { 'number[]': [teamNumber], 'program[]': [4] });
@@ -9671,13 +10561,19 @@ async function gatherTeamData(teamNumber, seasonId, gradeLevel = 'High School') 
   const params = { 'team[]': [teamId] };
   if (seasonId) params['season[]'] = [seasonId];
 
-  // Fetch all team data + global skills rankings in parallel
-  const [allMatches, skills, rankings, awards, seasonSkills] = await Promise.all([
+  // Fetch all team data + global skills rankings in parallel.
+  //
+  // The team's EVENTS ride along too. The event list below needs each event's
+  // SKU, date and region, and used to ask for them only after the matches had
+  // come back and named the events — a third round trip, end to end, for
+  // something that could be asked for by team from the start.
+  const [allMatches, skills, rankings, awards, seasonSkills, teamEvents] = await Promise.all([
     apiGet(`/teams/${teamId}/matches`, params),
     apiGet(`/teams/${teamId}/skills`, params),
     apiGet(`/teams/${teamId}/rankings`, params),
     apiGet(`/teams/${teamId}/awards`, params),
-    seasonId ? getFullSeasonSkills(seasonId, gradeLevel).catch(() => null) : Promise.resolve(null)
+    seasonSkillsP,
+    apiGet(`/teams/${teamId}/events`, seasonId ? { 'season[]': [seasonId] } : {}).catch(() => [])
   ]);
 
   const matches = allMatches.filter(m => m.round !== 1);
@@ -9889,9 +10785,15 @@ async function gatherTeamData(teamNumber, seasonId, gradeLevel = 'High School') 
   // event list can show SKU, date and region.
   if (eventsList.length) {
     try {
-      const full = await apiGet('/events', { 'id[]': eventsList.map(e => e.id) });
       const byId = {};
-      for (const e of full) byId[e.id] = e;
+      for (const e of (teamEvents || [])) if (e && e.id != null) byId[e.id] = e;
+      // Anything the team's own event list did not carry — it should carry all
+      // of them — is still fetched, so the list never loses a date it had.
+      const missing = eventsList.filter(e => !byId[e.id]).map(e => e.id);
+      if (missing.length) {
+        const full = await apiGet('/events', { 'id[]': missing });
+        for (const e of full) byId[e.id] = e;
+      }
       eventsList = eventsList.map(e => {
         const f = byId[e.id];
         if (f) vsDateNote('scout:' + (f.sku || f.id), f.start, f.end);
@@ -10535,7 +11437,7 @@ function renderDetailedTeam(d, eventFilter) {
   // ── Header ──
   let html = `
     <div class="detail-head">
-      <div class="detail-number">${esc(t.number)}</div>
+      <div class="detail-number">${esc(t.number)}${favStar(t.number)}</div>
       <div class="detail-name">${esc(t.team_name || '—')}</div>
       ${t.robot_name ? `<div class="detail-robot">⬡ ${esc(t.robot_name)}</div>` : ''}
     </div>
@@ -11041,7 +11943,7 @@ async function sim_buildRatingsFromEventUncached(event, setStatus) {
       for (const dm of divMatches) if (dm) dm.__div = div.id;
       return divMatches;
     } catch (e) { return []; }
-  }, 5);
+  }, 10);
   for (const list of divLists) allMatches.push(...list);
   if (setStatus) setStatus('COMPUTING RATINGS...');
   await sleep(20);

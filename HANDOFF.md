@@ -5,7 +5,8 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v19**. Everything green: 25 test files, 316 assertions.
+Current release: **v81**. Everything green: 65 test files. (The `v19` in §8's
+example output is an example; the number in the three files is what counts.)
 
 ---
 
@@ -394,6 +395,9 @@ proxy is at `api/proxy.js`.
 | t99 | **The service worker always answers** — the four paths that could reject inside respondWith |
 | t100 | **The v75 sweep** — every view poisoned, every site named, and the two blanket guards |
 | t101 | **The INFO tab** — the trailer loads once, pauses on leaving, resumes on return |
+| t102 | **An event's dates are dates** — §18, driven in another timezone and guarded statically |
+| t103 | **The week before an event** — §19 |
+| t104 | **v81** — round trips, the phone layout, favorites (incl. a poisoned list), and form at an event — §21 |
 | sanity | CSS braces balance, inline JS parses, tabs present |
 | tool_sanity | Same for anchor-tool.html |
 
@@ -1724,7 +1728,155 @@ has a real order to find.
 
 ---
 
-## 20. Feature ideas
+## 21. v81 — speed, phones, favorites, form
+
+Asked for as: *"help improve speed … team lookup, event pages, Jumper video
+finding"*, *"more mobile compatibility"* (iPhone), favorites, and trend and
+consistency for alliance picks. Each was **measured first**; the numbers are
+here so the next pass has something to compare against.
+
+### Round trips
+
+Measured in Chromium with a fixed 300ms on every `/api/proxy` request, so
+elapsed ÷ 300 is how many requests ran **end to end** — which on venue wifi is
+the whole cost (§"Round trips").
+
+| walk | v80 | v81 |
+| --- | --- | --- |
+| Scout a team, first time | 3 deep | 2 deep |
+| Scout the same team again | 3 deep, 6 requests | **0 requests** |
+| Tournament: search a team number | 2 deep | 1 (0 once the number is known) |
+| Tournament: open the event from that list | 3 deep | 1 deep |
+| ▸ Teams | 2 deep | 1 deep |
+| ▸ Skills | 2 deep | 1 deep |
+| Jumper: find a team's events | 2 deep | 0 after any lookup of that team |
+| Jumper: select the event | 3 deep | 2 deep (matches, then the stream search) |
+
+Three things did it, all beside `apiGet`:
+
+- **`apiFresh`** — answers kept in memory briefly, and shared while in flight.
+  Only for paths that do not move while you watch (`API_FRESH_RULES`), and
+  every lifetime is **at or under the proxy's own `ttlFor`** for that path, so
+  nothing is staler than it already could be. **An event's matches and rankings
+  are deliberately absent** — the Tournament memo owns the live half, and a
+  refresh has to be able to refetch. Do not add them. A failed request is
+  dropped, not remembered. Answers are handed out as a **copy of the array**,
+  because callers sort what they are given.
+- **`vex_team_ids`** — a team number resolved to its record, kept in
+  localStorage for three days (80 teams, oldest out). Every walk in the app
+  starts by turning `66449A` into an id; that was a full round trip before
+  anything useful could begin. Only the exact one-number, one-programme lookup
+  is remembered. The privacy page says so — t95's rule.
+- **`vsKnownEvents`** — any FULL event record seen in a list (it must carry a
+  SKU, a start and divisions; the stub nested in a match does not count).
+  `tEventDetail` and `rwEventDetail` both read through `vsEventRecord`, so
+  opening an event you just picked from a list does not ask for the record you
+  were just handed.
+
+The rest was ordering: the season skills board now starts **with** the team
+lookup instead of after it; a team's events ride with its matches instead of
+being asked for by id afterwards; rankings are requested before the ratings
+are awaited; the Teams view warms both skills boards and the rankings while the
+roster loads; the Jumper asks for every division's matches alongside the
+team's own.
+
+`vsOfflineSave` goes around all of it (`apiGetLive`) — a save exists to make
+requests.
+
+**Not done, and why:** the Jumper's stream search still starts after the
+matches land. It is gated on which days still need an anchor, which is what
+keeps §3's quota alive, and the days come from the matches. Starting it early
+would mean spending 101 units before knowing whether anything is missing.
+
+### Phones
+
+Measured at 390px before: **155 rules** set text at 11px or under (several at 7
+and 8); tab buttons were 27px tall and scrolled off the right edge; the event
+sub-navigation was 709px wide; a team number in a match row was a 12px-tall
+target; and the search form filled the first screen, so a team's rank began
+640px down the page.
+
+One block at the end of the stylesheet, inside one `max-width: 720px` query, so
+**a desktop window is untouched**:
+
+- **The tabs are a bar fixed to the bottom**, seven across, with an icon and a
+  short label (`data-short`, drawn by `::after`; the button's own text is
+  unchanged, which is what t101 and the screen readers see). The icon comes
+  AFTER the label in the markup and is ordered first by the stylesheet, because
+  t101 matches `onclick="switchTab('info')">INFO<`.
+- **The search form folds away once it has answered.** `vsPhoneForms()` watches
+  each tab's results panel with a `MutationObserver` and marks the section
+  `has-results`; the stylesheet then hides the form behind one row
+  (`.phone-find`) that says what was searched. Watching the panels, rather than
+  hooking every function that fills one, means a new view needs nothing added.
+  A new TAB does: add it to `VS_PHONE_PANELS`.
+- **Nothing is under 11px.** The three long selector lists were generated from
+  the sheet — every rule that resolved under 12px at this width, lifted one
+  step. Add a small label and it needs adding there; t104 fails if the phone
+  block itself sets anything smaller (the bar's 10px label is the one
+  exemption). The bracket was left alone: it is a diagram that scrolls, and
+  its arithmetic is tight.
+- **44px targets**, and the team numbers in a match row get theirs by padding
+  taken straight back as negative margin, so nothing moves.
+- **The event's views are a 4-column grid**, all on screen.
+- **Rank and record sit side by side.**
+- **Smoothness:** `body::after` — a full-screen fixed scanline layer ABOVE the
+  content — is off on phones, the gradient layer scrolls with the page instead
+  of being fixed, list rows do not animate in, and long lists use
+  `content-visibility: auto`.
+
+§"Chrome" still holds: no typeface changes. t104 asserts it.
+
+jsdom has no layout (§7), so the layout half of this was checked in Chromium at
+390px, every view: 0 elements past the right edge, against 2–6 per view before.
+
+### Favorites
+
+Reported as: *"I have to go through a hassle of steps to even get to my team
+match schedule."* Counted: seven actions and two waits.
+
+`vex_favs` is a list of team numbers. The **FAVS** tab (first in the bar) shows
+a card per team — name, the event that matters right now, when it is, rank and
+record if it has started — and four buttons: **SCHEDULE** (the team's page at
+that event), **STATS** (Scout), **EVENTS** (the season, each one tap from its
+page), **WATCH** (Jumper). A ☆ beside a team's number in Scout and on its event
+page adds or removes it.
+
+- **"The event that matters"** is `favPickEvent`: the one running, else the
+  next one coming, else the last one played — on calendar days, through
+  `tWhen` (§18).
+- **Phones only, on purpose** — asked for that way. The tab button and every
+  star are `display: none` above 720px, and `favs` is not in the list of tabs
+  the boot will restore. On a phone **with favorites saved**, it is the opening
+  screen; with none, the last tab still wins.
+- **A favorite is a stored string that reaches inline handlers.** `vsFavs()`
+  narrows every value with `teamAttr` on the way OUT as well as in, because
+  storage can be edited by hand. t104 boots with a poisoned list.
+- `favsRender()` does nothing unless the tab is on screen, so a star tapped in
+  Scout does not send a hidden list off to refetch every team's rank.
+
+There is deliberately **no default team** — that was the answer when asked.
+
+### Form at an event (IDEAS §26, §27)
+
+`TOURNAMENT ▸ PICK LIST` ends with a table: each ranked team's qualification
+scores as a line, its usual range, and two tags.
+
+- **Trend** — least squares over match order; the fitted rise from first match
+  to last as a share of the mean (`T_FORM_DRIFT`, 15%). It uses every match,
+  so one bad game does not make a team "fading". Under `T_FORM_MIN` (4) scored
+  matches nothing is claimed.
+- **Floor / ceiling** — the 25th to 75th percentile, and a tag from the spread:
+  a tight band is a floor pick, a wide one a ceiling pick.
+
+**These are ALLIANCE scores**, and the caveat under the table says so. The API
+does not publish what one robot scored (IDEAS, "what it does not give"), so
+partners move every number. Do not reword any of it as a robot's own output.
+No request is made for it: it reads `R.matches`, which the ratings loaded.
+
+---
+
+## 22. Feature ideas
 
 `IDEAS.md` holds the list of things worth building next, with what each one
 would cost against what already exists. It also records three things **not** to
