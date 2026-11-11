@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v84**. Everything green: 65 test files. (The `v19` in §8's
+Current release: **v85**. Everything green: 65 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -401,6 +401,7 @@ proxy is at `api/proxy.js`.
 | t105 | **v82** — suggestions, live picks, last match, swipe, pull to refresh, automatic offline, the softer look — §22 |
 | t106 | **v83** — Settings, my team, the version badge, season-wide suggestions, active/inactive, the Jumper's shift and late-match estimate, row alignment, the computer layout — §23 |
 | t107 | **v84** — autonomous points in the event rating — §24 |
+| t108 | **v85** — what you need to move up, the season line, the My team page, play all — §25 |
 | sanity | CSS braces balance, inline JS parses, tabs present |
 | tool_sanity | Same for anchor-tool.html |
 
@@ -2080,7 +2081,34 @@ the live pick list.
 
 ---
 
-## 25. Feature ideas
+## 25. v85 — move up, the season line, My team, play all
+
+- **What you need to move up** (`tClimb`, `tClimbNote`) — on a team's event
+  page while it has qualification matches left, and on the My team page at a
+  running event. Rankings sort WP, AP, SP; a win is 2 WP. It compares your
+  record after ONE more win with everyone else's **as it stands**, and the
+  sentence says so, because the teams around you have matches left too (§12).
+  The autonomous win point is deliberately not counted. Rankings with no `wp`
+  column say nothing.
+- **Season so far** (`seasonChart`) — one line, one axis: qualification win
+  rate at each event, in date order. Win rate and not rank, because rank
+  depends on how many teams came. Only the two ends are labelled; each dot has
+  a `<title>` with the event, record and rank; the events are listed under it,
+  which is the table view. Fewer than two events draws nothing. The classes are
+  `ssn-*` — t88 guards the old `sc-*` names of a chart that was removed.
+- **My team** (`homeRender`, tab `home`) — computers only (`.tab-desk-only`),
+  and where the app opens on a computer with a team set. Event, rank and
+  record, the climb note, season record and skills, the season line, and the
+  ways in. Phones keep Favorites, which shows the same team first.
+- **Play all my matches** (`rwPlayAllStart`) — the embed is a plain iframe, so
+  the page cannot hear a video end: each match gets `RW_PLAYALL_SEC` (180s)
+  and then the next opens. The timer checks the event and match are still the
+  ones it was armed for; the countdown edits its own text and never
+  re-renders, which would reload the video. ‹ and › keep it going.
+
+---
+
+## 26. Feature ideas
 
 `IDEAS.md` holds the list of things worth building next, with what each one
 would cost against what already exists. It also records three things **not** to
