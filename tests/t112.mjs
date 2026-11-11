@@ -58,6 +58,17 @@ console.log('\n· what gets watched');
   ok('at the Jumper\'s own position', q[0].off === 100 && q[1].off === 700);
   ok('practice is not', !q.some(m => m.id === '3'));
   ok('team numbers are narrowed to letters and digits', q[0].red[0] === '66449A' && q[0].blue[1] === '777Z');
+  // v93: a posted schedule is not a played match.
+  const unplayed = { ...win._rwCtx, matches: [M(7, 2, t0, { redScore: 0, blueScore: 0, exact: false }), M(8, 2, t0, { redScore: null, blueScore: null }), M(9, 2, Date.now() + 86400000)] };
+  win._rwCtx = unplayed;
+  ok('an unplayed match is never queued, even with a video position', win.vtQueueFrom(unplayed).length === 0);
+  ok('played means scored and in the past', win.vtPlayed(M(1, 2, t0)) && !win.vtPlayed(M(1, 2, t0, { redScore: null })) && win.vtPlayed(M(1, 2, t0, { redScore: 0, blueScore: 0, exact: true })));
+  win._rwCtx = unplayed; win.vsIsPhone = () => false; win.vtSupported = () => true;
+  await win.vtRender(); await settle(win, 100);
+  const pnl = win.document.getElementById('vtPanel').innerHTML;
+  ok('for an event not yet played, the one button tracks the teams\' earlier matches', /vtStart\('history'\)/.test(pnl) && !/vtStart\('here'\)/.test(pnl) && /class="btn btn-primary" onclick="vtStart\('history'\)"/.test(pnl), pnl.slice(0, 300));
+  ok('and says why', /no played matches with video yet/.test(pnl));
+  win._rwCtx = { ...unplayed, matches: [M(1, 2, t0), M(2, 2, t0 + 600000), M(3, 1, t0 + 1200000)] };
   win._rwCtx.cal[day].platform = 'vimeo';
   ok('only YouTube can be watched', win.vtQueueFrom(win._rwCtx).length === 0);
   win._rwCtx.cal[day] = { videoId: 'x"><script>', platform: 'youtube', anchorMs: t0, anchorSeconds: 100 };

@@ -3604,7 +3604,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v92';
+const APP_BUILD = 'v93';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -7946,12 +7946,22 @@ function vtSupported() {
   return !vsIsPhone() && !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) &&
     typeof window.CropTarget !== 'undefined' && typeof WebAssembly === 'object';
 }
+function vtPlayed(m) {
+  if (m.redScore === null || m.redScore === undefined || m.blueScore === null || m.blueScore === undefined) return false;
+  if (m.redScore === 0 && m.blueScore === 0 && !m.exact) return false;   // posted, not played
+  return !(m.t > Date.now());
+}
 // What can be watched: matches with a position in a YouTube video, in order.
 function vtQueueFrom(ctx) {
   if (!ctx || !ctx.eventId) return [];
   const out = [];
   for (const m of rwPlayOrder()) {
     if (m.round === 1) continue;                         // practice matches teach nothing worth the time
+    // Only a match that has been PLAYED. A schedule is posted before an event,
+    // and a stream is often created before it too, so an unplayed match can
+    // have a "position" in a video that does not exist yet. Reported as: Track
+    // robots "only tries to track the event and the event hasnt happened".
+    if (!vtPlayed(m)) continue;
     const cal = rwCalForMatch(m, ctx.cal);
     const off = rwOffsetFor(m, ctx.cal);
     if (!cal || off === null || !cal.videoId || (cal.platform || 'youtube') !== 'youtube') continue;
@@ -8126,6 +8136,10 @@ async function vtFeedHistory(run, eventId) {
   vtSay('Finding the earlier events these teams played…');
   const plan = await vtHistoryPlan(eventId);
   run.events = plan.events.length;
+  run.teams = plan.want.size;
+  if (!plan.want.size) { run.why = 'No teams are registered for this event yet, so there is nobody to look up.'; return; }
+  if (!plan.events.length) { run.why = `None of the ${plan.want.size} registered teams has played an earlier event this season.`; return; }
+  vtSay(`${plan.want.size} teams, ${plan.events.length} earlier events. Finding the first one's video…`);
   for (const e of plan.events) {
     if (run.stop) return;
     // Do not get far ahead of the players: an event's video positions take a
@@ -8140,7 +8154,8 @@ async function vtFeedHistory(run, eventId) {
         eventId: null, matches: [], videoId: null, cal: {}, calDay: null };
       await rewatchSelectEvent(e.id);
       let found = [];
-      for (let i = 0; i < 40 && !run.stop; i++) {            // stream discovery finishes in its own time
+      if (!run.done && !run.slots.some(sl => sl.now)) vtSay(`${plan.want.size} teams, ${plan.events.length} earlier events. Event ${run.eventAt}: ${run.eventName} — finding its video…`);
+      for (let i = 0; i < 90 && !run.stop; i++) {            // stream discovery finishes in its own time (up to 45 s)
         const c = window._rwCtx;
         if (!c || String(c.eventId) !== String(e.id)) break;
         found = vtQueueFrom(c);
@@ -8221,7 +8236,7 @@ async function vtStart(mode) {
     }));
     run.stop = true;                       // lets the feeder see there is nobody left to feed
     await feed;
-    vtFinish(run.why || (run.userStop ? 'Stopped.' : 'Finished.'));
+    vtFinish(run.why || (run.userStop ? 'Stopped.' : mode === 'history' ? `Finished ${run.events || 0} earlier events for ${run.teams || 0} teams.` : 'Finished.'));
   } catch (e) {
     vtFinish(String((e && e.message) || e));
   }
@@ -8338,15 +8353,19 @@ async function vtRender(note) {
   const mins = Math.ceil(left * (VT_WINDOW / VT_RATE + 6) / 60 / P);
   const span = mins >= 90 ? (Math.round(mins / 6) / 10) + ' hours' : mins + ' minutes';
   const who = ctx.team && ctx.team.number ? `${esc(ctx.team.number)}'s ${queue.length} matches` : `all ${queue.length} matches at this event`;
+  const hasHere = queue.length > 0;
+  const history = ctx.team ? '' : `<div class="rw-hint">${hasHere
+      ? '<strong>Also:</strong> track the matches these teams played at their earlier events this season.'
+      : '<strong>This event has no played matches with video yet.</strong> To get ready for it, track the matches its teams have already played at their earlier events this season. It looks up every registered team, finds those events and their videos, and watches only the matches these teams were in. Leave it running.'}</div>
+    <div class="rw-playall"><button class="btn ${hasHere && left ? 'btn-secondary' : 'btn-primary'}" onclick="vtStart('history')">Track these teams' earlier matches</button></div>`;
   panel.innerHTML = `<div class="rw-block vt-block">
     <div class="detail-block-label">Robot tracker</div>
     ${note ? `<div class="vt-note">${esc(note)}</div>` : ''}
-    ${queue.length ? `<div class="rw-hint">Watches ${who}, ${P} at a time at ${VT_RATE}×, and records where every robot is. ${doneHere ? `${doneHere} already tracked on this device. ` : ''}${left
+    ${hasHere ? `<div class="rw-hint">Watches ${who}, ${P} at a time at ${VT_RATE}×, and records where every robot is. ${doneHere ? `${doneHere} already tracked on this device. ` : ''}${left
       ? `About ${span} for the rest.` : 'Nothing is left to watch here.'}</div>
-    ${left ? `<div class="rw-playall"><button class="btn btn-primary" onclick="vtStart('here')">Start tracking</button></div>` : ''}`
-    : `<div class="rw-hint">No match at this event has video the Jumper can open yet${(ctx.matches || []).length ? '' : ', and it may not have been played'}.</div>`}
-    ${ctx.team ? '' : `<div class="rw-hint"><strong>Getting ready for this event?</strong> Track the matches its teams have already played at their earlier events this season. This works before the event has started, and takes as long as there are matches: leave it running.</div>
-    <div class="rw-playall"><button class="btn ${queue.length && left ? 'btn-secondary' : 'btn-primary'}" onclick="vtStart('history')">Track these teams' earlier matches</button></div>`}
+    ${left ? `<div class="rw-playall"><button class="btn btn-primary" onclick="vtStart('here')">Track this event's matches</button></div>` : ''}`
+    : (ctx.team ? `<div class="rw-hint">None of ${esc(ctx.team.number || 'this team')}'s played matches here has video the Jumper can open yet.</div>` : '')}
+    ${history}
     <div class="rw-hint">Chrome will ask what to share: choose <strong>This tab</strong>. This stage records positions; turning them into each robot's job, parking and autonomous routine comes next and will use these recordings without watching again.</div>
   </div>`;
 }
