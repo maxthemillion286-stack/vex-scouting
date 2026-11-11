@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v93**. Everything green: 66 test files. (The `v19` in §8's
+Current release: **v94**. Everything green: 66 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -2303,6 +2303,14 @@ played matches (`vtPlayed`); with none, the panel's one primary button is
 "Track these teams' earlier matches". The history run says how many teams and
 earlier events it found, waits up to 45 s per event for its video, and ends
 with a reason when there is nothing to do.
+
+**v94 — event codes are not always RE-.** A screenshot showed Track robots
+answering: No events matching "VE-V5-26-65786". Events created since VEX took
+them over have codes beginning VE-. Four places tested "starts with RE-"
+(`reEventUrl`, the Tournament search, `sim_resolveEvent`, the proxy's streams
+route); all now accept any two letters (`VS_SKU_RE`). `vtOpenEvent` takes the
+event's ID and loads the Jumper directly instead of searching for the code.
+**Never identify an event by the shape of its code when its ID is in hand.**
 
 ---
 

@@ -2929,7 +2929,7 @@
     <div class="controls-row">
       <div class="input-wrap" style="flex:2;min-width:200px;">
         <span class="input-label keep-case">Event (name or SKU)</span>
-        <input type="text" id="rwEventInput" placeholder="event name or RE-V5RC-..." autocomplete="off">
+        <input type="text" id="rwEventInput" placeholder="event name or code (RE-… or VE-…)" autocomplete="off">
       </div>
       <button class="btn btn-secondary" onclick="rewatchLoadEvent()">WATCH EVENT</button>
     </div>
@@ -3154,9 +3154,15 @@ function reProgramSegment(sku) {
   if (/-(ADC|VAIC)-/.test(s)) return 'aerial-drone-competition';
   return 'vex-robotics-competition';
 }
+// Is this text an event code, as opposed to a name to search for? Reported as
+// Track robots answering 'No events matching "VE-V5-26-65786"': the test was
+// "starts with RE-", so a VE- code was searched for as if it were a name.
+const VS_SKU_RE = /^[A-Z]{2}-[A-Z0-9]+-\d{2}-\d{3,6}$/i;
 function reEventUrl(sku) {
   const s = String(sku || '').trim().toUpperCase();
-  if (!/^RE-[A-Z0-9]+-\d{2}-\d{3,5}$/.test(s)) return null;
+  // Event codes began RE- (RobotEvents). Since VEX took events over, new ones
+  // begin VE- ("VE-V5-26-65786"). Two letters, whatever they are.
+  if (!/^[A-Z]{2}-[A-Z0-9]+-\d{2}-\d{3,6}$/.test(s)) return null;
   return `https://events.vex.com/robot-competitions/${reProgramSegment(s)}/${s}.html`;
 }
 
@@ -3604,7 +3610,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v93';
+const APP_BUILD = 'v94';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -8370,13 +8376,24 @@ async function vtRender(note) {
   </div>`;
 }
 // From an event page: open the Jumper on the whole event, where Start is.
-async function vtOpenEvent(sku) {
+// By the event's ID. v91 typed the event's code into the Jumper's search box
+// and pressed the button, which failed for every code the search did not
+// recognise — and an event that is already open does not need finding.
+async function vtOpenEvent(eventId) {
+  const id = String(eventId == null ? '' : eventId).replace(/[^0-9]/g, '');
+  if (!id) return;
   switchTab('rewatch');
+  const same = String(tournamentEventId) === id;
+  const name = same ? tournamentEventName : '', sku = same ? tournamentEventSku : null;
   const input = document.getElementById('rwEventInput');
-  if (input) input.value = reSkuAttr(sku);
+  if (input) input.value = sku ? reSkuAttr(sku) : (name || '');
   const team = document.getElementById('rwTeamInput');
   if (team) team.value = '';
-  await rewatchLoadEvent();
+  showError('');
+  window._rwCtx = { team: null, events: [{ id: Number(id), name: name || 'Event', sku: sku || undefined }],
+    eventId: null, matches: [], videoId: null, cal: {}, calDay: null };
+  await rewatchSelectEvent(Number(id));
+  await vtRender();
   const panel = document.getElementById('vtPanel');
   if (panel && panel.scrollIntoView) panel.scrollIntoView({ block: 'center' });
 }
@@ -9950,7 +9967,7 @@ async function findTournament() {
     const grade = document.getElementById('tournamentGradeSelect')?.value || 'High School';
 
     // 1) SKU pattern (starts with RE-): exact event lookup
-    if (/^RE-/i.test(input)) {
+    if (VS_SKU_RE.test(input)) {
       loadingText.textContent = 'LOOKING UP SKU...';
       const events = await apiGet('/events', { 'sku[]': [input.toUpperCase()] });
       if (events.length) {
@@ -11663,7 +11680,7 @@ function tournamentNav(active) {
     ${tournamentFocusTeamNumber ? `<button class="t-nav-btn${active === 'team' ? ' active' : ''}" onclick="tournamentGo('team')">${esc(tournamentFocusTeamNumber)}</button>` : ''}
     ${tournamentEventId ? `<button class="t-nav-btn t-more-btn" aria-expanded="false" onclick="tNavMore(this)">More</button>` : ''}
     ${tournamentEventId ? tOfflineButton(tournamentEventId) : ''}
-    ${tournamentEventId && tournamentEventSku && !vsIsPhone() ? `<button class="t-nav-link vt-link" onclick="vtOpenEvent('${teamAttr(tournamentEventSku)}')" title="Watch every match at this event and record where the robots are">Track robots</button>` : ''}
+    ${tournamentEventId && !vsIsPhone() ? `<button class="t-nav-link vt-link" onclick="vtOpenEvent('${teamAttr(tournamentEventId)}')" title="Watch every match at this event and record where the robots are">Track robots</button>` : ''}
     ${tournamentEventId ? reEventLink(tournamentEventId, tournamentEventSku) : ''}
   </div>`;
 }
@@ -14302,7 +14319,7 @@ async function sim_buildRatingsFromIds(ids, seasonId, setStatus) {
 async function sim_resolveEvent(input, seasonId) {
   const q = (input || '').trim();
   if (!q) throw new Error('Enter an event name or SKU.');
-  if (/^RE-/i.test(q)) {
+  if (VS_SKU_RE.test(q)) {
     const events = await apiGet('/events', { 'sku[]': [q.toUpperCase()] });
     if (!events.length) throw new Error(`Event ${q.toUpperCase()} not found.`);
     return { event: events[0] };
