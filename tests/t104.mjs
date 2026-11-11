@@ -225,10 +225,12 @@ console.log('\n· phones');
 const btns = [...idx.matchAll(/<button class="tab-btn[^>]*>/g)].map(m => m[0]);
 // v83 added Settings: eight buttons, seven of them in the phone bar (Info
 // gives its cell to Settings and is one tap from there).
-ok('eight tab buttons', btns.length === 8, String(btns.length));
+// v85 added My team, for computers only: nine buttons, still seven in the phone bar.
+ok('nine tab buttons', btns.length === 9, String(btns.length));
+ok('My team is hidden off the computer', /\.tab-btn\.tab-desk-only \{ display: none; \}/.test(css));
 ok('Info steps out of the phone bar', /\.tab-btn\[data-short="INFO"\] \{ display: none; \}/.test(phone));
 ok('each with a short label for the bar', btns.every(b => /data-short="[A-Z]+"/.test(b)));
-ok('and an icon', (idx.match(/<svg class="tab-ico"/g) || []).length === 8);
+ok('and an icon', (idx.match(/<svg class="tab-ico"/g) || []).length === 9);
 ok('the bar is fixed to the bottom', /\.tabs-nav \{\s*position: fixed; left: 0; right: 0; bottom: 0;/.test(phone));
 ok('and clears the home indicator', /padding-bottom: env\(safe-area-inset-bottom/.test(phone));
 ok('the page leaves room for it', /body \{ padding-bottom: calc\(64px \+ env\(safe-area-inset-bottom/.test(phone));

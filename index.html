@@ -2463,6 +2463,40 @@
   .sg-chip.inactive b { color: var(--text-muted); }
   .sg-chip i { font-style: normal; font-size: 12px; color: var(--text-muted); margin-left: 6px; }
 
+  /* v85 */
+  .tab-btn.tab-desk-only { display: none; }
+  .t-climb { background: var(--card); border-radius: var(--r-lg); padding: 14px 16px; margin: 8px 0; font-family: var(--body); font-size: 15px; line-height: 1.5; color: var(--text-dim); }
+  .t-climb strong { color: var(--text); }
+  .t-climb-h { font-family: var(--display); font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+  .t-climb-fine { font-size: 13px; color: var(--text-muted); margin-top: 6px; }
+  .season-chart svg { display: block; width: 100%; max-width: 720px; height: auto; margin: 6px 0 4px; }
+  .ssn-title { font-family: var(--body); font-size: 15px; color: var(--text); }
+  .ssn-title span { color: var(--text-muted); margin-left: 8px; }
+  .ssn-grid { stroke: var(--border); stroke-width: 1; }
+  .ssn-axis { font-family: var(--mono); font-size: 11px; fill: var(--text-muted); }
+  .ssn-val { font-family: var(--display); font-size: 14px; font-weight: 600; fill: var(--text); }
+  .ssn-line { fill: none; stroke: var(--accent-bright); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  .ssn-dot { fill: var(--accent-bright); stroke: var(--card); stroke-width: 2; }
+  .ssn-hit { fill: transparent; }
+  @media (hover: hover) { .ssn-pt:hover .ssn-dot { r: 6.5; } }
+  .ssn-fine { font-family: var(--body); font-size: 13px; color: var(--text-muted); }
+  .home-head { display: flex; align-items: baseline; gap: 14px; margin: -8px 0 20px; }
+  .home-num { font-family: var(--display); font-size: 44px; font-weight: 700; line-height: 1; color: var(--text); letter-spacing: 1px; }
+  .home-name { font-family: var(--body); font-size: 18px; color: var(--text-dim); }
+  .home-grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 14px; margin-bottom: 14px; align-items: start; }
+  .home-card { background: var(--card); border-radius: var(--r-lg); padding: 18px 20px; }
+  .home-k { font-family: var(--body); font-size: 13px; color: var(--text-muted); margin-bottom: 6px; }
+  .home-v { font-family: var(--display); font-size: 20px; font-weight: 600; color: var(--text); line-height: 1.25; }
+  .home-s { font-family: var(--body); font-size: 14px; line-height: 1.5; color: var(--text-dim); margin-top: 4px; }
+  .home-rank { font-family: var(--body); font-size: 15px; color: var(--text-dim); margin-top: 12px; }
+  .home-big { font-family: var(--display); font-size: 30px; font-weight: 700; color: var(--text); }
+  .home-rec { font-family: var(--mono); font-size: 13px; font-weight: 400; color: var(--text-muted); margin-left: 8px; }
+  .home-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+  .home-card .t-climb { background: var(--card2); margin: 12px 0 0; }
+  @media (max-width: 899px) { .home-grid { grid-template-columns: 1fr; } }
+  .rw-playall { display: flex; align-items: center; gap: 12px; margin: 0 0 10px; font-family: var(--body); font-size: 14px; color: var(--text-dim); }
+  .rw-playall .rw-nudge-btn { min-height: 40px; padding: 0 16px; font-family: var(--body); font-size: 14px; letter-spacing: 0; border-radius: var(--r-md); }
+
   /* Settings, and the pieces that came out of the header (v83). */
   .status-badge { display: inline-flex; align-items: center; gap: 8px; }
   .sb-ver { color: var(--text-muted); }
@@ -2538,6 +2572,7 @@
     .tab-btn::first-letter { text-transform: uppercase; }
     .tab-btn.active { background: var(--card2); color: var(--text); }
     .tab-btn.tab-phone-only { display: none; }
+    .tab-btn.tab-desk-only { display: block; }
     .tab-ico { display: block; float: left; width: 18px; height: 18px; margin: 1px 12px 0 0; fill: none; stroke: currentColor;
       stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; opacity: 0.8; }
     .tab-indicator { display: none; }
@@ -2691,6 +2726,7 @@
 
   <!-- Tab navigation -->
   <div class="tabs-nav">
+    <button class="tab-btn tab-desk-only" data-short="HOME" data-tab="home" onclick="switchTab('home')">MY TEAM<svg class="tab-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 11l8-6.500 8 6.500M6 9.500V19h12V9.500"/></svg></button>
     <button class="tab-btn tab-phone-only" data-short="FAVS" data-tab="favs" onclick="switchTab('favs')">FAVORITES<svg class="tab-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3.5l2.6 5.3 5.9.9-4.2 4.1 1 5.8L12 16.9 6.700 19.6l1-5.8-4.200-4.100 5.900-.900z"/></svg></button>
     <button class="tab-btn active" data-short="SCOUT" data-tab="scout" onclick="switchTab('scout')">SCOUT<svg class="tab-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.500 4.500"/></svg></button>
     <button class="tab-btn" data-short="SKILLS" data-tab="skills" onclick="switchTab('skills')">SKILLS RANKINGS<svg class="tab-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 20V10M12 20V4M19 20v-7"/></svg></button>
@@ -2888,6 +2924,12 @@
     </div>
     <div id="favsResults"></div>
   </section>
+  <!-- ═══════════ HOME (computer) ═══════════ -->
+  <section class="search-section tab-panel" id="tab-home">
+    <div class="section-label">My team</div>
+    <div id="homeResults"></div>
+  </section>
+
   <!-- ═══════════ SETTINGS ═══════════ -->
   <section class="search-section tab-panel" id="tab-settings">
     <div class="section-label">Settings</div>
@@ -3501,7 +3543,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v84';
+const APP_BUILD = 'v85';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -5309,6 +5351,7 @@ function rewatchJump(matchId) {
   ctx.playing = { matchId, off };
   rwSeenMark(ctx.eventId, matchId, m.name);
   rewatchRender();
+  rwPlayAllArm();   // no-op unless "play all" is on; restarts the clock if it is
   const p = document.getElementById('rwPlayer');
   if (p && p.scrollIntoView) p.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
@@ -6018,6 +6061,7 @@ function rewatchRender() {
               title="${step.next ? 'Next: ' + esc(step.next.name) : 'This is the last match with a position'}">›</button>
           </div>` : ''}
         </div>
+        ${rwPlayAllButton()}
         ${embed ? `<div class="rw-embed">
           <iframe src="${embed}"
             title="Match video" frameborder="0" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
@@ -6340,6 +6384,8 @@ window.onload = () => {
     const add = document.getElementById('favAddInput');
     if (add) add.addEventListener('keydown', e => { if (e.key === 'Enter') favAddFromInput(); });
     if (vsIsPhone() && vsFavList().length) switchTab('favs');
+    // On a computer with a team set, that team's page is where the app opens.
+    else if (!vsIsPhone() && vsMyTeam()) switchTab('home');
   });
   // Whatever tab you land on is the first place you have been, so the arrow
   // can bring you back to it. Without this the tab showing at load was absent
@@ -7018,6 +7064,8 @@ function myTeamApply() {
   if (input && document.activeElement !== input) input.value = n;
   myTeamPrefill();
   favsRender();
+  const home = document.getElementById('tab-home');
+  if (home && home.classList.contains('active')) homeRender();
 }
 async function myTeamSaveFromInput() {
   const el = document.getElementById('myTeamInput');
@@ -7036,13 +7084,254 @@ function myTeamClear() {
   myTeamApply();
 }
 function myTeamOpen() {
-  const n = vsMyTeam();
-  if (n) favGo(n, 'schedule');
+  if (vsMyTeam()) switchTab('home');
 }
 function settingsInit() {
   const input = document.getElementById('myTeamInput');
   if (input) input.addEventListener('keydown', e => { if (e.key === 'Enter') myTeamSaveFromInput(); });
   myTeamApply();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// v85 — what you need to move up, a season at a glance, a home page for your
+// team, and playing your matches back to back.
+// ═══════════════════════════════════════════════════════════════
+
+// ── What you need to move up ───────────────────────────────────────────────
+//
+// Rankings sort on WP, then AP, then SP. A qualification win is 2 WP.
+//
+// What this says, and what it must NOT be read as (§12): it compares your
+// record AFTER one more win with everyone else's record AS IT STANDS. The teams
+// around you have matches left too, so this is "where a win puts you if nothing
+// else changed" — and the sentence says exactly that. It leaves out the
+// Autonomous Win Point, which a match can add and nobody can count on.
+const T_WIN_WP = 2;
+function tRankKey(r) { return [Number(r.wp) || 0, Number(r.ap) || 0, Number(r.sp) || 0]; }
+function tRankAhead(a, b) {   // is a ranked above b?
+  const x = tRankKey(a), y = tRankKey(b);
+  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] > y[i];
+  return false;
+}
+function tClimb(rows, teamId) {
+  const list = (rows || []).filter(r => r && r.team && r.team.id != null);
+  const me = list.find(r => String(r.team.id) === String(teamId));
+  if (!me || list.length < 2 || typeof me.wp !== 'number') return null;
+  const others = list.filter(r => r !== me);
+  const placeOf = row => 1 + others.filter(o => tRankAhead(o, row)).length;
+  const now = placeOf(me);
+  const after = placeOf({ ...me, wp: me.wp + T_WIN_WP });
+  const passed = others.filter(o => tRankAhead(o, me) && !tRankAhead(o, { ...me, wp: me.wp + T_WIN_WP }))
+    .sort((a, b) => (a.rank || 0) - (b.rank || 0));
+  // Who is close enough behind to pass you with one win of their own.
+  const chasing = others.filter(o => !tRankAhead(o, me) && tRankAhead({ ...o, wp: (Number(o.wp) || 0) + T_WIN_WP }, me))
+    .sort((a, b) => (a.rank || 0) - (b.rank || 0));
+  return { now, after, passed, chasing, total: list.length };
+}
+function tClimbNote(rows, teamId, matchesLeft) {
+  if (!matchesLeft) return '';
+  const c = tClimb(rows, teamId);
+  if (!c) return '';
+  const names = l => l.slice(0, 4).map(r => `<strong>${esc(r.team.name || '')}</strong>`).join(', ') + (l.length > 4 ? ` and ${l.length - 4} more` : '');
+  const ord = n => n + (n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd', 'th', 'th', 'th', 'th', 'th', 'th'][n % 10]);
+  const up = c.after < c.now
+    ? `Win your next match and you would be <strong>${ord(c.after)}</strong>, passing ${names(c.passed)}.`
+    : c.now === 1
+      ? `You are 1st. A win keeps you there.`
+      : `One more win would not move you up yet: the team ahead is more than a win away.`;
+  const down = c.chasing.length
+    ? ` ${c.chasing.length === 1 ? 'One team is' : c.chasing.length + ' teams are'} a single win behind you: ${names(c.chasing)}.`
+    : '';
+  return `<div class="t-climb"><div class="t-climb-h">What you need to move up</div>${up}${down}
+    <div class="t-climb-fine">Based on the standings as they are right now. Other teams still have matches to play, and an autonomous win point is not counted.</div></div>`;
+}
+
+// ── A season at a glance ───────────────────────────────────────────────────
+//
+// One line, one axis: the share of qualification matches won at each event, in
+// the order the events were played. It answers "is this team getting better?"
+// — which a season average cannot, because an average of a bad September and a
+// good February looks like a middling team.
+//
+// Why win rate and not rank: rank depends on how many teams came, so 5th of 80
+// and 5th of 16 would sit at the same height.
+function seasonPoints(d) {
+  const start = new Map((d.eventsList || []).map(e => [String(e.id), e.start]));
+  const name = new Map((d.eventsList || []).map(e => [String(e.id), e.name]));
+  const byEvent = new Map();
+  for (const r of (d.rankings || [])) {
+    const id = r && r.event && r.event.id != null ? String(r.event.id) : null;
+    const played = (r.wins || 0) + (r.losses || 0) + (r.ties || 0);
+    if (!id || !played) continue;
+    const cur = byEvent.get(id);
+    if (cur && cur.played >= played) continue;   // a second division's table
+    byEvent.set(id, { id, played, wins: r.wins || 0, losses: r.losses || 0, ties: r.ties || 0, rank: r.rank || null,
+      name: name.get(id) || (r.event && r.event.name) || 'Event', start: start.get(id) || '' });
+  }
+  return [...byEvent.values()].filter(p => p.start)
+    .sort((a, b) => String(a.start).localeCompare(String(b.start)))
+    .map(p => ({ ...p, rate: Math.round(100 * (p.wins + 0.5 * p.ties) / p.played) }));
+}
+function seasonChart(d) {
+  const pts = seasonPoints(d);
+  if (pts.length < 2) return '';
+  const W = 640, H = 200, L = 40, R = 16, T = 30, B = 30;   // T leaves room for the end labels above a 100% point
+  const x = i => L + i * (W - L - R) / (pts.length - 1);
+  const y = v => T + (100 - v) * (H - T - B) / 100;
+  const line = pts.map((p, i) => `${x(i).toFixed(1)},${y(p.rate).toFixed(1)}`).join(' ');
+  const first = pts[0], last = pts[pts.length - 1];
+  const delta = last.rate - first.rate;
+  const say = Math.abs(delta) < 8 ? 'About level across the season' : delta > 0 ? `Up ${delta} points since the first event` : `Down ${-delta} points since the first event`;
+  return `<div class="detail-block season-chart">
+    <div class="detail-block-label">Season so far</div>
+    <div class="ssn-title">Qualification win rate at each event <span>${esc(say)}</span></div>
+    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Qualification win rate at each of ${pts.length} events. ${esc(say)}.">
+      ${[0, 50, 100].map(v => `<line class="ssn-grid" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text class="ssn-axis" x="${L - 8}" y="${y(v) + 4}" text-anchor="end">${v}%</text>`).join('')}
+      <polyline class="ssn-line" points="${line}"/>
+      ${pts.map((p, i) => `<g class="ssn-pt"><circle class="ssn-hit" cx="${x(i).toFixed(1)}" cy="${y(p.rate).toFixed(1)}" r="16"/><circle class="ssn-dot" cx="${x(i).toFixed(1)}" cy="${y(p.rate).toFixed(1)}" r="4.5"/>
+        <title>${esc(p.name)} (${evDate(p.start)}): won ${p.rate}% of qualification matches, ${p.wins}–${p.losses}${p.ties ? '–' + p.ties : ''}${p.rank ? ', ranked ' + p.rank : ''}</title></g>`).join('')}
+      <text class="ssn-val" x="${x(0)}" y="${y(first.rate) - 10}" text-anchor="start">${first.rate}%</text>
+      <text class="ssn-val" x="${x(pts.length - 1)}" y="${y(last.rate) - 10}" text-anchor="end">${last.rate}%</text>
+      <text class="ssn-axis" x="${x(0)}" y="${H - 8}" text-anchor="start">${evDate(first.start)}</text>
+      <text class="ssn-axis" x="${x(pts.length - 1)}" y="${H - 8}" text-anchor="end">${evDate(last.start)}</text>
+    </svg>
+    <div class="ssn-fine">Each dot is one event; hover or tap a dot for its name and record. The events are listed below.</div>
+  </div>`;
+}
+
+// ── Home: your own team, on a computer ─────────────────────────────────────
+//
+// Asked for as "My team dashboard" for the computer. Phones already open on
+// Favorites with the same team first, so this tab is hidden there.
+let homeSeq = 0;
+async function homeRender() {
+  const host = document.getElementById('homeResults');
+  if (!host) return;
+  const n = vsMyTeam();
+  const seq = ++homeSeq;
+  if (!n) {
+    host.innerHTML = `<div class="fav-empty">Set your team to see its event, rank, next match and season here. <button class="set-link" onclick="switchTab('settings')">Open Settings</button></div>`;
+    return;
+  }
+  host.innerHTML = `<div class="home-head"><div class="home-num">${n}</div><div class="home-name" id="homeName"></div></div>
+    <div class="home-grid"><div class="home-card" id="homeEvent"><div class="home-k">Event</div><div class="home-v">Loading…</div></div>
+    <div class="home-card" id="homeSeason"><div class="home-k">Season</div><div class="home-v">Loading…</div></div></div>
+    <div id="homeChart"></div>`;
+  const live = () => seq === homeSeq;
+  let team;
+  try { team = await sim_resolveTeamCached(n); }
+  catch (e) { if (live()) host.innerHTML = `<div class="fav-empty">Could not load ${n} right now. Pull to refresh or try again in a moment.</div>`; return; }
+  if (!live()) return;
+  document.getElementById('homeName').textContent = team.team_name || '';
+
+  // The event that matters now: rank and record, and the way in.
+  (async () => {
+    let events = [];
+    try { events = await favTeamEvents(team); } catch (e) {}
+    if (!live()) return;
+    const ev = favPickEvent(events);
+    const box = document.getElementById('homeEvent');
+    if (!box) return;
+    if (!ev) { box.innerHTML = `<div class="home-k">Event</div><div class="home-v">No events this season yet.</div>`; return; }
+    const w = tWhen(ev);
+    const evId = teamAttr(ev.id);
+    box.innerHTML = `<div class="home-k">${w.state === 'now' ? 'Playing now' : w.state === 'ahead' ? 'Next event' : 'Latest event'}</div>
+      <div class="home-v">${esc(ev.name || 'Event')}</div>
+      <div class="home-s">${esc(w.label)}, ${esc(w.dates)}</div>
+      <div class="home-rank" id="homeRank"></div>
+      <div class="home-acts">
+        <button class="btn btn-primary" onclick="favOpenEvent('${n}', ${evId})">Open schedule</button>
+        <button class="btn btn-secondary" onclick="favGo('${n}', 'watch')">Watch matches</button>
+      </div>`;
+    if (w.state === 'ahead') return;
+    const divs = ev.divisions && ev.divisions.length ? ev.divisions : [{ id: 1 }];
+    let best = null, bestRows = null;
+    await Promise.all(divs.map(async dv => {
+      try {
+        const ranks = await apiGet(`/events/${ev.id}/divisions/${dv.id}/rankings`);
+        const r = ranks.find(x => String(x.team?.id) === String(team.id));
+        const played = r ? (r.wins || 0) + (r.losses || 0) + (r.ties || 0) : 0;
+        if (r && (!best || played > best._p)) { best = { ...r, _p: played, _n: ranks.length }; bestRows = ranks; }
+      } catch (e) {}
+    }));
+    const rk = document.getElementById('homeRank');
+    if (live() && rk && best && best.rank) {
+      rk.innerHTML = `<span class="home-big">#${esc(best.rank)}</span> of ${esc(best._n)} <span class="home-rec">${esc(best.wins || 0)}–${esc(best.losses || 0)}–${esc(best.ties || 0)}</span>` +
+        (w.state === 'now' ? tClimbNote(bestRows, team.id, 1) : '');
+    }
+  })();
+
+  // The season: record, skills, and the line.
+  (async () => {
+    let d = null;
+    try { d = await gatherTeamData(n, favSeasonId(), gradeOfTeam(team)); } catch (e) {}
+    if (!live()) return;
+    const box = document.getElementById('homeSeason');
+    if (!box) return;
+    if (!d) { box.innerHTML = `<div class="home-k">Season</div><div class="home-v">Could not load the season right now.</div>`; return; }
+    box.innerHTML = `<div class="home-k">Season</div>
+      <div class="home-v">${esc(d.wins)}–${esc(d.losses)}–${esc(d.ties)} <span class="home-rec">${d.total ? Math.round(d.winRate) + '% won' : 'no matches yet'}</span></div>
+      <div class="home-s">${d.eventsList.length} event${d.eventsList.length === 1 ? '' : 's'}${d.hasSkills && d.worldSkillsRank ? `, skills rank ${esc(d.worldSkillsRank)} in the world` : ''}${d.hasSkills ? `, best skills ${esc(d.officialCombined)}` : ''}</div>
+      <div class="home-acts"><button class="btn btn-secondary" onclick="favGo('${n}', 'stats')">Full stats</button></div>`;
+    const ch = document.getElementById('homeChart');
+    if (ch) ch.innerHTML = seasonChart(d);
+  })();
+}
+
+// ── Play all my matches ────────────────────────────────────────────────────
+//
+// The embed is a plain iframe: the page cannot hear it finish. So "back to
+// back" is a clock — each match gets a fixed window, then the next opens. The
+// window is longer than a match (15s autonomous, a pause, 1:45 driver) so the
+// end and the score are seen; ‹ and › still work and restart the clock.
+const RW_PLAYALL_SEC = 180;
+let rwPlayAllTimer = null, rwPlayAllTick = null, rwPlayAllEnds = 0;
+function rwPlayAllClear() {
+  clearTimeout(rwPlayAllTimer); clearInterval(rwPlayAllTick);
+  rwPlayAllTimer = null; rwPlayAllTick = null;
+}
+function rwPlayAllStop() {
+  rwPlayAllClear();
+  const ctx = window._rwCtx;
+  if (ctx) ctx.playAll = false;
+  rewatchRender();
+}
+function rwPlayAllArm() {
+  rwPlayAllClear();
+  const ctx = window._rwCtx;
+  if (!ctx || !ctx.playAll || !ctx.playing) return;
+  const info = rwStepInfo();
+  if (!info || !info.next) { ctx.playAll = false; return; }   // the last one plays out and stops
+  const forMatch = String(ctx.playing.matchId), forEvent = String(ctx.eventId);
+  rwPlayAllEnds = Date.now() + RW_PLAYALL_SEC * 1000;
+  rwPlayAllTimer = setTimeout(() => {
+    const c = window._rwCtx;
+    // Only if nothing changed underneath: same event, same match still up.
+    if (!c || !c.playAll || !c.playing || String(c.eventId) !== forEvent || String(c.playing.matchId) !== forMatch) return;
+    rewatchJump(info.next.id);
+  }, RW_PLAYALL_SEC * 1000);
+  // The countdown changes its own text only. Re-rendering would reload the video.
+  rwPlayAllTick = setInterval(() => {
+    const el = document.getElementById('rwPlayAllIn');
+    if (!el) return;
+    const s = Math.max(0, Math.round((rwPlayAllEnds - Date.now()) / 1000));
+    el.textContent = `Next match in ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  }, 1000);
+}
+function rwPlayAllStart() {
+  const ctx = window._rwCtx; if (!ctx) return;
+  const list = rwPlayOrder();
+  if (!list.length) return;
+  ctx.playAll = true;
+  // From the match on screen if there is one, else from the first.
+  rewatchJump(ctx.playing ? ctx.playing.matchId : list[0].id);
+}
+function rwPlayAllButton() {
+  const ctx = window._rwCtx;
+  if (!ctx || rwPlayOrder().length < 2) return '';
+  return ctx.playAll
+    ? `<div class="rw-playall"><span id="rwPlayAllIn">Playing every match in order</span><button class="rw-nudge-btn" onclick="rwPlayAllStop()">Stop</button></div>`
+    : `<div class="rw-playall"><button class="rw-nudge-btn" onclick="rwPlayAllStart()">▶ Play all ${rwPlayOrder().length} matches in order</button></div>`;
 }
 
 // ── STATUS BADGE ──────────────────────────────
@@ -7290,6 +7579,7 @@ async function vsRefreshCurrent() {
   const tab = (open && open.dataset.tab) || '';
   apiFreshClear();
   if (tab === 'favs') { favsRender(); return 'Updated'; }
+  if (tab === 'home') { homeRender(); return 'Updated'; }
   if (tab === 'tournament' && tournamentEventId) {
     tMemoDropLive();
     tournamentMatchCache = null; tournamentTeamCache = null; tournamentSkillsCache = null;
@@ -8471,7 +8761,7 @@ function scoutSelectedSkills() {
 }
 
 const TAB_LABELS = { scout: 'Scout', skills: 'Skills Rankings', tournament: 'Tournament',
-  rewatch: 'Jumper', simulator: 'Simulator', info: 'Info', favs: 'Favorites', settings: 'Settings' };
+  rewatch: 'Jumper', simulator: 'Simulator', info: 'Info', favs: 'Favorites', settings: 'Settings', home: 'My team' };
 
 // The results area each tab fills in. Going back to a tab you found EMPTY has
 // to leave it empty, or the press does nothing visible: Tournament → search →
@@ -8806,7 +9096,7 @@ async function renderEventTeamMatchesView() {
   try { R = await sim_buildRatingsFromEvent(event, setStatus); } catch (e) { R = null; }
 
   setStatus('LOADING RANKINGS...');
-  let focusRank = null;
+  let focusRank = null, focusRows = null;
   await sim_pool(divisions, async (div, di) => {
     try {
       const ranks = await ranksByDiv[di];
@@ -8815,6 +9105,7 @@ async function renderEventTeamMatchesView() {
         if (String(r.team?.id) !== teamId) continue;
         const played = (r.wins || 0) + (r.losses || 0) + (r.ties || 0);
         if (!focusRank || played > focusRank._p) {
+          focusRows = ranks;
           focusRank = { rank: r.rank || null, division: div.name || r.division?.name || null,
             wins: r.wins || 0, losses: r.losses || 0, ties: r.ties || 0, total: ranks.length, _p: played };
         }
@@ -9014,6 +9305,7 @@ async function renderEventTeamMatchesView() {
   if (rankCard || recordCard || bestCard) {
     html += `<div class="md-headline">${rankCard}${recordCard}${bestCard}</div>`;
   }
+  html += tClimbNote(focusRows, teamId, typeof remaining !== 'undefined' ? remaining.length : 0);
 
   // Projected qual record, only while there are matches left to play: this
   // block is a PROJECTION, and once the last qualifier is done it restates the
@@ -11471,6 +11763,7 @@ function switchTab(tabName) {
   const target = document.getElementById('tab-' + tabName);
   if (target) target.classList.add('active');
   if (tabName === 'favs') favsRender();
+  if (tabName === 'home') homeRender();
   // Update tab button styles
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   const btn = document.querySelector('.tab-btn[data-tab="' + tabName + '"]');
@@ -12585,6 +12878,7 @@ function renderDetailedTeam(d, eventFilter) {
   </div>`;
 
   // ── Events attended ──
+  html += seasonChart(d);
   html += renderEventsAttended(d);
 
   // ── Awards ──
