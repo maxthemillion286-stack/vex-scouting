@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v90**. Everything green: 66 test files. (The `v19` in §8's
+Current release: **v91**. Everything green: 66 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -405,6 +405,7 @@ proxy is at `api/proxy.js`.
 | t109 | **v86** — last time's answer painted at once; asking ahead of the tap — §26 |
 | t110 | **v87** — comparing teams; every match of a team's in the Jumper — §27 |
 | t111 | **v89** — win chances checked against results; season in the rating; play-style groups — §28 |
+| t112 | **v91** — robot tracker stage 1: finder maths, queue, shared storage and passcode — §29 |
 | sanity | CSS braces balance, inline JS parses, tabs present |
 | tool_sanity | Same for anchor-tool.html |
 
@@ -2220,7 +2221,54 @@ did and on how much evidence. No library, no server, no stored model.
 
 ---
 
-## 29. Feature ideas
+## 29. v91 — the robot tracker (stage 1), and the top tabs back
+
+**The computer layout.** v83's left rail was removed on request ("i liked the
+tabs on the top and former design more"). The wide-screen CSS block is now a
+few lines: it only places the My team tab and link. Do not bring the rail back
+unasked.
+
+**The robot tracker.** The owner has a 12,000-line desktop tracker (Python,
+OpenCV, a trained one-class YOLO robot finder) and asked for it inside the
+site, watching the embedded player unattended, with results shared.
+
+- A page cannot read a YouTube frame. The only route is `getDisplayMedia` on
+  this tab plus Region Capture (`CropTarget`, `track.cropTo`) to the player
+  element. Desktop Chromium only, one permission click per run. `vtSupported()`.
+- The finder is the desktop app's own model, `models/robot_detector.onnx`
+  (input 1×3×640×640, output 1×5×8400: cx, cy, w, h, score), run by ONNX
+  Runtime Web vendored in `vendor/ort/` (1.31.1, wasm, one thread, in a
+  worker). **Threads need cross-origin isolation, which would break the
+  YouTube embed — leave `numThreads = 1`.** Both load only on Start. Output
+  was compared with Python onnxruntime on the same input: identical.
+- **Stage 1 stores evidence, not conclusions**: per match, every robot box a
+  few times a second with its alliance colour (`vtPackFrame`: integers,
+  640-wide coordinates). Jobs, parking and autonomous (stage 2) will be
+  computed from stored boxes, so no match is watched twice.
+- The run (`vtStart` → `vtWatch`): its own `YT.Player` at 2×, muted, from 5 s
+  before the Jumper's position for 170 s. A worker-driven ticker (page timers
+  slow to 1/s in a background tab). Wake lock held. Matches already tracked on
+  this device or in shared storage are skipped, so stopping loses nothing. A
+  match with under 30 frames containing a robot is recorded as "empty" and not
+  saved.
+- The queue is the Jumper's own (`vtQueueFrom` over `rwPlayOrder`): a team's
+  matches when a team is loaded, the whole event otherwise. `Track robots` on
+  an event page opens the Jumper on that event. YouTube only; practice skipped.
+- The panel is `#vtPanel`, OUTSIDE `#rwResults`, because `rewatchRender`
+  replaces that element's contents and would destroy a running player.
+- **Shared storage** — `api/tracker.js`, Upstash Redis over REST
+  (`KV_REST_API_URL`/`KV_REST_API_TOKEN`). Reads are public; writes need
+  `TRACKER_PASSCODE` (compared as SHA-256 digests in constant time, 400 ms
+  penalty on a miss, minimum 8 characters). `validRec` refuses anything that
+  is not the known shape. The passcode is kept in `vex_tracker_pass`. The
+  service worker never caches `/api/tracker`, `/vendor/` or `/models/`.
+- **NOT VERIFIED:** the capture itself. No YouTube from the build sandbox, so
+  the share prompt, the crop, playback at 2× in a hidden tab and the finder's
+  accuracy on real streams have never been run. The first real run is the test.
+
+---
+
+## 30. Feature ideas
 
 `IDEAS.md` holds the list of things worth building next, with what each one
 would cost against what already exists. It also records three things **not** to

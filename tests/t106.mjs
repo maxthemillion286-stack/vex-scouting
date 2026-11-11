@@ -159,19 +159,16 @@ ok('every control in a row is one height', /\.controls-row input\[type="text"\][
 ok('and sits on the row\'s bottom edge', /\.controls-row \{ align-items: flex-end; \}/.test(css));
 
 console.log('\n· the computer');
-const desk = css.slice(css.indexOf('THE COMPUTER (v83)'));
+// v91: the rail was taken out again, on request. The computer has the top tabs.
+const desk = css.slice(css.indexOf('THE COMPUTER (v91)'));
 const mq = desk.slice(desk.indexOf('@media (min-width: 900px) {'));
-ok('the redesign is inside one wide-screen query', mq.length > 500);
-ok('the tabs are a rail down the left', /\.tabs-nav \{ position: fixed; left: 12px;/.test(mq) && /body \{ padding-left: 248px;/.test(mq));
-ok('the page is left-aligned, not centred', /\.container \{ max-width: 1180px; margin: 0;/.test(mq));
-ok('the tagline under the logo is gone', /\.logo-sub \{ display: none; \}/.test(mq));
-ok('the gradient wash is gone', /body::before \{ display: none; \}/.test(mq));
-ok('the page name is a heading, in sentence case', /\.section-label \{[^}]*font-size: 30px;[^}]*text-transform: lowercase;/.test(mq) && /\.section-label::first-letter \{ text-transform: uppercase; \}/.test(mq));
-ok('field labels use the reading face, not the mono one', /\.input-label \{[^}]*font-family: var\(--body\);/.test(mq));
-ok('a team number in the event views is not lowercased', /\.t-nav-btn\[onclick\*="'team'"\] \{ text-transform: none; \}/.test(mq));
-ok('SKU keeps its capitals', /\.input-label\.keep-case \{ text-transform: none; \}/.test(mq));
-const sizes = [...mq.matchAll(/font-size: ([\d.]+)px/g)].map(m => +m[1]);
-ok('nothing in it is under 12px', sizes.every(v => v >= 12), sizes.filter(v => v < 12).join());
+ok('the wide-screen block is small', mq.length > 100 && mq.length < 1200, String(mq.length));
+ok('there is no rail', !/padding-left: 248px/.test(css) && !/\.tabs-nav \{ position: fixed/.test(css));
+ok('the page is not left-aligned by the wide-screen block', !/\.container \{/.test(mq));
+ok('page names are not restyled as headings', !/\.section-label/.test(mq) && !/\.input-label/.test(mq));
+ok('My team is still a tab on the computer', /\.tab-btn\.tab-desk-only \{ display: inline-block; \}/.test(mq));
+ok('and the favorites tab is still phone-only there', /\.tab-btn\.tab-phone-only \{ display: none; \}/.test(mq));
+ok('the My team link shows in the header', /\.my-team-link:not\(\[hidden\]\) \{ display: inline-flex;/.test(mq));
 ok('the three typefaces are still the only three', [...new Set([...css.matchAll(/font-family: ([^;]+);/g)].map(m => m[1].trim()))]
   .every(f => /var\(--(mono|display|body)\)|inherit|'Share Tech Mono'|'Oswald'|'Rajdhani'|monospace|sans-serif/.test(f)));
 
