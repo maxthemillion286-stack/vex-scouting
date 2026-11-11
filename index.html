@@ -2464,17 +2464,6 @@
   .sg-chip.inactive b { color: var(--text-muted); }
   .sg-chip i { font-style: normal; font-size: 12px; color: var(--text-muted); margin-left: 6px; }
 
-  /* v89: play styles */
-  .st-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; margin-bottom: 8px; align-items: start; }
-  .st-group { background: var(--card); border-radius: var(--r-lg); padding: 14px 16px; }
-  .st-name { font-family: var(--display); font-size: 16px; font-weight: 600; color: var(--text); }
-  .st-name span { font-family: var(--mono); font-size: 12px; font-weight: 400; color: var(--text-muted); margin-left: 6px; }
-  .st-blurb { font-family: var(--body); font-size: 13px; line-height: 1.5; color: var(--text-muted); margin: 2px 0 10px; }
-  .st-teams { display: flex; flex-wrap: wrap; gap: 6px; }
-  .st-team { display: inline-flex; align-items: center; min-height: 36px; padding: 0 12px; margin: 0; border-radius: var(--r-pill); background: var(--card2);
-    font-family: var(--display); font-size: 14px; font-weight: 600; color: var(--text); }
-  .st-team.mine { box-shadow: inset 0 0 0 1px var(--accent-bright); }
-
   /* v87: compare, and all of a team's matches */
   .cmp-add { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
   .cmp-add input[type="text"] { flex: 1 1 220px; min-width: 0; height: 46px; box-sizing: border-box; padding-top: 0; padding-bottom: 0; }
@@ -3595,7 +3584,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v89';
+const APP_BUILD = 'v90';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -7552,8 +7541,6 @@ function tCompareBlock(R, roster, focus, pairWin) {
     { label: 'Trend', vals: cols.map(t => f(t).drift), show: (v, i) => T_FORM_LABEL[f(cols[i]).trend] || '', better: null },
     { label: 'World skills rank', vals: cols.map(t => t.worldSkills || null), show: v => '#' + v, better: 'low' }
   ];
-  const styles = tStyleGroups(R, roster);
-  if (styles) rows.push({ label: 'Play style', vals: cols.map(t => styles.styleOf.has(String(t.id)) ? 1 : null), show: (v, i) => styles.styleOf.get(String(cols[i].id)), better: null });
   if (you && pairWin) {
     rows.push({ label: `Win chance with ${focus}`, vals: cols.map(t => t === you ? undefined : pairWin(you, t)), show: v => num(v) + '%', better: 'high' });
   }
@@ -7631,8 +7618,8 @@ function rwAllMatchesBlock(ctx, calAll, multiDay) {
 //
 // Asked for as "machine learning to implement"; three were chosen:
 //   1. self-checking win chances,
-//   2. a rating that carries a team's season into an event,
-//   3. play-style groups.
+//   2. a rating that carries a team's season into an event.
+// (Play-style groups shipped in v89 and were removed in v90, on request.)
 //
 // All three are small, run in the browser, and are fitted to the event in
 // front of you from data the app already loads. None is a black box: each
@@ -7833,92 +7820,6 @@ function sim_learnNote(R) {
   if (R.seasonOnly) parts.push(`<strong>Season form only:</strong> nothing has been played here yet, so these chances come from each team's record at its other events this season.`);
   else if (R.seasonUsed) parts.push(`<strong>Season included:</strong> ${R.seasonUsed} teams' ratings blend in their record at other events this season, counted as ${SIM_SEASON_K} matches. What a season record is worth here was fitted on the ${R.seasonFitOn} teams with enough matches at this event.`);
   return parts.length ? `<div class="sim-caveat">${parts.join(' ')}</div>` : '';
-}
-
-// ── 3. Play-style groups ───────────────────────────────────────────────────
-//
-// k-means on what the app already measures for every team here: rating, how
-// much its alliance scores swing (spread ÷ mean), and AP per match where the
-// event publishes it. Each is standardised first, so no one measure dominates
-// because of its units. Starting points are chosen deterministically (the
-// top-rated team, then whichever team is furthest from those chosen so far),
-// so the same event always gives the same groups.
-//
-// The algorithm finds the groups; the NAMES are read off each group's centre
-// afterwards. They describe ALLIANCE results (§12): "boom or bust" is a team
-// whose alliances' scores swing, not a verdict on a robot.
-function tStyleCluster(rows, k) {
-  // rows: [{ id, x: [..] }] already standardised
-  const d2 = (a, b) => a.reduce((s, v, i) => s + (v - b[i]) * (v - b[i]), 0);
-  let cents = [rows.reduce((best, r) => (r.x[0] > best.x[0] ? r : best), rows[0]).x.slice()];
-  while (cents.length < k) {
-    let far = null, farD = -1;
-    for (const r of rows) { const d = Math.min(...cents.map(c => d2(r.x, c))); if (d > farD) { farD = d; far = r; } }
-    cents.push(far.x.slice());
-  }
-  let assign = new Array(rows.length).fill(-1);
-  for (let it = 0; it < 25; it++) {
-    const next = rows.map(r => { let bi = 0, bd = Infinity; cents.forEach((c, i) => { const d = d2(r.x, c); if (d < bd) { bd = d; bi = i; } }); return bi; });
-    const same = next.every((v, i) => v === assign[i]);
-    assign = next;
-    if (same) break;
-    cents = cents.map((c, i) => {
-      const mine = rows.filter((_, j) => assign[j] === i);
-      return mine.length ? c.map((_, dim) => mine.reduce((s, r) => s + r.x[dim], 0) / mine.length) : c;
-    });
-  }
-  return { assign, cents };
-}
-function tStyleGroups(R, roster) {
-  const forms = tFormByTeam(R);
-  const raw = [];
-  for (const t of roster) {
-    const id = String(t.id), f = forms.get(id);
-    if (!f || f.cv === null || !R.ratings.has(id)) continue;   // needs T_FORM_MIN scored matches
-    raw.push({ t, v: [R.ratings.get(id), f.cv, R.apRate && R.apRate.has(id) ? R.apRate.get(id) : null] });
-  }
-  if (raw.length < 8) return null;
-  const hasAP = raw.every(r => r.v[2] !== null) && new Set(raw.map(r => r.v[2])).size > 1;
-  const dims = hasAP ? [0, 1, 2] : [0, 1];
-  const stat = dims.map(dm => { const xs = raw.map(r => r.v[dm]); const m = xs.reduce((a, b) => a + b, 0) / xs.length; const sd = Math.sqrt(xs.reduce((a, b) => a + (b - m) * (b - m), 0) / xs.length) || 1; return [m, sd]; });
-  const rows = raw.map(r => ({ id: String(r.t.id), t: r.t, x: dims.map((dm, i) => (r.v[dm] - stat[i][0]) / stat[i][1]) }));
-  const k = rows.length >= 16 ? 4 : 3;
-  const { assign, cents } = tStyleCluster(rows, k);
-  // Name each group from its centre: [rating, swing, (AP)] in standard units.
-  const left = cents.map((c, i) => i).filter(i => assign.includes(i));
-  const names = {};
-  const take = (score, name, floor) => {
-    if (!left.length) return;
-    let bi = left[0]; for (const i of left) if (score(cents[i]) > score(cents[bi])) bi = i;
-    if (floor !== undefined && score(cents[bi]) < floor) return;
-    names[bi] = name; left.splice(left.indexOf(bi), 1);
-  };
-  take(c => c[0] - c[1], 'Steady scorers');
-  take(c => -c[0], 'Still developing');
-  if (hasAP) take(c => c[2], 'Autonomous specialists', 0.3);
-  take(c => c[1], 'Boom or bust', 0.3);
-  for (const i of left) names[i] = 'Middle of the field';
-  const blurb = { 'Steady scorers': 'High alliance scores in a tight band.', 'Still developing': 'Lower alliance scores so far.',
-    'Autonomous specialists': 'Their alliances win autonomous more than most.', 'Boom or bust': 'Alliance scores that swing: a big day or a small one.',
-    'Middle of the field': 'Near the event average on each measure.' };
-  const order = ['Steady scorers', 'Autonomous specialists', 'Boom or bust', 'Middle of the field', 'Still developing'];
-  const groups = Object.keys(names).map(i => ({ name: names[i], blurb: blurb[names[i]],
-    teams: rows.filter((_, j) => assign[j] === Number(i)).map(r => r.t).sort((a, b) => a.eventRank - b.eventRank) }))
-    .sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name));
-  const styleOf = new Map();
-  for (const g of groups) for (const t of g.teams) styleOf.set(String(t.id), g.name);
-  return { groups, styleOf, hasAP, n: rows.length };
-}
-function tStyleBlock(R, roster, focus) {
-  const s = tStyleGroups(R, roster);
-  if (!s) return '';
-  return `<div class="detail-block-label">Play styles at this event</div>
-    <div class="st-list">${s.groups.map(g => `<div class="st-group">
-      <div class="st-name">${esc(g.name)} <span>${g.teams.length}</span></div>
-      <div class="st-blurb">${esc(g.blurb)}</div>
-      <div class="st-teams">${g.teams.map(t => `<span class="mt-team st-team${String(t.number).toUpperCase() === focus ? ' mine' : ''}" onclick="scoutTeam('${teamAttr(t.number)}')">${esc(t.number)}</span>`).join('')}</div>
-    </div>`).join('')}</div>
-    <div class="sim-caveat">Grouped automatically (k-means) from ${s.n} teams' rating, how much their alliance scores swing${s.hasAP ? ' and autonomous points per match' : ''} at this event. The groups are found from the numbers; the names describe each group's average. These are <strong>alliance</strong> results, so a team's partners shape which group it lands in.</div>`;
 }
 
 // ── STATUS BADGE ──────────────────────────────
@@ -11750,7 +11651,6 @@ async function renderTournamentPickList() {
 
   html += sim_learnNote(R);
   html += tCompareBlock(R, seeds, focus, pairWin);
-  html += tStyleBlock(R, seeds, focus);
   html += tFormBlock(R, seeds, focus);
 
   resultsEl.innerHTML = html;

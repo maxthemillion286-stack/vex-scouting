@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v89**. Everything green: 66 test files. (The `v19` in §8's
+Current release: **v90**. Everything green: 66 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -2184,7 +2184,7 @@ deploys. Worth doing only deliberately.
 
 ## 28. v89 — what the app learns from results
 
-Asked for as "machine learning to implement". Three small models, each fitted
+Asked for as "machine learning to implement". Two small models (a third, play-style groups, was removed in v90), each fitted
 in the browser to the event in front of you, each saying on the page what it
 did and on how much evidence. No library, no server, no stored model.
 
@@ -2211,14 +2211,9 @@ did and on how much evidence. No library, no server, no stored model.
   played): late answers are skipped now and cached for the next build. Fields
   over 120 teams are not fetched. `R.prior` holds each team's season rating;
   the next-match gate counts a team with a prior as rated.
-- **Play-style groups** (`tStyleGroups`, `tStyleCluster`, `tStyleBlock`).
-  k-means (3 groups, 4 from 16 teams) on standardised rating, score swing
-  (`cv` from `tFormOf`) and AP per match when published. Starting points are
-  deterministic — top-rated team, then farthest-first — so an event always
-  gives the same groups; **no `Math.random`**. Names are read off each group's
-  centre afterwards and describe alliance results (§12). Needs 8 teams with
-  `T_FORM_MIN` scored matches. Shown on the pick list and as a "Play style"
-  row in the compare table.
+- **Play-style groups — removed in v90.** v89 grouped teams by k-means into
+  named cards on the pick list. The user asked for them to be taken out the
+  same day. Do not add them back unasked.
 - `sim_learnNote(R)` writes the plain-words line above the pick list.
 - **Not verified against live data.** The tests use a synthetic field with
   known strengths. Whether k lands near 1 at real events is unknown.
