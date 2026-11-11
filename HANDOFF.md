@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v88**. Everything green: 65 test files. (The `v19` in §8's
+Current release: **v89**. Everything green: 66 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -404,6 +404,7 @@ proxy is at `api/proxy.js`.
 | t108 | **v85** — what you need to move up, the season line, the My team page, play all — §25 |
 | t109 | **v86** — last time's answer painted at once; asking ahead of the tap — §26 |
 | t110 | **v87** — comparing teams; every match of a team's in the Jumper — §27 |
+| t111 | **v89** — win chances checked against results; season in the rating; play-style groups — §28 |
 | sanity | CSS braces balance, inline JS parses, tabs present |
 | tool_sanity | Same for anchor-tool.html |
 
@@ -2181,7 +2182,50 @@ deploys. Worth doing only deliberately.
 
 ---
 
-## 28. Feature ideas
+## 28. v89 — what the app learns from results
+
+Asked for as "machine learning to implement". Three small models, each fitted
+in the browser to the event in front of you, each saying on the page what it
+did and on how much evidence. No library, no server, no stored model.
+
+- **Self-checking win chances** (`sim_backtest`, `sim_calFit`, `sim_calApply`).
+  A walk-forward backtest over the qualification matches already played: for
+  each, ratings are refit from the matches BEFORE it (every fourth match), the
+  match is predicted, and the call is compared with the result. One parameter
+  is fitted by least log-loss, `p' = sigmoid(k · logit(p))`, and shrunk toward
+  1 by `n / (n + 30)`. Under `SIM_CAL_MIN` (20) predictions nothing is
+  corrected. `sim_matchupProb` is now a wrapper that applies `simCalK`;
+  `sim_matchupProbRaw` is the simulator. **Only the backtest may call Raw** —
+  checking the corrected number against results is marking its own work.
+  `simCalK` is set in `sim_buildRatingsFromEvent` (cached path too), so it
+  always belongs to the event whose ratings are in use. `R.cal = {n, hits, k}`.
+- **The season, carried in** (`sim_seasonRecords`, `sim_applySeason`). One
+  `/teams/{id}/rankings` request per team, kept six hours (`vex_season_rec`,
+  capped at 400 teams, listed in `privacy.html`), this event excluded. What a
+  season win rate is worth in points HERE is fitted by least squares on teams
+  with 3+ matches at this event (needs 8); a slope that is not positive means
+  the season teaches nothing and is ignored. Ratings blend as
+  `(n·event + K·season) / (n + K)`, `SIM_SEASON_K = 2`. Before any match is
+  played there is no scale to fit, so a nominal one is used and the page says
+  "Season form only". The fetch is raced against 1.5 s (3 s when nothing is
+  played): late answers are skipped now and cached for the next build. Fields
+  over 120 teams are not fetched. `R.prior` holds each team's season rating;
+  the next-match gate counts a team with a prior as rated.
+- **Play-style groups** (`tStyleGroups`, `tStyleCluster`, `tStyleBlock`).
+  k-means (3 groups, 4 from 16 teams) on standardised rating, score swing
+  (`cv` from `tFormOf`) and AP per match when published. Starting points are
+  deterministic — top-rated team, then farthest-first — so an event always
+  gives the same groups; **no `Math.random`**. Names are read off each group's
+  centre afterwards and describe alliance results (§12). Needs 8 teams with
+  `T_FORM_MIN` scored matches. Shown on the pick list and as a "Play style"
+  row in the compare table.
+- `sim_learnNote(R)` writes the plain-words line above the pick list.
+- **Not verified against live data.** The tests use a synthetic field with
+  known strengths. Whether k lands near 1 at real events is unknown.
+
+---
+
+## 29. Feature ideas
 
 `IDEAS.md` holds the list of things worth building next, with what each one
 would cost against what already exists. It also records three things **not** to
