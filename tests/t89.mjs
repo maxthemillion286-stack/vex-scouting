@@ -26,7 +26,7 @@ console.log('t89 — nudging moves the preview');
 ok('there is one place that does it', /function rwRefreshPlaying\(ctx, day\)/.test(src));
 for (const [fn, where] of [
   ['rewatchNudge', 'the ±30s buttons'],
-  ['rewatchShiftBy', 'the minute shift'],
+  ['rewatchShiftReset', 'undoing a shift'],
   ['rewatchRemoveAnchor', 'removing an anchor']
 ]) {
   const body = src.slice(src.indexOf('function ' + fn), src.indexOf('\n}', src.indexOf('function ' + fn)));
@@ -91,15 +91,15 @@ const clockOf = (d) => { const h = d.querySelector('#rwPlayer .detail-block-labe
   await settle(win, 200);
   ok('+30s puts it back exactly', ctx().playing.off === off0 && /start=600/.test(srcOf(d) || ''));
 
-  // The minute box, in both directions.
-  d.getElementById('rwShiftBack_2026-02-28').value = '2';
-  win.rewatchShiftBy('2026-02-28', -1);
+  // Minutes, in both directions. (v83: the minute boxes became buttons, and a
+  // shift is its own number per day rather than an edit to the anchors.)
+  win.rewatchNudge('2026-02-28', -120);
   await settle(win, 200);
   ok('two minutes earlier moves it two minutes', ctx().playing.off === off0 - 120,
     String(ctx().playing.off));
   ok('...and the embed with it', /start=480/.test(srcOf(d) || ''), srcOf(d));
-  d.getElementById('rwShiftFwd_2026-02-28').value = '2';
-  win.rewatchShiftBy('2026-02-28', 1);
+  ok('...and the page says how far it has moved', /Moved 2:00 earlier/.test(d.getElementById('rwResults').innerHTML));
+  win.rewatchNudge('2026-02-28', 120);
   await settle(win, 200);
   ok('two minutes later puts it back', ctx().playing.off === off0);
 

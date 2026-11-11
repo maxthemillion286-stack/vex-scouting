@@ -2036,7 +2036,6 @@
   /* A button in a row of taller things keeps its own height instead of being
      stretched to the row's: 55px tall with 13px beside the word was the worst
      box on the desktop. */
-  .btn { align-self: center; }
   .btn-secondary { padding-left: 18px; padding-right: 18px; }
 
   /* The theme control is a dot. It was a labelled box the size of the status
@@ -2097,6 +2096,8 @@
     }
     .tab-btn::after { content: attr(data-short); font-size: 10px; letter-spacing: 0.4px; line-height: 1; }
     .tab-btn.active { border-top-color: var(--accent-bright); }
+    /* v83: Settings takes Info's cell. Info is one tap from Settings, so the bar stays seven wide. */
+    .tab-btn[data-short="INFO"] { display: none; }
     .tab-ico { display: block; order: -1; width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
     .tab-indicator { display: none; }
     body { padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
@@ -2424,6 +2425,235 @@
   .fav-events { margin-top: 10px; }
   .fav-ev { display: block; width: 100%; text-align: left; background: none; border: 0; border-top: 1px solid var(--border); padding: 11px 0; cursor: pointer; color: var(--text); font-family: var(--body); font-size: 15px; line-height: 1.5; }
   .fav-ev small { display: block; font-family: var(--mono); font-size: 12px; color: var(--text-muted); }
+
+  /* ════════════════════════════════════════════════════════════════
+     ALIGNMENT (v83)
+
+     Reported with five screenshots of the search rows: labels at slightly
+     different heights, the button riding above the fields, MULTI-SELECT and
+     a hint floating beside them.
+
+     The cause was one pattern: labels were positioned ABSOLUTELY above
+     fields of slightly different heights, and the row centred or stretched
+     its children. So nothing shared an edge.
+
+     Now a row has one rule: every control is the same height and sits on the
+     row's bottom edge, and a label is a real line of text directly above its
+     own field. Nothing is positioned by a number that has to match another
+     number somewhere else.
+     ════════════════════════════════════════════════════════════════ */
+  .controls-row { align-items: flex-end; }
+  .tab-panel .input-wrap { display: flex; flex-direction: column; justify-content: flex-end; }
+  .tab-panel .input-label { position: static; display: block; line-height: 1.2; margin: 0 0 7px; }
+  .controls-row input[type="text"], .controls-row input[type="password"], .controls-row select, .controls-row .cs-bar,
+  .fav-add input[type="text"] { height: 46px; box-sizing: border-box; padding-top: 0; padding-bottom: 0; }
+  .controls-row .cs-bar { display: flex; align-items: center; }
+  .controls-row > .btn, .controls-row > div > .btn, .fav-add > .btn { height: 46px; min-height: 46px; box-sizing: border-box;
+    padding-top: 0; padding-bottom: 0; align-self: flex-end; display: inline-flex; align-items: center; justify-content: center; }
+  .controls-row > .hint, .controls-row > .sim-hint { align-self: center; margin: 0; }
+
+  /* The Jumper's shift row. */
+  .rw-shift-bar { flex-wrap: wrap; gap: 8px 10px; }
+  .rw-shift-btns { display: flex; flex-wrap: wrap; gap: 6px; }
+  .rw-shift-bar .rw-nudge-btn { min-height: 40px; padding: 0 14px; font-family: var(--body); font-size: 14px; letter-spacing: 0; border-radius: var(--r-md); }
+  .rw-shift-now { font-family: var(--body); font-size: 14px; color: var(--text); }
+  .rw-shift-cap { font-size: 13px; white-space: normal; }
+
+  /* A team that exists but is not registered this season. */
+  .sg-chip.inactive b { color: var(--text-muted); }
+  .sg-chip i { font-style: normal; font-size: 12px; color: var(--text-muted); margin-left: 6px; }
+
+  /* Settings, and the pieces that came out of the header (v83). */
+  .status-badge { display: inline-flex; align-items: center; gap: 8px; }
+  .sb-ver { color: var(--text-muted); }
+  .sb-live { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); }
+  .sb-live::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .status-badge.connected .sb-live { color: #2fbf5b; }
+  .my-team-link { display: none; }
+  .input-label.keep-case { text-transform: uppercase; }
+  .set-group { max-width: 640px; padding: 4px 0 26px; }
+  .set-group + .set-group { border-top: 1px solid var(--border); padding-top: 24px; }
+  .set-h { font-family: var(--display); font-size: 18px; font-weight: 600; color: var(--text); margin: 0 0 6px; }
+  .set-p, .set-state { font-family: var(--body); font-size: 15px; line-height: 1.5; color: var(--text-dim); margin: 0 0 14px; max-width: 60ch; }
+  .set-state { margin: 12px 0 0; }
+  .set-state strong { color: var(--text); }
+  .set-link { background: none; border: 0; padding: 8px 6px; color: var(--accent-bright); cursor: pointer; font: inherit; text-decoration: underline; }
+  .set-sub { font-family: var(--body); font-size: 13px; color: var(--text-muted); margin: 14px 0 8px; }
+  .theme-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+  .theme-grid .theme-section-label { grid-column: 1 / -1; border: 0; padding: 8px 0 0; background: none;
+    font-family: var(--body); font-size: 13px; letter-spacing: 0; text-transform: none; color: var(--text-muted); }
+  .theme-grid .theme-option { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 0 14px;
+    border: 1px solid transparent; border-radius: var(--r-md); background: var(--card2); color: var(--text-dim); cursor: pointer;
+    font-family: var(--body); font-size: 14px; letter-spacing: 0; text-transform: lowercase; text-align: left; }
+  .theme-grid .theme-option.active { border-color: var(--accent-bright); color: var(--text); }
+  .theme-grid .theme-option.active::before { content: none; }
+  .theme-grid .tdot { width: 14px; height: 14px; }
+
+  /* ════════════════════════════════════════════════════════════════
+     THE COMPUTER (v83)
+
+     Asked for as: "revamp the pc version following how to not make a website
+     look like ai and make it look nice". HANDOFF §23 has the reading.
+
+     What the old desktop was, in those terms: a centred column under a
+     logo-and-tagline header, a strip of tracked ALL-CAPS tabs, and a tiny
+     tracked monospace label over every heading and every input. Each of those
+     is on every list of "nobody designed this".
+
+     What it is now:
+       · A RAIL down the left — the app's name, the tabs as a plain list, your
+         team, the version. Dimmer than the page, so it does not compete.
+       · The page is LEFT-aligned and starts with its own name in real type.
+         One big thing per screen; labels are quiet sentence-case text.
+       · No monospace for labels, no eyebrow tagline, no gradient wash. The
+         mono face stays where it is honest: numbers and codes.
+     The three typefaces are the same three. Which one a LABEL uses changed,
+     on this width only — see §23 before changing it again.
+     ════════════════════════════════════════════════════════════════ */
+  @media (min-width: 900px) {
+    body { padding-left: 248px; font-variant-numeric: tabular-nums; }
+    body::before { display: none; }
+    body::after { display: block; content: ''; position: fixed; inset: 0 auto 0 0; width: 248px; background: var(--card); opacity: 0.55; z-index: 0; pointer-events: none; }
+
+    /* The rail: name on top, tabs under it, team and version at the foot. */
+    header { position: fixed; left: 0; top: 0; width: 248px; padding: 26px 0 0; border-bottom: 0; }
+    header .container { padding: 0 22px; max-width: none; }
+    .header-inner { flex-wrap: nowrap; gap: 12px; }
+    .logo-mark { width: 32px; height: 32px; }
+    .logo-mark svg { width: 17px; height: 17px; }
+    .logo-title { font-size: 19px; letter-spacing: 1.5px; }
+    .logo-sub { display: none; }
+    .header-right { position: fixed; left: 22px; bottom: 20px; width: 204px; margin: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+    .status-badge, .status-badge.connected { background: none; border: 0; padding: 0; font-family: var(--body); font-size: 13px; letter-spacing: 0; }
+    /* "SKU" is an initialism; lowercasing the label would spell it "sku". */
+    .input-label.keep-case { text-transform: none; }
+    .my-team-link:not([hidden]) { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; width: 100%;
+      padding: 10px 12px; border: 0; border-radius: var(--r-md); background: var(--card2); cursor: pointer;
+      font-family: var(--body); font-size: 13px; color: var(--text-muted); }
+    .my-team-link b { font-family: var(--display); font-size: 16px; font-weight: 600; letter-spacing: 0.5px; color: var(--text); }
+
+    .tabs-nav { position: fixed; left: 12px; top: 92px; width: 224px; display: block; margin: 0; border-bottom: 0; }
+    .tab-btn { display: block; width: 100%; padding: 10px 12px; margin-bottom: 2px; border-radius: var(--r-md); text-align: left;
+      font-size: 15px; font-weight: 500; letter-spacing: 0.2px; text-transform: lowercase; color: var(--text-dim); transition: none; }
+    .tab-btn::first-letter { text-transform: uppercase; }
+    .tab-btn.active { background: var(--card2); color: var(--text); }
+    .tab-btn.tab-phone-only { display: none; }
+    .tab-ico { display: block; float: left; width: 18px; height: 18px; margin: 1px 12px 0 0; fill: none; stroke: currentColor;
+      stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; opacity: 0.8; }
+    .tab-indicator { display: none; }
+
+    /* The page. */
+    .container { max-width: 1180px; margin: 0; padding: 0 48px; }
+    .nav-history { margin: 22px 0 0 -8px; }
+    .search-section { padding: 10px 0 28px; }
+    .tab-panel.active { animation: none; }
+    /* The page's name, as a heading. It was a 10px tracked caption. */
+    .section-label { display: block; margin-bottom: 26px; font-family: var(--display); font-size: 30px; font-weight: 600;
+      letter-spacing: 0.2px; line-height: 1.15; text-transform: lowercase; color: var(--text); }
+    .section-label::first-letter { text-transform: uppercase; }
+    .section-label .section-info { vertical-align: middle; margin-left: 10px; }
+    /* A field's label: sentence case, the reading face, next to its field. */
+    .input-label { font-family: var(--body); font-size: 14px; font-weight: 500; letter-spacing: 0; text-transform: lowercase; color: var(--text-dim); }
+    .input-label::first-letter { text-transform: uppercase; }
+    .controls-row { gap: 14px; row-gap: 18px; }
+    input[type="text"], input[type="password"], select, .cs-bar { font-size: 15px; }
+    .btn { font-size: 13px; letter-spacing: 0.8px; padding: 12px 22px; }
+    .btn-primary { border-color: transparent; background: var(--accent-dim); }
+
+    /* An event's views: the same quiet list language as the rail. */
+    .t-nav-btn { font-size: 14px; letter-spacing: 0.2px; text-transform: lowercase; }
+    .t-nav-btn::first-letter { text-transform: uppercase; }
+    .t-nav-btn[onclick*="'team'"] { text-transform: none; }
+    .tournament-summary-name { font-size: 20px; }
+
+    /* Nothing under 12px, and the wide tracking that made captions shout is
+       gone. Generated from the sheet, like the phone lists. */
+    .award-tag,
+    .badge,
+    .btn-detail,
+    .btn-secondary,
+    .detail-block-label,
+    .detail-meta em,
+    .draft-btn,
+    .es-sig,
+    .ev-filter-arrow,
+    .ev-filter-clear,
+    .ev-filter-label,
+    .ev-row-meta,
+    .inf-mark,
+    .ladder-cell-label,
+    .ladder-cell-raw,
+    .ladder-title,
+    .match-alliance-label,
+    .match-num,
+    .match-play,
+    .match-pred,
+    .match-time,
+    .match-vs,
+    .md-exp-label,
+    .md-next-label,
+    .md-partner-label,
+    .md-row-time,
+    .md-stat-label,
+    .md-stat-sub,
+    .md-updated,
+    .multi-select-btn,
+    .ov-label,
+    .page-info,
+    .pk-meta,
+    .pk-mode-wrap::after,
+    .pk-size,
+    .rd-pos,
+    .rd-score,
+    .rw-auto-tag,
+    .rw-debug-head,
+    .rw-event-meta,
+    .rw-forget,
+    .rw-group-label,
+    .rw-noclock,
+    .rw-nudge button,
+    .rw-nudge-btn,
+    .rw-or,
+    .rw-or-row,
+    .rw-seen,
+    .rw-shift-go,
+    .rw-step-at,
+    .sched-tag,
+    .section-info,
+    .select-wrap::after,
+    .sim-block-label,
+    .sim-event-pick-label,
+    .sim-ov-col-label,
+    .sim-tie-note,
+    .site-foot,
+    .skill-label,
+    .skill-loc,
+    .skill-name,
+    .stat-group-label,
+    .t-award-qual,
+    .t-match-div,
+    .t-match-name,
+    .t-match-side,
+    .t-match-side.won::after,
+    .t-nav-btn,
+    .t-nav-link,
+    .t-pending,
+    .t-skills-head,
+    .t-switch-label,
+    .team-location,
+    .tournament-list-label,
+    .tournament-meta,
+    .tournament-summary .btn,
+    .tournament-team-tag .tt-stat-label,
+    .tt-grade,
+    input[type="text"].rw-shift-in { font-size: 12px; }
+    .detail-block-label,
+    .md-next-label,
+    .sim-alliance-label,
+    .sim-block-label { letter-spacing: 1px; }
+
+    .site-foot { text-align: left; padding-left: 48px; }
+  }
 </style>
 </head>
 <body class="theme-dark-grey">
@@ -2445,69 +2675,8 @@
         <div class="logo-sub">Competition Intelligence</div>
       </div>
       <div class="header-right">
-        <div class="status-badge" id="statusBadge">● NOT CONNECTED</div>
-
-        <!-- Theme Switcher -->
-        <div class="theme-switcher">
-          <button class="theme-btn" onclick="toggleThemeMenu()" aria-label="Change color theme" title="Change color theme">
-            <div class="theme-dot" id="themeDot"></div>
-          </button>
-          <div class="theme-dropdown" id="themeDropdown">
-
-            <div class="theme-section-label">● Dark Mode</div>
-            <button class="theme-option" id="opt-red" onclick="applyTheme('red')">
-              <span class="tdot" style="background:#cc0000"></span><span>RED / BLACK</span>
-            </button>
-            <button class="theme-option" id="opt-dark-blue" onclick="applyTheme('dark-blue')">
-              <span class="tdot" style="background:#2288ff"></span><span>BLUE / BLACK</span>
-            </button>
-            <button class="theme-option" id="opt-dark-green" onclick="applyTheme('dark-green')">
-              <span class="tdot" style="background:#22dd66"></span><span>GREEN / BLACK</span>
-            </button>
-            <button class="theme-option" id="opt-dark-purple" onclick="applyTheme('dark-purple')">
-              <span class="tdot" style="background:#aa22ee"></span><span>PURPLE / BLACK</span>
-            </button>
-            <button class="theme-option" id="opt-dark-orange" onclick="applyTheme('dark-orange')">
-              <span class="tdot" style="background:#ff8822"></span><span>ORANGE / BLACK</span>
-            </button>
-            <button class="theme-option" id="opt-dark-yellow" onclick="applyTheme('dark-yellow')">
-              <span class="tdot" style="background:#eecc22"></span><span>YELLOW / BLACK</span>
-            </button>
-            <button class="theme-option" id="opt-dark-pink" onclick="applyTheme('dark-pink')">
-              <span class="tdot" style="background:#ff44aa"></span><span>PINK / BLACK</span>
-            </button>
-            <button class="theme-option active" id="opt-dark-grey" onclick="applyTheme('dark-grey')">
-              <span class="tdot" style="background:#888888"></span><span>GREY / BLACK</span>
-            </button>
-
-            <div class="theme-section-label">○ Light Mode</div>
-            <button class="theme-option" id="opt-light-red" onclick="applyTheme('light-red')">
-              <span class="tdot" style="background:#cc0000"></span><span>RED / WHITE</span>
-            </button>
-            <button class="theme-option" id="opt-light-blue" onclick="applyTheme('light-blue')">
-              <span class="tdot" style="background:#0066dd"></span><span>BLUE / WHITE</span>
-            </button>
-            <button class="theme-option" id="opt-light-green" onclick="applyTheme('light-green')">
-              <span class="tdot" style="background:#008833"></span><span>GREEN / WHITE</span>
-            </button>
-            <button class="theme-option" id="opt-light-purple" onclick="applyTheme('light-purple')">
-              <span class="tdot" style="background:#7700bb"></span><span>PURPLE / WHITE</span>
-            </button>
-            <button class="theme-option" id="opt-light-orange" onclick="applyTheme('light-orange')">
-              <span class="tdot" style="background:#cc5500"></span><span>ORANGE / WHITE</span>
-            </button>
-            <button class="theme-option" id="opt-light-yellow" onclick="applyTheme('light-yellow')">
-              <span class="tdot" style="background:#aa8800"></span><span>YELLOW / WHITE</span>
-            </button>
-            <button class="theme-option" id="opt-light-pink" onclick="applyTheme('light-pink')">
-              <span class="tdot" style="background:#cc0077"></span><span>PINK / WHITE</span>
-            </button>
-            <button class="theme-option" id="opt-light-grey" onclick="applyTheme('light-grey')">
-              <span class="tdot" style="background:#555555"></span><span>GREY / WHITE</span>
-            </button>
-
-          </div>
-        </div>
+        <button class="my-team-link" id="myTeamLink" hidden onclick="myTeamOpen()"></button>
+        <div class="status-badge" id="statusBadge"><span class="sb-ver"></span><span class="sb-live">Offline</span></div>
       </div>
     </div>
   </div>
@@ -2529,6 +2698,7 @@
     <button class="tab-btn" data-short="JUMPER" data-tab="rewatch" onclick="switchTab('rewatch')">JUMPER<svg class="tab-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3.500" y="5.500" width="17" height="13" rx="1.500"/><path d="M10 9.500v5l4.500-2.500z"/></svg></button>
     <button class="tab-btn" data-short="FINDER" data-tab="simulator" onclick="switchTab('simulator')">SIMULATOR<svg class="tab-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 19l5-6 4 3 7-9"/><path d="M16 7h4v4"/></svg></button>
     <button class="tab-btn" data-short="INFO" data-tab="info" onclick="switchTab('info')">INFO<svg class="tab-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.500"/><path d="M12 11v5.500M12 7.600v.200"/></svg></button>
+    <button class="tab-btn" data-short="SETTINGS" data-tab="settings" onclick="switchTab('settings')">SETTINGS<svg class="tab-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h10M18 7h2M4 12h3M11 12h9M4 17h12M20 17h0"/><circle cx="16" cy="7" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="18" cy="17" r="2"/></svg></button>
     <div class="tab-indicator" id="tabIndicator"></div>
   </div>
 
@@ -2590,7 +2760,7 @@
       </div>
 
       <div class="input-wrap select-wrap" style="min-width:150px;" id="subregionWrap" hidden>
-        <span class="input-label">VEX REGION</span>
+        <span class="input-label keep-case">VEX region</span>
         <select id="subregionSelect">
           <option value="">All</option>
         </select>
@@ -2627,7 +2797,7 @@
 
     <div class="controls-row">
       <div class="input-wrap" style="flex:2;">
-        <span class="input-label">EVENT SKU OR SEARCH</span>
+        <span class="input-label keep-case">Event SKU or search</span>
         <input type="text" id="tournamentInput" placeholder="Event SKU, team number (e.g. 66449A), or event name" autocomplete="off">
       </div>
       <div class="input-wrap select-wrap" style="min-width:140px;">
@@ -2672,7 +2842,7 @@
     <div class="rw-or-row">or watch a whole event</div>
     <div class="controls-row">
       <div class="input-wrap" style="flex:2;min-width:200px;">
-        <span class="input-label">EVENT (NAME OR SKU)</span>
+        <span class="input-label keep-case">Event (name or SKU)</span>
         <input type="text" id="rwEventInput" placeholder="event name or RE-V5RC-..." autocomplete="off">
       </div>
       <button class="btn btn-secondary" onclick="rewatchLoadEvent()">WATCH EVENT</button>
@@ -2717,6 +2887,82 @@
       <button class="btn btn-primary" onclick="favAddFromInput()">ADD</button>
     </div>
     <div id="favsResults"></div>
+  </section>
+  <!-- ═══════════ SETTINGS ═══════════ -->
+  <section class="search-section tab-panel" id="tab-settings">
+    <div class="section-label">Settings</div>
+    <div class="set-group">
+      <h3 class="set-h">My team</h3>
+      <p class="set-p">Your team is filled in for you across the app and comes first on Favorites. It stays on this device.</p>
+      <div class="fav-add">
+        <input type="text" id="myTeamInput" placeholder="Team number, e.g. 3050X" autocomplete="off" autocapitalize="characters" enterkeyhint="done">
+        <button class="btn btn-primary" onclick="myTeamSaveFromInput()">Save</button>
+      </div>
+      <div class="set-state" id="myTeamState"></div>
+    </div>
+    <div class="set-group">
+      <h3 class="set-h">Color theme</h3>
+      <div class="theme-grid" id="themeDropdown">
+
+            <div class="theme-section-label">Dark</div>
+            <button class="theme-option" id="opt-red" onclick="applyTheme('red')">
+              <span class="tdot" style="background:#cc0000"></span><span>RED / BLACK</span>
+            </button>
+            <button class="theme-option" id="opt-dark-blue" onclick="applyTheme('dark-blue')">
+              <span class="tdot" style="background:#2288ff"></span><span>BLUE / BLACK</span>
+            </button>
+            <button class="theme-option" id="opt-dark-green" onclick="applyTheme('dark-green')">
+              <span class="tdot" style="background:#22dd66"></span><span>GREEN / BLACK</span>
+            </button>
+            <button class="theme-option" id="opt-dark-purple" onclick="applyTheme('dark-purple')">
+              <span class="tdot" style="background:#aa22ee"></span><span>PURPLE / BLACK</span>
+            </button>
+            <button class="theme-option" id="opt-dark-orange" onclick="applyTheme('dark-orange')">
+              <span class="tdot" style="background:#ff8822"></span><span>ORANGE / BLACK</span>
+            </button>
+            <button class="theme-option" id="opt-dark-yellow" onclick="applyTheme('dark-yellow')">
+              <span class="tdot" style="background:#eecc22"></span><span>YELLOW / BLACK</span>
+            </button>
+            <button class="theme-option" id="opt-dark-pink" onclick="applyTheme('dark-pink')">
+              <span class="tdot" style="background:#ff44aa"></span><span>PINK / BLACK</span>
+            </button>
+            <button class="theme-option active" id="opt-dark-grey" onclick="applyTheme('dark-grey')">
+              <span class="tdot" style="background:#888888"></span><span>GREY / BLACK</span>
+            </button>
+
+            <div class="theme-section-label">Light</div>
+            <button class="theme-option" id="opt-light-red" onclick="applyTheme('light-red')">
+              <span class="tdot" style="background:#cc0000"></span><span>RED / WHITE</span>
+            </button>
+            <button class="theme-option" id="opt-light-blue" onclick="applyTheme('light-blue')">
+              <span class="tdot" style="background:#0066dd"></span><span>BLUE / WHITE</span>
+            </button>
+            <button class="theme-option" id="opt-light-green" onclick="applyTheme('light-green')">
+              <span class="tdot" style="background:#008833"></span><span>GREEN / WHITE</span>
+            </button>
+            <button class="theme-option" id="opt-light-purple" onclick="applyTheme('light-purple')">
+              <span class="tdot" style="background:#7700bb"></span><span>PURPLE / WHITE</span>
+            </button>
+            <button class="theme-option" id="opt-light-orange" onclick="applyTheme('light-orange')">
+              <span class="tdot" style="background:#cc5500"></span><span>ORANGE / WHITE</span>
+            </button>
+            <button class="theme-option" id="opt-light-yellow" onclick="applyTheme('light-yellow')">
+              <span class="tdot" style="background:#aa8800"></span><span>YELLOW / WHITE</span>
+            </button>
+            <button class="theme-option" id="opt-light-pink" onclick="applyTheme('light-pink')">
+              <span class="tdot" style="background:#cc0077"></span><span>PINK / WHITE</span>
+            </button>
+            <button class="theme-option" id="opt-light-grey" onclick="applyTheme('light-grey')">
+              <span class="tdot" style="background:#555555"></span><span>GREY / WHITE</span>
+            </button>
+
+      </div>
+    </div>
+    <div class="set-group">
+      <h3 class="set-h">About</h3>
+      <p class="set-p" id="setAbout"></p>
+      <button class="btn btn-secondary" onclick="switchTab('info')">What VEX Scout does</button>
+    </div>
   </section>
   <!-- ═══════════ INFO ═══════════ -->
   <section class="search-section tab-panel" id="tab-info">
@@ -3255,7 +3501,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v82';
+const APP_BUILD = 'v83';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -4251,6 +4497,42 @@ function rwCalForMatch(m, calByDay) {
   return null;
 }
 
+// A match with no recorded start, only a scheduled one, is where the Jumper is
+// least accurate: events run late, and by mid-afternoon "scheduled" can be
+// twenty minutes before the match was actually played.
+//
+// But the event's OTHER matches say how late it was running. Each one that has
+// both times gives a slip (started − scheduled); a match without a start takes
+// the slip of the nearest one in the schedule, on the same day, within ninety
+// minutes. It stays marked inexact — this is an estimate, and says so.
+const RW_SLIP_REACH_MS = 90 * 60000;
+function rwApplySlip(matches, allEvMatches) {
+  const known = [];
+  for (const m of (allEvMatches || [])) {
+    if (!m || !m.started || !m.scheduled) continue;
+    const st = Date.parse(m.started), sc = Date.parse(m.scheduled);
+    // A slip of more than three hours is a re-scheduled match, not a late one.
+    if (isNaN(st) || isNaN(sc) || Math.abs(st - sc) > 3 * 3600000) continue;
+    known.push({ sc, slip: st - sc });
+  }
+  if (!known.length) return 0;
+  let moved = 0;
+  for (const m of (matches || [])) {
+    if (m.exact || m.sched === null || m.sched === undefined) continue;
+    let best = null;
+    for (const k of known) {
+      const gap = Math.abs(k.sc - m.sched);
+      if (gap > RW_SLIP_REACH_MS || rwDayKey(k.sc) !== rwDayKey(m.sched)) continue;
+      if (!best || gap < best.gap) best = { gap, slip: k.slip };
+    }
+    if (!best) continue;
+    m.t = m.sched + best.slip;
+    m.est = true;
+    moved++;
+  }
+  return moved;
+}
+
 // ── Step 1: team → the events they attended ──
 async function rewatchLoadTeam() {
   const num = (document.getElementById('rwTeamInput').value || '').trim().toUpperCase();
@@ -4648,6 +4930,7 @@ async function rewatchSelectEvent(eventId) {
         redScore: redA.score ?? null, blueScore: blueA.score ?? null,
         onRed: has(redA),
         t: !isNaN(startedMs) ? startedMs : (!isNaN(schedMs) ? schedMs : null),
+        sched: !isNaN(schedMs) ? schedMs : null,
         exact: !isNaN(startedMs)   // false = we only have the scheduled time
       });
     }
@@ -4694,6 +4977,7 @@ async function rewatchSelectEvent(eventId) {
         }
       }
       ctx.allMatches.sort((a, b) => a.t - b.t);
+      rwApplySlip(matches, allEv);
       // Which division is THIS team in? Whichever one its own matches sit in.
       //
       // At Worlds ten divisions stream in parallel — Science, Technology,
@@ -4730,6 +5014,7 @@ async function rewatchSelectEvent(eventId) {
     // nobody asked. anchors.json has to be loaded before this can be known;
     // it's a small static file and usually already cached.
     await rwLoadPublished();
+    ctx.shift = rwLoadShift(eventId);
     const preCal = rwMergePublished(eventId, rwLoadCal(eventId));
     const daysNeeded = [...new Set(matches.filter(m => m.t !== null).map(m => rwDayKey(m.t)))]
       .filter(d => !preCal[d]);
@@ -4842,7 +5127,51 @@ function rwAnchorForDay(ctx, day) {
 // clock only advanced the video by 50 minutes, a 40-minute break is implied and
 // every match between those anchors lands correctly. Outside the anchored range
 // we extrapolate using the nearest pair's real rate.
+// ── The day's shift (v83) ───────────────────────────────────────────────────
+//
+// Reported as: "a way to shift the time forward if it's off by a few minutes —
+// that current feature doesn't work."
+//
+// The old shift moved the day's ANCHORS. That works for a day with one video
+// and an anchor, and does nothing at all on the two kinds of day that are most
+// common in practice:
+//   · a day streamed in several parts — each match is resolved to a SEGMENT,
+//     with a synthetic anchor built from the segment's start, so the anchors
+//     the buttons were editing were never read;
+//   · a day at 0:00 — anchors are clamped at zero, so "earlier" was swallowed.
+// And an auto-sync that ran again replaced the anchors, and the shift with it.
+//
+// So the shift is its own number per day, applied AFTER whatever worked the
+// position out, and kept on its own. It cannot be skipped by a path that
+// resolves the video differently, and re-syncing does not erase it.
+const RW_SHIFT_KEY = 'vex_rw_shift';
+function rwShiftAll() {
+  try { const v = JSON.parse(lsGet(RW_SHIFT_KEY) || '{}'); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; }
+  catch (e) { return {}; }
+}
+function rwLoadShift(eventId) {
+  const v = rwShiftAll()[String(eventId)];
+  const out = {};
+  if (v && typeof v === 'object') for (const [d, n] of Object.entries(v)) if (Number.isFinite(Number(n)) && Number(n)) out[d] = Math.round(Number(n));
+  return out;
+}
+function rwSaveShift(eventId, shift) {
+  const all = rwShiftAll();
+  if (shift && Object.keys(shift).length) all[String(eventId)] = shift; else delete all[String(eventId)];
+  const keys = Object.keys(all);
+  for (const k of keys.slice(0, Math.max(0, keys.length - 30))) delete all[k];
+  lsSet(RW_SHIFT_KEY, JSON.stringify(all));
+}
+function rwShiftSec(m) {
+  const ctx = window._rwCtx;
+  if (!ctx || !ctx.shift || m.t === null || m.t === undefined) return 0;
+  return Number(ctx.shift[rwDayKey(m.t)]) || 0;
+}
 function rwOffsetFor(m, calByDay) {
+  const raw = rwOffsetRaw(m, calByDay);
+  return raw === null ? null : Math.max(0, raw + rwShiftSec(m));
+}
+function rwOffsetRaw(m, calByDay) {
   if (m.t === null || m.t === undefined) return null;
   // A multi-segment day must be resolved per match, so it can't take the
   // "already a cal object" short circuit.
@@ -5563,28 +5892,36 @@ function rwRefreshPlaying(ctx, day) {
   ctx.playing = { matchId: m.id, off };
 }
 
-// Shift a whole day. The box you type in decides the direction — left is
-// earlier, right is later — so you never have to type a minus sign.
-function rewatchShiftBy(day, sign) {
-  const ctx = window._rwCtx; if (!ctx || !ctx.cal || !ctx.cal[day]) return;
-  const id = sign < 0 ? 'rwShiftBack_' + day : 'rwShiftFwd_' + day;
-  const raw = ((document.getElementById(id) || {}).value || '').trim();
-  const mins = Math.abs(parseFloat(raw));
-  if (!raw || isNaN(mins)) { showError('⚠ Type how many minutes in the box, e.g. 2 or 1.5'); return; }
-  showError('');
-  const delta = Math.round(sign * mins * 60);
-  (ctx.cal[day].anchors || []).forEach(a => { a.videoSec = Math.max(0, a.videoSec + delta); });
-  rwSaveCal(ctx.eventId, ctx.cal);
+// Shift a whole day: every match on it moves by the same amount. Positive is
+// later in the video. See "The day's shift" above for why this is not done by
+// editing anchors any more.
+function rewatchNudge(day, deltaSec) {
+  const ctx = window._rwCtx; if (!ctx || !day) return;
+  const d = Math.round(Number(deltaSec));
+  if (!Number.isFinite(d) || !d) return;
+  ctx.shift = ctx.shift || {};
+  const next = (Number(ctx.shift[day]) || 0) + d;
+  if (next) ctx.shift[day] = next; else delete ctx.shift[day];
+  rwSaveShift(ctx.eventId, ctx.shift);
   rwRefreshPlaying(ctx, day);
   rewatchRender();
 }
-
-function rewatchNudge(day, deltaSec) {
-  const ctx = window._rwCtx; if (!ctx || !ctx.cal || !ctx.cal[day]) return;
-  (ctx.cal[day].anchors || []).forEach(a => { a.videoSec = Math.max(0, a.videoSec + deltaSec); });
-  rwSaveCal(ctx.eventId, ctx.cal);
+function rewatchShiftReset(day) {
+  const ctx = window._rwCtx; if (!ctx || !ctx.shift) return;
+  delete ctx.shift[day];
+  rwSaveShift(ctx.eventId, ctx.shift);
   rwRefreshPlaying(ctx, day);
   rewatchRender();
+}
+// Kept for anything still calling it: minutes, with a sign.
+function rewatchShiftBy(day, sign, mins) {
+  const n = Math.abs(parseFloat(mins));
+  if (isNaN(n)) return;
+  rewatchNudge(day, Math.round(sign * n * 60));
+}
+function rwShiftLabel(sec) {
+  const a = Math.abs(sec), mm = Math.floor(a / 60), ss = a % 60;
+  return `${mm}:${String(ss).padStart(2, '0')} ${sec > 0 ? 'later' : 'earlier'}`;
 }
 
 // Open/close the calibration form for one day
@@ -5598,6 +5935,7 @@ function rewatchClearCal(day) {
   const ctx = window._rwCtx; if (!ctx) return;
   if (day && ctx.cal) delete ctx.cal[day];
   else ctx.cal = {};
+  if (ctx.shift) { if (day) delete ctx.shift[day]; else ctx.shift = {}; rwSaveShift(ctx.eventId, ctx.shift); }
   rwSaveCal(ctx.eventId, ctx.cal || {});
   rewatchRender();
 }
@@ -5836,16 +6174,14 @@ function rewatchRender() {
         ? `<div class="rw-hint rw-warn">One anchor only — times drift the further you get from ${esc(anchors[0].name)}, because streams pause for lunch and awards. If a distant match is off, add a second anchor near it and everything in between corrects itself.</div>`
         : `<div class="rw-hint">${anchors.length} anchors — matches between them are interpolated, so breaks in the stream are handled automatically.</div>`}
       <div class="rw-shift-bar">
-        <span class="rw-shift-cap">earlier</span>
-        <input type="text" class="rw-shift-in" id="rwShiftBack_${day}" placeholder="min"
-          onkeydown="if(event.key==='Enter')rewatchShiftBy('${teamAttr(day)}',-1)">
-        <button class="rw-shift-go" onclick="rewatchShiftBy('${teamAttr(day)}',-1)">◀</button>
-        <button class="rw-nudge-btn" onclick="rewatchNudge('${teamAttr(day)}', -30)">−30s</button>
-        <button class="rw-nudge-btn" onclick="rewatchNudge('${teamAttr(day)}', 30)">+30s</button>
-        <button class="rw-shift-go" onclick="rewatchShiftBy('${teamAttr(day)}',1)">▶</button>
-        <input type="text" class="rw-shift-in" id="rwShiftFwd_${day}" placeholder="min"
-          onkeydown="if(event.key==='Enter')rewatchShiftBy('${teamAttr(day)}',1)">
-        <span class="rw-shift-cap">later</span>
+        <span class="rw-shift-cap">Video off? Move every match on this day:</span>
+        <div class="rw-shift-btns">
+          ${[[-300, '−5 min'], [-60, '−1 min'], [-10, '−10 s'], [10, '+10 s'], [60, '+1 min'], [300, '+5 min']].map(([d, label]) =>
+            `<button class="rw-nudge-btn" onclick="rewatchNudge('${teamAttr(day)}', ${d})">${label}</button>`).join('')}
+        </div>
+        ${(ctx.shift && ctx.shift[day])
+          ? `<span class="rw-shift-now">Moved ${rwShiftLabel(ctx.shift[day])}</span><button class="rw-nudge-btn rw-shift-reset" onclick="rewatchShiftReset('${teamAttr(day)}')">Undo</button>`
+          : `<span class="rw-shift-cap">Minus if the match has already started when it opens; plus if you have to wait for it.</span>`}
       </div>`;
     }
 
@@ -5920,7 +6256,7 @@ function rewatchRender() {
         const seen = rwSeenHas(ctx.eventId, m.id);
         const onNow = ctx.playing && String(ctx.playing.matchId) === String(m.id);
         html += `<div class="rw-row ${res}${seen ? ' watched' : ''}${onNow ? ' playing' : ''}">
-          <div class="rw-name">${seen && !onNow ? '<span class="rw-seen" title="You have opened this one">✓</span>' : ''}${esc(m.name)}${!m.exact && m.t !== null ? '<span class="rw-approx" title="This match has no start time from the API — using its scheduled time, so the jump may be off">~</span>' : ''}</div>
+          <div class="rw-name">${seen && !onNow ? '<span class="rw-seen" title="You have opened this one">✓</span>' : ''}${esc(m.name)}${!m.exact && m.t !== null ? `<span class="rw-approx" title="${m.est ? 'No start time from the API. Estimated from how late the matches around it ran, so the jump should be close.' : 'This match has no start time from the API — using its scheduled time, so the jump may be off'}">~</span>` : ''}</div>
           <div class="rw-teams"><span class="${m.onRed ? 'rw-red' : 'rw-blue'}">${(m.onRed ? m.redNums : m.blueNums).join(' ')}</span>
             <span class="rw-vs">vs</span>
             <span class="${m.onRed ? 'rw-blue' : 'rw-red'}">${(m.onRed ? m.blueNums : m.redNums).join(' ')}</span></div>
@@ -5987,7 +6323,7 @@ window.onload = () => {
   // Restore last viewed tab
   bootStep('restore tab', () => {
     const savedTab = lsGet('vex_active_tab');
-    if (savedTab && ['scout','skills','tournament','rewatch','simulator','info'].includes(savedTab)) {
+    if (savedTab && ['scout','skills','tournament','rewatch','simulator','info','settings'].includes(savedTab)) {
       switchTab(savedTab);
     }
   });
@@ -5996,13 +6332,14 @@ window.onload = () => {
   // an empty favorites list is not somewhere anyone asked to be taken.
   bootStep('phone forms', vsPhoneForms);
   bootStep('pull to refresh', vsPullToRefresh);
+  bootStep('settings', settingsInit);
   bootStep('team suggestions', vsSuggestInit);
   bootStep('swipe views', tSwipeInit);
   bootStep('favorites', () => {
     favsRender();
     const add = document.getElementById('favAddInput');
     if (add) add.addEventListener('keydown', e => { if (e.key === 'Enter') favAddFromInput(); });
-    if (vsIsPhone() && vsFavs().length) switchTab('favs');
+    if (vsIsPhone() && vsFavList().length) switchTab('favs');
   });
   // Whatever tab you land on is the first place you have been, so the arrow
   // can bring you back to it. Without this the tab showing at load was absent
@@ -6057,9 +6394,7 @@ window.onload = () => {
 
 
 // ── THEME ─────────────────────────────────────
-function toggleThemeMenu() {
-  document.getElementById('themeDropdown').classList.toggle('open');
-}
+// The theme choices live on the Settings tab now (v83); there is no menu to open.
 
 function applyTheme(name) {
   // Remove all possible theme classes
@@ -6182,7 +6517,8 @@ function favsRender() {
   const panel = document.getElementById('tab-favs');
   if (!panel || !panel.classList.contains('active')) return;
   const seq = ++favsRenderSeq;
-  const list = vsFavs();
+  const list = vsFavList();
+  const mine = vsMyTeam();
   if (!list.length) {
     host.innerHTML = `<div class="fav-empty">No favorites yet. Add your own team above, or tap the ☆ next to any team's number in Scout or at an event. Each favorite gets one-tap buttons for its schedule, stats, events and match video.</div>`;
     return;
@@ -6192,7 +6528,7 @@ function favsRender() {
       <div class="fav-top">
         <div class="fav-num">${n}</div>
         <div class="fav-name" data-favname="${n}"></div>
-        <button class="fav-x" aria-label="Remove ${n} from favorites" onclick="vsFavSet('${n}', false)">✕</button>
+        ${n === mine ? `<span class="md-tag note">My team</span>` : `<button class="fav-x" aria-label="Remove ${n} from favorites" onclick="vsFavSet('${n}', false)">✕</button>`}
       </div>
       <div class="fav-now" data-favnow="${n}">Loading…</div>
       <div data-favrank="${n}"></div>
@@ -6382,6 +6718,7 @@ const VS_SUGGEST_INPUTS = {
   tournamentInput: () => findTournament(),
   rwTeamInput: () => rewatchLoadTeam(),
   favAddInput: () => favAddFromInput(),
+  myTeamInput: () => myTeamSaveFromInput(),
   simEscoutYou: null
 };
 // The piece being typed: the last comma-separated entry, if it is 3–5 digits
@@ -6400,11 +6737,16 @@ async function vsSuggestTeams(stem) {
   const known = new Map();
   const note = (number, name) => {
     const n = String(number || '').toUpperCase();
-    if (n.startsWith(stem) && /^\d+[A-Z]$/.test(n) && !known.has(n)) known.set(n, { number: n, team_name: name || '' });
+    if (n.startsWith(stem) && /^\d+[A-Z]$/.test(n) && !known.has(n)) known.set(n, { number: n, team_name: name || '', active: null });
   };
   for (const n of vsFavs()) note(n);
   for (const hit of Object.values(vsTeamIds())) if (hit && hit.team) note(hit.team.number, hit.team.team_name);
   for (const t of (tournamentTeamCache || [])) note(t.number, t.team_name);
+  // v83 — "automatic, not just for match day". The season's skills boards name
+  // every team that has posted a skills run, and the app keeps them on the
+  // device anyway. So a longer number ("305" → 3050X) is found for ANY such
+  // team, with no event open and nothing looked up first. Best-ranked first.
+  const boardsP = vsSuggestSeasonTeams(stem);
   let teams = [];
   try { teams = await apiGet('/teams', { 'number[]': numbers, 'program[]': [1] }); } catch (e) { teams = []; }
   const fromApi = teams
@@ -6414,9 +6756,30 @@ async function vsSuggestTeams(stem) {
   for (const t of fromApi) {
     const n = t.number.toUpperCase();
     // The API's record wins: it has the name a bare favorite does not.
-    if (!known.has(n) || !known.get(n).team_name) known.set(n, { number: n, team_name: t.team_name || '' });
+    // `registered` is RobotEvents' own flag for "signed up this season". A
+    // letter that exists but is false is a team that no longer competes.
+    known.set(n, { number: n, team_name: t.team_name || (known.get(n) || {}).team_name || '', active: t.registered === false ? false : true });
   }
-  return [...known.values()].slice(0, 12);
+  // On this season's skills board means it has competed this season.
+  for (const t of await boardsP) { note(t.number); const k = known.get(t.number); if (k && k.active === null) k.active = true; }
+  // Active teams first; the ones that no longer compete last, and labelled.
+  return [...known.values()].sort((a, b) => (a.active === false) - (b.active === false)).slice(0, 12);
+}
+// Every team on this season's skills boards whose number starts with the stem.
+// Bounded in time: a slow board must not hold up the letters already in hand.
+async function vsSuggestSeasonTeams(stem) {
+  const seasonId = favSeasonId();
+  if (!seasonId) return [];
+  const boards = Promise.all(['High School', 'Middle School'].map(g => getFullSeasonSkills(seasonId, g).catch(() => null)));
+  const got = await Promise.race([boards, new Promise(r => setTimeout(() => r([]), 2500))]);
+  const out = [];
+  for (const b of (got || [])) {
+    for (const t of Object.values((b && b.byId) || {})) {
+      const n = String(t.number || '').toUpperCase();
+      if (n.startsWith(stem)) out.push({ number: n, rank: t.globalRank || t.rank || 999999 });
+    }
+  }
+  return out.sort((a, b) => a.rank - b.rank).slice(0, 12);
 }
 function vsSuggestHost(input) {
   let host = document.getElementById(input.id + 'Suggest');
@@ -6460,7 +6823,7 @@ function vsSuggestInit() {
         if (mine !== seq || vsSuggestStem(input.value) !== stem) return;
         host.innerHTML = teams.map(t => {
           const n = teamAttr(t.number.toUpperCase());
-          return `<button type="button" class="sg-chip" onclick="vsSuggestPick('${id}', '${n}')"><b>${n}</b>${t.team_name ? ` <span>${esc(t.team_name)}</span>` : ''}</button>`;
+          return `<button type="button" class="sg-chip${t.active === false ? ' inactive' : ''}" onclick="vsSuggestPick('${id}', '${n}')"><b>${n}</b>${t.team_name ? ` <span>${esc(t.team_name)}</span>` : ''}${t.active === false ? '<i>Inactive</i>' : t.active === true ? '<i>Active</i>' : ''}</button>`;
         }).join('');
       }, VS_SUGGEST_WAIT);
     });
@@ -6604,11 +6967,95 @@ function tSwipeInit() {
   }, { passive: true });
 }
 
+// ═══════════════════════════════════════════════════════════════
+// SETTINGS, AND YOUR OWN TEAM (v83)
+//
+// Asked for as: "add a settings tab and add a way to set your own team and
+// remove theme and put it in there and replace connected with versions and a
+// live next to it."
+//
+// "My team" is one stored team number. What it does, and all it does:
+//   · fills the team boxes that are empty when the app opens;
+//   · sits first on Favorites (phones), whether or not it is starred;
+//   · is one click from the side rail on a computer.
+// It is never sent anywhere. The privacy page lists it.
+// ═══════════════════════════════════════════════════════════════
+const VS_MY_TEAM_KEY = 'vex_my_team';
+function vsMyTeam() {
+  // Narrowed on the way out: this string reaches inline handlers.
+  return teamAttr(String(lsGet(VS_MY_TEAM_KEY) || '').toUpperCase());
+}
+// Favorites as shown: your own team first, then the starred ones.
+function vsFavList() {
+  const mine = vsMyTeam();
+  const favs = vsFavs();
+  return mine ? [mine, ...favs.filter(n => n !== mine)] : favs;
+}
+const VS_MY_TEAM_BOXES = ['detailTeamInput', 'tournamentInput', 'rwTeamInput', 'simEscoutYou'];
+function myTeamPrefill() {
+  const n = vsMyTeam();
+  if (!n) return;
+  for (const id of VS_MY_TEAM_BOXES) {
+    const el = document.getElementById(id);
+    // Only an EMPTY box. Something typed, or restored, is not overwritten.
+    if (el && !el.value.trim()) el.value = n;
+  }
+}
+function myTeamApply() {
+  const n = vsMyTeam();
+  const link = document.getElementById('myTeamLink');
+  if (link) {
+    link.hidden = !n;
+    link.innerHTML = n ? `<span>My team</span><b>${n}</b>` : '';
+  }
+  const state = document.getElementById('myTeamState');
+  if (state) {
+    state.innerHTML = n
+      ? `Your team is <strong>${n}</strong>. <button class="set-link" onclick="myTeamClear()">Remove</button>`
+      : 'No team set yet.';
+  }
+  const input = document.getElementById('myTeamInput');
+  if (input && document.activeElement !== input) input.value = n;
+  myTeamPrefill();
+  favsRender();
+}
+async function myTeamSaveFromInput() {
+  const el = document.getElementById('myTeamInput');
+  const num = teamAttr(String((el && el.value) || '').trim().toUpperCase());
+  if (!num) { showError('⚠ Enter a team number.'); return; }
+  showError('');
+  try {
+    await sim_resolveTeamCached(num);   // a team that does not exist is not saved
+    lsSet(VS_MY_TEAM_KEY, num);
+    if (el) el.blur();
+    myTeamApply();
+  } catch (e) { showError('⚠ ' + e.message); }
+}
+function myTeamClear() {
+  lsSet(VS_MY_TEAM_KEY, '');
+  myTeamApply();
+}
+function myTeamOpen() {
+  const n = vsMyTeam();
+  if (n) favGo(n, 'schedule');
+}
+function settingsInit() {
+  const input = document.getElementById('myTeamInput');
+  if (input) input.addEventListener('keydown', e => { if (e.key === 'Enter') myTeamSaveFromInput(); });
+  myTeamApply();
+}
+
 // ── STATUS BADGE ──────────────────────────────
+// The version, and whether the data is live. "Connected" said something was
+// plugged in; what a person at an event wants to know is which build this is
+// and whether the numbers are current.
 function setBadge(connected) {
   const b = document.getElementById('statusBadge');
-  b.textContent = connected ? '● CONNECTED' : '● OFFLINE';
+  b.innerHTML = `<span class="sb-ver">${esc(APP_BUILD)}</span><span class="sb-live">${connected ? 'Live' : 'Offline'}</span>`;
   b.classList.toggle('connected', connected);
+  b.title = connected ? 'Live data from RobotEvents' : 'No connection. Showing saved data where there is any.';
+  const about = document.getElementById('setAbout');
+  if (about) about.textContent = `VEX Scout ${APP_BUILD}. ${connected ? 'Connected to RobotEvents, so the data is live.' : 'Not connected, so you are seeing saved data where there is any.'}`;
 }
 
 // ── API ───────────────────────────────────────
@@ -8024,7 +8471,7 @@ function scoutSelectedSkills() {
 }
 
 const TAB_LABELS = { scout: 'Scout', skills: 'Skills Rankings', tournament: 'Tournament',
-  rewatch: 'Jumper', simulator: 'Simulator', info: 'Info', favs: 'Favorites' };
+  rewatch: 'Jumper', simulator: 'Simulator', info: 'Info', favs: 'Favorites', settings: 'Settings' };
 
 // The results area each tab fills in. Going back to a tab you found EMPTY has
 // to leave it empty, or the press does nothing visible: Tournament → search →

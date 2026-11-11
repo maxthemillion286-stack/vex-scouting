@@ -19,7 +19,11 @@ const env = new Function(
   grab(/function rwDayKey\(ms\)[\s\S]*?\n\}/) + '\n' +
   grab(/function rwPickSegment\(segments, t\)[\s\S]*?\n\}/) + '\n' +
   grab(/function rwCalForMatch\(m, calByDay\)[\s\S]*?\n\}/) + '\n' +
+  // v83: rwOffsetFor is the day's shift applied on top of rwOffsetRaw. No day
+  // is shifted here, so the shift is a stub that answers zero.
+  'function rwShiftSec() { return 0; }\n' +
   grab(/function rwOffsetFor\(m, calByDay\)[\s\S]*?\n\}/) + '\n' +
+  grab(/function rwOffsetRaw\(m, calByDay\)[\s\S]*?\n\}/) + '\n' +
   'return { rwPickSegment, rwCalForMatch, rwOffsetFor, rwDayKey };')();
 
 console.log('t63 — multi-segment days');

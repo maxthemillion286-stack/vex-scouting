@@ -34,7 +34,7 @@ console.log('\n· suggestions while typing');
   const got = await win.vsSuggestTeams('66449');
   const asked = router.seen.slice(mark);
   ok('it finds the team', got.length === 1 && got[0].number === '66449A', JSON.stringify(got));
-  ok('in ONE request for all 26 letters', asked.length === 1 && (asked[0].match(/number/g) || []).length === 26, asked.join(' | '));
+  ok('in ONE request for all 26 letters', asked.filter(p => p.startsWith('/teams?')).length === 1 && (asked.find(p => p.startsWith('/teams?')).match(/number/g) || []).length === 26, asked.join(' | '));
   ok('a stem that is not digits asks for nothing', (await win.vsSuggestTeams("1');x('")).length === 0);
 
   // A team the device already knows matches on a longer number too.
@@ -172,7 +172,8 @@ ok('and get it back for focus', /input:focus, select:focus, \.cs\.open \.cs-bar 
 ok('no typeface is changed', !/font-family/.test(soft));
 ok('the theme control is a round dot', /\.theme-btn \{[^}]*border-radius: 50%/.test(soft));
 ok('with no word in it', !/<div class="theme-dot" id="themeDot"><\/div>\s*THEME/.test(idx));
-ok('and a name for a screen reader', /class="theme-btn" onclick="toggleThemeMenu\(\)" aria-label="Change color theme"/.test(idx));
+// v83 moved the theme choices to the Settings tab; the dot is gone from the header.
+ok('the theme choices are on the Settings tab', /<div class="theme-grid" id="themeDropdown">/.test(idx) && !/class="theme-btn" onclick/.test(idx));
 ok('the event links fold behind More on phones', /\.t-nav \.t-nav-link \{ display: none; \}/.test(css) && /\.t-nav\.more-open \.t-nav-link \{ display: flex; \}/.test(css));
 ok('More is hidden on a wide screen', /\.t-more-btn \{ display: none; \}/.test(soft));
 

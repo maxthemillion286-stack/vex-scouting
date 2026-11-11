@@ -196,8 +196,8 @@ console.log('\n· favorites');
 }
 
 // Desktop: the tab is not somewhere a wide screen is ever taken.
-ok('favorites is not restored as the opening tab', /\['scout','skills','tournament','rewatch','simulator','info'\]\.includes\(savedTab\)/.test(idx));
-ok('it opens first only on a phone that has some', /if \(vsIsPhone\(\) && vsFavs\(\)\.length\) switchTab\('favs'\)/.test(idx));
+ok('favorites is not restored as the opening tab', /\['scout','skills','tournament','rewatch','simulator','info','settings'\]\.includes\(savedTab\)/.test(idx));
+ok('it opens first only on a phone that has some', /if \(vsIsPhone\(\) && vsFavList\(\)\.length\) switchTab\('favs'\)/.test(idx));
 ok('its button is hidden above phone width', /\.tab-phone-only \{ display: none; \}/.test(css.slice(0, css.indexOf('@media (max-width: 720px) {', css.indexOf('PHONES (v81)')))));
 ok('and so is every star', /\.fav-star \{ display: none; \}/.test(css));
 
@@ -223,9 +223,12 @@ console.log('\n· phones');
   win.close();
 }
 const btns = [...idx.matchAll(/<button class="tab-btn[^>]*>/g)].map(m => m[0]);
-ok('seven tab buttons', btns.length === 7, String(btns.length));
+// v83 added Settings: eight buttons, seven of them in the phone bar (Info
+// gives its cell to Settings and is one tap from there).
+ok('eight tab buttons', btns.length === 8, String(btns.length));
+ok('Info steps out of the phone bar', /\.tab-btn\[data-short="INFO"\] \{ display: none; \}/.test(phone));
 ok('each with a short label for the bar', btns.every(b => /data-short="[A-Z]+"/.test(b)));
-ok('and an icon', (idx.match(/<svg class="tab-ico"/g) || []).length === 7);
+ok('and an icon', (idx.match(/<svg class="tab-ico"/g) || []).length === 8);
 ok('the bar is fixed to the bottom', /\.tabs-nav \{\s*position: fixed; left: 0; right: 0; bottom: 0;/.test(phone));
 ok('and clears the home indicator', /padding-bottom: env\(safe-area-inset-bottom/.test(phone));
 ok('the page leaves room for it', /body \{ padding-bottom: calc\(64px \+ env\(safe-area-inset-bottom/.test(phone));
