@@ -2228,6 +2228,20 @@ tabs on the top and former design more"). The wide-screen CSS block is now a
 few lines: it only places the My team tab and link. Do not bring the rail back
 unasked.
 
+**Wide screens.** With the rail gone, a 1920 monitor showed the phone layout
+in a fixed 1100px column: 9px labels, a Taken button 900px from its team, an
+uneven event toolbar. Reported as "the wider pc dynamic makes the current ui
+you share with mobile weird". The reading (large-screen layout guides,
+Refactoring UI's spacing and hierarchy rules, line-length research) came to:
+size a control to its content, stop running text near 75 characters, keep
+related things together, nothing under 12px, and spend a big screen on size
+rather than margins. In the `WIDE SCREENS (v91)` block: the column is 1240px
+from 1100px up; notes and lists have a maximum width; the event toolbar is one
+44px line; the under-12px list is back; and from 1700px the whole page is
+enlarged with `zoom` (1.18, then 1.45, then 1.9), so nothing needs re-laying
+out. `positionTabIndicator` uses `offsetLeft`/`offsetWidth` because screen
+rectangles are scaled by the zoom.
+
 **The robot tracker.** The owner has a 12,000-line desktop tracker (Python,
 OpenCV, a trained one-class YOLO robot finder) and asked for it inside the
 site, watching the embedded player unattended, with results shared.

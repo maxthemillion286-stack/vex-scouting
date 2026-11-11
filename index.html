@@ -2593,9 +2593,149 @@
     .tab-btn { padding: 14px 18px; }
     .my-team-link:not([hidden]) { display: inline-flex; align-items: baseline; gap: 8px; padding: 5px 12px; border: 0;
       border-radius: var(--r-pill); background: var(--card2); cursor: pointer;
-      font-family: var(--mono); font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--text-muted); }
+      font-family: var(--mono); font-size: 12px; letter-spacing: 1px; text-transform: uppercase; color: var(--text-muted); }
     .my-team-link b { font-family: var(--display); font-size: 14px; font-weight: 600; letter-spacing: 0.5px; color: var(--text); }
   }
+
+  /* ════════════════════════════════════════════════════════════════
+     WIDE SCREENS (v91)
+
+     Reported as: "the wider pc dynamic makes the current ui you share with
+     mobile weird". Looked at on a 1920 monitor it was a phone layout in the
+     middle of a field: a fixed 1100px column, 9px labels, a text box for a
+     six-character team number half a metre wide, a Taken button 900px from
+     the team it belongs to, and 70px of nothing under the tabs.
+
+     What the reading said (HANDOFF §29), turned into rules:
+       · A control is as wide as what goes in it, not as wide as the page.
+       · Running text stops at a readable line (about 75 characters).
+       · Things that belong together sit together; a row does not get
+         stretched to put its two halves at opposite edges.
+       · Nothing is set under 12px, and captions lose the wide tracking.
+       · The space a big screen gives is spent on SIZE, not on margins: the
+         whole page scales up, so it reads the same from the same chair.
+     The design itself — header, tab strip, cards, the three typefaces — is
+     the one the owner asked to keep.
+     ════════════════════════════════════════════════════════════════ */
+  @media (min-width: 1100px) {
+    .container { max-width: 1240px; padding: 0 32px; }
+    .tabs-nav { margin-bottom: 8px; }
+    .search-section { padding-top: 22px; }
+
+    /* Controls sized to their contents, packed from the left. */
+    /* A page's search row fills the column, so its ends line up with the tab
+       strip above and the cards below. A box that stands alone does not. */
+    .controls-row { gap: 12px; row-gap: 16px; }
+    .fav-add { max-width: 620px; }
+    /* An event's toolbar: everything on one 44px line, bottoms level. */
+    .tournament-summary { align-items: flex-end; row-gap: 12px; padding-top: 18px; }
+    .tournament-summary-name, .tournament-summary-count { min-height: 44px; display: flex; align-items: center; }
+    .tournament-summary-name { font-size: 18px; flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; line-height: 44px; }
+    .tournament-summary-count { flex: 1 1 auto; }
+    .tournament-summary-actions { align-items: flex-end; gap: 10px; }
+    .tab-panel .tournament-summary-actions .btn { height: 44px; min-height: 44px; padding: 0 18px; display: inline-flex; align-items: center; }
+    .tournament-summary-actions .t-switch { height: 44px; padding: 0; }
+    .tournament-summary-actions .input-wrap { flex: 0 0 auto; }
+    .tab-panel .tournament-summary-actions .input-label { display: none; }
+    .tournament-summary-actions select, .tournament-summary-actions .cs-bar { height: 44px; box-sizing: border-box; padding-top: 0; padding-bottom: 0; }
+    .tournament-summary-actions .cs-bar { display: flex; align-items: center; }
+
+    /* Lines stop where reading does; lists keep their two ends in sight. */
+    .sim-caveat, .rw-hint, .lp-help, .hint, .sim-hint, .set-p, .set-state, .fav-empty, .vt-note { max-width: 78ch; }
+    .sim-caveat, .rw-hint { font-size: 13px; }
+    .sim-caveat { margin: 8px 0 18px; }
+    .lp-list, .lp-gone { max-width: 720px; }
+    .pk-list, .pk-you { max-width: 860px; }
+
+    /* Nothing under 12px. The same list the phone gets, generated from the sheet. */
+    .award-tag,
+    .badge,
+    .btn-detail,
+    .btn-secondary,
+    .detail-block-label,
+    .detail-meta em,
+    .draft-btn,
+    .es-sig,
+    .ev-filter-arrow,
+    .ev-filter-clear,
+    .ev-filter-label,
+    .ev-row-meta,
+    .inf-mark,
+    .ladder-cell-label,
+    .ladder-cell-raw,
+    .ladder-title,
+    .match-alliance-label,
+    .match-num,
+    .match-play,
+    .match-pred,
+    .match-time,
+    .match-vs,
+    .md-exp-label,
+    .md-next-label,
+    .md-partner-label,
+    .md-row-time,
+    .md-stat-label,
+    .md-stat-sub,
+    .md-updated,
+    .multi-select-btn,
+    .ov-label,
+    .page-info,
+    .pk-meta,
+    .pk-mode-wrap::after,
+    .pk-size,
+    .rd-pos,
+    .rd-score,
+    .rw-auto-tag,
+    .rw-debug-head,
+    .rw-event-meta,
+    .rw-forget,
+    .rw-group-label,
+    .rw-noclock,
+    .rw-nudge button,
+    .rw-nudge-btn,
+    .rw-or,
+    .rw-or-row,
+    .rw-seen,
+    .rw-shift-go,
+    .rw-step-at,
+    .sched-tag,
+    .section-info,
+    .select-wrap::after,
+    .sim-block-label,
+    .sim-event-pick-label,
+    .sim-ov-col-label,
+    .sim-tie-note,
+    .site-foot,
+    .skill-label,
+    .skill-loc,
+    .skill-name,
+    .stat-group-label,
+    .t-award-qual,
+    .t-match-div,
+    .t-match-name,
+    .t-match-side,
+    .t-match-side.won::after,
+    .t-nav-btn,
+    .t-nav-link,
+    .t-pending,
+    .t-skills-head,
+    .t-switch-label,
+    .team-location,
+    .tournament-list-label,
+    .tournament-meta,
+    .tournament-summary .btn,
+    .tournament-team-tag .tt-stat-label,
+    .tt-grade,
+    input[type="text"].rw-shift-in { font-size: 12px; }
+    .section-label, .input-label, .t-switch-label, .status-badge { font-size: 12px; }
+    .section-label { letter-spacing: 1.2px; margin-bottom: 16px; }
+    .detail-block-label { letter-spacing: 1.5px; margin-top: 6px; }
+  }
+  /* A bigger screen is spent on size. The page was drawn for about 1240px;
+     past that it is enlarged whole, so nothing has to be re-laid-out. */
+  @media (min-width: 1700px) { body { zoom: 1.18; } }
+  @media (min-width: 2300px) { body { zoom: 1.45; } }
+  @media (min-width: 3000px) { body { zoom: 1.9; } }
 </style>
 </head>
 <body class="theme-dark-grey">
@@ -11405,7 +11545,7 @@ function tournamentNav(active) {
     ${tournamentFocusTeamNumber ? `<button class="t-nav-btn${active === 'team' ? ' active' : ''}" onclick="tournamentGo('team')">${esc(tournamentFocusTeamNumber)}</button>` : ''}
     ${tournamentEventId ? `<button class="t-nav-btn t-more-btn" aria-expanded="false" onclick="tNavMore(this)">More</button>` : ''}
     ${tournamentEventId ? tOfflineButton(tournamentEventId) : ''}
-    ${tournamentEventId && tournamentEventSku && !vsIsPhone() ? `<button class="t-nav-link vt-link" onclick="vtOpenEvent('${reSkuAttr(tournamentEventSku)}')" title="Watch every match at this event and record where the robots are">Track robots</button>` : ''}
+    ${tournamentEventId && tournamentEventSku && !vsIsPhone() ? `<button class="t-nav-link vt-link" onclick="vtOpenEvent('${teamAttr(tournamentEventSku)}')" title="Watch every match at this event and record where the robots are">Track robots</button>` : ''}
     ${tournamentEventId ? reEventLink(tournamentEventId, tournamentEventSku) : ''}
   </div>`;
 }
@@ -12643,11 +12783,10 @@ function positionTabIndicator() {
   const indicator = document.getElementById('tabIndicator');
   const activeBtn = document.querySelector('.tab-btn.active');
   if (!indicator || !activeBtn) return;
-  const nav = activeBtn.parentElement;
-  const navRect = nav.getBoundingClientRect();
-  const btnRect = activeBtn.getBoundingClientRect();
-  indicator.style.left = (btnRect.left - navRect.left) + 'px';
-  indicator.style.width = btnRect.width + 'px';
+  // Layout units, not screen ones: on a wide screen the page is zoomed, and a
+  // rectangle measured on screen would be placed too far along by that factor.
+  indicator.style.left = activeBtn.offsetLeft + 'px';
+  indicator.style.width = activeBtn.offsetWidth + 'px';
 }
 
 // Position indicator on page load and on resize
