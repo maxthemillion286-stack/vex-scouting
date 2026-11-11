@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v87**. Everything green: 65 test files. (The `v19` in §8's
+Current release: **v88**. Everything green: 65 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -2166,6 +2166,10 @@ deploys. Worth doing only deliberately.
   The list is per event and in memory only — nothing is stored.
   Only teams AT the event can be added: every number in the table comes from
   this event's matches.
+  **v88:** every column header is two lines (the number, then "you" or
+  Remove). A ✕ beside the number had pushed that number off the line the
+  others sat on and off its own column of values. Measured: one top edge for
+  all numbers, and each number's right edge equals its column's.
 - **All matches** (`rwAllMatchesBlock`) — in the Jumper, after picking a
   team's event. Reported as: "I want it to show all the matches they played."
   They were on the page, but split under each day's stream box, and on a phone

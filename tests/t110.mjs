@@ -36,6 +36,11 @@ console.log('\n· compare teams');
   ok('and the win chance of pairing with you', labels.some(l => /Win chance with 66449A/.test(l)));
   const winRow = [...t.querySelectorAll('tbody tr')].find(r => /Win chance/.test(r.textContent));
   ok('which is blank for your own column, not "no data"', winRow.children[1].textContent === '' && /%/.test(winRow.children[2].textContent));
+  // v88: every header is two lines — the number, then "you" or Remove — so the
+  // numbers line up with each other and with their column of values.
+  const ths = [...t.querySelectorAll('thead th')].slice(1);
+  ok('every column header has the same two lines', ths.every(h => h.children.length === 2 && h.children[0].className === 'cmp-num' && h.children[1].classList.contains('cmp-sub')));
+  ok('nothing sits beside a number to push it off its column', ths.every(h => !h.querySelector('.cmp-num button')) && !/class="cmp-x"/.test(pk()));
   ok('the best in a row is marked with a symbol, not colour alone', /class="cmp-dot" aria-label="best of these">●/.test(pk()));
   ok('the caveat says these are alliance numbers', /come from <strong>alliance<\/strong> scores/.test(pk()));
 
