@@ -2033,6 +2033,12 @@
   .sim-winbar, .bo-bar-wrap, .md-winbar, .stat-bar-wrap { border-radius: var(--r-pill); overflow: hidden; border-color: transparent; }
   .t-switch-track { border-color: transparent; }
 
+  /* A button in a row of taller things keeps its own height instead of being
+     stretched to the row's: 55px tall with 13px beside the word was the worst
+     box on the desktop. */
+  .btn { align-self: center; }
+  .btn-secondary { padding-left: 18px; padding-right: 18px; }
+
   /* The theme control is a dot. It was a labelled box the size of the status
      badge, for something changed once and then never again. */
   .theme-btn {
@@ -2281,7 +2287,7 @@
     /* ── A finger is 44px wide ── */
     .btn, .draft-btn, .pk-size, .multi-select-btn, .rw-step-btn, .rw-watch,
     .btn-detail, .rw-forget, .bracket-size-btn { min-height: 44px; }
-    .tournament-summary .btn { min-height: 40px; font-size: 12px; }
+    .tournament-summary .btn, .tournament-summary-actions .btn { min-height: 40px; font-size: 12px; padding: 0 18px; }
     .theme-btn { min-height: 36px; padding-top: 0; padding-bottom: 0; }
     .match-play { min-width: 44px; min-height: 40px; }
     /* The numbers in a match row are links. Same place on screen, a target
@@ -2312,6 +2318,17 @@
 
     /* Pull to refresh. The browser's own would reload the whole app. */
     html, body { overscroll-behavior-y: contain; }
+
+    /* Proportions (v82.1). The 44px height above was put on buttons that kept
+       their desktop side padding of 10–13px, which left more room over the
+       word than beside it — a tall narrow box. A label box reads right when
+       the side gap is clearly the larger one, so small buttons are 40px tall
+       with 18px sides and 13px text: about 13 above, 18 beside. */
+    .draft-btn, .pk-size, .multi-select-btn, .btn-detail, .rw-forget, .bracket-size-btn {
+      min-height: 40px; padding: 0 18px; font-size: 13px; letter-spacing: 0.5px; }
+    .btn { padding-left: 20px; padding-right: 20px; }
+    .fav-add .btn { padding: 0 22px; }
+    .fav-act { font-size: 13px; }
 
     /* Rank and record side by side — the two numbers this page is opened for
        — instead of three full-width rows before the schedule starts. */
@@ -2398,7 +2415,10 @@
   .fav-now strong { color: var(--text); font-weight: 600; }
   .fav-rank { font-family: var(--display); font-size: 20px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; margin: 4px 0 0; }
   .fav-rank small { font-family: var(--mono); font-size: 12px; font-weight: 400; color: var(--text-muted); margin-left: 8px; }
-  .fav-acts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 12px; }
+  /* Schedule is what the card is for, so it gets the full row; the other
+     three share the next. Four across left 4px beside the longest word. */
+  .fav-acts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+  .fav-act.primary { grid-column: 1 / -1; }
   .fav-act { min-height: 46px; padding: 0 2px; background: var(--card2); border: 1px solid var(--border); color: var(--text); cursor: pointer; font-family: var(--display); font-size: 12px; font-weight: 600; letter-spacing: 0.8px; }
   .fav-act.primary { border-color: var(--accent); color: var(--accent-bright); }
   .fav-events { margin-top: 10px; }
