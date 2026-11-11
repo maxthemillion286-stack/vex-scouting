@@ -2464,6 +2464,17 @@
   .sg-chip.inactive b { color: var(--text-muted); }
   .sg-chip i { font-style: normal; font-size: 12px; color: var(--text-muted); margin-left: 6px; }
 
+  /* v89: play styles */
+  .st-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; margin-bottom: 8px; align-items: start; }
+  .st-group { background: var(--card); border-radius: var(--r-lg); padding: 14px 16px; }
+  .st-name { font-family: var(--display); font-size: 16px; font-weight: 600; color: var(--text); }
+  .st-name span { font-family: var(--mono); font-size: 12px; font-weight: 400; color: var(--text-muted); margin-left: 6px; }
+  .st-blurb { font-family: var(--body); font-size: 13px; line-height: 1.5; color: var(--text-muted); margin: 2px 0 10px; }
+  .st-teams { display: flex; flex-wrap: wrap; gap: 6px; }
+  .st-team { display: inline-flex; align-items: center; min-height: 36px; padding: 0 12px; margin: 0; border-radius: var(--r-pill); background: var(--card2);
+    font-family: var(--display); font-size: 14px; font-weight: 600; color: var(--text); }
+  .st-team.mine { box-shadow: inset 0 0 0 1px var(--accent-bright); }
+
   /* v87: compare, and all of a team's matches */
   .cmp-add { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
   .cmp-add input[type="text"] { flex: 1 1 220px; min-width: 0; height: 46px; box-sizing: border-box; padding-top: 0; padding-bottom: 0; }
@@ -3584,7 +3595,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v88';
+const APP_BUILD = 'v89';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -7541,6 +7552,8 @@ function tCompareBlock(R, roster, focus, pairWin) {
     { label: 'Trend', vals: cols.map(t => f(t).drift), show: (v, i) => T_FORM_LABEL[f(cols[i]).trend] || '', better: null },
     { label: 'World skills rank', vals: cols.map(t => t.worldSkills || null), show: v => '#' + v, better: 'low' }
   ];
+  const styles = tStyleGroups(R, roster);
+  if (styles) rows.push({ label: 'Play style', vals: cols.map(t => styles.styleOf.has(String(t.id)) ? 1 : null), show: (v, i) => styles.styleOf.get(String(cols[i].id)), better: null });
   if (you && pairWin) {
     rows.push({ label: `Win chance with ${focus}`, vals: cols.map(t => t === you ? undefined : pairWin(you, t)), show: v => num(v) + '%', better: 'high' });
   }
@@ -7611,6 +7624,301 @@ function rwAllMatchesBlock(ctx, calAll, multiDay) {
       : 'No video is linked yet. Set a stream for the day below and the Watch buttons appear here.'} Scores are this team's alliance first.</div>
     <div class="rw-list">${rows}</div>
   </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// v89 — things the app LEARNS from results, instead of being told
+//
+// Asked for as "machine learning to implement"; three were chosen:
+//   1. self-checking win chances,
+//   2. a rating that carries a team's season into an event,
+//   3. play-style groups.
+//
+// All three are small, run in the browser, and are fitted to the event in
+// front of you from data the app already loads. None is a black box: each
+// says on the page what it did and how much evidence it had.
+// ═══════════════════════════════════════════════════════════════
+
+// ── 1. Self-checking win chances ───────────────────────────────────────────
+//
+// A win chance is a promise: of the matches called "70%", about seven in ten
+// should be won. Nobody had ever checked.
+//
+// The check is a WALK-FORWARD backtest, which is the only honest kind: for each
+// qualification match already played here, the ratings are rebuilt from the
+// matches BEFORE it, the match is predicted, and the prediction is compared
+// with what happened. (Rating a match with ratings that already contain it
+// would flatter the model every time.)
+//
+// The correction is one number, k (Platt scaling with a single parameter):
+//     p' = sigmoid(k · logit(p))
+// k < 1 pulls every chance toward 50% (the model was overconfident), k > 1
+// pushes them apart. It is fitted by least log-loss, then shrunk toward 1 by
+// how many matches there were to learn from — twenty is not enough to believe.
+const SIM_CAL_MIN = 20;        // predictions needed before anything is corrected
+const SIM_CAL_SHRINK = 30;     // how many predictions it takes to half-trust k
+let simCalK = 1;               // the correction in force (set per event build)
+function sim_logit(p) { const q = Math.min(0.999, Math.max(0.001, p)); return Math.log(q / (1 - q)); }
+function sim_calApply(r, k) {
+  if (!r || k === 1) return r;
+  const decided = r.redWin + r.blueWin;
+  if (!(decided > 0)) return r;
+  const q = 1 / (1 + Math.exp(-k * sim_logit(r.redWin / decided)));
+  return { redWin: q * decided, blueWin: (1 - q) * decided, tie: r.tie };
+}
+function sim_calFit(preds) {
+  // preds: [{ p: chance red wins (0..1), y: 1 if red won, 0 if blue }]
+  const n = preds.length;
+  const hits = preds.filter(x => (x.p >= 0.5) === (x.y === 1)).length;
+  const out = { n, hits, k: 1, kRaw: 1 };
+  if (n < SIM_CAL_MIN) return out;
+  let best = 1, bestLoss = Infinity;
+  for (let k = 0.2; k <= 2.001; k += 0.05) {
+    let loss = 0;
+    for (const x of preds) {
+      const q = Math.min(0.999, Math.max(0.001, 1 / (1 + Math.exp(-k * sim_logit(x.p)))));
+      loss -= x.y ? Math.log(q) : Math.log(1 - q);
+    }
+    if (loss < bestLoss - 1e-9) { bestLoss = loss; best = k; }
+  }
+  out.kRaw = Math.round(best * 100) / 100;
+  out.k = Math.round((1 + (best - 1) * n / (n + SIM_CAL_SHRINK)) * 100) / 100;
+  return out;
+}
+function sim_backtest(allMatches) {
+  const played = [];
+  for (const m of (allMatches || [])) {
+    if (!m || m.round !== 2) continue;
+    const [redA, blueA] = tMatchSides(m);
+    if (!redA || !blueA || !sim_matchPlayed(redA, blueA, m)) continue;
+    const ids = a => (a.teams || []).map(t => String(t?.team?.id ?? t?.id ?? t)).filter(v => v && v !== 'null' && v !== 'undefined');
+    const red = ids(redA), blue = ids(blueA);
+    if (!red.length || !blue.length) continue;
+    played.push({ t: sim_matchTime(m) || 0, num: m.matchnum || 0, red, blue, rs: redA.score ?? 0, bs: blueA.score ?? 0 });
+  }
+  played.sort((a, b) => a.t - b.t || a.num - b.num);
+  const start = Math.max(12, Math.ceil(played.length * 0.2));
+  const preds = [];
+  let fit = null;
+  for (let i = start; i < played.length; i++) {
+    // Refit every fourth match: ratings barely move in four, the cost does.
+    if (!fit || (i - start) % 4 === 0) {
+      const obs = [];
+      for (const q of played.slice(0, i)) { obs.push({ teams: q.red, score: q.rs }); obs.push({ teams: q.blue, score: q.bs }); }
+      const { ratings } = sim_computeOPR(obs, 0.5);
+      fit = { ratings, ...sim_residualStd(obs, ratings) };
+    }
+    const m = played[i];
+    if (m.rs === m.bs) continue;   // a tie is not a right or wrong call
+    // A team never seen before this match has no rating; the call would be a guess about nothing.
+    if (![...m.red, ...m.blue].every(id => fit.ratings.has(id))) continue;
+    const a = sim_allianceStats(m.red, fit.ratings, fit.stdByTeam, fit.globalStd);
+    const b = sim_allianceStats(m.blue, fit.ratings, fit.stdByTeam, fit.globalStd);
+    const r = sim_matchupProbRaw(a.mean, a.std, b.mean, b.std, 1200, 777 + i);
+    const decided = r.redWin + r.blueWin;
+    if (!(decided > 0)) continue;
+    preds.push({ p: r.redWin / decided, y: m.rs > m.bs ? 1 : 0 });
+  }
+  return sim_calFit(preds);
+}
+
+// ── 2. The season, carried into the event ──────────────────────────────────
+//
+// An event rating knows nothing until matches are played, so the first rounds
+// were predicted from almost no evidence — and a team with two matches here
+// and forty this season was rated on the two.
+//
+// Each team's record at its OTHER events this season is one request per team
+// (kept for six hours: a season record only changes when an event ends). What
+// a season win rate is WORTH in points at this event is not assumed — it is
+// fitted here, by least squares, on the teams that have played enough matches
+// at this event to have a rating worth learning from. Then every team's rating
+// is blended with what its season predicts, the season counting as
+// SIM_SEASON_K matches: decisive after one match here, negligible after ten.
+const SIM_SEASON_K = 2;
+const SIM_SEASON_TTL = 6 * 3600000;
+const SIM_SEASON_KEY = 'vex_season_rec';
+const simSeasonMem = new Map();   // season:team → { at, rows }
+function sim_seasonStore() {
+  try { const v = JSON.parse(lsGet(SIM_SEASON_KEY) || '{}'); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; }
+  catch (e) { return {}; }
+}
+async function sim_seasonRows(teamId, seasonId) {
+  const key = seasonId + ':' + teamId;
+  const mem = simSeasonMem.get(key);
+  if (mem && Date.now() - mem.at < SIM_SEASON_TTL) return mem.rows;
+  const stored = sim_seasonStore()[key];
+  if (stored && Array.isArray(stored.rows) && Date.now() - stored.at < SIM_SEASON_TTL) { simSeasonMem.set(key, stored); return stored.rows; }
+  const ranks = await apiGet(`/teams/${teamId}/rankings`, { 'season[]': [seasonId] });
+  // One row per event (a second division's table is the same event again).
+  const byEvent = new Map();
+  for (const r of ranks) {
+    const ev = r && r.event && r.event.id != null ? String(r.event.id) : null;
+    const n = (r.wins || 0) + (r.losses || 0) + (r.ties || 0);
+    if (!ev || !n) continue;
+    const cur = byEvent.get(ev);
+    if (!cur || n > cur[1] + cur[2] + cur[3]) byEvent.set(ev, [ev, r.wins || 0, r.losses || 0, r.ties || 0]);
+  }
+  const entry = { at: Date.now(), rows: [...byEvent.values()] };
+  simSeasonMem.set(key, entry);
+  const all = sim_seasonStore();
+  all[key] = entry;
+  const keys = Object.keys(all);
+  if (keys.length > 400) { keys.sort((a, b) => (all[a].at || 0) - (all[b].at || 0)); for (const k of keys.slice(0, keys.length - 400)) delete all[k]; }
+  lsSet(SIM_SEASON_KEY, JSON.stringify(all));
+  return entry.rows;
+}
+// → Map(teamId → { n, rate }) for the season EXCLUDING this event.
+async function sim_seasonRecords(teamIds, seasonId, eventId, capMs) {
+  const out = new Map();
+  if (!seasonId || !teamIds.length || teamIds.length > 120) return out;
+  const work = sim_pool(teamIds, async id => {
+    try {
+      const rows = (await sim_seasonRows(id, seasonId)).filter(r => String(r[0]) !== String(eventId));
+      let w = 0, l = 0, t = 0;
+      for (const r of rows) { w += r[1]; l += r[2]; t += r[3]; }
+      const n = w + l + t;
+      // Shrunk toward 50%: 3–0 is not the same evidence as 30–0.
+      if (n >= 4) out.set(String(id), { n, rate: (w + 0.5 * t + 1) / (n + 2) });
+    } catch (e) {}
+  });
+  // Never hold a page up for this. What is not back in time is skipped now and
+  // is in the cache for the next build.
+  await Promise.race([work, new Promise(r => setTimeout(r, capMs || 3000))]);
+  return out;
+}
+function sim_applySeason(ratings, matchCount, records) {
+  const res = { prior: new Map(), used: 0, fitOn: 0, seasonOnly: false, slope: null };
+  if (!records || records.size < 4) return res;
+  const fit = [];
+  for (const [id, rec] of records) if ((matchCount.get(id) || 0) >= 3 && ratings.has(id)) fit.push([rec.rate, ratings.get(id)]);
+  let a, b;
+  if (fit.length >= 8) {
+    const mx = fit.reduce((s, p) => s + p[0], 0) / fit.length, my = fit.reduce((s, p) => s + p[1], 0) / fit.length;
+    let sxy = 0, sxx = 0;
+    for (const [x, y] of fit) { sxy += (x - mx) * (y - my); sxx += (x - mx) * (x - mx); }
+    b = sxx > 0 ? sxy / sxx : 0;
+    a = my - b * mx;
+    // A season that does not predict this event (flat or backwards) teaches nothing.
+    if (!(b > 0)) return res;
+    res.fitOn = fit.length; res.slope = b;
+  } else if (ratings.size === 0) {
+    // Nothing has been played here at all. There is no scale to learn, so the
+    // season stands alone on a nominal one; the page says so.
+    a = 30 - 40 * 0.5; b = 40;
+    res.seasonOnly = true;
+  } else return res;
+  for (const [id, rec] of records) {
+    const prior = a + b * rec.rate;
+    res.prior.set(id, prior);
+    const n = matchCount.get(id) || 0;
+    const cur = ratings.has(id) ? ratings.get(id) : null;
+    ratings.set(id, cur === null ? prior : (n * cur + SIM_SEASON_K * prior) / (n + SIM_SEASON_K));
+    res.used++;
+  }
+  return res;
+}
+// What the learning did, in plain words, for under a list of win chances.
+function sim_learnNote(R) {
+  if (!R) return '';
+  const parts = [];
+  const c = R.cal;
+  if (c && c.n >= SIM_CAL_MIN) {
+    const pct = Math.round(100 * c.hits / c.n);
+    parts.push(`<strong>Checked against results:</strong> replaying the ${c.n} qualification matches already played here, each predicted from the matches before it, the app picked the winner in ${c.hits} (${pct}%). ` +
+      (c.k < 0.97 ? `Its win chances were too confident, so they are pulled toward 50%.` : c.k > 1.03 ? `Its win chances were too cautious, so they are pushed further from 50%.` : `Its win chances matched the results, so they are left as they are.`));
+  } else if (c) {
+    parts.push(`<strong>Not yet checked:</strong> the app tests its win chances against played matches once there are ${SIM_CAL_MIN} to test on; there ${c.n === 1 ? 'is' : 'are'} ${c.n} so far.`);
+  }
+  if (R.seasonOnly) parts.push(`<strong>Season form only:</strong> nothing has been played here yet, so these chances come from each team's record at its other events this season.`);
+  else if (R.seasonUsed) parts.push(`<strong>Season included:</strong> ${R.seasonUsed} teams' ratings blend in their record at other events this season, counted as ${SIM_SEASON_K} matches. What a season record is worth here was fitted on the ${R.seasonFitOn} teams with enough matches at this event.`);
+  return parts.length ? `<div class="sim-caveat">${parts.join(' ')}</div>` : '';
+}
+
+// ── 3. Play-style groups ───────────────────────────────────────────────────
+//
+// k-means on what the app already measures for every team here: rating, how
+// much its alliance scores swing (spread ÷ mean), and AP per match where the
+// event publishes it. Each is standardised first, so no one measure dominates
+// because of its units. Starting points are chosen deterministically (the
+// top-rated team, then whichever team is furthest from those chosen so far),
+// so the same event always gives the same groups.
+//
+// The algorithm finds the groups; the NAMES are read off each group's centre
+// afterwards. They describe ALLIANCE results (§12): "boom or bust" is a team
+// whose alliances' scores swing, not a verdict on a robot.
+function tStyleCluster(rows, k) {
+  // rows: [{ id, x: [..] }] already standardised
+  const d2 = (a, b) => a.reduce((s, v, i) => s + (v - b[i]) * (v - b[i]), 0);
+  let cents = [rows.reduce((best, r) => (r.x[0] > best.x[0] ? r : best), rows[0]).x.slice()];
+  while (cents.length < k) {
+    let far = null, farD = -1;
+    for (const r of rows) { const d = Math.min(...cents.map(c => d2(r.x, c))); if (d > farD) { farD = d; far = r; } }
+    cents.push(far.x.slice());
+  }
+  let assign = new Array(rows.length).fill(-1);
+  for (let it = 0; it < 25; it++) {
+    const next = rows.map(r => { let bi = 0, bd = Infinity; cents.forEach((c, i) => { const d = d2(r.x, c); if (d < bd) { bd = d; bi = i; } }); return bi; });
+    const same = next.every((v, i) => v === assign[i]);
+    assign = next;
+    if (same) break;
+    cents = cents.map((c, i) => {
+      const mine = rows.filter((_, j) => assign[j] === i);
+      return mine.length ? c.map((_, dim) => mine.reduce((s, r) => s + r.x[dim], 0) / mine.length) : c;
+    });
+  }
+  return { assign, cents };
+}
+function tStyleGroups(R, roster) {
+  const forms = tFormByTeam(R);
+  const raw = [];
+  for (const t of roster) {
+    const id = String(t.id), f = forms.get(id);
+    if (!f || f.cv === null || !R.ratings.has(id)) continue;   // needs T_FORM_MIN scored matches
+    raw.push({ t, v: [R.ratings.get(id), f.cv, R.apRate && R.apRate.has(id) ? R.apRate.get(id) : null] });
+  }
+  if (raw.length < 8) return null;
+  const hasAP = raw.every(r => r.v[2] !== null) && new Set(raw.map(r => r.v[2])).size > 1;
+  const dims = hasAP ? [0, 1, 2] : [0, 1];
+  const stat = dims.map(dm => { const xs = raw.map(r => r.v[dm]); const m = xs.reduce((a, b) => a + b, 0) / xs.length; const sd = Math.sqrt(xs.reduce((a, b) => a + (b - m) * (b - m), 0) / xs.length) || 1; return [m, sd]; });
+  const rows = raw.map(r => ({ id: String(r.t.id), t: r.t, x: dims.map((dm, i) => (r.v[dm] - stat[i][0]) / stat[i][1]) }));
+  const k = rows.length >= 16 ? 4 : 3;
+  const { assign, cents } = tStyleCluster(rows, k);
+  // Name each group from its centre: [rating, swing, (AP)] in standard units.
+  const left = cents.map((c, i) => i).filter(i => assign.includes(i));
+  const names = {};
+  const take = (score, name, floor) => {
+    if (!left.length) return;
+    let bi = left[0]; for (const i of left) if (score(cents[i]) > score(cents[bi])) bi = i;
+    if (floor !== undefined && score(cents[bi]) < floor) return;
+    names[bi] = name; left.splice(left.indexOf(bi), 1);
+  };
+  take(c => c[0] - c[1], 'Steady scorers');
+  take(c => -c[0], 'Still developing');
+  if (hasAP) take(c => c[2], 'Autonomous specialists', 0.3);
+  take(c => c[1], 'Boom or bust', 0.3);
+  for (const i of left) names[i] = 'Middle of the field';
+  const blurb = { 'Steady scorers': 'High alliance scores in a tight band.', 'Still developing': 'Lower alliance scores so far.',
+    'Autonomous specialists': 'Their alliances win autonomous more than most.', 'Boom or bust': 'Alliance scores that swing: a big day or a small one.',
+    'Middle of the field': 'Near the event average on each measure.' };
+  const order = ['Steady scorers', 'Autonomous specialists', 'Boom or bust', 'Middle of the field', 'Still developing'];
+  const groups = Object.keys(names).map(i => ({ name: names[i], blurb: blurb[names[i]],
+    teams: rows.filter((_, j) => assign[j] === Number(i)).map(r => r.t).sort((a, b) => a.eventRank - b.eventRank) }))
+    .sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name));
+  const styleOf = new Map();
+  for (const g of groups) for (const t of g.teams) styleOf.set(String(t.id), g.name);
+  return { groups, styleOf, hasAP, n: rows.length };
+}
+function tStyleBlock(R, roster, focus) {
+  const s = tStyleGroups(R, roster);
+  if (!s) return '';
+  return `<div class="detail-block-label">Play styles at this event</div>
+    <div class="st-list">${s.groups.map(g => `<div class="st-group">
+      <div class="st-name">${esc(g.name)} <span>${g.teams.length}</span></div>
+      <div class="st-blurb">${esc(g.blurb)}</div>
+      <div class="st-teams">${g.teams.map(t => `<span class="mt-team st-team${String(t.number).toUpperCase() === focus ? ' mine' : ''}" onclick="scoutTeam('${teamAttr(t.number)}')">${esc(t.number)}</span>`).join('')}</div>
+    </div>`).join('')}</div>
+    <div class="sim-caveat">Grouped automatically (k-means) from ${s.n} teams' rating, how much their alliance scores swing${s.hasAP ? ' and autonomous points per match' : ''} at this event. The groups are found from the numbers; the names describe each group's average. These are <strong>alliance</strong> results, so a team's partners shape which group it lands in.</div>`;
 }
 
 // ── STATUS BADGE ──────────────────────────────
@@ -9505,7 +9813,7 @@ async function renderEventTeamMatchesView() {
     myMatches.forEach((mm, i) => {
       const mine = sim_allianceStats(mm.myIds, R.ratings, R.stdByTeam, R.globalStd);
       const theirs = sim_allianceStats(mm.oppIds, R.ratings, R.stdByTeam, R.globalStd);
-      const rated = mm.myIds.concat(mm.oppIds).filter(id => (R.matchCount.get(id) || 0) > 0).length;
+      const rated = mm.myIds.concat(mm.oppIds).filter(id => (R.matchCount.get(id) || 0) > 0 || (R.prior && R.prior.has(String(id)))).length;
       mm.win = rated >= 2 ? sim_matchupProb(mine.mean, mine.std, theirs.mean, theirs.std, 8000, 4242 + i).redWin : null;
       mm.oppMean = theirs.mean;
     });
@@ -11440,7 +11748,9 @@ async function renderTournamentPickList() {
     }
   }
 
+  html += sim_learnNote(R);
   html += tCompareBlock(R, seeds, focus, pairWin);
+  html += tStyleBlock(R, seeds, focus);
   html += tFormBlock(R, seeds, focus);
 
   resultsEl.innerHTML = html;
@@ -13405,7 +13715,14 @@ function sim_residualStd(observations, ratings) {
 }
 
 // ── Core matchup probability from means/stds (used by pick-list, bracket, what-if) ──
+// Every win chance in the app comes through here, so the correction learned
+// from this event's results (simCalK, see "Self-checking win chances") is
+// applied in exactly one place. The Raw form is what the backtest calls:
+// checking the corrected number against results would be marking its own work.
 function sim_matchupProb(redMean, redStd, blueMean, blueStd, N, seed) {
+  return sim_calApply(sim_matchupProbRaw(redMean, redStd, blueMean, blueStd, N, seed), simCalK);
+}
+function sim_matchupProbRaw(redMean, redStd, blueMean, blueStd, N, seed) {
   const rng = sim_mulberry32((seed >>> 0) || 1);
   let redW = 0, blueW = 0, tie = 0;
   for (let i = 0; i < N; i++) {
@@ -13563,9 +13880,12 @@ async function sim_buildRatingsFromEvent(event, setStatus, force) {
   const cached = _evCache.get(event.id);
   if (!force && cached && (Date.now() - cached.ts) < 60000) {
     if (setStatus) setStatus('USING CACHED EVENT DATA...');
+    simCalK = (cached.value.cal && cached.value.cal.k) || 1;
     return cached.value;
   }
   const value = await sim_buildRatingsFromEventUncached(event, setStatus);
+  // The correction belongs to the event whose ratings are about to be used.
+  simCalK = (value.cal && value.cal.k) || 1;
   _evCache.set(event.id, { ts: Date.now(), value });
   if (_evCache.size > 6) _evCache.delete(_evCache.keys().next().value);
   return value;
@@ -13622,16 +13942,29 @@ async function sim_buildRatingsFromEventUncached(event, setStatus) {
   const { ratings, matchCount } = sim_computeOPR(observations, 0.5);
   // Spread around the score-only rating, measured BEFORE the AP adjustment: the
   // residuals are about how well scores are explained, and AP is not a score.
-  const { stdByTeam, globalStd } = sim_residualStd(observations, ratings);
+  let { stdByTeam, globalStd } = sim_residualStd(observations, ratings);
   let ap = { rate: new Map(), adj: new Map(), used: 0 };
   try {
     const ranks = [].concat(...(await Promise.all(rankLists)).map(l => l || []));
     ap = sim_applyAP(ratings, ranks);
   } catch (e) {}
+  // Learned from results (v89). The backtest reads raw scores and refits its
+  // own ratings, so it is unaffected by the two adjustments around it.
+  let cal = { n: 0, hits: 0, k: 1, kRaw: 1 };
+  try { cal = sim_backtest(allMatches); } catch (e) {}
+  let season = { prior: new Map(), used: 0, fitOn: 0, seasonOnly: false };
+  try {
+    const seasonId = event.season && event.season.id;
+    // Wait longer when the season is all there is to go on.
+    const records = await sim_seasonRecords(Object.keys(numById), seasonId, event.id, ratings.size ? 1500 : 3000);
+    season = sim_applySeason(ratings, matchCount, records);
+    if (season.seasonOnly && !(globalStd > 0)) globalStd = 12;
+  } catch (e) {}
   const idByNum = {};
   for (const [id, num] of Object.entries(numById)) idByNum[num.toUpperCase()] = id;
   return { event, ratings, stdByTeam, globalStd, matchCount, matches: allMatches, numById, idByNum,
-    apRate: ap.rate, apAdj: ap.adj, apUsed: ap.used };
+    apRate: ap.rate, apAdj: ap.adj, apUsed: ap.used,
+    cal, prior: season.prior, seasonUsed: season.used, seasonFitOn: season.fitOn, seasonOnly: season.seasonOnly };
 }
 
 // ── Autonomous points in a team's rating (v84) ─────────────────────────────
