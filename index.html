@@ -2468,7 +2468,9 @@
   .vt-status { font-family: var(--body); font-size: 15px; color: var(--text); margin: 10px 0 12px; font-variant-numeric: tabular-nums; }
   .vt-note { font-family: var(--body); font-size: 15px; line-height: 1.5; color: var(--text); margin: 0 0 8px; }
   .vt-stage { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; margin-bottom: 10px; }
-  .vt-player { aspect-ratio: 16 / 9; background: #000; border-radius: var(--r-md); overflow: hidden; }
+  .vt-players { display: grid; grid-template-columns: 1fr 1fr; gap: 0; background: #000; border-radius: var(--r-md); overflow: hidden; }
+  .vt-players.vt-p1 { grid-template-columns: 1fr; }
+  .vt-player { aspect-ratio: 16 / 9; background: #000; overflow: hidden; }
   .vt-player iframe { width: 100%; height: 100%; border: 0; display: block; }
   .vt-seen canvas { width: 100%; height: auto; display: block; background: #000; border-radius: var(--r-md); }
   .vt-cap { font-family: var(--body); font-size: 13px; color: var(--text-muted); margin-top: 6px; }
@@ -2618,7 +2620,7 @@
      the one the owner asked to keep.
      ════════════════════════════════════════════════════════════════ */
   @media (min-width: 1100px) {
-    .container { max-width: 1240px; padding: 0 32px; }
+    .container { max-width: 1180px; padding: 0 28px; }
     .tabs-nav { margin-bottom: 8px; }
     .search-section { padding-top: 22px; }
 
@@ -2732,10 +2734,11 @@
     .detail-block-label { letter-spacing: 1.5px; margin-top: 6px; }
   }
   /* A bigger screen is spent on size. The page was drawn for about 1240px;
-     past that it is enlarged whole, so nothing has to be re-laid-out. */
-  @media (min-width: 1700px) { body { zoom: 1.18; } }
-  @media (min-width: 2300px) { body { zoom: 1.45; } }
-  @media (min-width: 3000px) { body { zoom: 1.9; } }
+     past that it is enlarged whole, so nothing has to be re-laid-out.
+     v91 started this at 1700px and at up to 1.9x; the owner's verdict was
+     "way too big". Only very large monitors are enlarged now, and gently. */
+  @media (min-width: 2400px) { body { zoom: 1.12; } }
+  @media (min-width: 3200px) { body { zoom: 1.4; } }
 </style>
 </head>
 <body class="theme-dark-grey">
@@ -2985,7 +2988,7 @@
       <h3 class="set-h">My team</h3>
       <p class="set-p">Your team is filled in for you across the app and comes first on Favorites. It stays on this device.</p>
       <div class="fav-add">
-        <input type="text" id="myTeamInput" placeholder="Team number, e.g. 3050X" autocomplete="off" autocapitalize="characters" enterkeyhint="done">
+        <input type="text" id="myTeamInput" placeholder="Team number, e.g. 66449A" autocomplete="off" autocapitalize="characters" enterkeyhint="done">
         <button class="btn btn-primary" onclick="myTeamSaveFromInput()">Save</button>
       </div>
       <div class="set-state" id="myTeamState"></div>
@@ -3601,7 +3604,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v91';
+const APP_BUILD = 'v92';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -7537,7 +7540,7 @@ function tCompareBlock(R, roster, focus, pairWin) {
   const opt = n => `<option value="${esc(n)}">`;
   let html = `<div class="detail-block-label">Compare teams</div>
     <div class="cmp-add">
-      <input type="text" id="tCompareInput" list="tCompareRoster" placeholder="Team numbers, e.g. 3050X, 1234B" autocomplete="off" autocapitalize="characters" enterkeyhint="done"
+      <input type="text" id="tCompareInput" list="tCompareRoster" placeholder="Team numbers, e.g. 66449A, 66449B" autocomplete="off" autocapitalize="characters" enterkeyhint="done"
         onkeydown="if(event.key==='Enter')tCompareAddFromInput()">
       <datalist id="tCompareRoster">${roster.map(t => opt(t.number)).join('')}</datalist>
       <button class="btn btn-primary" onclick="tCompareAddFromInput()">Add</button>
@@ -7867,8 +7870,9 @@ function sim_learnNote(R) {
 const VT_SIZE = 640;            // the model's input; boxes are stored at this width
 const VT_CONF = 0.35, VT_IOU = 0.5;
 const VT_RATE = 2;              // playback speed while watching
-const VT_LEAD = 5;              // seconds watched before the match's position
-const VT_WINDOW = 170;          // seconds of video per match (15 s auto, a pause, 1:45 driver, the score)
+const VT_LEAD = 3;              // seconds watched before the match's position
+const VT_WINDOW = 150;          // seconds of video per match: 15 s auto, the pause, 1:45 driver, a little after
+const VT_MAX_PARALLEL = 4;      // matches watched at once
 const VT_TICK_MS = 250;         // how often a frame is looked at
 const VT_MIN_FRAMES = 30;       // fewer frames with a robot than this and the video was not a match
 const VT_PASS_KEY = 'vex_tracker_pass';
@@ -8017,47 +8021,44 @@ async function vtPassSave() {
 function vtPassForget() { lsRemove(VT_PASS_KEY); vtSettingsRefresh('Passcode removed from this device.'); }
 
 // ── The finder ─────────────────────────────────────────────────────────────
-let vtSession = null, vtSessionLoading = null;
-function vtLoadScript(src) {
-  return new Promise((resolve, reject) => {
-    if (document.querySelector(`script[src="${src}"]`)) return resolve();
-    const s = document.createElement('script');
-    s.src = src; s.onload = () => resolve(); s.onerror = () => reject(new Error('could not load ' + src));
-    document.head.appendChild(s);
-  });
+// One worker per match being watched (vendor/vt-worker.js), each with its own
+// copy of the model, so several matches are examined at once on separate
+// cores. More THREADS in one copy would need the page to be cross-origin
+// isolated, which stops the YouTube player loading — more copies does not.
+function vtFinder() {
+  const w = new Worker('/vendor/vt-worker.js');
+  const waiting = new Map();
+  let seq = 0, onReady;
+  const ready = new Promise((resolve, reject) => { onReady = { resolve, reject }; });
+  w.onmessage = ev => {
+    const d = ev.data;
+    if (d.ready !== undefined) return d.ready ? onReady.resolve() : onReady.reject(new Error(d.error || 'The robot finder did not load.'));
+    const p = waiting.get(d.id);
+    if (!p) return;
+    waiting.delete(d.id);
+    d.error ? p.reject(new Error(d.error)) : p.resolve(d);
+  };
+  w.onerror = () => onReady.reject(new Error('The robot finder did not load.'));
+  return {
+    ready,
+    // square: ImageData of the model's 640×640 picture. Its pixels are lent to
+    // the worker and come back, so nothing that size is copied.
+    async detect(square, lb, w0, h0) {
+      const id = ++seq;
+      const d = await new Promise((resolve, reject) => { waiting.set(id, { resolve, reject }); w.postMessage({ id, rgba: square.data.buffer }, [square.data.buffer]); });
+      const rgba = new Uint8ClampedArray(d.rgba);
+      const boxes = vtNMS(vtDecode(new Float32Array(d.out), d.n, lb, w0, h0, VT_CONF), VT_IOU);
+      for (const b of boxes) b[5] = vtColorOf(rgba, VT_SIZE, VT_SIZE, [b[0] * lb.s + lb.px, b[1] * lb.s + lb.py, b[2] * lb.s, b[3] * lb.s]);
+      return boxes;
+    },
+    stop() { try { w.terminate(); } catch (e) {} }
+  };
 }
-function vtLoadModel() {
-  if (vtSession) return Promise.resolve(vtSession);
-  if (vtSessionLoading) return vtSessionLoading;
-  vtSessionLoading = (async () => {
-    await vtLoadScript('/vendor/ort/ort.wasm.min.js');
-    const o = window.ort;
-    o.env.wasm.wasmPaths = '/vendor/ort/';
-    // One thread, in a worker. More threads need the page to be cross-origin
-    // isolated, which would stop the YouTube player loading at all.
-    o.env.wasm.numThreads = 1;
-    o.env.wasm.proxy = true;
-    vtSession = await o.InferenceSession.create('/models/robot_detector.onnx', { executionProviders: ['wasm'] });
-    return vtSession;
-  })().catch(e => { vtSessionLoading = null; throw e; });
-  return vtSessionLoading;
-}
-// RGBA pixels of the model's square → the planar 0..1 floats it wants.
-function vtTensorData(rgba) {
-  const n = VT_SIZE * VT_SIZE, f = new Float32Array(3 * n);
-  for (let i = 0, p = 0; i < n; i++, p += 4) { f[i] = rgba[p] / 255; f[n + i] = rgba[p + 1] / 255; f[2 * n + i] = rgba[p + 2] / 255; }
-  return f;
-}
-async function vtDetect(square, lb, w, h) {
-  const sess = await vtLoadModel();
-  const tensor = new window.ort.Tensor('float32', vtTensorData(square.data), [1, 3, VT_SIZE, VT_SIZE]);
-  const res = await sess.run({ [sess.inputNames[0]]: tensor });
-  const out = res[sess.outputNames[0]];
-  const n = out.dims[out.dims.length - 1];
-  const boxes = vtNMS(vtDecode(out.data, n, lb, w, h, VT_CONF), VT_IOU);
-  // Colour is read from the square the model saw, so no second copy of the frame.
-  for (const b of boxes) b[5] = vtColorOf(square.data, VT_SIZE, VT_SIZE, [b[0] * lb.s + lb.px, b[1] * lb.s + lb.py, b[2] * lb.s, b[3] * lb.s]);
-  return boxes;
+// How many matches to watch at once. Each needs a core for its finder and a
+// video stream; past four the players get too small for the finder to see.
+function vtParallel() {
+  const cores = Number(navigator.hardwareConcurrency) || 4;
+  return Math.max(1, Math.min(VT_MAX_PARALLEL, Math.floor(cores / 2)));
 }
 
 // ── The run ────────────────────────────────────────────────────────────────
@@ -8074,28 +8075,94 @@ function vtTicker(ms, fn) {
     return () => w.terminate();
   } catch (e) { const t = setInterval(fn, ms); return () => clearInterval(t); }
 }
-async function vtPlayerReady() {
+async function vtPlayerReady(elId, slot) {
   rwLoadYT();
   for (let i = 0; i < 100 && !(window.YT && window.YT.Player); i++) await vtSleep(100);
   if (!(window.YT && window.YT.Player)) throw new Error('The YouTube player did not load.');
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('The YouTube player did not start.')), 15000);
-    const p = new window.YT.Player('vtPlayerInner', {
+    const p = new window.YT.Player(elId, {
       width: '100%', height: '100%',
       playerVars: { controls: 0, disablekb: 1, modestbranding: 1, rel: 0, playsinline: 1, iv_load_policy: 3, fs: 0 },
       events: {
         onReady: () => { clearTimeout(timer); try { p.mute(); } catch (e) {} resolve(p); },
-        onError: ev => { if (vtRun) vtRun.playerError = ev && ev.data; }
+        onError: ev => { slot.playerError = ev && ev.data; }
       }
     });
   });
 }
-async function vtStart() {
+// Which matches a run watches. 'here' is what the Jumper has open. 'history'
+// is for an event that has not been played: every earlier event this season
+// that its teams went to, most teams first, and only the matches they were in.
+async function vtFeedHere(run, ctx) {
+  const ev = String(ctx.eventId);
+  const all = vtQueueFrom(ctx);
+  const [local, shared] = await Promise.all([vtLocalIndex(ev), vtSharedIds(ev)]);
+  for (const m of all) {
+    if ((local[m.id] && local[m.id].s === 'done') || shared.includes(m.id)) run.skipped++;
+    else { m.ev = ev; run.queue.push(m); run.total++; }
+  }
+}
+async function vtHistoryPlan(eventId) {
+  const detail = (await tEventDetail(eventId))[0] || {};
+  const seasonId = detail.season && detail.season.id;
+  const teams = await apiGet(`/events/${eventId}/teams`);
+  const want = new Set(teams.map(t => String(t.number || '').toUpperCase()).filter(Boolean));
+  const byEvent = new Map();
+  await sim_pool(teams, async t => {
+    try {
+      for (const e of await apiGet(`/teams/${t.id}/events`, seasonId ? { 'season[]': [seasonId] } : {})) {
+        if (!e || String(e.id) === String(eventId)) continue;
+        const end = Date.parse(e.end || e.start || '');
+        if (!(end < Date.now())) continue;                   // not played yet
+        const cur = byEvent.get(String(e.id)) || { id: e.id, name: e.name, sku: e.sku, start: e.start, location: e.location, n: 0 };
+        cur.n++; byEvent.set(String(e.id), cur);
+      }
+    } catch (e) {}
+  });
+  return { want, events: [...byEvent.values()].sort((a, b) => b.n - a.n || String(b.start).localeCompare(String(a.start))) };
+}
+async function vtFeedHistory(run, eventId) {
+  vtSay('Finding the earlier events these teams played…');
+  const plan = await vtHistoryPlan(eventId);
+  run.events = plan.events.length;
+  for (const e of plan.events) {
+    if (run.stop) return;
+    // Do not get far ahead of the players: an event's video positions take a
+    // stream lookup each, and a queue nobody reaches was looked up for nothing.
+    while (!run.stop && run.queue.length > 3 * run.slots.length) await vtSleep(1000);
+    run.eventAt = (run.eventAt || 0) + 1;
+    run.eventName = e.name || 'an earlier event';
+    try {
+      // The Jumper itself works out where each match is in the stream. It is
+      // driven here exactly as a person would, one event at a time.
+      window._rwCtx = { team: null, events: [{ id: e.id, name: e.name, sku: e.sku, start: e.start, location: e.location }],
+        eventId: null, matches: [], videoId: null, cal: {}, calDay: null };
+      await rewatchSelectEvent(e.id);
+      let found = [];
+      for (let i = 0; i < 40 && !run.stop; i++) {            // stream discovery finishes in its own time
+        const c = window._rwCtx;
+        if (!c || String(c.eventId) !== String(e.id)) break;
+        found = vtQueueFrom(c);
+        if (found.length) break;
+        await vtSleep(500);
+      }
+      if (!found.length) { run.noVideo++; continue; }
+      const ev = String(e.id);
+      const [local, shared] = await Promise.all([vtLocalIndex(ev), vtSharedIds(ev)]);
+      for (const m of found) {
+        if (!m.red.concat(m.blue).some(n => plan.want.has(n))) continue;
+        if ((local[m.id] && local[m.id].s === 'done') || shared.includes(m.id)) run.skipped++;
+        else { m.ev = ev; run.queue.push(m); run.total++; }
+      }
+    } catch (err) { run.noVideo++; }
+  }
+}
+async function vtStart(mode) {
   if (vtRun) return;
   const ctx = window._rwCtx;
-  const all = vtQueueFrom(ctx);
-  if (!all.length) return;
-  const ev = String(ctx.eventId);
+  if (!ctx || !ctx.eventId) return;
+  const homeEvent = String(ctx.eventId);
   const panel = document.getElementById('vtPanel');
   // The share prompt must come straight from the click, before anything slow.
   let stream;
@@ -8103,67 +8170,88 @@ async function vtStart() {
     stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 15, displaySurface: 'browser' }, audio: false,
       preferCurrentTab: true, selfBrowserSurface: 'include', surfaceSwitching: 'exclude', monitorTypeSurfaces: 'exclude' });
   } catch (e) { vtRender('Sharing was not allowed, so nothing was watched. Press Start and choose "This tab".'); return; }
-  const run = vtRun = { ev, stream, stop: false, done: 0, saved: 0, skipped: 0, empty: 0, failed: 0, total: 0, playerError: null, cleanup: [] };
+  const P = vtParallel();
+  const run = vtRun = { stream, stop: false, done: 0, saved: 0, skipped: 0, empty: 0, failed: 0, noVideo: 0, total: 0,
+    queue: [], feeding: true, slots: [], cleanup: [], mode };
   if (ctx.playAll) rwPlayAllStop();
   panel.innerHTML = `<div class="rw-block vt-block">
     <div class="rw-day-head"><div class="detail-block-label" style="margin:0;">Robot tracker</div>
       <button class="rw-nudge-btn" onclick="vtStop()">Stop</button></div>
     <div class="vt-status" id="vtStatus">Starting…</div>
     <div class="vt-stage">
-      <div class="vt-player" id="vtPlayer"><div id="vtPlayerInner"></div></div>
+      <div class="vt-players vt-p${P}" id="vtPlayers">${Array.from({ length: P }, (_, i) => `<div class="vt-player" id="vtTile${i}"><div id="vtPlayerInner${i}"></div></div>`).join('')}</div>
       <div class="vt-seen"><canvas id="vtSeen" width="640" height="360"></canvas><div class="vt-cap">What the tracker sees</div></div>
     </div>
-    <div class="rw-hint">Leave this tab open and on screen. You can use other windows; the computer is kept awake while this runs. Already-tracked matches are skipped, so stopping and starting again loses nothing.</div>
+    <div class="rw-hint">Watching ${P} match${P === 1 ? '' : 'es'} at a time, each at ${VT_RATE}×. Leave this tab open and on screen, on the Jumper. You can use other windows; the computer is kept awake while this runs. Already-tracked matches are skipped, so stopping and starting again loses nothing.</div>
   </div>`;
   const track = stream.getVideoTracks()[0];
   track.addEventListener('ended', () => { if (vtRun === run) { run.stop = true; run.why = 'Sharing was stopped.'; } });
   try {
     try {
-      await track.cropTo(await window.CropTarget.fromElement(document.getElementById('vtPlayer')));
+      await track.cropTo(await window.CropTarget.fromElement(document.getElementById('vtPlayers')));
     } catch (e) { throw new Error('That was not this tab. Press Start again and choose "This tab" in the share window.'); }
     const video = document.createElement('video');
     video.muted = true; video.playsInline = true; video.srcObject = stream;
     await video.play();
+    run.video = video;
     try { if (navigator.wakeLock) { const wl = await navigator.wakeLock.request('screen'); run.cleanup.push(() => wl.release()); } } catch (e) {}
     vtSay('Loading the robot finder (about 25 MB, the first time only)…');
-    await vtLoadModel();
-    const player = await vtPlayerReady();
-    run.cleanup.push(() => { try { player.destroy(); } catch (e) {} });
-    // Skip what this device or anyone else has already tracked.
-    const [local, shared] = await Promise.all([vtLocalIndex(ev), vtSharedIds(ev)]);
-    const queue = all.filter(m => !(local[m.id] && local[m.id].s === 'done') && !shared.includes(m.id));
-    run.total = queue.length; run.skipped = all.length - queue.length;
-    const square = document.createElement('canvas');
-    square.width = square.height = VT_SIZE;
-    const sq = square.getContext('2d', { willReadFrequently: true });
-    for (const m of queue) {
-      if (run.stop) break;
-      await vtWatch(run, m, player, video, sq);
-      run.done++;
+    for (let i = 0; i < P; i++) {
+      const slot = { i, playerError: null, finder: vtFinder() };
+      run.cleanup.push(() => slot.finder.stop());
+      run.slots.push(slot);
     }
-    vtFinish(run.why || (run.stop ? 'Stopped.' : 'Finished.'));
+    await Promise.all(run.slots.map(s => s.finder.ready));
+    for (const slot of run.slots) {
+      slot.player = await vtPlayerReady('vtPlayerInner' + slot.i, slot);
+      run.cleanup.push(() => { try { slot.player.destroy(); } catch (e) {} });
+      const sq = document.createElement('canvas');
+      sq.width = sq.height = VT_SIZE;
+      slot.sq = sq.getContext('2d', { willReadFrequently: true });
+    }
+    const feed = (mode === 'history' ? vtFeedHistory(run, homeEvent) : vtFeedHere(run, ctx))
+      .catch(e => { run.why = String((e && e.message) || e); }).then(() => { run.feeding = false; });
+    await Promise.all(run.slots.map(async slot => {
+      while (!run.stop) {
+        const m = run.queue.shift();
+        if (!m) { if (!run.feeding) break; await vtSleep(500); continue; }
+        await vtWatch(run, slot, m);
+        run.done++;
+      }
+    }));
+    run.stop = true;                       // lets the feeder see there is nobody left to feed
+    await feed;
+    vtFinish(run.why || (run.userStop ? 'Stopped.' : 'Finished.'));
   } catch (e) {
     vtFinish(String((e && e.message) || e));
   }
 }
-async function vtWatch(run, m, player, video, sq) {
-  const label = () => `Match ${run.done + 1} of ${run.total} · ${m.name}`;
-  vtSay(label() + ' · loading');
-  run.playerError = null;
+function vtProgress(run) {
+  const where = run.mode === 'history' && run.events ? ` · event ${run.eventAt || 0} of ${run.events}: ${run.eventName || ''}` : '';
+  const live = run.slots.filter(s => s.now).map(s => `${s.now.name} (${s.now.boxes})`).join(' · ');
+  const perHour = run.t0 && run.done ? Math.round(run.done / ((Date.now() - run.t0) / 3600000)) : 0;
+  vtSay(`${run.done} of ${run.total} matches done${where}${perHour ? ` · about ${perHour} an hour` : ''}${live ? ' · now: ' + live : ''}`);
+}
+async function vtWatch(run, slot, m) {
+  if (!run.t0) run.t0 = Date.now();
+  slot.playerError = null;
+  slot.now = { name: m.name, boxes: 0 };
+  const player = slot.player, video = run.video, sq = slot.sq;
   const start = Math.max(0, m.off - VT_LEAD), end = start + VT_WINDOW;
   player.loadVideoById({ videoId: m.vid, startSeconds: start });
   try { player.mute(); player.setPlaybackRate(VT_RATE); } catch (e) {}
   const rec = { v: 1, name: String(m.name || '').slice(0, 60), round: m.round, num: m.num, red: m.red, blue: m.blue,
     rs: m.rs, bs: m.bs, vid: m.vid, off: m.off, rate: VT_RATE, w: VT_SIZE, h: 0, model: VT_MODEL, at: Date.now(), f: [] };
   const seen = document.getElementById('vtSeen'), sc = seen && seen.getContext('2d');
-  let busy = false, lastT = -1, finished = false, stalledSince = Date.now();
+  const stage = document.getElementById('vtPlayers'), tile = document.getElementById('vtTile' + slot.i);
+  let busy = false, lastT = -1, finished = false, stalledSince = Date.now(), why = '';
   const wallLimit = Date.now() + (VT_WINDOW / VT_RATE + 60) * 1000;
   await new Promise(resolve => {
     const stopTick = vtTicker(VT_TICK_MS, async () => {
       if (finished) return;
-      const done = why => { finished = true; stopTick(); rec.why = why; resolve(); };
+      const done = w => { finished = true; stopTick(); why = w; resolve(); };
       if (run.stop) return done('stopped');
-      if (run.playerError !== null) return done('video');
+      if (slot.playerError !== null) return done('video');
       if (Date.now() > wallLimit) return done('timeout');
       let t = 0, state = -1;
       try { t = player.getCurrentTime(); state = player.getPlayerState(); } catch (e) {}
@@ -8172,18 +8260,24 @@ async function vtWatch(run, m, player, video, sq) {
       // not a frame of the match; if it lasts, give the player a push.
       if (state !== 1) { if (Date.now() - stalledSince > 8000) { try { player.playVideo(); } catch (e) {} stalledSince = Date.now(); } return; }
       stalledSince = Date.now();
-      if (busy || t === lastT || !video.videoWidth) return;
+      if (busy || t === lastT || !video.videoWidth || !stage || !tile) return;
       busy = true; lastT = t;
       try {
-        const w = video.videoWidth, h = video.videoHeight, lb = vtLetterbox(w, h);
+        // This player's share of the captured picture, as fractions of the
+        // stage — so page zoom and screen scaling cancel out.
+        const S = stage.getBoundingClientRect(), T = tile.getBoundingClientRect();
+        const sx = (T.left - S.left) / S.width * video.videoWidth, sy = (T.top - S.top) / S.height * video.videoHeight;
+        const w = T.width / S.width * video.videoWidth, h = T.height / S.height * video.videoHeight;
+        const lb = vtLetterbox(w, h);
         sq.fillStyle = 'rgb(114,114,114)'; sq.fillRect(0, 0, VT_SIZE, VT_SIZE);
-        sq.drawImage(video, lb.px, lb.py, lb.nw, lb.nh);
-        const boxes = await vtDetect(sq.getImageData(0, 0, VT_SIZE, VT_SIZE), lb, w, h);
+        sq.drawImage(video, sx, sy, w, h, lb.px, lb.py, lb.nw, lb.nh);
+        const boxes = await slot.finder.detect(sq.getImageData(0, 0, VT_SIZE, VT_SIZE), lb, w, h);
         rec.h = Math.round(h * VT_SIZE / w);
         rec.f.push(vtPackFrame(t - m.off, boxes, w));
-        if (sc) {
+        slot.now.boxes = boxes.length;
+        if (sc && slot.i === 0) {          // the picture shows the first player; all of them are being read
           if (seen.height !== Math.round(640 * h / w)) seen.height = Math.round(640 * h / w);
-          sc.drawImage(video, 0, 0, seen.width, seen.height);
+          sc.drawImage(video, sx, sy, w, h, 0, 0, seen.width, seen.height);
           const k = seen.width / w;
           sc.lineWidth = 2; sc.font = '600 13px sans-serif';
           for (const b of boxes) {
@@ -8192,23 +8286,22 @@ async function vtWatch(run, m, player, video, sq) {
             sc.fillStyle = sc.strokeStyle; sc.fillText(Math.round(b[4] * 100) + '%', b[0] * k + 3, b[1] * k - 4);
           }
         }
-        const left = Math.max(0, Math.round((end - t) / VT_RATE));
-        vtSay(`${label()} · ${boxes.length} robot${boxes.length === 1 ? '' : 's'} in view · ${left}s left on this match`);
+        vtProgress(run);
       } catch (e) { run.lastError = String((e && e.message) || e); }
       busy = false;
     });
   });
   try { player.pauseVideo(); } catch (e) {}
-  const why = rec.why; delete rec.why;
+  slot.now = null;
   if (why === 'stopped') return;
   const st = vtRecStats(rec);
-  if (why === 'video' || why === 'timeout') { run.failed++; await vtLocalSave(run.ev, m.id, null, 'failed'); return; }
-  if (st.withRobot < VT_MIN_FRAMES) { run.empty++; await vtLocalSave(run.ev, m.id, null, 'empty'); return; }
-  await vtLocalSave(run.ev, m.id, rec, 'done');
+  if (why === 'video' || why === 'timeout') { run.failed++; await vtLocalSave(m.ev, m.id, null, 'failed'); return; }
+  if (st.withRobot < VT_MIN_FRAMES) { run.empty++; await vtLocalSave(m.ev, m.id, null, 'empty'); return; }
+  await vtLocalSave(m.ev, m.id, rec, 'done');
   run.saved++;
-  run.shared = await vtSharedSave(run.ev, m.id, rec);
+  run.shared = await vtSharedSave(m.ev, m.id, rec);
 }
-function vtStop() { if (vtRun) { vtRun.stop = true; vtSay('Stopping after this frame…'); } }
+function vtStop() { if (vtRun) { vtRun.stop = true; vtRun.userStop = true; vtSay('Stopping…'); } }
 function vtFinish(why) {
   const run = vtRun;
   if (!run) return;
@@ -8219,6 +8312,7 @@ function vtFinish(why) {
   if (run.skipped) bits.push(`${run.skipped} already done`);
   if (run.empty) bits.push(`${run.empty} with no robots in view (wrong part of the video, or not a field camera)`);
   if (run.failed) bits.push(`${run.failed} whose video would not play`);
+  if (run.noVideo) bits.push(`${run.noVideo} earlier event${run.noVideo === 1 ? '' : 's'} with no video the Jumper could find`);
   const share = run.saved ? (run.shared === 'saved' ? ' Saved to the shared storage.' : run.shared === 'no-passcode' ? ' Kept on this device only: no passcode is saved in Settings.' : ` Kept on this device; the shared storage said "${run.shared}".`) : '';
   vtRender(`${why} ${bits.join(', ')}.${share}`);
 }
@@ -8228,10 +8322,9 @@ async function vtRender(note) {
   const panel = document.getElementById('vtPanel');
   if (!panel || vtRun) return;
   const ctx = window._rwCtx;
+  if (vsIsPhone() || !ctx || !ctx.eventId) { panel.innerHTML = ''; return; }
   const queue = vtQueueFrom(ctx);
-  if (vsIsPhone() || !ctx || !ctx.eventId || !queue.length) { panel.innerHTML = ''; return; }
   const ev = String(ctx.eventId);
-  const who = ctx.team && ctx.team.number ? `${esc(ctx.team.number)}'s ${queue.length} matches` : `all ${queue.length} matches at this event`;
   if (!vtSupported()) {
     panel.innerHTML = `<div class="rw-block vt-block"><div class="detail-block-label">Robot tracker</div>
       <div class="rw-hint">The tracker watches matches by capturing this tab, which needs Chrome or Edge on a computer.</div></div>`;
@@ -8239,16 +8332,22 @@ async function vtRender(note) {
   }
   const local = await vtLocalIndex(ev);
   if (vtRun || window._rwCtx !== ctx) return;       // things moved on while that was read
+  const P = vtParallel();
   const doneHere = queue.filter(m => local[m.id] && local[m.id].s === 'done').length;
-  const mins = Math.ceil((queue.length - doneHere) * (VT_WINDOW / VT_RATE + 6) / 60);
+  const left = queue.length - doneHere;
+  const mins = Math.ceil(left * (VT_WINDOW / VT_RATE + 6) / 60 / P);
+  const span = mins >= 90 ? (Math.round(mins / 6) / 10) + ' hours' : mins + ' minutes';
+  const who = ctx.team && ctx.team.number ? `${esc(ctx.team.number)}'s ${queue.length} matches` : `all ${queue.length} matches at this event`;
   panel.innerHTML = `<div class="rw-block vt-block">
     <div class="detail-block-label">Robot tracker</div>
     ${note ? `<div class="vt-note">${esc(note)}</div>` : ''}
-    <div class="rw-hint">Watches ${who} at ${VT_RATE}× and records where every robot is, a few times a second. ${doneHere ? `${doneHere} already tracked on this device. ` : ''}${doneHere < queue.length
-      ? `About ${mins >= 90 ? (Math.round(mins / 6) / 10) + ' hours' : mins + ' minutes'} for the rest. Chrome will ask what to share: choose <strong>This tab</strong>.`
-      : 'Nothing is left to watch.'}</div>
-    ${doneHere < queue.length ? `<div class="rw-playall"><button class="btn btn-primary" onclick="vtStart()">Start tracking</button></div>` : ''}
-    <div class="rw-hint">This stage records positions. Turning them into each robot's job, parking and autonomous routine comes next, and will use these recordings without watching again.</div>
+    ${queue.length ? `<div class="rw-hint">Watches ${who}, ${P} at a time at ${VT_RATE}×, and records where every robot is. ${doneHere ? `${doneHere} already tracked on this device. ` : ''}${left
+      ? `About ${span} for the rest.` : 'Nothing is left to watch here.'}</div>
+    ${left ? `<div class="rw-playall"><button class="btn btn-primary" onclick="vtStart('here')">Start tracking</button></div>` : ''}`
+    : `<div class="rw-hint">No match at this event has video the Jumper can open yet${(ctx.matches || []).length ? '' : ', and it may not have been played'}.</div>`}
+    ${ctx.team ? '' : `<div class="rw-hint"><strong>Getting ready for this event?</strong> Track the matches its teams have already played at their earlier events this season. This works before the event has started, and takes as long as there are matches: leave it running.</div>
+    <div class="rw-playall"><button class="btn ${queue.length && left ? 'btn-secondary' : 'btn-primary'}" onclick="vtStart('history')">Track these teams' earlier matches</button></div>`}
+    <div class="rw-hint">Chrome will ask what to share: choose <strong>This tab</strong>. This stage records positions; turning them into each robot's job, parking and autonomous routine comes next and will use these recordings without watching again.</div>
   </div>`;
 }
 // From an event page: open the Jumper on the whole event, where Start is.

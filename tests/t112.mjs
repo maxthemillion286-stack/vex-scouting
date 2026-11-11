@@ -41,7 +41,7 @@ console.log('\n· the finder\'s arithmetic');
   const fr = win.vtPackFrame(12.34, [[600, 330, 80, 60, 0.9, 1]], 1280);
   ok('a frame is stored as integers at a 640-wide scale', JSON.stringify(fr) === '[123,1,300,165,40,30,90,1]', JSON.stringify(fr));
   ok('stats count frames that had a robot', (() => { const s = win.vtRecStats({ f: [[0, 0], [1, 2, 1, 1, 1, 1, 90, 1, 2, 2, 2, 2, 80, 2]] }); return s.frames === 2 && s.withRobot === 1 && s.perFrame === 2; })());
-  ok('the tensor is planar RGB in 0..1', (() => { const sq = new Uint8ClampedArray(640 * 640 * 4); sq[0] = 255; sq[1] = 0; sq[2] = 51; const t = win.vtTensorData(sq); return t.length === 3 * 640 * 640 && t[0] === 1 && t[640 * 640] === 0 && Math.abs(t[2 * 640 * 640] - 0.2) < 1e-6; })());
+  ok('the finder runs in its own worker, one per match watched', /new Worker\('\/vendor\/vt-worker\.js'\)/.test(idx) && fs.existsSync('../vendor/vt-worker.js') && /numThreads = 1/.test(fs.readFileSync('../vendor/vt-worker.js', 'utf8')));
 }
 
 console.log('\n· what gets watched');
@@ -64,11 +64,14 @@ console.log('\n· what gets watched');
   ok('a video id that is not one is refused', win.vtQueueFrom(win._rwCtx).length === 0);
   ok('no event, no queue', win.vtQueueFrom(null).length === 0 && win.vtQueueFrom({}).length === 0);
   ok('the panel is outside the Jumper\'s results, which are re-rendered', /<div id="rwResults"><\/div>\s*<div id="vtPanel"><\/div>/.test(idx));
-  ok('already-tracked matches are skipped, here or shared', /local\[m\.id\]\.s === 'done'\) && !shared\.includes\(m\.id\)/.test(idx));
+  ok('already-tracked matches are skipped, here or shared', /local\[m\.id\]\.s === 'done'\) \|\| shared\.includes\(m\.id\)\) run\.skipped\+\+/.test(idx));
   ok('a recording with almost no robots is not saved', /if \(st\.withRobot < VT_MIN_FRAMES\)/.test(idx));
   ok('the computer is kept awake', /navigator\.wakeLock\.request\('screen'\)/.test(idx));
   ok('the timer survives a background tab', /new Worker\(URL\.createObjectURL/.test(idx));
-  ok('one thread: more would need isolation that breaks the player', /numThreads = 1;/.test(idx));
+  ok('up to four matches at once, never more than half the cores', win.vtParallel() >= 1 && win.vtParallel() <= 4 && /Math\.floor\(cores \/ 2\)/.test(idx));
+  ok('each player reads its own share of the one captured picture', /sq\.drawImage\(video, sx, sy, w, h, lb\.px, lb\.py, lb\.nw, lb\.nh\)/.test(idx));
+  ok('an unplayed event can be prepared for from its teams\' earlier events', /async function vtHistoryPlan/.test(idx) && /if \(!\(end < Date\.now\(\)\)\) continue;/.test(idx) && /plan\.want\.has\(n\)/.test(idx));
+  ok('the feeder does not run far ahead of the players', /run\.queue\.length > 3 \* run\.slots\.length/.test(idx));
   ok('the model and runtime are in the repo', fs.statSync('../models/robot_detector.onnx').size > 5e6 && fs.statSync('../vendor/ort/ort-wasm-simd-threaded.wasm').size > 5e6 && fs.existsSync('../vendor/ort/ort.wasm.min.js') && fs.existsSync('../vendor/ort/ort-wasm-simd-threaded.mjs'));
   ok('and are not copied into the service worker\'s cache', /url\.pathname\.startsWith\('\/vendor\/'\) \|\| url\.pathname\.startsWith\('\/models\/'\)\) return;/.test(sw));
   ok('shared storage is never answered from cache', /startsWith\('\/api\/tracker'\)/.test(sw));
