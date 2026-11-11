@@ -2473,13 +2473,16 @@
   .cmp th, .cmp td { padding: 11px 14px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--border); }
   .cmp tr:last-child th, .cmp tr:last-child td { border-bottom: 0; }
   .cmp tbody th { text-align: left; font-weight: 400; color: var(--text-dim); position: sticky; left: 0; background: var(--card); }
-  .cmp thead th { font-family: var(--display); font-size: 17px; font-weight: 700; color: var(--text); vertical-align: bottom; }
-  .cmp thead th small { display: block; font-family: var(--body); font-size: 12px; font-weight: 400; color: var(--text-muted); }
+  .cmp thead th { font-family: var(--display); font-size: 17px; font-weight: 700; color: var(--text); vertical-align: top; padding-bottom: 6px; }
+  .cmp-num { display: block; line-height: 24px; }
+  .cmp-num .mt-team { display: inline; padding: 0; margin: 0; }
+  .cmp-sub { display: block; width: 100%; height: 30px; line-height: 30px; padding: 0; margin: 0; border: 0; background: none; text-align: right;
+    font-family: var(--body); font-size: 12px; font-weight: 400; letter-spacing: 0; color: var(--text-muted); }
+  .cmp-rm { cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
   .cmp td { color: var(--text-dim); }
   .cmp td.cmp-best { color: var(--text); font-weight: 700; }
   .cmp td.cmp-na { color: var(--text-muted); font-size: 13px; }
   .cmp-dot { color: var(--accent-bright); font-size: 10px; margin-right: 6px; vertical-align: 2px; }
-  .cmp-x { min-width: 32px; min-height: 32px; margin: -6px -8px -6px 4px; background: none; border: 0; color: var(--text-muted); cursor: pointer; font-size: 14px; }
   .rw-all-rec { font-family: var(--display); font-size: 18px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
   .rw-all-day { display: block; font-family: var(--body); font-size: 12px; color: var(--text-muted); }
   .rw-all { margin-bottom: 14px; }
@@ -3581,7 +3584,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v87';
+const APP_BUILD = 'v88';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -7552,7 +7555,12 @@ function tCompareBlock(R, roster, focus, pairWin) {
   html += `<div class="cmp-wrap"><table class="cmp">
     <thead><tr><th></th>${cols.map(t => {
       const n = teamAttr(t.number), mine = String(t.number).toUpperCase() === focus;
-      return `<th><span class="mt-team" onclick="scoutTeam('${n}')">${esc(t.number)}</span>${mine ? '<small>you</small>' : `<button class="cmp-x" aria-label="Remove ${n}" onclick="tCompareRemove('${n}')">✕</button>`}</th>`;
+      // Two lines in EVERY column — the number, then "you" or Remove — so the
+      // numbers share a line and sit over their own column of values. The ✕
+      // used to sit beside the number, which pushed that number off both.
+      return `<th><span class="cmp-num"><span class="mt-team" onclick="scoutTeam('${n}')">${esc(t.number)}</span></span>${mine
+        ? '<span class="cmp-sub">you</span>'
+        : `<button class="cmp-sub cmp-rm" aria-label="Remove ${n} from the comparison" onclick="tCompareRemove('${n}')">Remove</button>`}</th>`;
     }).join('')}</tr></thead>
     <tbody>${rows.map(r => `<tr><th>${esc(r.label)}</th>${r.vals.map((v, i) => cell(r, v, i)).join('')}</tr>`).join('')}</tbody>
   </table></div>
