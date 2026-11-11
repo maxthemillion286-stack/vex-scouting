@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v86**. Everything green: 65 test files. (The `v19` in §8's
+Current release: **v87**. Everything green: 65 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -403,6 +403,7 @@ proxy is at `api/proxy.js`.
 | t107 | **v84** — autonomous points in the event rating — §24 |
 | t108 | **v85** — what you need to move up, the season line, the My team page, play all — §25 |
 | t109 | **v86** — last time's answer painted at once; asking ahead of the tap — §26 |
+| t110 | **v87** — comparing teams; every match of a team's in the Jumper — §27 |
 | sanity | CSS braces balance, inline JS parses, tabs present |
 | tool_sanity | Same for anchor-tool.html |
 
@@ -2150,7 +2151,33 @@ deploys. Worth doing only deliberately.
 
 ---
 
-## 27. Feature ideas
+## 27. v87 — comparing teams, and all of a team's matches
+
+- **Compare teams** (`tCompareBlock`) — on `TOURNAMENT ▸ PICK LIST`. Type team
+  numbers (several at once is fine; the box offers the event's roster) and up
+  to four sit side by side: seed, record, rating, AP a match, usual low and
+  high score, trend, world skills rank, and — with a team in focus — the win
+  chance of pairing with you. The focused team leads the table without using
+  one of the four slots. One metric per row, because the question is always
+  "which is better at this". The best value in a row gets a ● and weight,
+  never colour alone; ties are all marked; a row where everything is equal
+  marks nothing. `null` is "no data"; `undefined` is "does not apply to this
+  column" (your own win chance with yourself) and draws an empty cell.
+  The list is per event and in memory only — nothing is stored.
+  Only teams AT the event can be added: every number in the table comes from
+  this event's matches.
+- **All matches** (`rwAllMatchesBlock`) — in the Jumper, after picking a
+  team's event. Reported as: "I want it to show all the matches they played."
+  They were on the page, but split under each day's stream box, and on a phone
+  the day lists hide the teams and the score. This is one list, first on the
+  page, in the order played: partner, opponents, score (this team's alliance
+  first), the record, and ▶ Watch on every match that has video. The day lists
+  under it are unchanged — they are where a stream is set.
+  **A match posted as 0–0 with no start time is "not played"**, not a tie.
+
+---
+
+## 28. Feature ideas
 
 `IDEAS.md` holds the list of things worth building next, with what each one
 would cost against what already exists. It also records three things **not** to

@@ -2464,6 +2464,43 @@
   .sg-chip.inactive b { color: var(--text-muted); }
   .sg-chip i { font-style: normal; font-size: 12px; color: var(--text-muted); margin-left: 6px; }
 
+  /* v87: compare, and all of a team's matches */
+  .cmp-add { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  .cmp-add input[type="text"] { flex: 1 1 220px; min-width: 0; height: 46px; box-sizing: border-box; padding-top: 0; padding-bottom: 0; }
+  .cmp-add .btn { height: 46px; padding-top: 0; padding-bottom: 0; width: auto; }
+  .cmp-wrap { overflow-x: auto; background: var(--card); border-radius: var(--r-lg); margin-bottom: 8px; }
+  .cmp { width: 100%; border-collapse: collapse; font-family: var(--body); font-size: 15px; font-variant-numeric: tabular-nums; }
+  .cmp th, .cmp td { padding: 11px 14px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--border); }
+  .cmp tr:last-child th, .cmp tr:last-child td { border-bottom: 0; }
+  .cmp tbody th { text-align: left; font-weight: 400; color: var(--text-dim); position: sticky; left: 0; background: var(--card); }
+  .cmp thead th { font-family: var(--display); font-size: 17px; font-weight: 700; color: var(--text); vertical-align: bottom; }
+  .cmp thead th small { display: block; font-family: var(--body); font-size: 12px; font-weight: 400; color: var(--text-muted); }
+  .cmp td { color: var(--text-dim); }
+  .cmp td.cmp-best { color: var(--text); font-weight: 700; }
+  .cmp td.cmp-na { color: var(--text-muted); font-size: 13px; }
+  .cmp-dot { color: var(--accent-bright); font-size: 10px; margin-right: 6px; vertical-align: 2px; }
+  .cmp-x { min-width: 32px; min-height: 32px; margin: -6px -8px -6px 4px; background: none; border: 0; color: var(--text-muted); cursor: pointer; font-size: 14px; }
+  .rw-all-rec { font-family: var(--display); font-size: 18px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+  .rw-all-day { display: block; font-family: var(--body); font-size: 12px; color: var(--text-muted); }
+  .rw-all { margin-bottom: 14px; }
+  /* On a phone the day lists drop the teams and the score to fit. This list is
+     the one place meant to answer "who did they play and how did it go", so
+     it keeps both: the match and its score on one line, the teams under it. */
+  @media (max-width: 720px) {
+    /* Three teams beside the labels fit a phone; a fourth scrolls sideways under a pinned label column. */
+    .cmp { font-size: 14px; }
+    .cmp th, .cmp td { padding: 10px 8px; }
+    .cmp thead th { font-size: 15px; }
+    .cmp tbody th { white-space: normal; max-width: 104px; }
+    .rw-all .rw-row { grid-template-columns: 1fr auto auto; gap: 4px 12px; padding: 11px 12px; }
+    .rw-all .rw-name { grid-column: 1; grid-row: 1; font-size: 13px; }
+    .rw-all .rw-score { display: block; grid-column: 2; grid-row: 1; font-size: 15px; }
+    .rw-all .rw-action { grid-column: 3; grid-row: 1 / span 2; align-self: center; }
+    .rw-all .rw-teams { display: block; grid-column: 1 / span 2; grid-row: 2; white-space: normal; font-size: 12.5px; }
+    .rw-all .rw-all-day { display: inline; margin-left: 8px; }
+    .rw-all .rw-noclock { font-size: 12px; }
+  }
+
   /* v85 */
   .tab-btn.tab-desk-only { display: none; }
   .t-climb { background: var(--card); border-radius: var(--r-lg); padding: 14px 16px; margin: 8px 0; font-family: var(--body); font-size: 15px; line-height: 1.5; color: var(--text-dim); }
@@ -3544,7 +3581,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v86';
+const APP_BUILD = 'v87';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -6150,6 +6187,8 @@ function rewatchRender() {
     </div>`;
   }
 
+  html += rwAllMatchesBlock(ctx, calAll, multiDay);
+
   if (multiDay) {
     html += `<div class="rw-hint rw-multiday">This event ran across ${days.filter(d => d !== 'unknown').length} days, so each day has its own stream. Calibrate them one at a time — a day is only clickable once its stream is set.</div>`;
   }
@@ -7421,6 +7460,149 @@ function vsPreconnect(origin) {
   const l = document.createElement('link');
   l.rel = 'preconnect'; l.href = origin;
   document.head.appendChild(l);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// v87 — comparing teams, and every match of a team's at once
+// ═══════════════════════════════════════════════════════════════
+
+// ── Compare teams ──────────────────────────────────────────────────────────
+//
+// Asked for as "comparing teams". At an event, on the Pick List: two to four
+// teams side by side on the numbers this page already has for every team —
+// seed, record, rating, AP, usual score range, trend, world skills rank, and
+// (with a team in focus) the win chance of pairing with you.
+//
+// One table, one metric per row, because the question is always "which of
+// these is better at THIS" and reading across a row answers it. The best value
+// in a row is marked with a ● as well as weight, never by colour alone.
+const T_COMPARE_MAX = 4;
+const tCompareByEvent = new Map();   // event id → [team numbers]
+function tCompareList() {
+  return (tCompareByEvent.get(String(tournamentEventId)) || []).map(n => teamAttr(String(n).toUpperCase())).filter(Boolean);
+}
+function tCompareSet(list) {
+  tCompareByEvent.set(String(tournamentEventId), [...new Set(list)].slice(0, T_COMPARE_MAX));
+  renderTournamentPickList();
+}
+function tCompareAdd(number) {
+  const n = teamAttr(String(number || '').trim().toUpperCase());
+  if (!n) return;
+  const known = (tournamentTeamCache || []).some(t => String(t.number).toUpperCase() === n);
+  if (!known) { showError(`⚠ ${n} is not at this event.`); return; }
+  showError('');
+  const list = tCompareList();
+  if (list.includes(n)) return;
+  if (list.length >= T_COMPARE_MAX) { showError(`⚠ Compare up to ${T_COMPARE_MAX} teams. Remove one first.`); return; }
+  tCompareSet([...list, n]);
+}
+function tCompareAddFromInput() {
+  const el = document.getElementById('tCompareInput');
+  // Several at once is fine: "3050X, 1234B".
+  for (const part of String((el && el.value) || '').split(/[\s,]+/)) if (part) tCompareAdd(part);
+}
+function tCompareRemove(number) { tCompareSet(tCompareList().filter(n => n !== teamAttr(String(number).toUpperCase()))); }
+function tCompareClear() { tCompareSet([]); }
+
+// rows: [{ label, values: [..], show: v => string, better: 'high' | 'low' | null }]
+function tCompareBlock(R, roster, focus, pairWin) {
+  const byNum = new Map(roster.map(t => [String(t.number).toUpperCase(), t]));
+  const you = focus ? byNum.get(focus) : null;
+  let picked = tCompareList().filter(n => byNum.has(n));
+  // Your own team leads the table when there is one, without using up a slot
+  // you chose for somebody else.
+  const cols = (you && !picked.includes(focus) ? [focus, ...picked] : picked).slice(0, T_COMPARE_MAX + 1).map(n => byNum.get(n));
+  const forms = tFormByTeam(R);
+  const opt = n => `<option value="${esc(n)}">`;
+  let html = `<div class="detail-block-label">Compare teams</div>
+    <div class="cmp-add">
+      <input type="text" id="tCompareInput" list="tCompareRoster" placeholder="Team numbers, e.g. 3050X, 1234B" autocomplete="off" autocapitalize="characters" enterkeyhint="done"
+        onkeydown="if(event.key==='Enter')tCompareAddFromInput()">
+      <datalist id="tCompareRoster">${roster.map(t => opt(t.number)).join('')}</datalist>
+      <button class="btn btn-primary" onclick="tCompareAddFromInput()">Add</button>
+      ${picked.length ? `<button class="btn btn-secondary" onclick="tCompareClear()">Clear</button>` : ''}
+    </div>`;
+  if (cols.length < 2) {
+    return html + `<div class="lp-help">Add ${you ? 'a team' : 'two teams'} to see ${you ? 'it next to ' + esc(focus) : 'them side by side'}: seed, record, rating, autonomous points, usual score range, trend and skills rank. Up to ${T_COMPARE_MAX} at once.</div>`;
+  }
+  const f = t => forms.get(String(t.id)) || tFormOf([]);
+  const num = (v, d = 0) => (typeof v === 'number' && Number.isFinite(v)) ? v.toFixed(d) : null;
+  const rows = [
+    { label: 'Seed', vals: cols.map(t => t.eventRank), show: v => '#' + v, better: 'low' },
+    { label: 'Record', vals: cols.map(t => (t.wins + t.losses + t.ties) ? t.wins / (t.wins + t.losses + t.ties) : null),
+      show: (v, i) => `${cols[i].wins}–${cols[i].losses}${cols[i].ties ? '–' + cols[i].ties : ''}`, better: 'high' },
+    { label: 'Rating', vals: cols.map(t => R.ratings.has(String(t.id)) ? R.ratings.get(String(t.id)) : null), show: v => num(v), better: 'high' },
+    { label: 'AP a match', vals: cols.map(t => R.apRate && R.apRate.has(String(t.id)) ? R.apRate.get(String(t.id)) : null), show: v => num(v, 1), better: 'high' },
+    { label: 'Usual low score', vals: cols.map(t => f(t).floor), show: v => num(v), better: 'high' },
+    { label: 'Usual high score', vals: cols.map(t => f(t).ceil), show: v => num(v), better: 'high' },
+    { label: 'Trend', vals: cols.map(t => f(t).drift), show: (v, i) => T_FORM_LABEL[f(cols[i]).trend] || '', better: null },
+    { label: 'World skills rank', vals: cols.map(t => t.worldSkills || null), show: v => '#' + v, better: 'low' }
+  ];
+  if (you && pairWin) {
+    rows.push({ label: `Win chance with ${focus}`, vals: cols.map(t => t === you ? undefined : pairWin(you, t)), show: v => num(v) + '%', better: 'high' });
+  }
+  const cell = (r, v, i) => {
+    if (v === undefined) return `<td></td>`;   // not a gap in the data: the row does not apply to this column
+    if (v === null || (typeof v === 'number' && !Number.isFinite(v))) return `<td class="cmp-na">no data</td>`;
+    const live = r.vals.filter(x => typeof x === 'number' && Number.isFinite(x));
+    const best = r.better && live.length > 1 && new Set(live).size > 1 && v === (r.better === 'high' ? Math.max(...live) : Math.min(...live));
+    const text = r.show(v, i);
+    return `<td class="${best ? 'cmp-best' : ''}">${best ? '<span class="cmp-dot" aria-label="best of these">●</span>' : ''}${esc(text || 'no data')}</td>`;
+  };
+  html += `<div class="cmp-wrap"><table class="cmp">
+    <thead><tr><th></th>${cols.map(t => {
+      const n = teamAttr(t.number), mine = String(t.number).toUpperCase() === focus;
+      return `<th><span class="mt-team" onclick="scoutTeam('${n}')">${esc(t.number)}</span>${mine ? '<small>you</small>' : `<button class="cmp-x" aria-label="Remove ${n}" onclick="tCompareRemove('${n}')">✕</button>`}</th>`;
+    }).join('')}</tr></thead>
+    <tbody>${rows.map(r => `<tr><th>${esc(r.label)}</th>${r.vals.map((v, i) => cell(r, v, i)).join('')}</tr>`).join('')}</tbody>
+  </table></div>
+  <div class="sim-caveat">● marks the best of these teams on that row. Rating, the score range and the trend come from <strong>alliance</strong> scores at this event, so partners move them; AP is credited to both teams on an alliance. World skills rank is for this season.</div>`;
+  return html;
+}
+
+// ── Every match of this team's, in one list ────────────────────────────────
+//
+// Asked for as: "when I search a team and click the event … show all the
+// matches they played." They were on the page, but split under each day's
+// stream box and below the setup for it — at a two-day event the second day's
+// matches were a screen and a half down. This is all of them, in the order
+// they were played, first thing on the page: who with, who against, the score,
+// and ▶ on every one that can be opened.
+function rwAllMatchesBlock(ctx, calAll, multiDay) {
+  if (!ctx || !ctx.team || !ctx.matches || !ctx.matches.length) return '';
+  const order = { 2: 0, 1: 2 };   // qualification, then elimination, then practice
+  const list = ctx.matches.slice().sort((a, b) =>
+    ((a.t ?? Infinity) - (b.t ?? Infinity)) || ((order[a.round] ?? 1) - (order[b.round] ?? 1)) || (a.num - b.num));
+  let w = 0, l = 0, t = 0;
+  const rows = list.map(m => {
+    // A match that has not been played is posted as 0–0 with no start time.
+    // That is not a tie, and it is not a score.
+    const played = m.redScore !== null && m.blueScore !== null && !(m.redScore === 0 && m.blueScore === 0 && !m.exact);
+    const mine = m.onRed ? m.redScore : m.blueScore, theirs = m.onRed ? m.blueScore : m.redScore;
+    const res = played ? (mine > theirs ? 'win' : mine < theirs ? 'loss' : 'tie') : 'pending';
+    if (res === 'win') w++; else if (res === 'loss') l++; else if (res === 'tie') t++;
+    const off = rwOffsetFor(m, calAll);
+    const onNow = ctx.playing && String(ctx.playing.matchId) === String(m.id);
+    return `<div class="rw-row ${res}${onNow ? ' playing' : ''}">
+      <div class="rw-name">${esc(m.name)}${multiDay && m.t !== null ? `<small class="rw-all-day">${esc(rwDayLabel(rwDayKey(m.t)))}</small>` : ''}</div>
+      <div class="rw-teams"><span class="${m.onRed ? 'rw-red' : 'rw-blue'}">${(m.onRed ? m.redNums : m.blueNums).map(esc).join(' ')}</span>
+        <span class="rw-vs">vs</span>
+        <span class="${m.onRed ? 'rw-blue' : 'rw-red'}">${(m.onRed ? m.blueNums : m.redNums).map(esc).join(' ')}</span></div>
+      <div class="rw-score">${played ? `${esc(mine)}–${esc(theirs)}` : 'not played'}</div>
+      <div class="rw-action">${off !== null
+        ? `<button class="rw-watch" onclick="rewatchJump('${teamAttr(m.id)}')">▶ Watch</button>`
+        : `<span class="rw-noclock">${played ? 'no video yet' : ''}</span>`}</div>
+    </div>`;
+  }).join('');
+  const watchable = list.filter(m => rwOffsetFor(m, calAll) !== null).length;
+  return `<div class="rw-block rw-all">
+    <div class="rw-day-head"><div class="detail-block-label" style="margin:0;">All ${list.length} matches for ${esc(ctx.team.number || '')}</div>
+      <span class="rw-all-rec">${w}–${l}${t ? '–' + t : ''}</span></div>
+    <div class="rw-hint">${watchable === list.length ? 'Every match has video.' : watchable
+      ? `${watchable} of ${list.length} have video. The rest need a stream set for their day, below.`
+      : 'No video is linked yet. Set a stream for the day below and the Watch buttons appear here.'} Scores are this team's alliance first.</div>
+    <div class="rw-list">${rows}</div>
+  </div>`;
 }
 
 // ── STATUS BADGE ──────────────────────────────
@@ -11250,6 +11432,7 @@ async function renderTournamentPickList() {
     }
   }
 
+  html += tCompareBlock(R, seeds, focus, pairWin);
   html += tFormBlock(R, seeds, focus);
 
   resultsEl.innerHTML = html;
