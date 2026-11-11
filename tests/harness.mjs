@@ -140,10 +140,10 @@ export function makeRouter(opts = {}) {
     }
 
     if (path.startsWith('/teams?')) {
-      const m = path.match(/number\[\]=([^&]+)/);
-      const num = m ? decodeURIComponent(m[1]).toUpperCase() : null;
+      // number[] is a list: the suggestions ask for all 26 letters at once.
+      const nums = [...path.matchAll(/number\[\]=([^&]+)/g)].map(m => decodeURIComponent(m[1]).toUpperCase());
       const v5rc = /program\[\]=1/.test(path);
-      let hit = FIXTURES.teams.filter(t => !num || t.number === num);
+      let hit = FIXTURES.teams.filter(t => !nums.length || nums.includes(t.number));
       // The Event Scout derives "my region" from the team's registration, so a
       // team with no location cannot be scouted at all. Opt-in, so every other
       // test's fixture stays exactly as it was.

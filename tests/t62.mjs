@@ -10,6 +10,7 @@ console.log('t62 — request de-duplication');
 // Exercise the real memo helpers
 const env = new Function('apiGet','sim_pool','sim_poolSize',
   src.match(/let rwMemoKey = null;[\s\S]*?const rwAllDivisionMatches = eventId => rwMemoed\('divm', async \(\) => \{[\s\S]*?\n\}\);/)[0] +
+  '\nfunction vsEventRecord(id) { return apiGet("/events", { "id[]": [id] }); }' +
   '\nreturn { rwMemoReset, rwEventDetail, rwAllDivisionMatches, calls: () => log };');
 
 let log = [];
@@ -18,6 +19,7 @@ const apiGet = async (path) => { log.push(path);
   return [{ id: path }]; };
 const mk = () => { log = []; return new Function('apiGet','sim_pool','sim_poolSize','log',
   src.match(/let rwMemoKey = null;[\s\S]*?const rwAllDivisionMatches = eventId => rwMemoed\('divm', async \(\) => \{[\s\S]*?\n\}\);/)[0] +
+  '\nfunction vsEventRecord(id) { return apiGet("/events", { "id[]": [id] }); }' +
   '\nreturn { rwMemoReset, rwEventDetail, rwAllDivisionMatches };')(
     apiGet, async (arr, fn) => { for (const a of arr) await fn(a); }, () => 2, log); };
 
@@ -51,7 +53,8 @@ const mk = () => { log = []; return new Function('apiGet','sim_pool','sim_poolSi
   const flaky = async (path) => { log.push(path); if (n++ === 0) throw new Error('blip'); return [{ id: 1, divisions: [] }]; };
   const m = new Function('apiGet','sim_pool','sim_poolSize',
     src.match(/let rwMemoKey = null;[\s\S]*?const rwAllDivisionMatches = eventId => rwMemoed\('divm', async \(\) => \{[\s\S]*?\n\}\);/)[0] +
-    '\nreturn { rwMemoReset, rwEventDetail };')(flaky, async()=>{}, ()=>2);
+    '\nfunction vsEventRecord(id) { return apiGet("/events", { "id[]": [id] }); }' +
+  '\nreturn { rwMemoReset, rwEventDetail };')(flaky, async()=>{}, ()=>2);
   m.rwMemoReset(99);
   try { await m.rwEventDetail(99); } catch (e) {}
   const second = await m.rwEventDetail(99);
