@@ -7874,7 +7874,7 @@ async function vtPassSave() {
   input.value = '';
   vtSettingsRefresh('Passcode accepted and saved.');
 }
-function vtPassForget() { try { localStorage.removeItem(VT_PASS_KEY); } catch (e) {} vtSettingsRefresh('Passcode removed from this device.'); }
+function vtPassForget() { lsRemove(VT_PASS_KEY); vtSettingsRefresh('Passcode removed from this device.'); }
 
 // ── The finder ─────────────────────────────────────────────────────────────
 let vtSession = null, vtSessionLoading = null;
