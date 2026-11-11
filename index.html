@@ -3621,7 +3621,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v97';
+const APP_BUILD = 'v98';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -7890,7 +7890,8 @@ const VT_RATE = 2;              // playback speed while watching
 const VT_LEAD = 3;              // seconds watched before the match's position
 const VT_WINDOW = 150;          // seconds of video per match: 15 s auto, the pause, 1:45 driver, a little after
 const VT_MAX_PARALLEL = 4;      // matches watched at once
-const VT_TICK_MS = 250;         // how often a frame is looked at
+const VT_TICK_MS = 60;          // how often a player is offered a look; it takes one whenever its finder is free
+const VT_MAX_LOOKS_PER_SEC = 12;  // of match time, per match: more than this is not worth storing
 const VT_MIN_FRAMES = 30;       // fewer frames with a robot than this and the video was not a match
 const VT_PASS_KEY = 'vex_tracker_pass';
 const VT_MODEL = 'det1';
@@ -8052,22 +8053,44 @@ function vtPassForget() { lsRemove(VT_PASS_KEY); vtSettingsRefresh('Passcode rem
 // copy of the model, so several matches are examined at once on separate
 // cores. More THREADS in one copy would need the page to be cross-origin
 // isolated, which stops the YouTube player loading — more copies does not.
+const VT_GPU_WAIT_MS = 30000;    // how long the graphics card gets to prove itself
+let vtGpuBad = false;            // it failed once this visit: do not try it again
 function vtFinder() {
-  const w = new Worker('/vendor/vt-worker.js');
   const waiting = new Map();
-  let seq = 0, onReady;
-  const ready = new Promise((resolve, reject) => { onReady = { resolve, reject }; });
-  w.onmessage = ev => {
-    const d = ev.data;
-    if (d.ready !== undefined) return d.ready ? onReady.resolve() : onReady.reject(new Error(d.error || 'The robot finder did not load.'));
-    const p = waiting.get(d.id);
-    if (!p) return;
-    waiting.delete(d.id);
-    d.error ? p.reject(new Error(d.error)) : p.resolve(d);
-  };
-  w.onerror = () => onReady.reject(new Error('The robot finder did not load.'));
+  let seq = 0, w = null, backend = 'processor';
+  // Start one worker and wait for it to say it is ready, or give up on it.
+  const boot = (cpu, waitMs) => new Promise((resolve, reject) => {
+    const wk = new Worker('/vendor/vt-worker.js' + (cpu ? '?cpu' : ''));
+    const timer = setTimeout(() => { try { wk.terminate(); } catch (e) {} reject(new Error('timeout')); }, waitMs);
+    wk.onerror = () => { clearTimeout(timer); try { wk.terminate(); } catch (e) {} reject(new Error('The robot finder did not load.')); };
+    wk.onmessage = ev => {
+      const d = ev.data;
+      if (d.ready === undefined) return;
+      clearTimeout(timer);
+      if (!d.ready) { try { wk.terminate(); } catch (e) {} return reject(new Error(d.error || 'The robot finder did not load.')); }
+      wk.onmessage = msg => {
+        const m = msg.data, p = waiting.get(m.id);
+        if (!p) return;
+        waiting.delete(m.id);
+        m.error ? p.reject(new Error(m.error)) : p.resolve(m);
+      };
+      resolve({ wk, backend: d.backend || 'processor' });
+    };
+  });
+  // The graphics card first, with a time limit: a driver that hangs must not
+  // hang the run. Whatever goes wrong, the processor build takes over.
+  const ready = (async () => {
+    let got = null;
+    if (!vtGpuBad && navigator.gpu) {
+      try { got = await boot(false, VT_GPU_WAIT_MS); } catch (e) { vtGpuBad = true; }
+    }
+    if (!got) got = await boot(true, 120000);
+    w = got.wk; backend = got.backend;
+    return backend;
+  })();
   return {
     ready,
+    get backend() { return backend; },
     // square: ImageData of the model's 640×640 picture. Its pixels are lent to
     // the worker and come back, so nothing that size is copied.
     async detect(square, lb, w0, h0) {
@@ -8078,7 +8101,7 @@ function vtFinder() {
       for (const b of boxes) b[5] = vtColorOf(rgba, VT_SIZE, VT_SIZE, [b[0] * lb.s + lb.px, b[1] * lb.s + lb.py, b[2] * lb.s, b[3] * lb.s]);
       return boxes;
     },
-    stop() { try { w.terminate(); } catch (e) {} }
+    stop() { try { if (w) w.terminate(); } catch (e) {} }
   };
 }
 // How many matches to watch at once. Each needs a core for its finder and a
@@ -8195,7 +8218,7 @@ async function vtFeedHistory(run, eventId) {
   run.phase = 'all events looked up';
 }
 function vtAskShare() {
-  return navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 15, displaySurface: 'browser' }, audio: false,
+  return navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30, displaySurface: 'browser' }, audio: false,
     preferCurrentTab: true, selfBrowserSurface: 'include', surfaceSwitching: 'exclude', monitorTypeSurfaces: 'exclude' });
 }
 // One click from an event page: allow the share, and it goes. Asked for as
@@ -8270,6 +8293,7 @@ async function vtStart(mode, granted) {
       run.slots.push(slot);
     }
     await Promise.all(run.slots.map(s => s.finder.ready));
+    run.backend = run.slots[0].finder.backend;
     for (const slot of run.slots) {
       slot.player = await vtPlayerReady('vtPlayerInner' + slot.i, slot);
       run.cleanup.push(() => { try { slot.player.destroy(); } catch (e) {} });
@@ -8277,6 +8301,29 @@ async function vtStart(mode, granted) {
       sq.width = sq.height = VT_SIZE;
       slot.sq = sq.getContext('2d', { willReadFrequently: true });
     }
+    // "What the tracker sees" is drawn every screen frame from the capture,
+    // with the newest boxes on top. It used to be redrawn only when a look
+    // finished, so it stuttered at the finder's pace and looked far worse
+    // than the video it was reading.
+    const seenEl = document.getElementById('vtSeen'), seenCtx = seenEl && seenEl.getContext('2d');
+    const paint = () => {
+      if (vtRun !== run) return;
+      const v = run.view;
+      if (v && seenCtx && video.videoWidth) {
+        const hh = Math.round(640 * v.h / v.w);
+        if (seenEl.height !== hh) seenEl.height = hh;
+        seenCtx.drawImage(video, v.sx, v.sy, v.w, v.h, 0, 0, seenEl.width, seenEl.height);
+        const k = seenEl.width / v.w;
+        seenCtx.lineWidth = 2; seenCtx.font = '600 13px sans-serif';
+        for (const b of v.boxes) {
+          seenCtx.strokeStyle = b[5] === 1 ? '#ff5a5a' : b[5] === 2 ? '#5aa0ff' : '#e8e8e8';
+          seenCtx.strokeRect(b[0] * k, b[1] * k, b[2] * k, b[3] * k);
+          seenCtx.fillStyle = seenCtx.strokeStyle; seenCtx.fillText(Math.round(b[4] * 100) + '%', b[0] * k + 3, b[1] * k - 4);
+        }
+      }
+      requestAnimationFrame(paint);
+    };
+    requestAnimationFrame(paint);
     const feed = (mode === 'history' ? vtFeedHistory(run, homeEvent) : vtFeedHere(run, ctx))
       .catch(e => { run.why = String((e && e.message) || e); }).then(() => { run.feeding = false; });
     await Promise.all(run.slots.map(async slot => {
@@ -8308,8 +8355,13 @@ function vtMeter(run) {
   const sub = document.getElementById('vtSub');
   const spent = run.t0 ? Date.now() - run.t0 : 0;
   const leftMs = frac > 0.03 && spent > 120000 ? spent * (1 - frac) / frac : 0;
+  // Looks a second, over the last stretch: the honest measure of how closely
+  // the robots are being followed.
+  const nowMs = Date.now();
+  if (!run.rateAt || nowMs - run.rateAt > 4000) { if (run.rateAt) run.rate = ((run.looks || 0) - (run.rateLooks || 0)) / ((nowMs - run.rateAt) / 1000); run.rateAt = nowMs; run.rateLooks = run.looks || 0; }
+  const speed = run.rate ? ` · ${run.rate.toFixed(1)} looks a second on the ${run.backend || 'processor'}` : '';
   const evs = run.mode === 'history' && (run.withVideo || run.noVideo) ? ` · earlier events with video: ${run.withVideo}, without: ${run.noVideo}` : '';
-  if (sub) sub.textContent = `${run.saved} tracked and saved${evs}${spent ? ' · running ' + vtElapsed(spent) : ''}${leftMs ? ' · roughly ' + vtElapsed(leftMs) + ' left' : ''}. It stops by itself when everything is watched; press Stop tracking to stop sooner. What is already tracked is kept.`;
+  if (sub) sub.textContent = `${run.saved} tracked and saved${evs}${speed}${spent ? ' · running ' + vtElapsed(spent) : ''}${leftMs ? ' · roughly ' + vtElapsed(leftMs) + ' left' : ''}. It stops by itself when everything is watched; press Stop tracking to stop sooner. What is already tracked is kept.`;
   document.title = `${Math.round(frac * 100)}% tracking · ${VT_TITLE}`;
 }
 function vtProgress(run) {
@@ -8334,7 +8386,7 @@ async function vtWatch(run, slot, m) {
     rs: m.rs, bs: m.bs, vid: m.vid, off: m.off, rate: VT_RATE, w: VT_SIZE, h: 0, model: VT_MODEL, at: Date.now(), f: [] };
   const seen = document.getElementById('vtSeen'), sc = seen && seen.getContext('2d');
   const stage = document.getElementById('vtPlayers'), tile = document.getElementById('vtTile' + slot.i);
-  let busy = false, lastT = -1, finished = false, stalledSince = Date.now(), why = '', pushes = 0;
+  let busy = false, lastT = -1, apiT = -1, apiAt = 0, finished = false, stalledSince = Date.now(), why = '', pushes = 0;
   const wallLimit = Date.now() + (VT_WINDOW / VT_RATE + 60) * 1000;
   await new Promise(resolve => {
     const stopTick = vtTicker(VT_TICK_MS, async () => {
@@ -8360,8 +8412,14 @@ async function vtWatch(run, slot, m) {
         return;
       }
       stalledSince = Date.now(); slot.now.note = '';
-      if (busy || t === lastT || !video.videoWidth || !stage || !tile) return;
-      busy = true; lastT = t;
+      // The player reports its position only about four times a second. Taking
+      // a look only when that number changed capped every player at four looks
+      // a second however fast the finder was. Between reports the position is
+      // worked out from the clock and the playback speed.
+      if (t !== apiT) { apiT = t; apiAt = performance.now(); }
+      const est = apiT + Math.min(0.6, (performance.now() - apiAt) / 1000 * VT_RATE);
+      if (busy || est < lastT + 1 / VT_MAX_LOOKS_PER_SEC || !video.videoWidth || !stage || !tile) return;
+      busy = true; lastT = est;
       try {
         // This player's share of the captured picture, as fractions of the
         // stage — so page zoom and screen scaling cancel out.
@@ -8373,20 +8431,11 @@ async function vtWatch(run, slot, m) {
         sq.drawImage(video, sx, sy, w, h, lb.px, lb.py, lb.nw, lb.nh);
         const boxes = await slot.finder.detect(sq.getImageData(0, 0, VT_SIZE, VT_SIZE), lb, w, h);
         rec.h = Math.round(h * VT_SIZE / w);
-        rec.f.push(vtPackFrame(t - m.off, boxes, w));
+        rec.f.push(vtPackFrame(est - m.off, boxes, w));
+        run.looks = (run.looks || 0) + 1;
         slot.now.boxes = boxes.length;
-        if (sc && slot.i === 0) {          // the picture shows the first player; all of them are being read
-          if (seen.height !== Math.round(640 * h / w)) seen.height = Math.round(640 * h / w);
-          sc.drawImage(video, sx, sy, w, h, 0, 0, seen.width, seen.height);
-          const k = seen.width / w;
-          sc.lineWidth = 2; sc.font = '600 13px sans-serif';
-          for (const b of boxes) {
-            sc.strokeStyle = b[5] === 1 ? '#ff5a5a' : b[5] === 2 ? '#5aa0ff' : '#e8e8e8';
-            sc.strokeRect(b[0] * k, b[1] * k, b[2] * k, b[3] * k);
-            sc.fillStyle = sc.strokeStyle; sc.fillText(Math.round(b[4] * 100) + '%', b[0] * k + 3, b[1] * k - 4);
-          }
-        }
-        vtProgress(run);
+        if (slot.i === 0) run.view = { sx, sy, w, h, boxes };
+        if (Date.now() - (run.saidAt || 0) > 500) { run.saidAt = Date.now(); vtProgress(run); }
       } catch (e) { run.lastError = String((e && e.message) || e); }
       busy = false;
     });

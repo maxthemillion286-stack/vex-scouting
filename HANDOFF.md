@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v97**. Everything green: 66 test files. (The `v19` in §8's
+Current release: **v98**. Everything green: 66 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -2338,6 +2338,26 @@ underneath), have a 200px minimum, and drop to one at a time on a narrow
 panel. Each player reports its state in the status line (loading, buffering,
 ready, not playing…) and is reloaded if two pushes to play do nothing.
 **Unconfirmed until the owner runs it.**
+
+**v98 — looks a second.** v97 made the players play; the owner then reported
+about 3 fps and poor tracking. Three causes, three changes:
+- A look was only taken when `getCurrentTime()` changed, and the YouTube API
+  reports position about four times a second. Position between reports is now
+  estimated from the clock and the playback rate (`est`).
+- The finder ran on the processor only (150–350 ms a look). The worker now
+  tries WebGPU first (`ort.webgpu.min.js` + the asyncify wasm), runs one real
+  inference before trusting it, and falls back to the wasm build on any error.
+  The page gives it `VT_GPU_WAIT_MS` (30 s) and then starts a `?cpu` worker;
+  a failure sets `vtGpuBad` for the visit. **In the build sandbox the software
+  GPU never finished loading, so the WebGPU path has only been exercised as
+  far as "it times out and falls back correctly". Its output on a real
+  graphics card has NOT been compared with Python.** The status line says
+  which chip is in use; if boxes look wrong on "graphics card", force
+  `vtGpuBad = true` and compare.
+- "What the tracker sees" is painted every animation frame from the capture
+  with the newest boxes, instead of once per look.
+Stored looks are capped at `VT_MAX_LOOKS_PER_SEC` (12 per match-second), which
+keeps a 150 s match under the server's 2,000-frame limit.
 
 ---
 
