@@ -2466,6 +2466,10 @@
 
   /* v91: the robot tracker */
   .vt-status { font-family: var(--body); font-size: 15px; color: var(--text); margin: 10px 0 12px; font-variant-numeric: tabular-nums; }
+  .vt-stop { height: 40px; min-height: 40px; padding: 0 18px; }
+  .vt-bar { height: 6px; border-radius: var(--r-pill); background: var(--card2); overflow: hidden; margin: 0 0 8px; }
+  .vt-bar-fill { height: 100%; width: 0; background: var(--accent-bright); border-radius: var(--r-pill); transition: width 0.6s; }
+  .vt-sub { font-family: var(--body); font-size: 13px; line-height: 1.5; color: var(--text-muted); margin: 0 0 12px; }
   .vt-note { font-family: var(--body); font-size: 15px; line-height: 1.5; color: var(--text); margin: 0 0 8px; }
   .vt-stage { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; margin-bottom: 10px; }
   .vt-players { display: grid; grid-template-columns: 1fr 1fr; gap: 0; background: #000; border-radius: var(--r-md); overflow: hidden; }
@@ -3610,7 +3614,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v94';
+const APP_BUILD = 'v95';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -8160,6 +8164,7 @@ async function vtFeedHistory(run, eventId) {
         eventId: null, matches: [], videoId: null, cal: {}, calDay: null };
       await rewatchSelectEvent(e.id);
       let found = [];
+      vtMeter(run);
       if (!run.done && !run.slots.some(sl => sl.now)) vtSay(`${plan.want.size} teams, ${plan.events.length} earlier events. Event ${run.eventAt}: ${run.eventName} — finding its video…`);
       for (let i = 0; i < 90 && !run.stop; i++) {            // stream discovery finishes in its own time (up to 45 s)
         const c = window._rwCtx;
@@ -8179,26 +8184,55 @@ async function vtFeedHistory(run, eventId) {
     } catch (err) { run.noVideo++; }
   }
 }
-async function vtStart(mode) {
-  if (vtRun) return;
+function vtAskShare() {
+  return navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 15, displaySurface: 'browser' }, audio: false,
+    preferCurrentTab: true, selfBrowserSurface: 'include', surfaceSwitching: 'exclude', monitorTypeSurfaces: 'exclude' });
+}
+// One click from an event page: allow the share, and it goes. Asked for as
+// "i want it to just be almost automatic after clicking track robots".
+// The share prompt has to come straight from the click, so it is asked for
+// FIRST; the event is opened in the Jumper while the person is answering it.
+// Then: this event's own matches if any have been played and have video,
+// otherwise the matches its teams played at their earlier events.
+async function vtAuto(eventId) {
+  if (vtRun) { switchTab('rewatch'); return; }
+  if (!vtSupported()) { await vtOpenEvent(eventId); return; }
+  const asking = vtAskShare().catch(() => null);
+  const opening = vtOpenEvent(eventId).catch(() => null);
+  const stream = await asking;
+  await opening;
+  if (!stream) { vtRender('Sharing was not allowed, so nothing was watched. Click Track robots again and choose "This tab".'); return; }
   const ctx = window._rwCtx;
-  if (!ctx || !ctx.eventId) return;
+  let mode = 'history';
+  if (ctx && (ctx.matches || []).some(vtPlayed)) {
+    // Played here: give the Jumper a moment to find the stream before deciding.
+    for (let i = 0; i < 30 && !vtQueueFrom(ctx).length; i++) await vtSleep(500);
+    if (vtQueueFrom(ctx).length) mode = 'here';
+  }
+  await vtStart(mode, stream);
+}
+async function vtStart(mode, granted) {
+  if (vtRun) { if (granted) granted.getTracks().forEach(t => t.stop()); return; }
+  const ctx = window._rwCtx;
+  if (!ctx || !ctx.eventId) { if (granted) granted.getTracks().forEach(t => t.stop()); return; }
   const homeEvent = String(ctx.eventId);
   const panel = document.getElementById('vtPanel');
   // The share prompt must come straight from the click, before anything slow.
-  let stream;
-  try {
-    stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 15, displaySurface: 'browser' }, audio: false,
-      preferCurrentTab: true, selfBrowserSurface: 'include', surfaceSwitching: 'exclude', monitorTypeSurfaces: 'exclude' });
-  } catch (e) { vtRender('Sharing was not allowed, so nothing was watched. Press Start and choose "This tab".'); return; }
+  let stream = granted;
+  if (!stream) {
+    try { stream = await vtAskShare(); }
+    catch (e) { vtRender('Sharing was not allowed, so nothing was watched. Press Start and choose "This tab".'); return; }
+  }
   const P = vtParallel();
   const run = vtRun = { stream, stop: false, done: 0, saved: 0, skipped: 0, empty: 0, failed: 0, noVideo: 0, total: 0,
     queue: [], feeding: true, slots: [], cleanup: [], mode };
   if (ctx.playAll) rwPlayAllStop();
   panel.innerHTML = `<div class="rw-block vt-block">
-    <div class="rw-day-head"><div class="detail-block-label" style="margin:0;">Robot tracker</div>
-      <button class="rw-nudge-btn" onclick="vtStop()">Stop</button></div>
+    <div class="rw-day-head"><div class="detail-block-label" style="margin:0;">Robot tracker · running</div>
+      <button class="btn btn-primary vt-stop" onclick="vtStop()">Stop tracking</button></div>
     <div class="vt-status" id="vtStatus">Starting…</div>
+    <div class="vt-bar"><div class="vt-bar-fill" id="vtBar"></div></div>
+    <div class="vt-sub" id="vtSub">It stops by itself when everything is watched. To stop sooner, press Stop tracking; what is already tracked is kept.</div>
     <div class="vt-stage">
       <div class="vt-players vt-p${P}" id="vtPlayers">${Array.from({ length: P }, (_, i) => `<div class="vt-player" id="vtTile${i}"><div id="vtPlayerInner${i}"></div></div>`).join('')}</div>
       <div class="vt-seen"><canvas id="vtSeen" width="640" height="360"></canvas><div class="vt-cap">What the tracker sees</div></div>
@@ -8247,7 +8281,25 @@ async function vtStart(mode) {
     vtFinish(String((e && e.message) || e));
   }
 }
+const VT_TITLE = document.title;
+function vtElapsed(ms) { const m = Math.floor(ms / 60000); return m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`; }
+function vtMeter(run) {
+  // How far along: by events when working through earlier events (the number
+  // of matches is not known until each event is opened), by matches otherwise.
+  let frac = 0;
+  if (run.mode === 'history') frac = run.events ? Math.max(0, (run.eventAt || 0) - 1 + (run.queue.length || run.slots.some(s => s.now) ? 0.5 : 1)) / run.events : 0;
+  else frac = run.total ? run.done / run.total : 0;
+  frac = Math.max(0, Math.min(1, frac));
+  const bar = document.getElementById('vtBar');
+  if (bar) bar.style.width = (frac * 100).toFixed(1) + '%';
+  const sub = document.getElementById('vtSub');
+  const spent = run.t0 ? Date.now() - run.t0 : 0;
+  const leftMs = frac > 0.03 && spent > 120000 ? spent * (1 - frac) / frac : 0;
+  if (sub) sub.textContent = `${run.saved} tracked and saved${spent ? ' · running ' + vtElapsed(spent) : ''}${leftMs ? ' · roughly ' + vtElapsed(leftMs) + ' left' : ''}. It stops by itself when everything is watched; press Stop tracking to stop sooner. What is already tracked is kept.`;
+  document.title = `${Math.round(frac * 100)}% tracking · ${VT_TITLE}`;
+}
 function vtProgress(run) {
+  vtMeter(run);
   const where = run.mode === 'history' && run.events ? ` · event ${run.eventAt || 0} of ${run.events}: ${run.eventName || ''}` : '';
   const live = run.slots.filter(s => s.now).map(s => `${s.now.name} (${s.now.boxes})`).join(' · ');
   const perHour = run.t0 && run.done ? Math.round(run.done / ((Date.now() - run.t0) / 3600000)) : 0;
@@ -8329,13 +8381,17 @@ function vtFinish(why) {
   for (const fn of run.cleanup) { try { fn(); } catch (e) {} }
   try { run.stream.getTracks().forEach(t => t.stop()); } catch (e) {}
   vtRun = null;
+  document.title = (run.saved ? 'Tracking finished · ' : '') + VT_TITLE;
   const bits = [`${run.saved} match${run.saved === 1 ? '' : 'es'} tracked`];
   if (run.skipped) bits.push(`${run.skipped} already done`);
   if (run.empty) bits.push(`${run.empty} with no robots in view (wrong part of the video, or not a field camera)`);
   if (run.failed) bits.push(`${run.failed} whose video would not play`);
   if (run.noVideo) bits.push(`${run.noVideo} earlier event${run.noVideo === 1 ? '' : 's'} with no video the Jumper could find`);
   const share = run.saved ? (run.shared === 'saved' ? ' Saved to the shared storage.' : run.shared === 'no-passcode' ? ' Kept on this device only: no passcode is saved in Settings.' : ` Kept on this device; the shared storage said "${run.shared}".`) : '';
-  vtRender(`${why} ${bits.join(', ')}.${share}`);
+  vtRender(`${why} ${bits.join(', ')}.${share}`).then(() => {
+    const panel = document.getElementById('vtPanel');
+    if (panel && panel.scrollIntoView) panel.scrollIntoView({ block: 'center' });
+  });
 }
 
 // ── The panel under the Jumper ─────────────────────────────────────────────
@@ -11680,7 +11736,7 @@ function tournamentNav(active) {
     ${tournamentFocusTeamNumber ? `<button class="t-nav-btn${active === 'team' ? ' active' : ''}" onclick="tournamentGo('team')">${esc(tournamentFocusTeamNumber)}</button>` : ''}
     ${tournamentEventId ? `<button class="t-nav-btn t-more-btn" aria-expanded="false" onclick="tNavMore(this)">More</button>` : ''}
     ${tournamentEventId ? tOfflineButton(tournamentEventId) : ''}
-    ${tournamentEventId && !vsIsPhone() ? `<button class="t-nav-link vt-link" onclick="vtOpenEvent('${teamAttr(tournamentEventId)}')" title="Watch every match at this event and record where the robots are">Track robots</button>` : ''}
+    ${tournamentEventId && !vsIsPhone() ? `<button class="t-nav-link vt-link" onclick="vtAuto('${teamAttr(tournamentEventId)}')" title="Allow sharing this tab and it starts: this event's matches, or its teams' earlier matches if it has not been played">Track robots</button>` : ''}
     ${tournamentEventId ? reEventLink(tournamentEventId, tournamentEventSku) : ''}
   </div>`;
 }
