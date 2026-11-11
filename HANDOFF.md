@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v95**. Everything green: 66 test files. (The `v19` in §8's
+Current release: **v96**. Everything green: 66 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -2318,6 +2318,16 @@ in the Jumper meanwhile, and the mode is chosen without asking — this event's
 matches if any are played and have video, else its teams' earlier matches. A
 run now shows a Stop tracking button, a progress bar, time running and a rough
 time left, and puts progress and "Tracking finished" in the tab title.
+
+**v96.** Reported "embeds are black" during an earlier-matches run. The
+players are black until a match with video is queued, and the feeder waited 45
+s per event after `rewatchSelectEvent` — which only resolves once stream
+finding and day sync are over, so the wait could never help. The wait is gone;
+an event with no stream is skipped at once and named in the summary. The
+status line gives the phase per event, the sub-line counts events with and
+without video, and an idle player says "Waiting for a match with video".
+**How many earlier events have a stream the Jumper can find by itself is the
+real limit of this mode, and is not yet known.**
 
 ---
 

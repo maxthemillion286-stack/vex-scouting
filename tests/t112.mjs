@@ -101,6 +101,9 @@ console.log('\n· event codes that begin VE-');
   ok('it picks this event\'s matches or the teams\' earlier ones by itself', /let mode = 'history';/.test(auto) && /mode = 'here';/.test(auto) && /await vtStart\(mode, stream\);/.test(auto));
   ok('a share that is not used is let go', /if \(granted\) granted\.getTracks\(\)\.forEach\(t => t\.stop\(\)\)/.test(idx));
   ok('a run has a clear Stop, a progress bar and says it ends by itself', /class="btn btn-primary vt-stop" onclick="vtStop\(\)">Stop tracking</.test(idx) && /id="vtBar"/.test(idx) && /It stops by itself when everything is watched/.test(idx));
+  ok('an earlier event with no stream is skipped at once, not waited on', !/i < 90 && !run\.stop/.test(idx) && /run\.phase = 'no stream found, skipped'/.test(idx));
+  ok('and the run says which events those were', /run\.noVideoNames\.slice\(0, 4\)/.test(idx));
+  ok('an idle player says it is waiting, instead of sitting black', /\.vt-player\.vt-idle::after \{ content: 'Waiting for a match with video'/.test(idx));
   ok('progress shows in the tab title, and so does finishing', /tracking · \$\{VT_TITLE\}/.test(idx) && /'Tracking finished · '/.test(idx));
 }
 
