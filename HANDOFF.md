@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v96**. Everything green: 66 test files. (The `v19` in §8's
+Current release: **v97**. Everything green: 66 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -2328,6 +2328,16 @@ status line gives the phase per event, the sub-line counts events with and
 without video, and an idle player says "Waiting for a match with video".
 **How many earlier events have a stream the Jumper can find by itself is the
 real limit of this mode, and is not yet known.**
+
+**v97.** The owner showed the Jumper had found and synced the stream while the
+tracker's players stayed black. The queue was checked in a real browser and
+fills correctly, so the players themselves were not playing. Most likely cause:
+four players beside the preview were about 300×168 each, and YouTube's embedded
+player requires at least 200×200. The players now take the full width (preview
+underneath), have a 200px minimum, and drop to one at a time on a narrow
+panel. Each player reports its state in the status line (loading, buffering,
+ready, not playing…) and is reloaded if two pushes to play do nothing.
+**Unconfirmed until the owner runs it.**
 
 ---
 

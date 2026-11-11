@@ -2471,7 +2471,12 @@
   .vt-bar-fill { height: 100%; width: 0; background: var(--accent-bright); border-radius: var(--r-pill); transition: width 0.6s; }
   .vt-sub { font-family: var(--body); font-size: 13px; line-height: 1.5; color: var(--text-muted); margin: 0 0 12px; }
   .vt-note { font-family: var(--body); font-size: 15px; line-height: 1.5; color: var(--text); margin: 0 0 8px; }
-  .vt-stage { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; margin-bottom: 10px; }
+  /* The players get the full width. Side by side with the preview, four of
+     them were about 300×168 each — and a YouTube player under 200px in either
+     direction does not play. Reported as "embeds are black". */
+  .vt-stage { display: grid; grid-template-columns: 1fr; gap: 12px; align-items: start; margin-bottom: 10px; }
+  .vt-seen { max-width: 420px; }
+  .vt-player { min-width: 200px; min-height: 200px; }
   .vt-players { display: grid; grid-template-columns: 1fr 1fr; gap: 0; background: #000; border-radius: var(--r-md); overflow: hidden; }
   .vt-players.vt-p1 { grid-template-columns: 1fr; }
   .vt-player { aspect-ratio: 16 / 9; background: #000; overflow: hidden; position: relative; }
@@ -3616,7 +3621,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v96';
+const APP_BUILD = 'v97';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -8228,7 +8233,10 @@ async function vtStart(mode, granted) {
     try { stream = await vtAskShare(); }
     catch (e) { vtRender('Sharing was not allowed, so nothing was watched. Press Start and choose "This tab".'); return; }
   }
-  const P = vtParallel();
+  // Each player must be at least 200px tall to play at all, and bigger is
+  // better for the finder: two columns of 16:9 need about 720px of width.
+  const room = (panel.getBoundingClientRect().width || 1000);
+  const P = room < 760 ? 1 : vtParallel();
   const run = vtRun = { stream, stop: false, done: 0, saved: 0, skipped: 0, empty: 0, failed: 0, noVideo: 0, total: 0,
     queue: [], feeding: true, slots: [], cleanup: [], mode, withVideo: 0, noVideoNames: [] };
   if (ctx.playAll) rwPlayAllStop();
@@ -8307,14 +8315,15 @@ function vtMeter(run) {
 function vtProgress(run) {
   vtMeter(run);
   const where = run.mode === 'history' && run.events ? ` · event ${run.eventAt || 0} of ${run.events}: ${run.eventName || ''}${run.phase ? ' — ' + run.phase : ''}` : '';
-  const live = run.slots.filter(s => s.now).map(s => `${s.now.name} (${s.now.boxes})`).join(' · ');
+  const live = run.slots.filter(s => s.now).map(s => `${s.now.name} (${s.now.note || s.now.boxes + ' robots'})`).join(' · ');
   const perHour = run.t0 && run.done ? Math.round(run.done / ((Date.now() - run.t0) / 3600000)) : 0;
   vtSay(`${run.done} of ${run.total} matches done${where}${perHour ? ` · about ${perHour} an hour` : ''}${live ? ' · now: ' + live : ''}`);
 }
 async function vtWatch(run, slot, m) {
   if (!run.t0) run.t0 = Date.now();
   slot.playerError = null;
-  slot.now = { name: m.name, boxes: 0 };
+  slot.now = { name: m.name, boxes: 0, note: 'loading' };
+  vtProgress(run);
   const tileEl = document.getElementById('vtTile' + slot.i);
   if (tileEl) tileEl.classList.remove('vt-idle');
   const player = slot.player, video = run.video, sq = slot.sq;
@@ -8325,7 +8334,7 @@ async function vtWatch(run, slot, m) {
     rs: m.rs, bs: m.bs, vid: m.vid, off: m.off, rate: VT_RATE, w: VT_SIZE, h: 0, model: VT_MODEL, at: Date.now(), f: [] };
   const seen = document.getElementById('vtSeen'), sc = seen && seen.getContext('2d');
   const stage = document.getElementById('vtPlayers'), tile = document.getElementById('vtTile' + slot.i);
-  let busy = false, lastT = -1, finished = false, stalledSince = Date.now(), why = '';
+  let busy = false, lastT = -1, finished = false, stalledSince = Date.now(), why = '', pushes = 0;
   const wallLimit = Date.now() + (VT_WINDOW / VT_RATE + 60) * 1000;
   await new Promise(resolve => {
     const stopTick = vtTicker(VT_TICK_MS, async () => {
@@ -8339,8 +8348,18 @@ async function vtWatch(run, slot, m) {
       if (state === 0 || t >= end) return done('end');
       // Playing is state 1. Anything else (buffering, an unstarted player) is
       // not a frame of the match; if it lasts, give the player a push.
-      if (state !== 1) { if (Date.now() - stalledSince > 8000) { try { player.playVideo(); } catch (e) {} stalledSince = Date.now(); } return; }
-      stalledSince = Date.now();
+      if (state !== 1) {
+        const note = ({ '-1': 'not started', 2: 'paused', 3: 'buffering', 5: 'ready, not playing' })[state] || 'waiting';
+        if (slot.now.note !== note) { slot.now.note = note; vtProgress(run); }
+        if (Date.now() - stalledSince > 8000) {
+          // Twice a push to play; after that, load it again from scratch.
+          pushes++;
+          try { if (pushes % 3 === 0) { player.loadVideoById({ videoId: m.vid, startSeconds: Math.max(start, t || start) }); player.mute(); player.setPlaybackRate(VT_RATE); } else player.playVideo(); } catch (e) {}
+          stalledSince = Date.now();
+        }
+        return;
+      }
+      stalledSince = Date.now(); slot.now.note = '';
       if (busy || t === lastT || !video.videoWidth || !stage || !tile) return;
       busy = true; lastT = t;
       try {
