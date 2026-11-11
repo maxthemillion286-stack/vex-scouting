@@ -1,4 +1,4 @@
-// VEX Scout Service Worker — v90
+// VEX Scout Service Worker — v91
 //
 // Built on the v3 network-first design (updates always appear immediately),
 // with three additions aimed at competition venues:
@@ -21,8 +21,8 @@
 //
 // Bump CACHE_NAME whenever index.html changes.
 
-const CACHE_NAME = 'vex-scout-v90';
-const API_CACHE = 'vex-scout-v90-api';
+const CACHE_NAME = 'vex-scout-v91';
+const API_CACHE = 'vex-scout-v91-api';
 
 // How long to wait for the network before showing the cached copy.
 const HTML_TIMEOUT_MS = 2500;
@@ -150,6 +150,16 @@ self.addEventListener('fetch', (event) => {
 
   let url;
   try { url = new URL(request.url); } catch (e) { return; }
+
+  // The robot tracker's finder (a 15 MB runtime and a 10 MB model) is left to
+  // the browser's own cache: copying 25 MB into this one on every release
+  // would fill a phone that never uses it. Its shared storage is live or
+  // nothing — a stale "not set up" is worse than an error.
+  if (url.pathname.startsWith('/vendor/') || url.pathname.startsWith('/models/')) return;
+  if (url.pathname.startsWith('/api/tracker')) {
+    event.respondWith(fetch(request).catch(() => offlineResponse(request)));
+    return;
+  }
 
   // API / proxy: network first, cached copy only if the network is slow or gone
   if (url.pathname.startsWith('/api/')) {

@@ -159,19 +159,26 @@ ok('every control in a row is one height', /\.controls-row input\[type="text"\][
 ok('and sits on the row\'s bottom edge', /\.controls-row \{ align-items: flex-end; \}/.test(css));
 
 console.log('\n· the computer');
-const desk = css.slice(css.indexOf('THE COMPUTER (v83)'));
-const mq = desk.slice(desk.indexOf('@media (min-width: 900px) {'));
-ok('the redesign is inside one wide-screen query', mq.length > 500);
-ok('the tabs are a rail down the left', /\.tabs-nav \{ position: fixed; left: 12px;/.test(mq) && /body \{ padding-left: 248px;/.test(mq));
-ok('the page is left-aligned, not centred', /\.container \{ max-width: 1180px; margin: 0;/.test(mq));
-ok('the tagline under the logo is gone', /\.logo-sub \{ display: none; \}/.test(mq));
-ok('the gradient wash is gone', /body::before \{ display: none; \}/.test(mq));
-ok('the page name is a heading, in sentence case', /\.section-label \{[^}]*font-size: 30px;[^}]*text-transform: lowercase;/.test(mq) && /\.section-label::first-letter \{ text-transform: uppercase; \}/.test(mq));
-ok('field labels use the reading face, not the mono one', /\.input-label \{[^}]*font-family: var\(--body\);/.test(mq));
-ok('a team number in the event views is not lowercased', /\.t-nav-btn\[onclick\*="'team'"\] \{ text-transform: none; \}/.test(mq));
-ok('SKU keeps its capitals', /\.input-label\.keep-case \{ text-transform: none; \}/.test(mq));
-const sizes = [...mq.matchAll(/font-size: ([\d.]+)px/g)].map(m => +m[1]);
-ok('nothing in it is under 12px', sizes.every(v => v >= 12), sizes.filter(v => v < 12).join());
+// v91: the rail was taken out again, on request. The computer has the top tabs.
+const desk = css.slice(css.indexOf('THE COMPUTER (v91)'));
+const mq = desk.slice(desk.indexOf('@media (min-width: 900px) {'), desk.indexOf('WIDE SCREENS (v91)'));
+ok('the wide-screen block is small', mq.length > 100 && mq.length < 1200, String(mq.length));
+ok('there is no rail', !/padding-left: 248px/.test(css) && !/\.tabs-nav \{ position: fixed/.test(css));
+ok('the page is still centred', !/\.container \{[^}]*margin: 0;/.test(css.slice(css.indexOf('THE COMPUTER (v91)'))));
+ok('page names are not restyled as headings', !/\.section-label/.test(mq) && !/\.input-label/.test(mq));
+ok('My team is still a tab on the computer', /\.tab-btn\.tab-desk-only \{ display: inline-block; \}/.test(mq));
+ok('and the favorites tab is still phone-only there', /\.tab-btn\.tab-phone-only \{ display: none; \}/.test(mq));
+ok('the My team link shows in the header', /\.my-team-link:not\(\[hidden\]\) \{ display: inline-flex;/.test(mq));
+const wide = css.slice(css.indexOf('WIDE SCREENS (v91)'));
+const wq = wide.slice(wide.indexOf('@media (min-width: 1100px) {'), wide.indexOf('@media (min-width: 1700px)'));
+ok('a wide screen gets a wider column', /\.container \{ max-width: 1240px;/.test(wq));
+ok('running text stops at a readable line', /max-width: 78ch;/.test(wq));
+ok('a list keeps its two ends together', /\.lp-list, \.lp-gone \{ max-width: 720px; \}/.test(wq));
+ok('the event toolbar is one line of equal heights', /\.tab-panel \.tournament-summary-actions \.btn \{ height: 44px;/.test(wq) && /\.tournament-summary-actions \.t-switch \{ height: 44px;/.test(wq));
+const wsizes = [...wq.matchAll(/font-size: ([\d.]+)px/g)].map(m => +m[1]);
+ok('nothing in the wide block is under 12px', wsizes.length > 3 && wsizes.every(v => v >= 12), wsizes.filter(v => v < 12).join());
+ok('a very wide screen is enlarged whole', /@media \(min-width: 1700px\) \{ body \{ zoom: 1\.18; \} \}/.test(css));
+ok('the tab underline is placed in layout units, so zoom cannot shift it', /indicator\.style\.left = activeBtn\.offsetLeft \+ 'px';/.test(idx));
 ok('the three typefaces are still the only three', [...new Set([...css.matchAll(/font-family: ([^;]+);/g)].map(m => m[1].trim()))]
   .every(f => /var\(--(mono|display|body)\)|inherit|'Share Tech Mono'|'Oswald'|'Rajdhani'|monospace|sans-serif/.test(f)));
 

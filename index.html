@@ -2464,6 +2464,16 @@
   .sg-chip.inactive b { color: var(--text-muted); }
   .sg-chip i { font-style: normal; font-size: 12px; color: var(--text-muted); margin-left: 6px; }
 
+  /* v91: the robot tracker */
+  .vt-status { font-family: var(--body); font-size: 15px; color: var(--text); margin: 10px 0 12px; font-variant-numeric: tabular-nums; }
+  .vt-note { font-family: var(--body); font-size: 15px; line-height: 1.5; color: var(--text); margin: 0 0 8px; }
+  .vt-stage { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; margin-bottom: 10px; }
+  .vt-player { aspect-ratio: 16 / 9; background: #000; border-radius: var(--r-md); overflow: hidden; }
+  .vt-player iframe { width: 100%; height: 100%; border: 0; display: block; }
+  .vt-seen canvas { width: 100%; height: auto; display: block; background: #000; border-radius: var(--r-md); }
+  .vt-cap { font-family: var(--body); font-size: 13px; color: var(--text-muted); margin-top: 6px; }
+  @media (max-width: 720px) { .vt-link { display: none !important; } }
+
   /* v87: compare, and all of a team's matches */
   .cmp-add { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
   .cmp-add input[type="text"] { flex: 1 1 220px; min-width: 0; height: 46px; box-sizing: border-box; padding-top: 0; padding-bottom: 0; }
@@ -2565,85 +2575,79 @@
   .theme-grid .tdot { width: 14px; height: 14px; }
 
   /* ════════════════════════════════════════════════════════════════
-     THE COMPUTER (v83)
+     THE COMPUTER (v91)
 
-     Asked for as: "revamp the pc version following how to not make a website
-     look like ai and make it look nice". HANDOFF §23 has the reading.
+     v83 rebuilt the wide screen around a rail down the left with sentence-case
+     labels. The owner used it for eight releases and asked for the old one
+     back: "i liked the tabs on the top and former design more". So the rail,
+     the 30px page headings and the lowercase labels are gone, and a computer
+     gets the same header and tab strip it had in v82. DO NOT bring the rail
+     back unasked (HANDOFF §23).
 
-     What the old desktop was, in those terms: a centred column under a
-     logo-and-tagline header, a strip of tracked ALL-CAPS tabs, and a tiny
-     tracked monospace label over every heading and every input. Each of those
-     is on every list of "nobody designed this".
-
-     What it is now:
-       · A RAIL down the left — the app's name, the tabs as a plain list, your
-         team, the version. Dimmer than the page, so it does not compete.
-       · The page is LEFT-aligned and starts with its own name in real type.
-         One big thing per screen; labels are quiet sentence-case text.
-       · No monospace for labels, no eyebrow tagline, no gradient wash. The
-         mono face stays where it is honest: numbers and codes.
-     The three typefaces are the same three. Which one a LABEL uses changed,
-     on this width only — see §23 before changing it again.
+     All that is left here is what the old design never had to place: the
+     My team tab and link, which arrived with the rail.
      ════════════════════════════════════════════════════════════════ */
   @media (min-width: 900px) {
-    body { padding-left: 248px; font-variant-numeric: tabular-nums; }
-    body::before { display: none; }
-    body::after { display: block; content: ''; position: fixed; inset: 0 auto 0 0; width: 248px; background: var(--card); opacity: 0.55; z-index: 0; pointer-events: none; }
-
-    /* The rail: name on top, tabs under it, team and version at the foot. */
-    header { position: fixed; left: 0; top: 0; width: 248px; padding: 26px 0 0; border-bottom: 0; }
-    header .container { padding: 0 22px; max-width: none; }
-    .header-inner { flex-wrap: nowrap; gap: 12px; }
-    .logo-mark { width: 32px; height: 32px; }
-    .logo-mark svg { width: 17px; height: 17px; }
-    .logo-title { font-size: 19px; letter-spacing: 1.5px; }
-    .logo-sub { display: none; }
-    .header-right { position: fixed; left: 22px; bottom: 20px; width: 204px; margin: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
-    .status-badge, .status-badge.connected { background: none; border: 0; padding: 0; font-family: var(--body); font-size: 13px; letter-spacing: 0; }
-    /* "SKU" is an initialism; lowercasing the label would spell it "sku". */
-    .input-label.keep-case { text-transform: none; }
-    .my-team-link:not([hidden]) { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; width: 100%;
-      padding: 10px 12px; border: 0; border-radius: var(--r-md); background: var(--card2); cursor: pointer;
-      font-family: var(--body); font-size: 13px; color: var(--text-muted); }
-    .my-team-link b { font-family: var(--display); font-size: 16px; font-weight: 600; letter-spacing: 0.5px; color: var(--text); }
-
-    .tabs-nav { position: fixed; left: 12px; top: 92px; width: 224px; display: block; margin: 0; border-bottom: 0; }
-    .tab-btn { display: block; width: 100%; padding: 10px 12px; margin-bottom: 2px; border-radius: var(--r-md); text-align: left;
-      font-size: 15px; font-weight: 500; letter-spacing: 0.2px; text-transform: lowercase; color: var(--text-dim); transition: none; }
-    .tab-btn::first-letter { text-transform: uppercase; }
-    .tab-btn.active { background: var(--card2); color: var(--text); }
     .tab-btn.tab-phone-only { display: none; }
-    .tab-btn.tab-desk-only { display: block; }
-    .tab-ico { display: block; float: left; width: 18px; height: 18px; margin: 1px 12px 0 0; fill: none; stroke: currentColor;
-      stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; opacity: 0.8; }
-    .tab-indicator { display: none; }
+    .tab-btn.tab-desk-only { display: inline-block; }
+    .tab-btn { padding: 14px 18px; }
+    .my-team-link:not([hidden]) { display: inline-flex; align-items: baseline; gap: 8px; padding: 5px 12px; border: 0;
+      border-radius: var(--r-pill); background: var(--card2); cursor: pointer;
+      font-family: var(--mono); font-size: 12px; letter-spacing: 1px; text-transform: uppercase; color: var(--text-muted); }
+    .my-team-link b { font-family: var(--display); font-size: 14px; font-weight: 600; letter-spacing: 0.5px; color: var(--text); }
+  }
 
-    /* The page. */
-    .container { max-width: 1180px; margin: 0; padding: 0 48px; }
-    .nav-history { margin: 22px 0 0 -8px; }
-    .search-section { padding: 10px 0 28px; }
-    .tab-panel.active { animation: none; }
-    /* The page's name, as a heading. It was a 10px tracked caption. */
-    .section-label { display: block; margin-bottom: 26px; font-family: var(--display); font-size: 30px; font-weight: 600;
-      letter-spacing: 0.2px; line-height: 1.15; text-transform: lowercase; color: var(--text); }
-    .section-label::first-letter { text-transform: uppercase; }
-    .section-label .section-info { vertical-align: middle; margin-left: 10px; }
-    /* A field's label: sentence case, the reading face, next to its field. */
-    .input-label { font-family: var(--body); font-size: 14px; font-weight: 500; letter-spacing: 0; text-transform: lowercase; color: var(--text-dim); }
-    .input-label::first-letter { text-transform: uppercase; }
-    .controls-row { gap: 14px; row-gap: 18px; }
-    input[type="text"], input[type="password"], select, .cs-bar { font-size: 15px; }
-    .btn { font-size: 13px; letter-spacing: 0.8px; padding: 12px 22px; }
-    .btn-primary { border-color: transparent; background: var(--accent-dim); }
+  /* ════════════════════════════════════════════════════════════════
+     WIDE SCREENS (v91)
 
-    /* An event's views: the same quiet list language as the rail. */
-    .t-nav-btn { font-size: 14px; letter-spacing: 0.2px; text-transform: lowercase; }
-    .t-nav-btn::first-letter { text-transform: uppercase; }
-    .t-nav-btn[onclick*="'team'"] { text-transform: none; }
-    .tournament-summary-name { font-size: 20px; }
+     Reported as: "the wider pc dynamic makes the current ui you share with
+     mobile weird". Looked at on a 1920 monitor it was a phone layout in the
+     middle of a field: a fixed 1100px column, 9px labels, a text box for a
+     six-character team number half a metre wide, a Taken button 900px from
+     the team it belongs to, and 70px of nothing under the tabs.
 
-    /* Nothing under 12px, and the wide tracking that made captions shout is
-       gone. Generated from the sheet, like the phone lists. */
+     What the reading said (HANDOFF §29), turned into rules:
+       · A control is as wide as what goes in it, not as wide as the page.
+       · Running text stops at a readable line (about 75 characters).
+       · Things that belong together sit together; a row does not get
+         stretched to put its two halves at opposite edges.
+       · Nothing is set under 12px, and captions lose the wide tracking.
+       · The space a big screen gives is spent on SIZE, not on margins: the
+         whole page scales up, so it reads the same from the same chair.
+     The design itself — header, tab strip, cards, the three typefaces — is
+     the one the owner asked to keep.
+     ════════════════════════════════════════════════════════════════ */
+  @media (min-width: 1100px) {
+    .container { max-width: 1240px; padding: 0 32px; }
+    .tabs-nav { margin-bottom: 8px; }
+    .search-section { padding-top: 22px; }
+
+    /* Controls sized to their contents, packed from the left. */
+    /* A page's search row fills the column, so its ends line up with the tab
+       strip above and the cards below. A box that stands alone does not. */
+    .controls-row { gap: 12px; row-gap: 16px; }
+    .fav-add { max-width: 620px; }
+    /* An event's toolbar: everything on one 44px line, bottoms level. */
+    .tournament-summary { align-items: flex-end; row-gap: 12px; padding-top: 18px; }
+    .tournament-summary-name, .tournament-summary-count { min-height: 44px; display: flex; align-items: center; }
+    .tournament-summary-name { font-size: 18px; flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; line-height: 44px; }
+    .tournament-summary-count { flex: 1 1 auto; }
+    .tournament-summary-actions { align-items: flex-end; gap: 10px; }
+    .tab-panel .tournament-summary-actions .btn { height: 44px; min-height: 44px; padding: 0 18px; display: inline-flex; align-items: center; }
+    .tournament-summary-actions .t-switch { height: 44px; padding: 0; }
+    .tournament-summary-actions .input-wrap { flex: 0 0 auto; }
+    .tab-panel .tournament-summary-actions .input-label { display: none; }
+    .tournament-summary-actions select, .tournament-summary-actions .cs-bar { height: 44px; box-sizing: border-box; padding-top: 0; padding-bottom: 0; }
+    .tournament-summary-actions .cs-bar { display: flex; align-items: center; }
+
+    /* Lines stop where reading does; lists keep their two ends in sight. */
+    .sim-caveat, .rw-hint, .lp-help, .hint, .sim-hint, .set-p, .set-state, .fav-empty, .vt-note { max-width: 78ch; }
+    .sim-caveat, .rw-hint { font-size: 13px; }
+    .sim-caveat { margin: 8px 0 18px; }
+    .lp-list, .lp-gone { max-width: 720px; }
+    .pk-list, .pk-you { max-width: 860px; }
+
+    /* Nothing under 12px. The same list the phone gets, generated from the sheet. */
     .award-tag,
     .badge,
     .btn-detail,
@@ -2723,13 +2727,15 @@
     .tournament-team-tag .tt-stat-label,
     .tt-grade,
     input[type="text"].rw-shift-in { font-size: 12px; }
-    .detail-block-label,
-    .md-next-label,
-    .sim-alliance-label,
-    .sim-block-label { letter-spacing: 1px; }
-
-    .site-foot { text-align: left; padding-left: 48px; }
+    .section-label, .input-label, .t-switch-label, .status-badge { font-size: 12px; }
+    .section-label { letter-spacing: 1.2px; margin-bottom: 16px; }
+    .detail-block-label { letter-spacing: 1.5px; margin-top: 6px; }
   }
+  /* A bigger screen is spent on size. The page was drawn for about 1240px;
+     past that it is enlarged whole, so nothing has to be re-laid-out. */
+  @media (min-width: 1700px) { body { zoom: 1.18; } }
+  @media (min-width: 2300px) { body { zoom: 1.45; } }
+  @media (min-width: 3000px) { body { zoom: 1.9; } }
 </style>
 </head>
 <body class="theme-dark-grey">
@@ -2928,6 +2934,7 @@
     <div class="loading" id="rwLoading"><div class="loading-spinner"></div>
       <div class="loading-text" id="rwLoadingText">LOADING...</div></div>
     <div id="rwResults"></div>
+    <div id="vtPanel"></div>
   </section>
   <!-- ═══════════ EVENT SCOUT ═══════════ -->
   <section class="search-section tab-panel" id="tab-simulator">
@@ -2982,6 +2989,16 @@
         <button class="btn btn-primary" onclick="myTeamSaveFromInput()">Save</button>
       </div>
       <div class="set-state" id="myTeamState"></div>
+    </div>
+    <div class="set-group">
+      <h3 class="set-h">Robot tracker</h3>
+      <p class="set-p">The tracker watches match video on a computer and records where the robots are. What it records can be shared with every device. Saving to the shared storage needs the passcode; reading does not.</p>
+      <div class="fav-add">
+        <input type="password" id="vtPassInput" placeholder="Tracker passcode" autocomplete="off" enterkeyhint="done">
+        <button class="btn btn-primary" onclick="vtPassSave()">Save</button>
+      </div>
+      <div class="set-state" id="vtSetState"></div>
+      <button class="set-link" onclick="vtPassForget()">Remove the passcode from this device</button>
     </div>
     <div class="set-group">
       <h3 class="set-h">Color theme</h3>
@@ -3584,7 +3601,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v90';
+const APP_BUILD = 'v91';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -6025,6 +6042,7 @@ function rewatchClearCal(day) {
 }
 
 function rewatchRender() {
+  vtRender();   // the tracker's panel lives outside rwResults, so a re-render here never touches a run
   const ctx = window._rwCtx;
   const out = document.getElementById('rwResults');
   if (!ctx) { out.innerHTML = ''; return; }
@@ -7820,6 +7838,429 @@ function sim_learnNote(R) {
   if (R.seasonOnly) parts.push(`<strong>Season form only:</strong> nothing has been played here yet, so these chances come from each team's record at its other events this season.`);
   else if (R.seasonUsed) parts.push(`<strong>Season included:</strong> ${R.seasonUsed} teams' ratings blend in their record at other events this season, counted as ${SIM_SEASON_K} matches. What a season record is worth here was fitted on the ${R.seasonFitOn} teams with enough matches at this event.`);
   return parts.length ? `<div class="sim-caveat">${parts.join(' ')}</div>` : '';
+}
+
+// ═══════════════════════════════════════════════════════════════
+// v91 — the robot tracker, stage 1: watch, find the robots, remember
+//
+// Asked for as: build the desktop tracker into the site, have it watch matches
+// in the embedded player on its own, analyse a team or every team at an event
+// while nobody is at the computer, and save what it learns for everyone.
+//
+// THE CONSTRAINT THAT SHAPES ALL OF THIS: a page cannot read the pixels of a
+// YouTube player. It is another site's frame, and the browser forbids it. The
+// one way in is screen capture of THIS TAB, which the person must allow once
+// per session, and which only desktop Chromium offers with a crop to one
+// element (Region Capture). So the tracker is a computer feature, in Chrome or
+// Edge, and says so everywhere else.
+//
+// WHAT STAGE 1 KEEPS is not conclusions, it is the evidence: for each match,
+// every robot box the trained finder saw, a few times a second, with its
+// alliance colour. Working out jobs, parking and autonomous routes from boxes
+// is stage 2 — and because the boxes are kept, stage 2 (and every later
+// improvement to it) runs on matches already watched. Nothing is watched twice.
+//
+// The finder is the desktop tracker's own model (one class: robot), run by
+// ONNX Runtime Web from /vendor/ort. Both are fetched only when the tracker is
+// started; a visitor who never uses it downloads neither.
+// ═══════════════════════════════════════════════════════════════
+const VT_SIZE = 640;            // the model's input; boxes are stored at this width
+const VT_CONF = 0.35, VT_IOU = 0.5;
+const VT_RATE = 2;              // playback speed while watching
+const VT_LEAD = 5;              // seconds watched before the match's position
+const VT_WINDOW = 170;          // seconds of video per match (15 s auto, a pause, 1:45 driver, the score)
+const VT_TICK_MS = 250;         // how often a frame is looked at
+const VT_MIN_FRAMES = 30;       // fewer frames with a robot than this and the video was not a match
+const VT_PASS_KEY = 'vex_tracker_pass';
+const VT_MODEL = 'det1';
+
+// ── Pure pieces (tested without a browser) ─────────────────────────────────
+// Fit a w×h frame into the model's square, keeping its shape.
+function vtLetterbox(w, h) {
+  const s = VT_SIZE / Math.max(w, h);
+  const nw = Math.round(w * s), nh = Math.round(h * s);
+  return { s, nw, nh, px: Math.floor((VT_SIZE - nw) / 2), py: Math.floor((VT_SIZE - nh) / 2) };
+}
+// The model answers (5, N): cx, cy, w, h, score for each of N candidates, in
+// the square's pixels. Out come boxes in the SOURCE frame's pixels.
+function vtDecode(data, n, lb, w, h, conf) {
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const sc = data[4 * n + i];
+    if (!(sc >= conf)) continue;
+    const bw = data[2 * n + i] / lb.s, bh = data[3 * n + i] / lb.s;
+    const x = (data[i] - lb.px) / lb.s - bw / 2, y = (data[n + i] - lb.py) / lb.s - bh / 2;
+    const x0 = Math.max(0, x), y0 = Math.max(0, y), x1 = Math.min(w, x + bw), y1 = Math.min(h, y + bh);
+    if (x1 - x0 >= 6 && y1 - y0 >= 6) out.push([x0, y0, x1 - x0, y1 - y0, sc]);
+  }
+  return out;
+}
+function vtIoU(a, b) {
+  const x0 = Math.max(a[0], b[0]), y0 = Math.max(a[1], b[1]);
+  const x1 = Math.min(a[0] + a[2], b[0] + b[2]), y1 = Math.min(a[1] + a[3], b[1] + b[3]);
+  const inter = Math.max(0, x1 - x0) * Math.max(0, y1 - y0);
+  return inter / (a[2] * a[3] + b[2] * b[3] - inter || 1);
+}
+function vtNMS(boxes, iou) {
+  const s = boxes.slice().sort((a, b) => b[4] - a[4]), keep = [];
+  for (const b of s) if (keep.every(k => vtIoU(k, b) <= iou)) keep.push(b);
+  return keep;
+}
+// Which alliance a box is: count strongly red and strongly blue pixels (the
+// licence plates) on a grid inside it. 1 red, 2 blue, 0 cannot tell.
+function vtColorOf(rgba, W, H, box) {
+  let red = 0, blue = 0, n = 0;
+  const stepX = Math.max(1, Math.floor(box[2] / 20)), stepY = Math.max(1, Math.floor(box[3] / 20));
+  for (let y = Math.max(0, Math.floor(box[1])); y < Math.min(H, box[1] + box[3]); y += stepY) {
+    for (let x = Math.max(0, Math.floor(box[0])); x < Math.min(W, box[0] + box[2]); x += stepX) {
+      const i = (y * W + x) * 4, r = rgba[i], g = rgba[i + 1], b = rgba[i + 2];
+      n++;
+      const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+      if (mx < 90 || mx - mn < 0.45 * mx) continue;      // too dark, or not a strong colour
+      if (r === mx && g < 0.55 * r && b < 0.6 * r) red++;
+      else if (b === mx && r < 0.55 * b) blue++;
+    }
+  }
+  const need = Math.max(3, 0.02 * n);
+  if (red >= need && red > 1.5 * blue) return 1;
+  if (blue >= need && blue > 1.5 * red) return 2;
+  return 0;
+}
+// One frame as integers: [tenths of a second from the match's position, k, then
+// k × (x, y, w, h, confidence %, colour)], coordinates at a 640-wide frame.
+function vtPackFrame(t, boxes, srcW) {
+  const k = VT_SIZE / srcW, fr = [Math.round(t * 10), boxes.length];
+  for (const b of boxes) fr.push(Math.round(b[0] * k), Math.round(b[1] * k), Math.round(b[2] * k), Math.round(b[3] * k), Math.round(b[4] * 100), b[5] || 0);
+  return fr;
+}
+function vtRecStats(rec) {
+  let withRobot = 0, boxes = 0;
+  for (const fr of (rec && rec.f) || []) { if (fr[1] > 0) withRobot++; boxes += fr[1]; }
+  return { frames: ((rec && rec.f) || []).length, withRobot, perFrame: withRobot ? boxes / withRobot : 0 };
+}
+function vtSupported() {
+  return !vsIsPhone() && !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) &&
+    typeof window.CropTarget !== 'undefined' && typeof WebAssembly === 'object';
+}
+// What can be watched: matches with a position in a YouTube video, in order.
+function vtQueueFrom(ctx) {
+  if (!ctx || !ctx.eventId) return [];
+  const out = [];
+  for (const m of rwPlayOrder()) {
+    if (m.round === 1) continue;                         // practice matches teach nothing worth the time
+    const cal = rwCalForMatch(m, ctx.cal);
+    const off = rwOffsetFor(m, ctx.cal);
+    if (!cal || off === null || !cal.videoId || (cal.platform || 'youtube') !== 'youtube') continue;
+    if (!/^[A-Za-z0-9_-]{6,20}$/.test(String(cal.videoId))) continue;
+    out.push({ id: String(m.id), name: m.name, round: m.round, num: m.num, vid: String(cal.videoId), off,
+      red: (m.redNums || []).map(v => String(v).toUpperCase().replace(/[^A-Z0-9]/g, '')),
+      blue: (m.blueNums || []).map(v => String(v).toUpperCase().replace(/[^A-Z0-9]/g, '')),
+      rs: m.redScore, bs: m.blueScore });
+  }
+  return out;
+}
+
+// ── What has been tracked: on this device, and shared ──────────────────────
+const vtPass = () => lsGet(VT_PASS_KEY) || '';
+async function vtLocalIndex(ev) { return (await idbGet('vt:idx:' + ev)) || {}; }
+async function vtLocalSave(ev, id, rec, status) {
+  if (rec) await idbSet(`vt:m:${ev}:${id}`, rec);
+  const idx = await vtLocalIndex(ev);
+  idx[id] = { s: status, at: Date.now() };
+  await idbSet('vt:idx:' + ev, idx);
+}
+async function vtApi(method, query, body) {
+  const r = await fetch('/api/tracker' + (query || ''), method === 'POST'
+    ? { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : undefined);
+  let j = null;
+  try { j = await r.json(); } catch (e) {}
+  return { ok: r.ok, status: r.status, body: j || {} };
+}
+async function vtSharedIds(ev) {
+  try { const r = await vtApi('GET', '?event=' + encodeURIComponent(ev)); return r.ok && Array.isArray(r.body.ids) ? r.body.ids.map(String) : []; }
+  catch (e) { return []; }
+}
+async function vtSharedSave(ev, id, rec) {
+  const pass = vtPass();
+  if (!pass) return 'no-passcode';
+  try { const r = await vtApi('POST', '', { passcode: pass, ev: String(ev), id: String(id), rec }); return r.ok ? 'saved' : (r.body.error || 'refused'); }
+  catch (e) { return 'offline'; }
+}
+
+// ── Settings: the passcode ─────────────────────────────────────────────────
+async function vtSettingsRefresh(note) {
+  const el = document.getElementById('vtSetState');
+  if (!el) return;
+  let st = null;
+  try { const r = await vtApi('GET', '?status=1'); if (r.ok) st = r.body; } catch (e) {}
+  const lines = [];
+  if (!st) lines.push('Could not reach the shared storage just now.');
+  else if (!st.db) lines.push('<strong>Shared storage is not set up.</strong> What the tracker learns stays on this device.');
+  else if (!st.passcode) lines.push('<strong>Shared storage is connected, but no passcode is set on the server</strong>, so nothing can be saved to it yet.');
+  else lines.push('<strong>Shared storage is connected.</strong> Anyone can read what has been learned; saving needs the passcode.');
+  lines.push(vtPass() ? 'A passcode is saved on this device.' : 'No passcode is saved on this device.');
+  if (note) lines.push(esc(note));
+  el.innerHTML = lines.join(' ');
+}
+async function vtPassSave() {
+  const input = document.getElementById('vtPassInput');
+  const v = input ? input.value.trim() : '';
+  if (!v) return vtSettingsRefresh('Type the passcode first.');
+  let r = null;
+  try { r = await vtApi('POST', '', { passcode: v, check: true }); } catch (e) {}
+  if (!r) return vtSettingsRefresh('Could not check the passcode: no connection.');
+  if (!r.ok) return vtSettingsRefresh(r.status === 403 ? 'That passcode was not accepted.' : 'The passcode could not be checked.');
+  lsSet(VT_PASS_KEY, v);
+  input.value = '';
+  vtSettingsRefresh('Passcode accepted and saved.');
+}
+function vtPassForget() { lsRemove(VT_PASS_KEY); vtSettingsRefresh('Passcode removed from this device.'); }
+
+// ── The finder ─────────────────────────────────────────────────────────────
+let vtSession = null, vtSessionLoading = null;
+function vtLoadScript(src) {
+  return new Promise((resolve, reject) => {
+    if (document.querySelector(`script[src="${src}"]`)) return resolve();
+    const s = document.createElement('script');
+    s.src = src; s.onload = () => resolve(); s.onerror = () => reject(new Error('could not load ' + src));
+    document.head.appendChild(s);
+  });
+}
+function vtLoadModel() {
+  if (vtSession) return Promise.resolve(vtSession);
+  if (vtSessionLoading) return vtSessionLoading;
+  vtSessionLoading = (async () => {
+    await vtLoadScript('/vendor/ort/ort.wasm.min.js');
+    const o = window.ort;
+    o.env.wasm.wasmPaths = '/vendor/ort/';
+    // One thread, in a worker. More threads need the page to be cross-origin
+    // isolated, which would stop the YouTube player loading at all.
+    o.env.wasm.numThreads = 1;
+    o.env.wasm.proxy = true;
+    vtSession = await o.InferenceSession.create('/models/robot_detector.onnx', { executionProviders: ['wasm'] });
+    return vtSession;
+  })().catch(e => { vtSessionLoading = null; throw e; });
+  return vtSessionLoading;
+}
+// RGBA pixels of the model's square → the planar 0..1 floats it wants.
+function vtTensorData(rgba) {
+  const n = VT_SIZE * VT_SIZE, f = new Float32Array(3 * n);
+  for (let i = 0, p = 0; i < n; i++, p += 4) { f[i] = rgba[p] / 255; f[n + i] = rgba[p + 1] / 255; f[2 * n + i] = rgba[p + 2] / 255; }
+  return f;
+}
+async function vtDetect(square, lb, w, h) {
+  const sess = await vtLoadModel();
+  const tensor = new window.ort.Tensor('float32', vtTensorData(square.data), [1, 3, VT_SIZE, VT_SIZE]);
+  const res = await sess.run({ [sess.inputNames[0]]: tensor });
+  const out = res[sess.outputNames[0]];
+  const n = out.dims[out.dims.length - 1];
+  const boxes = vtNMS(vtDecode(out.data, n, lb, w, h, VT_CONF), VT_IOU);
+  // Colour is read from the square the model saw, so no second copy of the frame.
+  for (const b of boxes) b[5] = vtColorOf(square.data, VT_SIZE, VT_SIZE, [b[0] * lb.s + lb.px, b[1] * lb.s + lb.py, b[2] * lb.s, b[3] * lb.s]);
+  return boxes;
+}
+
+// ── The run ────────────────────────────────────────────────────────────────
+// One run at a time. Everything it owns is here so Stop can let go of all of it.
+let vtRun = null;
+const vtSleep = ms => new Promise(r => setTimeout(r, ms));
+function vtSay(text) { const el = document.getElementById('vtStatus'); if (el) el.textContent = text; }
+// A timer that keeps time in a background tab: page timers are slowed to once
+// a second there, a worker's are not.
+function vtTicker(ms, fn) {
+  try {
+    const w = new Worker(URL.createObjectURL(new Blob([`setInterval(()=>postMessage(0),${ms})`], { type: 'text/javascript' })));
+    w.onmessage = fn;
+    return () => w.terminate();
+  } catch (e) { const t = setInterval(fn, ms); return () => clearInterval(t); }
+}
+async function vtPlayerReady() {
+  rwLoadYT();
+  for (let i = 0; i < 100 && !(window.YT && window.YT.Player); i++) await vtSleep(100);
+  if (!(window.YT && window.YT.Player)) throw new Error('The YouTube player did not load.');
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('The YouTube player did not start.')), 15000);
+    const p = new window.YT.Player('vtPlayerInner', {
+      width: '100%', height: '100%',
+      playerVars: { controls: 0, disablekb: 1, modestbranding: 1, rel: 0, playsinline: 1, iv_load_policy: 3, fs: 0 },
+      events: {
+        onReady: () => { clearTimeout(timer); try { p.mute(); } catch (e) {} resolve(p); },
+        onError: ev => { if (vtRun) vtRun.playerError = ev && ev.data; }
+      }
+    });
+  });
+}
+async function vtStart() {
+  if (vtRun) return;
+  const ctx = window._rwCtx;
+  const all = vtQueueFrom(ctx);
+  if (!all.length) return;
+  const ev = String(ctx.eventId);
+  const panel = document.getElementById('vtPanel');
+  // The share prompt must come straight from the click, before anything slow.
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 15, displaySurface: 'browser' }, audio: false,
+      preferCurrentTab: true, selfBrowserSurface: 'include', surfaceSwitching: 'exclude', monitorTypeSurfaces: 'exclude' });
+  } catch (e) { vtRender('Sharing was not allowed, so nothing was watched. Press Start and choose "This tab".'); return; }
+  const run = vtRun = { ev, stream, stop: false, done: 0, saved: 0, skipped: 0, empty: 0, failed: 0, total: 0, playerError: null, cleanup: [] };
+  if (ctx.playAll) rwPlayAllStop();
+  panel.innerHTML = `<div class="rw-block vt-block">
+    <div class="rw-day-head"><div class="detail-block-label" style="margin:0;">Robot tracker</div>
+      <button class="rw-nudge-btn" onclick="vtStop()">Stop</button></div>
+    <div class="vt-status" id="vtStatus">Starting…</div>
+    <div class="vt-stage">
+      <div class="vt-player" id="vtPlayer"><div id="vtPlayerInner"></div></div>
+      <div class="vt-seen"><canvas id="vtSeen" width="640" height="360"></canvas><div class="vt-cap">What the tracker sees</div></div>
+    </div>
+    <div class="rw-hint">Leave this tab open and on screen. You can use other windows; the computer is kept awake while this runs. Already-tracked matches are skipped, so stopping and starting again loses nothing.</div>
+  </div>`;
+  const track = stream.getVideoTracks()[0];
+  track.addEventListener('ended', () => { if (vtRun === run) { run.stop = true; run.why = 'Sharing was stopped.'; } });
+  try {
+    try {
+      await track.cropTo(await window.CropTarget.fromElement(document.getElementById('vtPlayer')));
+    } catch (e) { throw new Error('That was not this tab. Press Start again and choose "This tab" in the share window.'); }
+    const video = document.createElement('video');
+    video.muted = true; video.playsInline = true; video.srcObject = stream;
+    await video.play();
+    try { if (navigator.wakeLock) { const wl = await navigator.wakeLock.request('screen'); run.cleanup.push(() => wl.release()); } } catch (e) {}
+    vtSay('Loading the robot finder (about 25 MB, the first time only)…');
+    await vtLoadModel();
+    const player = await vtPlayerReady();
+    run.cleanup.push(() => { try { player.destroy(); } catch (e) {} });
+    // Skip what this device or anyone else has already tracked.
+    const [local, shared] = await Promise.all([vtLocalIndex(ev), vtSharedIds(ev)]);
+    const queue = all.filter(m => !(local[m.id] && local[m.id].s === 'done') && !shared.includes(m.id));
+    run.total = queue.length; run.skipped = all.length - queue.length;
+    const square = document.createElement('canvas');
+    square.width = square.height = VT_SIZE;
+    const sq = square.getContext('2d', { willReadFrequently: true });
+    for (const m of queue) {
+      if (run.stop) break;
+      await vtWatch(run, m, player, video, sq);
+      run.done++;
+    }
+    vtFinish(run.why || (run.stop ? 'Stopped.' : 'Finished.'));
+  } catch (e) {
+    vtFinish(String((e && e.message) || e));
+  }
+}
+async function vtWatch(run, m, player, video, sq) {
+  const label = () => `Match ${run.done + 1} of ${run.total} · ${m.name}`;
+  vtSay(label() + ' · loading');
+  run.playerError = null;
+  const start = Math.max(0, m.off - VT_LEAD), end = start + VT_WINDOW;
+  player.loadVideoById({ videoId: m.vid, startSeconds: start });
+  try { player.mute(); player.setPlaybackRate(VT_RATE); } catch (e) {}
+  const rec = { v: 1, name: String(m.name || '').slice(0, 60), round: m.round, num: m.num, red: m.red, blue: m.blue,
+    rs: m.rs, bs: m.bs, vid: m.vid, off: m.off, rate: VT_RATE, w: VT_SIZE, h: 0, model: VT_MODEL, at: Date.now(), f: [] };
+  const seen = document.getElementById('vtSeen'), sc = seen && seen.getContext('2d');
+  let busy = false, lastT = -1, finished = false, stalledSince = Date.now();
+  const wallLimit = Date.now() + (VT_WINDOW / VT_RATE + 60) * 1000;
+  await new Promise(resolve => {
+    const stopTick = vtTicker(VT_TICK_MS, async () => {
+      if (finished) return;
+      const done = why => { finished = true; stopTick(); rec.why = why; resolve(); };
+      if (run.stop) return done('stopped');
+      if (run.playerError !== null) return done('video');
+      if (Date.now() > wallLimit) return done('timeout');
+      let t = 0, state = -1;
+      try { t = player.getCurrentTime(); state = player.getPlayerState(); } catch (e) {}
+      if (state === 0 || t >= end) return done('end');
+      // Playing is state 1. Anything else (buffering, an unstarted player) is
+      // not a frame of the match; if it lasts, give the player a push.
+      if (state !== 1) { if (Date.now() - stalledSince > 8000) { try { player.playVideo(); } catch (e) {} stalledSince = Date.now(); } return; }
+      stalledSince = Date.now();
+      if (busy || t === lastT || !video.videoWidth) return;
+      busy = true; lastT = t;
+      try {
+        const w = video.videoWidth, h = video.videoHeight, lb = vtLetterbox(w, h);
+        sq.fillStyle = 'rgb(114,114,114)'; sq.fillRect(0, 0, VT_SIZE, VT_SIZE);
+        sq.drawImage(video, lb.px, lb.py, lb.nw, lb.nh);
+        const boxes = await vtDetect(sq.getImageData(0, 0, VT_SIZE, VT_SIZE), lb, w, h);
+        rec.h = Math.round(h * VT_SIZE / w);
+        rec.f.push(vtPackFrame(t - m.off, boxes, w));
+        if (sc) {
+          if (seen.height !== Math.round(640 * h / w)) seen.height = Math.round(640 * h / w);
+          sc.drawImage(video, 0, 0, seen.width, seen.height);
+          const k = seen.width / w;
+          sc.lineWidth = 2; sc.font = '600 13px sans-serif';
+          for (const b of boxes) {
+            sc.strokeStyle = b[5] === 1 ? '#ff5a5a' : b[5] === 2 ? '#5aa0ff' : '#e8e8e8';
+            sc.strokeRect(b[0] * k, b[1] * k, b[2] * k, b[3] * k);
+            sc.fillStyle = sc.strokeStyle; sc.fillText(Math.round(b[4] * 100) + '%', b[0] * k + 3, b[1] * k - 4);
+          }
+        }
+        const left = Math.max(0, Math.round((end - t) / VT_RATE));
+        vtSay(`${label()} · ${boxes.length} robot${boxes.length === 1 ? '' : 's'} in view · ${left}s left on this match`);
+      } catch (e) { run.lastError = String((e && e.message) || e); }
+      busy = false;
+    });
+  });
+  try { player.pauseVideo(); } catch (e) {}
+  const why = rec.why; delete rec.why;
+  if (why === 'stopped') return;
+  const st = vtRecStats(rec);
+  if (why === 'video' || why === 'timeout') { run.failed++; await vtLocalSave(run.ev, m.id, null, 'failed'); return; }
+  if (st.withRobot < VT_MIN_FRAMES) { run.empty++; await vtLocalSave(run.ev, m.id, null, 'empty'); return; }
+  await vtLocalSave(run.ev, m.id, rec, 'done');
+  run.saved++;
+  run.shared = await vtSharedSave(run.ev, m.id, rec);
+}
+function vtStop() { if (vtRun) { vtRun.stop = true; vtSay('Stopping after this frame…'); } }
+function vtFinish(why) {
+  const run = vtRun;
+  if (!run) return;
+  for (const fn of run.cleanup) { try { fn(); } catch (e) {} }
+  try { run.stream.getTracks().forEach(t => t.stop()); } catch (e) {}
+  vtRun = null;
+  const bits = [`${run.saved} match${run.saved === 1 ? '' : 'es'} tracked`];
+  if (run.skipped) bits.push(`${run.skipped} already done`);
+  if (run.empty) bits.push(`${run.empty} with no robots in view (wrong part of the video, or not a field camera)`);
+  if (run.failed) bits.push(`${run.failed} whose video would not play`);
+  const share = run.saved ? (run.shared === 'saved' ? ' Saved to the shared storage.' : run.shared === 'no-passcode' ? ' Kept on this device only: no passcode is saved in Settings.' : ` Kept on this device; the shared storage said "${run.shared}".`) : '';
+  vtRender(`${why} ${bits.join(', ')}.${share}`);
+}
+
+// ── The panel under the Jumper ─────────────────────────────────────────────
+async function vtRender(note) {
+  const panel = document.getElementById('vtPanel');
+  if (!panel || vtRun) return;
+  const ctx = window._rwCtx;
+  const queue = vtQueueFrom(ctx);
+  if (vsIsPhone() || !ctx || !ctx.eventId || !queue.length) { panel.innerHTML = ''; return; }
+  const ev = String(ctx.eventId);
+  const who = ctx.team && ctx.team.number ? `${esc(ctx.team.number)}'s ${queue.length} matches` : `all ${queue.length} matches at this event`;
+  if (!vtSupported()) {
+    panel.innerHTML = `<div class="rw-block vt-block"><div class="detail-block-label">Robot tracker</div>
+      <div class="rw-hint">The tracker watches matches by capturing this tab, which needs Chrome or Edge on a computer.</div></div>`;
+    return;
+  }
+  const local = await vtLocalIndex(ev);
+  if (vtRun || window._rwCtx !== ctx) return;       // things moved on while that was read
+  const doneHere = queue.filter(m => local[m.id] && local[m.id].s === 'done').length;
+  const mins = Math.ceil((queue.length - doneHere) * (VT_WINDOW / VT_RATE + 6) / 60);
+  panel.innerHTML = `<div class="rw-block vt-block">
+    <div class="detail-block-label">Robot tracker</div>
+    ${note ? `<div class="vt-note">${esc(note)}</div>` : ''}
+    <div class="rw-hint">Watches ${who} at ${VT_RATE}× and records where every robot is, a few times a second. ${doneHere ? `${doneHere} already tracked on this device. ` : ''}${doneHere < queue.length
+      ? `About ${mins >= 90 ? (Math.round(mins / 6) / 10) + ' hours' : mins + ' minutes'} for the rest. Chrome will ask what to share: choose <strong>This tab</strong>.`
+      : 'Nothing is left to watch.'}</div>
+    ${doneHere < queue.length ? `<div class="rw-playall"><button class="btn btn-primary" onclick="vtStart()">Start tracking</button></div>` : ''}
+    <div class="rw-hint">This stage records positions. Turning them into each robot's job, parking and autonomous routine comes next, and will use these recordings without watching again.</div>
+  </div>`;
+}
+// From an event page: open the Jumper on the whole event, where Start is.
+async function vtOpenEvent(sku) {
+  switchTab('rewatch');
+  const input = document.getElementById('rwEventInput');
+  if (input) input.value = reSkuAttr(sku);
+  const team = document.getElementById('rwTeamInput');
+  if (team) team.value = '';
+  await rewatchLoadEvent();
+  const panel = document.getElementById('vtPanel');
+  if (panel && panel.scrollIntoView) panel.scrollIntoView({ block: 'center' });
 }
 
 // ── STATUS BADGE ──────────────────────────────
@@ -11104,6 +11545,7 @@ function tournamentNav(active) {
     ${tournamentFocusTeamNumber ? `<button class="t-nav-btn${active === 'team' ? ' active' : ''}" onclick="tournamentGo('team')">${esc(tournamentFocusTeamNumber)}</button>` : ''}
     ${tournamentEventId ? `<button class="t-nav-btn t-more-btn" aria-expanded="false" onclick="tNavMore(this)">More</button>` : ''}
     ${tournamentEventId ? tOfflineButton(tournamentEventId) : ''}
+    ${tournamentEventId && tournamentEventSku && !vsIsPhone() ? `<button class="t-nav-link vt-link" onclick="vtOpenEvent('${teamAttr(tournamentEventSku)}')" title="Watch every match at this event and record where the robots are">Track robots</button>` : ''}
     ${tournamentEventId ? reEventLink(tournamentEventId, tournamentEventSku) : ''}
   </div>`;
 }
@@ -12311,6 +12753,7 @@ function switchTab(tabName) {
   if (tabName === 'favs') favsRender();
   if (tabName === 'home') homeRender();
   if (tabName === 'rewatch') vsPreconnect('https://www.youtube.com');
+  if (tabName === 'settings') vtSettingsRefresh();
   // Update tab button styles
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   const btn = document.querySelector('.tab-btn[data-tab="' + tabName + '"]');
@@ -12340,11 +12783,10 @@ function positionTabIndicator() {
   const indicator = document.getElementById('tabIndicator');
   const activeBtn = document.querySelector('.tab-btn.active');
   if (!indicator || !activeBtn) return;
-  const nav = activeBtn.parentElement;
-  const navRect = nav.getBoundingClientRect();
-  const btnRect = activeBtn.getBoundingClientRect();
-  indicator.style.left = (btnRect.left - navRect.left) + 'px';
-  indicator.style.width = btnRect.width + 'px';
+  // Layout units, not screen ones: on a wide screen the page is zoomed, and a
+  // rectangle measured on screen would be placed too far along by that factor.
+  indicator.style.left = activeBtn.offsetLeft + 'px';
+  indicator.style.width = activeBtn.offsetWidth + 'px';
 }
 
 // Position indicator on page load and on resize

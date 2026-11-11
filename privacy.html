@@ -49,7 +49,8 @@
       as favorites, the teams you have crossed off during alliance selection, the team you set as your own
       in Settings, any timing adjustment you make to a match video, the last event, rank and record shown
       for your favorite teams (so they appear at once next time), the public season win-loss record of teams at
-      an event you have opened (kept for six hours so it is not fetched again), and the public team record for a number you have looked up
+      an event you have opened (kept for six hours so it is not fetched again), the robot tracker's passcode if you have entered one, the robot positions
+      it has recorded from match video you asked it to watch, and the public team record for a number you have looked up
       (so the app does not have to look it up again).</li>
     <li>Whether the prediction switch is on, and the season list the app caches
       so it does not refetch it every visit.</li>
@@ -76,6 +77,16 @@
   address, time, requested path, browser user-agent) for operating and securing
   the service. That is Vercel's processing, described in
   <a href="https://vercel.com/legal/privacy-policy" rel="noopener">their privacy policy</a>.</p>
+
+  <h2>The robot tracker</h2>
+  <p>
+    On a computer, the robot tracker can watch match video in this tab after you allow it to capture the tab. The
+    picture is examined on your own computer and is never uploaded. What is kept is a list of where robots were
+    in each match. If the site's shared storage is set up and you have entered the passcode, that list is saved
+    there with the match's public details (event and match number, team numbers, score and the video it came
+    from) so other visitors do not have to watch the same match again. It says nothing about you. The shared
+    storage is a database hosted by Upstash.
+  </p>
 
   <h2>No tracking</h2>
   <p>There is no analytics on this site. No Google Analytics, no Plausible, no
