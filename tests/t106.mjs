@@ -170,14 +170,14 @@ ok('My team is still a tab on the computer', /\.tab-btn\.tab-desk-only \{ displa
 ok('and the favorites tab is still phone-only there', /\.tab-btn\.tab-phone-only \{ display: none; \}/.test(mq));
 ok('the My team link shows in the header', /\.my-team-link:not\(\[hidden\]\) \{ display: inline-flex;/.test(mq));
 const wide = css.slice(css.indexOf('WIDE SCREENS (v91)'));
-const wq = wide.slice(wide.indexOf('@media (min-width: 1100px) {'), wide.indexOf('@media (min-width: 1700px)'));
-ok('a wide screen gets a wider column', /\.container \{ max-width: 1240px;/.test(wq));
+const wq = wide.slice(wide.indexOf('@media (min-width: 1100px) {'), wide.indexOf('@media (min-width: 2400px)'));
+ok('a wide screen gets a wider column', /\.container \{ max-width: 1180px;/.test(wq));
 ok('running text stops at a readable line', /max-width: 78ch;/.test(wq));
 ok('a list keeps its two ends together', /\.lp-list, \.lp-gone \{ max-width: 720px; \}/.test(wq));
 ok('the event toolbar is one line of equal heights', /\.tab-panel \.tournament-summary-actions \.btn \{ height: 44px;/.test(wq) && /\.tournament-summary-actions \.t-switch \{ height: 44px;/.test(wq));
 const wsizes = [...wq.matchAll(/font-size: ([\d.]+)px/g)].map(m => +m[1]);
 ok('nothing in the wide block is under 12px', wsizes.length > 3 && wsizes.every(v => v >= 12), wsizes.filter(v => v < 12).join());
-ok('a very wide screen is enlarged whole', /@media \(min-width: 1700px\) \{ body \{ zoom: 1\.18; \} \}/.test(css));
+ok('a very wide screen is enlarged whole', /@media \(min-width: 2400px\) \{ body \{ zoom: 1\.12; \} \}/.test(css) && !/zoom: 1\.(18|45|9)/.test(css));
 ok('the tab underline is placed in layout units, so zoom cannot shift it', /indicator\.style\.left = activeBtn\.offsetLeft \+ 'px';/.test(idx));
 ok('the three typefaces are still the only three', [...new Set([...css.matchAll(/font-family: ([^;]+);/g)].map(m => m[1].trim()))]
   .every(f => /var\(--(mono|display|body)\)|inherit|'Share Tech Mono'|'Oswald'|'Rajdhani'|monospace|sans-serif/.test(f)));

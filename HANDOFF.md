@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v91**. Everything green: 66 test files. (The `v19` in §8's
+Current release: **v92**. Everything green: 66 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -2279,6 +2279,22 @@ site, watching the embedded player unattended, with results shared.
 - **NOT VERIFIED:** the capture itself. No YouTube from the build sandbox, so
   the share prompt, the crop, playback at 2× in a hidden tab and the finder's
   accuracy on real streams have never been run. The first real run is the test.
+
+**v92.**
+- The whole-page enlargement was "way too big". It now starts at 2400px (1.12)
+  and 3200px (1.4); the column is 1180px. Do not scale more than this unasked.
+- The tracker watches up to four matches at once (`vtParallel`: half the
+  cores, at most `VT_MAX_PARALLEL`). One capture of a grid of players; each
+  player's tile is cut out of the captured frame by fractions of the stage. One
+  finder worker per player (`vendor/vt-worker.js`), each with its own model
+  copy. The per-match window is 150 s with a 3 s lead.
+- `vtStart('history')`: for an event that has not been played, every earlier
+  event this season that its teams attended (`vtHistoryPlan`, most teams
+  first), and only the matches those teams were in. The Jumper is driven one
+  event at a time to get video positions (`vtFeedHistory`), which changes
+  `window._rwCtx` and the Jumper's page while it runs.
+- Every example team number shown is 66449A.
+- Still not run on real video.
 
 ---
 
