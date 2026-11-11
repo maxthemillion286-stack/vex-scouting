@@ -1,8 +1,8 @@
 // t111 — v89: what the app learns from results.
 //
 //   · win chances checked against played matches, walk-forward, and corrected;
-//   · a team's season carried into the event rating;
-//   · play-style groups (k-means).
+//   · a team's season carried into the event rating.
+// (Play-style groups were removed in v90.)
 import fs from 'fs';
 import { boot, settle, html, FIXTURES } from './harness.mjs';
 
@@ -121,38 +121,9 @@ console.log('\n· the season, carried in');
   ok('what is stored is listed on the privacy page', /season win-loss record/.test(fs.readFileSync('../privacy.html', 'utf8')));
 }
 
-// ══ 3. Play styles ═════════════════════════════════════════════════════════
-console.log('\n· play styles');
-{
-  const ev = synth(24, 120, 6, 11);
-  const obs = [];
-  for (const m of ev.matches) for (const a of m.alliances) obs.push({ teams: a.teams.map(t => String(t.team.id)), score: a.score });
-  const { ratings, matchCount } = win.sim_computeOPR(obs, 0.5);
-  const R = { ratings, matchCount, matches: ev.matches, apRate: new Map() };
-  const roster = ev.str.map((_, i) => ({ id: 100 + i, number: (100 + i) + 'A', eventRank: 24 - i }));
-  const s = win.tStyleGroups(R, roster);
-  ok('a played field is grouped', !!s && s.groups.length >= 3 && s.groups.length <= 4, s && s.groups.map(g => g.name + ':' + g.teams.length).join(' '));
-  ok('every team is in exactly one group', s.groups.reduce((n, g) => n + g.teams.length, 0) === s.n && s.styleOf.size === s.n);
-  ok('group names are distinct', new Set(s.groups.map(g => g.name)).size === s.groups.length);
-  const steady = s.groups.find(g => g.name === 'Steady scorers'), dev = s.groups.find(g => g.name === 'Still developing');
-  const avg = g => g.teams.reduce((a, t) => a + ratings.get(String(t.id)), 0) / g.teams.length;
-  ok('steady scorers out-rate the developing group', !!steady && !!dev && avg(steady) > avg(dev) + 10, steady && dev ? avg(steady) + ' vs ' + avg(dev) : 'missing');
-  ok('the same event gives the same groups', JSON.stringify(win.tStyleGroups(R, roster).groups.map(g => g.teams.map(t => t.id))) === JSON.stringify(s.groups.map(g => g.teams.map(t => t.id))));
-  ok('without AP there is no autonomous group', !s.hasAP && !s.groups.some(g => g.name === 'Autonomous specialists'));
-  // With AP published, and a few teams far ahead on it, that group appears.
-  const ap = new Map(roster.map((t, i) => [String(t.id), i % 6 === 2 ? 9 : 2 + (i % 3) * 0.3]));
-  const s2 = win.tStyleGroups({ ...R, apRate: ap }, roster);
-  const auto = s2.groups.find(g => g.name === 'Autonomous specialists');
-  ok('with AP, the teams far ahead on it are found', s2.hasAP && !!auto && auto.teams.every(t => ap.get(String(t.id)) === 9), s2.groups.map(g => g.name + ':' + g.teams.length).join(' '));
-  ok('fewer than eight teams are not grouped', win.tStyleGroups(R, roster.slice(0, 7)) === null);
-  const block = win.tStyleBlock(R, roster, '105A');
-  ok('the block names the method and what it used', /k-means/.test(block) && /rating, how much their alliance scores swing/.test(block));
-  ok('says these are alliance results', /<strong>alliance<\/strong> results/.test(block));
-  ok('marks your own team', /class="mt-team st-team mine"[^>]*>105A</.test(block));
-  roster[3].number = '<img src=x onerror=1>';
-  ok('a team number is escaped', !/<img/.test(win.tStyleBlock(R, roster, '')));
-  ok('starting points are chosen, not random', !/Math\.random/.test(idx.slice(idx.indexOf('function tStyleCluster'), idx.indexOf('function tStyleBlock'))));
-}
+// ══ 3. Play styles: removed in v90, on request ════════════════════════════
+console.log('\n· play styles are gone');
+ok('no play-style code or markup is left', !/tStyle|st-group|Play styles at this event|Play style'/.test(idx));
 
 // ══ 4. On the page ═════════════════════════════════════════════════════════
 console.log('\n· on the page');
@@ -179,7 +150,7 @@ console.log('\n· on the page');
   b.win.close();
   FIXTURES.wideRoster = null; FIXTURES.playedThrough = undefined;
 }
-ok('the version is v89 in all three files', /const APP_BUILD = 'v89';/.test(idx) && /PROXY_BUILD = 'v89'/.test(fs.readFileSync('../api/proxy.js', 'utf8')) && /'vex-scout-v89'/.test(fs.readFileSync('../sw.js', 'utf8')));
+ok('the three files carry one version', (v => new RegExp(`PROXY_BUILD = '${v}'`).test(fs.readFileSync('../api/proxy.js', 'utf8')) && new RegExp(`'vex-scout-${v}'`).test(fs.readFileSync('../sw.js', 'utf8')))((idx.match(/const APP_BUILD = '(v\d+)'/) || [])[1]));
 
 win.close();
 console.log(`\nt111: ${pass} passed, ${fail} failed`);
