@@ -2474,7 +2474,9 @@
   .vt-stage { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; margin-bottom: 10px; }
   .vt-players { display: grid; grid-template-columns: 1fr 1fr; gap: 0; background: #000; border-radius: var(--r-md); overflow: hidden; }
   .vt-players.vt-p1 { grid-template-columns: 1fr; }
-  .vt-player { aspect-ratio: 16 / 9; background: #000; overflow: hidden; }
+  .vt-player { aspect-ratio: 16 / 9; background: #000; overflow: hidden; position: relative; }
+  .vt-player.vt-idle::after { content: 'Waiting for a match with video'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: #0c0c0c; color: var(--text-muted); font-family: var(--body); font-size: 13px; text-align: center; padding: 8px; }
   .vt-player iframe { width: 100%; height: 100%; border: 0; display: block; }
   .vt-seen canvas { width: 100%; height: auto; display: block; background: #000; border-radius: var(--r-md); }
   .vt-cap { font-family: var(--body); font-size: 13px; color: var(--text-muted); margin-top: 6px; }
@@ -3614,7 +3616,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v95';
+const APP_BUILD = 'v96';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -8157,32 +8159,35 @@ async function vtFeedHistory(run, eventId) {
     while (!run.stop && run.queue.length > 3 * run.slots.length) await vtSleep(1000);
     run.eventAt = (run.eventAt || 0) + 1;
     run.eventName = e.name || 'an earlier event';
+    run.phase = 'looking for its stream';
+    vtProgress(run);
     try {
       // The Jumper itself works out where each match is in the stream. It is
       // driven here exactly as a person would, one event at a time.
       window._rwCtx = { team: null, events: [{ id: e.id, name: e.name, sku: e.sku, start: e.start, location: e.location }],
         eventId: null, matches: [], videoId: null, cal: {}, calDay: null };
+      // This resolves only AFTER the Jumper has looked for the event's stream
+      // and tried to sync each day to it, so what it leaves is the answer.
+      // v93 then waited another 45 seconds for a video that was never coming,
+      // which with seventeen events was a quarter of an hour of black players.
       await rewatchSelectEvent(e.id);
-      let found = [];
-      vtMeter(run);
-      if (!run.done && !run.slots.some(sl => sl.now)) vtSay(`${plan.want.size} teams, ${plan.events.length} earlier events. Event ${run.eventAt}: ${run.eventName} — finding its video…`);
-      for (let i = 0; i < 90 && !run.stop; i++) {            // stream discovery finishes in its own time (up to 45 s)
-        const c = window._rwCtx;
-        if (!c || String(c.eventId) !== String(e.id)) break;
-        found = vtQueueFrom(c);
-        if (found.length) break;
-        await vtSleep(500);
-      }
-      if (!found.length) { run.noVideo++; continue; }
+      const c = window._rwCtx;
+      const found = c && String(c.eventId) === String(e.id) ? vtQueueFrom(c) : [];
+      if (!found.length) { run.noVideo++; run.noVideoNames.push(run.eventName); run.phase = 'no stream found, skipped'; vtProgress(run); continue; }
       const ev = String(e.id);
       const [local, shared] = await Promise.all([vtLocalIndex(ev), vtSharedIds(ev)]);
+      let added = 0;
       for (const m of found) {
         if (!m.red.concat(m.blue).some(n => plan.want.has(n))) continue;
         if ((local[m.id] && local[m.id].s === 'done') || shared.includes(m.id)) run.skipped++;
-        else { m.ev = ev; run.queue.push(m); run.total++; }
+        else { m.ev = ev; run.queue.push(m); run.total++; added++; }
       }
-    } catch (err) { run.noVideo++; }
+      run.withVideo++;
+      run.phase = added ? `${added} matches to watch` : 'already tracked';
+      vtProgress(run);
+    } catch (err) { run.noVideo++; run.noVideoNames.push(run.eventName); }
   }
+  run.phase = 'all events looked up';
 }
 function vtAskShare() {
   return navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 15, displaySurface: 'browser' }, audio: false,
@@ -8225,7 +8230,7 @@ async function vtStart(mode, granted) {
   }
   const P = vtParallel();
   const run = vtRun = { stream, stop: false, done: 0, saved: 0, skipped: 0, empty: 0, failed: 0, noVideo: 0, total: 0,
-    queue: [], feeding: true, slots: [], cleanup: [], mode };
+    queue: [], feeding: true, slots: [], cleanup: [], mode, withVideo: 0, noVideoNames: [] };
   if (ctx.playAll) rwPlayAllStop();
   panel.innerHTML = `<div class="rw-block vt-block">
     <div class="rw-day-head"><div class="detail-block-label" style="margin:0;">Robot tracker · running</div>
@@ -8234,7 +8239,7 @@ async function vtStart(mode, granted) {
     <div class="vt-bar"><div class="vt-bar-fill" id="vtBar"></div></div>
     <div class="vt-sub" id="vtSub">It stops by itself when everything is watched. To stop sooner, press Stop tracking; what is already tracked is kept.</div>
     <div class="vt-stage">
-      <div class="vt-players vt-p${P}" id="vtPlayers">${Array.from({ length: P }, (_, i) => `<div class="vt-player" id="vtTile${i}"><div id="vtPlayerInner${i}"></div></div>`).join('')}</div>
+      <div class="vt-players vt-p${P}" id="vtPlayers">${Array.from({ length: P }, (_, i) => `<div class="vt-player vt-idle" id="vtTile${i}"><div id="vtPlayerInner${i}"></div></div>`).join('')}</div>
       <div class="vt-seen"><canvas id="vtSeen" width="640" height="360"></canvas><div class="vt-cap">What the tracker sees</div></div>
     </div>
     <div class="rw-hint">Watching ${P} match${P === 1 ? '' : 'es'} at a time, each at ${VT_RATE}×. Leave this tab open and on screen, on the Jumper. You can use other windows; the computer is kept awake while this runs. Already-tracked matches are skipped, so stopping and starting again loses nothing.</div>
@@ -8295,12 +8300,13 @@ function vtMeter(run) {
   const sub = document.getElementById('vtSub');
   const spent = run.t0 ? Date.now() - run.t0 : 0;
   const leftMs = frac > 0.03 && spent > 120000 ? spent * (1 - frac) / frac : 0;
-  if (sub) sub.textContent = `${run.saved} tracked and saved${spent ? ' · running ' + vtElapsed(spent) : ''}${leftMs ? ' · roughly ' + vtElapsed(leftMs) + ' left' : ''}. It stops by itself when everything is watched; press Stop tracking to stop sooner. What is already tracked is kept.`;
+  const evs = run.mode === 'history' && (run.withVideo || run.noVideo) ? ` · earlier events with video: ${run.withVideo}, without: ${run.noVideo}` : '';
+  if (sub) sub.textContent = `${run.saved} tracked and saved${evs}${spent ? ' · running ' + vtElapsed(spent) : ''}${leftMs ? ' · roughly ' + vtElapsed(leftMs) + ' left' : ''}. It stops by itself when everything is watched; press Stop tracking to stop sooner. What is already tracked is kept.`;
   document.title = `${Math.round(frac * 100)}% tracking · ${VT_TITLE}`;
 }
 function vtProgress(run) {
   vtMeter(run);
-  const where = run.mode === 'history' && run.events ? ` · event ${run.eventAt || 0} of ${run.events}: ${run.eventName || ''}` : '';
+  const where = run.mode === 'history' && run.events ? ` · event ${run.eventAt || 0} of ${run.events}: ${run.eventName || ''}${run.phase ? ' — ' + run.phase : ''}` : '';
   const live = run.slots.filter(s => s.now).map(s => `${s.now.name} (${s.now.boxes})`).join(' · ');
   const perHour = run.t0 && run.done ? Math.round(run.done / ((Date.now() - run.t0) / 3600000)) : 0;
   vtSay(`${run.done} of ${run.total} matches done${where}${perHour ? ` · about ${perHour} an hour` : ''}${live ? ' · now: ' + live : ''}`);
@@ -8309,6 +8315,8 @@ async function vtWatch(run, slot, m) {
   if (!run.t0) run.t0 = Date.now();
   slot.playerError = null;
   slot.now = { name: m.name, boxes: 0 };
+  const tileEl = document.getElementById('vtTile' + slot.i);
+  if (tileEl) tileEl.classList.remove('vt-idle');
   const player = slot.player, video = run.video, sq = slot.sq;
   const start = Math.max(0, m.off - VT_LEAD), end = start + VT_WINDOW;
   player.loadVideoById({ videoId: m.vid, startSeconds: start });
@@ -8366,6 +8374,7 @@ async function vtWatch(run, slot, m) {
   });
   try { player.pauseVideo(); } catch (e) {}
   slot.now = null;
+  if (tileEl) tileEl.classList.add('vt-idle');
   if (why === 'stopped') return;
   const st = vtRecStats(rec);
   if (why === 'video' || why === 'timeout') { run.failed++; await vtLocalSave(m.ev, m.id, null, 'failed'); return; }
@@ -8386,7 +8395,7 @@ function vtFinish(why) {
   if (run.skipped) bits.push(`${run.skipped} already done`);
   if (run.empty) bits.push(`${run.empty} with no robots in view (wrong part of the video, or not a field camera)`);
   if (run.failed) bits.push(`${run.failed} whose video would not play`);
-  if (run.noVideo) bits.push(`${run.noVideo} earlier event${run.noVideo === 1 ? '' : 's'} with no video the Jumper could find`);
+  if (run.noVideo) bits.push(`${run.noVideo} earlier event${run.noVideo === 1 ? '' : 's'} with no video the Jumper could find (${run.noVideoNames.slice(0, 4).join('; ')}${run.noVideoNames.length > 4 ? '; …' : ''})`);
   const share = run.saved ? (run.shared === 'saved' ? ' Saved to the shared storage.' : run.shared === 'no-passcode' ? ' Kept on this device only: no passcode is saved in Settings.' : ` Kept on this device; the shared storage said "${run.shared}".`) : '';
   vtRender(`${why} ${bits.join(', ')}.${share}`).then(() => {
     const panel = document.getElementById('vtPanel');
