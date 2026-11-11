@@ -12,6 +12,7 @@
 //   GET  ?status=1               → { db, passcode }   what is configured
 //   GET  ?event=ID               → { ids: [...] }     matches already tracked
 //   GET  ?event=ID&match=MID     → { rec }            one match's tracks
+//   GET  ?team=66449A            → { sums }           every tracked match of a team, summarised
 //   POST { passcode, check }     → { ok }             is this passcode right
 //   POST { passcode, ev, id, rec } → { ok }           save one match
 //
@@ -85,6 +86,32 @@ export function validRec(rec) {
   return null;
 }
 
+// A match's summary: a dozen numbers per alliance, worked out on the device
+// from the boxes. Stored once per event and once under each team in it, so a
+// team's whole season is one read.
+export function validSum(s) {
+  if (!s || typeof s !== 'object' || Array.isArray(s)) return 'not a summary';
+  if (!Number.isInteger(s.sv) || s.sv < 1 || s.sv > 99) return 'unknown version';
+  if (JSON.stringify(s).length > 4000) return 'summary too large';
+  const num = v => v === null || (typeof v === 'number' && Number.isFinite(v));
+  if (s.name != null && !(typeof s.name === 'string' && s.name.length <= 60 && /^[A-Za-z0-9 #.,()\/-]*$/.test(s.name))) return 'bad name';
+  for (const side of ['red', 'blue']) {
+    if (!Array.isArray(s[side]) || s[side].length > 4 || !s[side].every(t => typeof t === 'string' && /^[A-Z0-9]{1,10}$/.test(t))) return 'bad teams';
+  }
+  for (const k of Object.keys(s)) {
+    if (['name', 'red', 'blue'].includes(k)) continue;
+    if (k === 'R' || k === 'B') {
+      const o = s[k];
+      if (!o || typeof o !== 'object' || Array.isArray(o) || Object.keys(o).length > 24) return 'bad side';
+      for (const f of Object.keys(o)) if (!/^[a-z]{2,4}$/.test(f) || !num(o[f])) return 'bad measure';
+      continue;
+    }
+    if (!/^[a-z]{2,6}$/.test(k) || !num(s[k])) return 'bad field';
+  }
+  return null;
+}
+const teamKey = v => /^[A-Z0-9]{1,10}$/.test(String(v || '').toUpperCase()) ? String(v).toUpperCase() : null;
+
 export default async function handler(req, res) {
   const E = env();
   const hasDb = !!(E.url && E.token);
@@ -93,6 +120,16 @@ export default async function handler(req, res) {
     if (req.method === 'GET') {
       const q = req.query || {};
       if (q.status) return res.status(200).json({ db: hasDb, passcode: E.passcode.length >= MIN_PASSCODE });
+      if (q.team !== undefined) {
+        const team = teamKey(q.team);
+        if (!team) return res.status(400).json({ error: 'team must be a team number' });
+        if (!hasDb) return res.status(200).json({ db: false, sums: {} });
+        const [flat] = await redis(E, [['HGETALL', `vt:team:${team}`]]);
+        const sums = {};
+        // Upstash answers a hash as [field, value, field, value, …].
+        for (let i = 0; Array.isArray(flat) && i + 1 < flat.length; i += 2) { try { sums[String(flat[i])] = JSON.parse(flat[i + 1]); } catch (e) {} }
+        return res.status(200).json({ db: true, sums });
+      }
       const ev = digits(q.event);
       if (!ev) return res.status(400).json({ error: 'event must be a number' });
       if (!hasDb) return res.status(200).json({ db: false, ids: [] });
@@ -121,11 +158,23 @@ export default async function handler(req, res) {
       if (!hasDb) return res.status(503).json({ error: 'no database is connected' });
       const ev = digits(body.ev), id = digits(body.id);
       if (!ev || !id) return res.status(400).json({ error: 'ev and id must be numbers' });
-      const bad = validRec(body.rec);
-      if (bad) return res.status(400).json({ error: bad });
-      const text = JSON.stringify(body.rec);
-      if (text.length > MAX_REC_BYTES) return res.status(413).json({ error: 'record too large' });
-      await redis(E, [['SET', `vt:m:${ev}:${id}`, text], ['SADD', `vt:ev:${ev}`, id]]);
+      const cmds = [];
+      if (body.rec !== undefined) {
+        const bad = validRec(body.rec);
+        if (bad) return res.status(400).json({ error: bad });
+        const text = JSON.stringify(body.rec);
+        if (text.length > MAX_REC_BYTES) return res.status(413).json({ error: 'record too large' });
+        cmds.push(['SET', `vt:m:${ev}:${id}`, text], ['SADD', `vt:ev:${ev}`, id]);
+      }
+      if (body.sum !== undefined) {
+        const bad = validSum(body.sum);
+        if (bad) return res.status(400).json({ error: bad });
+        const text = JSON.stringify(body.sum);
+        cmds.push(['HSET', `vt:s:${ev}`, id, text]);
+        for (const t of body.sum.red.concat(body.sum.blue)) cmds.push(['HSET', `vt:team:${t}`, `${ev}:${id}`, text]);
+      }
+      if (!cmds.length) return res.status(400).json({ error: 'nothing to save' });
+      await redis(E, cmds);
       return res.status(200).json({ ok: true });
     }
     return res.status(405).json({ error: 'GET or POST' });

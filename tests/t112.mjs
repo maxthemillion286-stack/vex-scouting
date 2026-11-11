@@ -112,7 +112,7 @@ console.log('\n· event codes that begin VE-');
   ok('a graphics card that hangs is given up on, and not tried again', /boot\(false, VT_GPU_WAIT_MS\)/.test(idx) && /catch \(e\) \{ vtGpuBad = true; \}/.test(idx) && /boot\(true, 120000\)/.test(idx));
   ok('the graphics-card runtime is in the repo', fs.existsSync('../vendor/ort/ort.webgpu.min.js') && fs.statSync('../vendor/ort/ort-wasm-simd-threaded.asyncify.wasm').size > 5e6);
   ok('a look is not tied to the player\'s four position reports a second', /const est = apiT \+ Math\.min\(0\.6, \(performance\.now\(\) - apiAt\) \/ 1000 \* VT_RATE\);/.test(idx) && !/t === lastT/.test(idx));
-  ok('what is stored stays under the server\'s frame limit', 150 * 12 <= 2000 && /VT_MAX_LOOKS_PER_SEC = 12/.test(idx));
+  ok('what is stored stays under the server\'s frame limit', 150 * 6 <= 2000 && /VT_MAX_LOOKS_PER_SEC = 6;/.test(idx));
   ok('the preview is drawn every screen frame, not once per look', /requestAnimationFrame\(paint\)/.test(idx));
   ok('the run reports looks a second and which chip is doing them', /looks a second on the \$\{run\.backend/.test(idx));
   ok('progress shows in the tab title, and so does finishing', /tracking · \$\{VT_TITLE\}/.test(idx) && /'Tracking finished · '/.test(idx));
