@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v92**. Everything green: 66 test files. (The `v19` in §8's
+Current release: **v93**. Everything green: 66 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -2295,6 +2295,14 @@ site, watching the embedded player unattended, with results shared.
   `window._rwCtx` and the Jumper's page while it runs.
 - Every example team number shown is 66449A.
 - Still not run on real video.
+
+**v93.** Reported: Track robots on an event that has not happened "only tries
+to track the event". A schedule (and often a stream) is posted before an
+event, so unplayed matches had video "positions". `vtQueueFrom` now takes only
+played matches (`vtPlayed`); with none, the panel's one primary button is
+"Track these teams' earlier matches". The history run says how many teams and
+earlier events it found, waits up to 45 s per event for its video, and ends
+with a reason when there is nothing to do.
 
 ---
 
