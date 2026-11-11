@@ -37,7 +37,7 @@ ok('the panel is inside the container, with the others',
   idx.indexOf('id="tab-info"') < idx.indexOf('<footer class="site-foot">'));
 ok('the tab has a label for the back/forward stack', /info: 'Info'/.test(src));
 ok('and is allowed to be the remembered tab',
-  /\['scout','skills','tournament','rewatch','simulator','info'\]/.test(src));
+  /\['scout','skills','tournament','rewatch','simulator','info'[,\]]/.test(src));
 
 // ══ 2. An iframe, deliberately ═════════════════════════════════════════════
 console.log('\n· an iframe, not inline markup');

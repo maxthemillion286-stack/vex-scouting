@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v82**. Everything green: 65 test files. (The `v19` in §8's
+Current release: **v83**. Everything green: 65 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -399,6 +399,7 @@ proxy is at `api/proxy.js`.
 | t103 | **The week before an event** — §19 |
 | t104 | **v81** — round trips, the phone layout, favorites (incl. a poisoned list), and form at an event — §21 |
 | t105 | **v82** — suggestions, live picks, last match, swipe, pull to refresh, automatic offline, the softer look — §22 |
+| t106 | **v83** — Settings, my team, the version badge, season-wide suggestions, active/inactive, the Jumper's shift and late-match estimate, row alignment, the computer layout — §23 |
 | sanity | CSS braces balance, inline JS parses, tabs present |
 | tool_sanity | Same for anchor-tool.html |
 
@@ -1965,7 +1966,93 @@ Sources read for the look:
 
 ---
 
-## 23. Feature ideas
+## 23. v83 — Settings, the computer, and a Jumper that can be corrected
+
+### Settings, my team, the badge
+
+- **A Settings tab.** My team, the colour themes (moved out of the header —
+  `#themeDropdown` is now a grid on that tab, same ids, same `applyTheme`), and
+  About. On a phone Settings takes Info's cell in the bar, so the bar stays
+  seven wide; Info is one tap from Settings.
+- **My team** (`vex_my_team`). It fills team boxes that are EMPTY at boot, sits
+  first on Favorites starred or not (`vsFavList`), and is one click from the
+  rail on a computer. Narrowed with `teamAttr` on the way out. No default.
+- **The badge** is the version and `Live` / `Offline` (`setBadge`). It was
+  "CONNECTED".
+
+### Suggestions: any team, and whether it still competes
+
+- "Automatic, not just for match day": `vsSuggestSeasonTeams` reads the season
+  skills boards the app already keeps, so `305` finds `3050X` with no event
+  open and nothing looked up. Bounded at 2.5s so a slow board cannot hold up
+  the letters.
+- **Active / Inactive** on each chip, from RobotEvents' `registered` flag (or
+  presence on this season's skills board). Inactive letters sort last.
+
+### The Jumper
+
+Reported as: *"a way to shift the time forward if it's off by a few minutes —
+that current feature doesn't work."* It did not, on the days that matter:
+
+- on a **multi-segment day** each match resolves to a segment with a synthetic
+  anchor (§4), so the anchors the buttons edited were never read;
+- an anchor at 0:00 is clamped, so "earlier" was swallowed;
+- a re-sync replaced the anchors and the shift with them.
+
+**The shift is now its own number per day** (`ctx.shift`, `vex_rw_shift`),
+applied in `rwOffsetFor` AFTER `rwOffsetRaw` has worked the position out. It
+cannot be skipped by a path that resolves the video differently. The bar is six
+buttons (±10s, ±1 min, ±5 min), a "Moved 1:10 later" readout and Undo. RESET
+clears it with the stream. **Do not go back to editing anchors.**
+
+**Late-running events** (`rwApplySlip`). A match with only a scheduled time was
+the least accurate jump. It now borrows the slip (started − scheduled) of the
+nearest match in the schedule that has both, same day, within 90 minutes. It
+stays `exact: false` and the `~` tooltip says it is an estimate.
+
+**Not changed: how a stream is FOUND** (§3). That needs a real event where it
+failed — the name or SKU — because every rule in "Matching a video to an
+event" came from one, and loosening them blind risks the worse failure: the
+wrong video, silently.
+
+### Rows line up
+
+Five screenshots of the search rows showed labels, fields and buttons on
+slightly different lines. Every control in a `.controls-row` is now 46px and
+sits on the row's bottom edge; labels are in flow above their own field (t43's
+mechanism, kept). Measured in Chromium: one height, one bottom edge and one
+label line per row, on every tab.
+
+### The computer (≥ 900px)
+
+Asked for as a revamp "following how to not make a website look like AI". The
+old desktop was a centred column under a logo-and-tagline header, tracked
+ALL-CAPS tabs, and a tiny tracked mono label over everything.
+
+- **A rail on the left**: name, tabs as a plain list with icons, my team, the
+  version. Dimmer than the page.
+- **The page is left-aligned and starts with its own name** as a 30px heading
+  (`.section-label`). Field labels are sentence case in the reading face.
+- No tagline, no gradient wash, nothing under 12px.
+- Sentence case is done in CSS (`lowercase` + `::first-letter`), because the
+  markup's capitals are matched by tests. That lowercases everything, so a
+  label containing an initialism carries `.keep-case` (VEX, SKU) and the
+  event's team view button is excluded.
+
+**§"Chrome" said the typefaces were not fair game. This pass changed which of
+the three a LABEL uses on a computer** (mono → body), because the owner asked
+for the revamp. The three families are unchanged, and t106 asserts no fourth
+appears. Buttons stay uppercase Oswald on purpose.
+
+More sources read for this pass:
+[Impeccable, anti-patterns](https://www.mintlify.com/pbakaus/impeccable/concepts/anti-patterns) ·
+[Linear, behind the design refresh](https://linear.app/blog/behind-the-latest-design-refresh) ·
+[Carbon, writing style](https://carbondesignsystem.com/guidelines/content/writing-style) ·
+[DEV, breaking the AI-generated UI curse](https://dev.to/a_shokn/how-to-break-the-ai-generated-ui-curse-your-guide-to-authentic-professional-design-2en)
+
+---
+
+## 24. Feature ideas
 
 `IDEAS.md` holds the list of things worth building next, with what each one
 would cost against what already exists. It also records three things **not** to
