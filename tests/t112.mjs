@@ -41,7 +41,7 @@ console.log('\n· the finder\'s arithmetic');
   const fr = win.vtPackFrame(12.34, [[600, 330, 80, 60, 0.9, 1]], 1280);
   ok('a frame is stored as integers at a 640-wide scale', JSON.stringify(fr) === '[123,1,300,165,40,30,90,1]', JSON.stringify(fr));
   ok('stats count frames that had a robot', (() => { const s = win.vtRecStats({ f: [[0, 0], [1, 2, 1, 1, 1, 1, 90, 1, 2, 2, 2, 2, 80, 2]] }); return s.frames === 2 && s.withRobot === 1 && s.perFrame === 2; })());
-  ok('the finder runs in its own worker, one per match watched', /new Worker\('\/vendor\/vt-worker\.js'\)/.test(idx) && fs.existsSync('../vendor/vt-worker.js') && /numThreads = 1/.test(fs.readFileSync('../vendor/vt-worker.js', 'utf8')));
+  ok('the finder runs in its own worker, one per match watched', /new Worker\('\/vendor\/vt-worker\.js' \+ \(cpu \? '\?cpu' : ''\)\)/.test(idx) && fs.existsSync('../vendor/vt-worker.js') && /numThreads = 1/.test(fs.readFileSync('../vendor/vt-worker.js', 'utf8')));
 }
 
 console.log('\n· what gets watched');
@@ -106,6 +106,15 @@ console.log('\n· event codes that begin VE-');
   ok('an idle player says it is waiting, instead of sitting black', /\.vt-player\.vt-idle::after \{ content: 'Waiting for a match with video'/.test(idx));
   ok('players get the full width and are never under 200px, where YouTube will not play', /\.vt-stage \{ display: grid; grid-template-columns: 1fr;/.test(idx) && /\.vt-player \{ min-width: 200px; min-height: 200px; \}/.test(idx));
   ok('a player that is not playing says why, and is reloaded if pushing does not help', /'ready, not playing'/.test(idx) && /if \(pushes % 3 === 0\) \{ player\.loadVideoById/.test(idx));
+  // v98: looks a second.
+  const wk = fs.readFileSync('../vendor/vt-worker.js', 'utf8');
+  ok('the finder tries the graphics card and proves it on a real run first', /ort\.webgpu\.min\.js', \['webgpu'\]/.test(wk) && /One real run before it is trusted/.test(wk) && /ort\.wasm\.min\.js', \['wasm'\]/.test(wk));
+  ok('a graphics card that hangs is given up on, and not tried again', /boot\(false, VT_GPU_WAIT_MS\)/.test(idx) && /catch \(e\) \{ vtGpuBad = true; \}/.test(idx) && /boot\(true, 120000\)/.test(idx));
+  ok('the graphics-card runtime is in the repo', fs.existsSync('../vendor/ort/ort.webgpu.min.js') && fs.statSync('../vendor/ort/ort-wasm-simd-threaded.asyncify.wasm').size > 5e6);
+  ok('a look is not tied to the player\'s four position reports a second', /const est = apiT \+ Math\.min\(0\.6, \(performance\.now\(\) - apiAt\) \/ 1000 \* VT_RATE\);/.test(idx) && !/t === lastT/.test(idx));
+  ok('what is stored stays under the server\'s frame limit', 150 * 12 <= 2000 && /VT_MAX_LOOKS_PER_SEC = 12/.test(idx));
+  ok('the preview is drawn every screen frame, not once per look', /requestAnimationFrame\(paint\)/.test(idx));
+  ok('the run reports looks a second and which chip is doing them', /looks a second on the \$\{run\.backend/.test(idx));
   ok('progress shows in the tab title, and so does finishing', /tracking · \$\{VT_TITLE\}/.test(idx) && /'Tracking finished · '/.test(idx));
 }
 
