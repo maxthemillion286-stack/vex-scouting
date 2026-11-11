@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v98**. Everything green: 66 test files. (The `v19` in §8's
+Current release: **v99**. Everything green: 66 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -406,6 +406,7 @@ proxy is at `api/proxy.js`.
 | t110 | **v87** — comparing teams; every match of a team's in the Jumper — §27 |
 | t111 | **v89** — win chances checked against results; season in the rating; play-style groups — §28 |
 | t112 | **v91** — robot tracker stage 1: finder maths, queue, shared storage and passcode — §29 |
+| t113 | **v99** — robot report: match summaries, team report, summary storage, browser Back — §30 |
 | sanity | CSS braces balance, inline JS parses, tabs present |
 | tool_sanity | Same for anchor-tool.html |
 
@@ -2361,7 +2362,45 @@ keeps a 150 s match under the server's 2,000-frame limit.
 
 ---
 
-## 30. Feature ideas
+## 30. v99 — robot tracker stage 2: the robot report
+
+Asked for as: "make it tell me what they're good at, their auto, their
+strategy if they repeatedly do something and how they lose".
+
+- `vtSummarise(rec)` turns one match's stored boxes into a SUMMARY: per
+  alliance, robots that moved in autonomous (`am`), how far (`ap`), how far up
+  the field (`ar`), driver speed (`act`), share of driver in the other half
+  (`opp`), next to an opponent there (`prs`) or at home (`prd`), longest
+  mid-match stop (`stp`), stationary at the end (`es`), partners' distance
+  (`apt`), both in view (`vis`). Pipeline: `vtFrames` (box bottom-centre,
+  normalised to the area robots used) → `vtSlots` (two slots per colour, least
+  movement) → `vtBin` (one position per robot per second; **all measures come
+  from these, because box jitter otherwise reads as distance**) → `vtPhases`
+  (start and driver start from movement after three still seconds).
+- `vtReport(team, sums)` needs three matches. Good at = better than the
+  alliances it faced by a margin; habits = the same thing in 70% of matches;
+  when it loses = the largest differences between its losses and wins (two of
+  each needed); plus what to do with it. Every line carries its counts.
+- **Limits, stated on the page:** alliance-level (a box has a colour, not a
+  team number); no camera calibration; no scoring. **Built with no real
+  recording available**: thresholds are guesses checked only on hand-drawn
+  matches (t113). Bump `VT_SUM_V` when the arithmetic changes; `vtBackfill`
+  recomputes summaries from stored boxes, nothing is re-watched.
+- Storage: summaries in IndexedDB (`vt:sums`) and, with the passcode, in
+  Redis as `vt:s:{event}` and `vt:team:{number}` hashes. `GET ?team=` returns
+  a team's whole set in one read. `validSum` checks shape server-side.
+- Shown on the Scout team page (`#vtReport`). Not yet in the next-match card
+  or the win chances.
+- Stored looks are capped at 6 per match-second (was 12) to keep records small.
+
+**Routing.** Each place visited is now a browser history entry (`history
+.pushState({vs: key})`); `popstate` walks the app's own `vsNav` list, so the
+browser's Back/Forward and a phone's swipe-back move within the site. A
+tracker run mutes `vsNavPush` so its event-hopping is not recorded.
+
+---
+
+## 31. Feature ideas
 
 `IDEAS.md` holds the list of things worth building next, with what each one
 would cost against what already exists. It also records three things **not** to
