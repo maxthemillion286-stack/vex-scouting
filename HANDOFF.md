@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v94**. Everything green: 66 test files. (The `v19` in §8's
+Current release: **v95**. Everything green: 66 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -2311,6 +2311,13 @@ them over have codes beginning VE-. Four places tested "starts with RE-"
 route); all now accept any two letters (`VS_SKU_RE`). `vtOpenEvent` takes the
 event's ID and loads the Jumper directly instead of searching for the code.
 **Never identify an event by the shape of its code when its ID is in hand.**
+
+**v95 — one click.** `vtAuto(eventId)` is what Track robots calls: the share
+prompt is requested first (it must come from the click), the event is opened
+in the Jumper meanwhile, and the mode is chosen without asking — this event's
+matches if any are played and have video, else its teams' earlier matches. A
+run now shows a Stop tracking button, a progress bar, time running and a rough
+time left, and puts progress and "Tracking finished" in the tab title.
 
 ---
 

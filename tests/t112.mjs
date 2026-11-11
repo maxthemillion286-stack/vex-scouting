@@ -94,7 +94,14 @@ console.log('\n· event codes that begin VE-');
   ok('a VE- code is a code, not a name to search for', win.eval('VS_SKU_RE').test('VE-V5-26-65786') && win.eval('VS_SKU_RE').test('RE-V5RC-25-0191') && !win.eval('VS_SKU_RE').test('Excalibur Robotics'));
   ok('and links to its event page', /VE-V5-26-65786\.html$/.test(win.reEventUrl('ve-v5-26-65786')));
   ok('no check is left that insists on RE-', !/\/\^RE-/.test(idx) && !/\/\^RE-/.test(fs.readFileSync('../api/proxy.js', 'utf8')));
-  ok('Track robots goes by the event\'s id, not by searching for its code', /onclick="vtOpenEvent\('\$\{teamAttr\(tournamentEventId\)\}'\)"/.test(idx) && /await rewatchSelectEvent\(Number\(id\)\);/.test(idx));
+  ok('Track robots goes by the event\'s id, not by searching for its code', /onclick="vtAuto\('\$\{teamAttr\(tournamentEventId\)\}'\)"/.test(idx) && /await rewatchSelectEvent\(Number\(id\)\);/.test(idx));
+  // v95: one click, allow the share, and it goes.
+  const auto = idx.slice(idx.indexOf('async function vtAuto'), idx.indexOf('async function vtStart'));
+  ok('the share is asked for before anything slow', auto.indexOf('const asking = vtAskShare()') > 0 && auto.indexOf('const asking = vtAskShare()') < auto.indexOf('const opening = vtOpenEvent(eventId)'));
+  ok('it picks this event\'s matches or the teams\' earlier ones by itself', /let mode = 'history';/.test(auto) && /mode = 'here';/.test(auto) && /await vtStart\(mode, stream\);/.test(auto));
+  ok('a share that is not used is let go', /if \(granted\) granted\.getTracks\(\)\.forEach\(t => t\.stop\(\)\)/.test(idx));
+  ok('a run has a clear Stop, a progress bar and says it ends by itself', /class="btn btn-primary vt-stop" onclick="vtStop\(\)">Stop tracking</.test(idx) && /id="vtBar"/.test(idx) && /It stops by itself when everything is watched/.test(idx));
+  ok('progress shows in the tab title, and so does finishing', /tracking · \$\{VT_TITLE\}/.test(idx) && /'Tracking finished · '/.test(idx));
 }
 
 console.log('\n· shared storage and the passcode');
