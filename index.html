@@ -3501,7 +3501,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v83';
+const APP_BUILD = 'v84';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -6868,7 +6868,7 @@ function tTakenReset() {
   renderTournamentPickList();
 }
 // cands: [{ t, win }] best first, every team but the focused one.
-function tLivePickBlock(focus, cands, partnerForm) {
+function tLivePickBlock(focus, cands, partnerForm, apRate, apUsed) {
   const taken = new Set(vsTaken(tournamentEventId));
   const open = cands.filter(c => !taken.has(String(c.t.number).toUpperCase()));
   const gone = cands.filter(c => taken.has(String(c.t.number).toUpperCase()));
@@ -6878,7 +6878,7 @@ function tLivePickBlock(focus, cands, partnerForm) {
     return `<div class="lp-row${i === 0 ? ' best' : ''}">
       <div class="lp-main">
         <div class="lp-top"><span class="mt-team" onclick="scoutTeam('${n}')">${esc(c.t.number)}</span><span class="lp-win">${c.win.toFixed(0)}%</span></div>
-        <div class="lp-meta">${i === 0 ? 'Best still available. ' : ''}Seed ${esc(c.t.eventRank)}, ${esc(c.t.wins)}–${esc(c.t.losses)}${c.t.ties ? '–' + esc(c.t.ties) : ''}${f && f.trend && f.trend !== 'steady' ? ', ' + T_FORM_LABEL[f.trend].toLowerCase() : ''}</div>
+        <div class="lp-meta">${i === 0 ? 'Best still available. ' : ''}Seed ${esc(c.t.eventRank)}, ${esc(c.t.wins)}–${esc(c.t.losses)}${c.t.ties ? '–' + esc(c.t.ties) : ''}${f && f.trend && f.trend !== 'steady' ? ', ' + T_FORM_LABEL[f.trend].toLowerCase() : ''}${apRate && apRate.has(String(c.t.id)) ? ', ' + apRate.get(String(c.t.id)).toFixed(1) + ' AP a match' : ''}</div>
       </div>
       <button class="lp-take" onclick="tTakenToggle('${n}')" aria-label="Mark ${n} as taken">Taken</button>
     </div>`;
@@ -6888,7 +6888,7 @@ function tLivePickBlock(focus, cands, partnerForm) {
     <div class="lp-list">${open.slice(0, 12).map(row).join('') || '<div class="lp-help">Every team is marked taken.</div>'}</div>
     ${gone.length ? `<div class="lp-gone"><span>Taken (tap to undo):</span>${gone.map(c =>
       `<button class="lp-undo" onclick="tTakenToggle('${teamAttr(c.t.number)}')">${esc(c.t.number)}</button>`).join('')}<button class="lp-undo lp-reset" onclick="tTakenReset()">Clear all</button></div>` : ''}
-    <div class="sim-caveat">Win % is this pairing against an average alliance at this event, over 6,000 simulated matches. It is a ranking device, not a forecast.</div>`;
+    <div class="sim-caveat">Win % is this pairing against an average alliance at this event, over 6,000 simulated matches. It is a ranking device, not a forecast.${apUsed ? ' Ratings include a small adjustment for autonomous points (AP) per match: a team whose alliances keep winning autonomous is rated a little higher than its scores alone would put it.' : ''}</div>`;
 }
 
 // ── An opponent's last match, one tap from your next one ───────────────────
@@ -10809,7 +10809,7 @@ async function renderTournamentPickList() {
         .filter(t => t.id !== you.id)
         .map(t => ({ t, win: pairWin(you, t) }))
         .sort((a, b) => b.win - a.win);
-      if (cands.length) html += tLivePickBlock(focus, cands, partnerForm);
+      if (cands.length) html += tLivePickBlock(focus, cands, partnerForm, R.apRate, R.apUsed);
     }
   }
 
@@ -12944,6 +12944,9 @@ async function sim_buildRatingsFromEventUncached(event, setStatus) {
 
   const allMatches = [];
   if (setStatus) setStatus(`LOADING MATCHES ACROSS ${divisions.length} DIVISION${divisions.length > 1 ? 'S' : ''}...`);
+  // Rankings ride along for their AP column (see sim_applyAP). Asked for now so
+  // they share the wait with the matches; the Tournament views want them anyway.
+  const rankLists = divisions.map(div => tDivRankings(event.id, div.id).catch(() => []));
   const divLists = await sim_pool(divisions, async div => {
     try {
       const divMatches = await tDivMatches(event.id, div.id);
@@ -12986,10 +12989,75 @@ async function sim_buildRatingsFromEventUncached(event, setStatus) {
   }
 
   const { ratings, matchCount } = sim_computeOPR(observations, 0.5);
+  // Spread around the score-only rating, measured BEFORE the AP adjustment: the
+  // residuals are about how well scores are explained, and AP is not a score.
   const { stdByTeam, globalStd } = sim_residualStd(observations, ratings);
+  let ap = { rate: new Map(), adj: new Map(), used: 0 };
+  try {
+    const ranks = [].concat(...(await Promise.all(rankLists)).map(l => l || []));
+    ap = sim_applyAP(ratings, ranks);
+  } catch (e) {}
   const idByNum = {};
   for (const [id, num] of Object.entries(numById)) idByNum[num.toUpperCase()] = id;
-  return { event, ratings, stdByTeam, globalStd, matchCount, matches: allMatches, numById, idByNum };
+  return { event, ratings, stdByTeam, globalStd, matchCount, matches: allMatches, numById, idByNum,
+    apRate: ap.rate, apAdj: ap.adj, apUsed: ap.used };
+}
+
+// ── Autonomous points in a team's rating (v84) ─────────────────────────────
+//
+// Asked for as: "include AP into weighing a team's capability."
+//
+// The rating above is worked out from alliance SCORES. A score cannot say who
+// on the alliance earned it, and it says nothing separate about autonomous.
+// AP — the autonomous points in the rankings table — is the one number
+// RobotEvents publishes that is about autonomous on its own.
+//
+// What it is, so nobody words it wrong (§12): AP is credited to BOTH teams on
+// the alliance that won autonomous. It is still an alliance result. But over a
+// qualification schedule of different partners, a team whose alliances keep
+// winning autonomous is the common factor.
+//
+// How it is used, and why so gently:
+//   · AP per qualification match, compared with the rest of this event (a
+//     z-score, capped at ±2) — so it works whatever a game's AP is worth;
+//   · moved toward zero for a team with few matches (played / (played + 3));
+//   · worth at most SIM_AP_WEIGHT of the spread between teams' ratings. The
+//     autonomous bonus is already inside the score, so this is a nudge that
+//     separates similar teams, not a second vote.
+// An event whose rankings carry no AP (or all the same) changes nothing.
+const SIM_AP_WEIGHT = 0.15;
+function sim_applyAP(ratings, rankRows) {
+  const rate = new Map(), adj = new Map();
+  const rows = [];
+  for (const r of (rankRows || [])) {
+    if (!r) continue;
+    const id = r.team && r.team.id != null ? String(r.team.id) : null;
+    const played = (r.wins || 0) + (r.losses || 0) + (r.ties || 0);
+    if (!id || !played || typeof r.ap !== 'number' || !Number.isFinite(r.ap)) continue;
+    const perMatch = r.ap / played;
+    // A team in two divisions' tables: keep the one with more matches behind it.
+    const seen = rows.find(x => x.id === id);
+    if (seen) { if (played > seen.played) { seen.played = played; seen.perMatch = perMatch; } continue; }
+    rows.push({ id, played, perMatch });
+  }
+  for (const x of rows) rate.set(x.id, x.perMatch);
+  if (rows.length < 4) return { rate, adj, used: 0 };
+  const mean = rows.reduce((a, x) => a + x.perMatch, 0) / rows.length;
+  const sd = Math.sqrt(rows.reduce((a, x) => a + (x.perMatch - mean) ** 2, 0) / rows.length);
+  const vals = [...ratings.values()];
+  const rMean = vals.reduce((a, b) => a + b, 0) / (vals.length || 1);
+  const rSd = Math.sqrt(vals.reduce((a, b) => a + (b - rMean) ** 2, 0) / (vals.length || 1));
+  if (!(sd > 0) || !(rSd > 0)) return { rate, adj, used: 0 };
+  let used = 0;
+  for (const x of rows) {
+    if (!ratings.has(x.id)) continue;
+    const z = Math.max(-2, Math.min(2, (x.perMatch - mean) / sd));
+    const delta = SIM_AP_WEIGHT * rSd * z * (x.played / (x.played + 3));
+    adj.set(x.id, delta);
+    ratings.set(x.id, ratings.get(x.id) + delta);
+    used++;
+  }
+  return { rate, adj, used };
 }
 
 // helper: alliance mean + std from ids
@@ -13208,7 +13276,7 @@ function md_teamBlock(id, R, profiles, roleLabel) {
   const ts = (R.ratings.get(id) || 0).toFixed(0);
   const c = md_callouts(profiles.get(id));
   return `<div class="md-opp">
-    <div class="md-opp-head">${roleLabel ? `<span class="md-partner-label">${roleLabel}</span>` : ''}<span class="md-opp-num">${esc(num)}</span><span class="md-opp-ts">TS ${ts}</span></div>
+    <div class="md-opp-head">${roleLabel ? `<span class="md-partner-label">${roleLabel}</span>` : ''}<span class="md-opp-num">${esc(num)}</span><span class="md-opp-ts">TS ${ts}</span>${R.apRate && R.apRate.has(String(id)) ? `<span class="md-opp-ts">AP ${R.apRate.get(String(id)).toFixed(1)} a match</span>` : ''}</div>
     ${c.weak.length ? `<div class="md-tags">${c.weak.map(w => `<span class="md-tag weak">▾ ${w}</span>`).join('')}</div>` : ''}
     ${c.str.length ? `<div class="md-tags">${c.str.map(s => `<span class="md-tag str">▴ ${s}</span>`).join('')}</div>` : ''}
     ${(!c.weak.length && !c.str.length) ? '<div class="md-tags"><span class="md-tag note">no read yet — few matches</span></div>' : ''}

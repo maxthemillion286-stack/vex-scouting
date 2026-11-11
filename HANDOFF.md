@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v83**. Everything green: 65 test files. (The `v19` in §8's
+Current release: **v84**. Everything green: 65 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -400,6 +400,7 @@ proxy is at `api/proxy.js`.
 | t104 | **v81** — round trips, the phone layout, favorites (incl. a poisoned list), and form at an event — §21 |
 | t105 | **v82** — suggestions, live picks, last match, swipe, pull to refresh, automatic offline, the softer look — §22 |
 | t106 | **v83** — Settings, my team, the version badge, season-wide suggestions, active/inactive, the Jumper's shift and late-match estimate, row alignment, the computer layout — §23 |
+| t107 | **v84** — autonomous points in the event rating — §24 |
 | sanity | CSS braces balance, inline JS parses, tabs present |
 | tool_sanity | Same for anchor-tool.html |
 
@@ -2052,7 +2053,34 @@ More sources read for this pass:
 
 ---
 
-## 24. Feature ideas
+## 24. v84 — AP in the rating
+
+Asked for as: *"include AP into weighing a team's capability."*
+
+`sim_applyAP` runs at the end of `sim_buildRatingsFromEventUncached`. It reads
+the AP column of the division rankings (requested alongside the matches, so no
+extra wait) and nudges each team's rating by its **AP per qualification match
+relative to the rest of the event**: a z-score capped at ±2, shrunk for teams
+with few matches, worth at most `SIM_AP_WEIGHT` (15%) of the spread between
+ratings.
+
+- **Why a nudge and not more:** the autonomous bonus is already inside the
+  alliance score the rating is built from. AP separates similar teams; it is
+  not a second vote.
+- **AP is an alliance result** credited to both teams. The pick list caveat
+  says what the adjustment is. Do not word it as one robot's autonomous.
+- **The spread (`stdByTeam`) is measured before the adjustment** — residuals
+  are about scores.
+- An event with no AP in its rankings, fewer than four ranked teams, or every
+  team on the same AP changes nothing. `R.apUsed` says how many were adjusted.
+- It is relative, so it does not need to know what a game's AP is worth.
+
+Shown as "AP 4.0 a match" beside TS on the next-match card and on each row of
+the live pick list.
+
+---
+
+## 25. Feature ideas
 
 `IDEAS.md` holds the list of things worth building next, with what each one
 would cost against what already exists. It also records three things **not** to
