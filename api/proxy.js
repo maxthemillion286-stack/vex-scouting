@@ -18,7 +18,7 @@ export const config = { maxDuration: 60 };
 // Bumped whenever the streams lookup changes. Surfaced in `diag` and in every
 // streams response so the debug page can prove WHICH proxy is actually live —
 // a stale cached reply is otherwise indistinguishable from a fresh failure.
-const PROXY_BUILD = 'v93';
+const PROXY_BUILD = 'v94';
 // A failed stream lookup is expensive (page race + a YouTube search), and the
 // answer rarely changes within a session. Cache the miss too, or every revisit
 // pays the full cost again.
@@ -980,7 +980,8 @@ async function handleRequest(req, res) {
     // Deliberately regex rather than a DOM parser: it needs no dependency and
     // the page's markup changes more often than URL formats do.
     const sku = path.slice(8).toUpperCase();
-    if (!/^RE-[A-Z0-9-]{3,40}$/.test(sku)) {
+    // RE- (RobotEvents) or, for events made since VEX took them over, VE-.
+    if (!/^[A-Z]{2}-[A-Z0-9-]{3,40}$/.test(sku)) {
       return res.status(400).json({ ok: false, reason: 'bad-sku' });
     }
     // The event's date window, passed by the client (which already has the

@@ -89,6 +89,14 @@ console.log('\n· what gets watched');
   ok('neither is fetched until Start', !/<script[^>]+vendor\/ort/.test(idx));
 }
 
+console.log('\n· event codes that begin VE-');
+{
+  ok('a VE- code is a code, not a name to search for', win.eval('VS_SKU_RE').test('VE-V5-26-65786') && win.eval('VS_SKU_RE').test('RE-V5RC-25-0191') && !win.eval('VS_SKU_RE').test('Excalibur Robotics'));
+  ok('and links to its event page', /VE-V5-26-65786\.html$/.test(win.reEventUrl('ve-v5-26-65786')));
+  ok('no check is left that insists on RE-', !/\/\^RE-/.test(idx) && !/\/\^RE-/.test(fs.readFileSync('../api/proxy.js', 'utf8')));
+  ok('Track robots goes by the event\'s id, not by searching for its code', /onclick="vtOpenEvent\('\$\{teamAttr\(tournamentEventId\)\}'\)"/.test(idx) && /await rewatchSelectEvent\(Number\(id\)\);/.test(idx));
+}
+
 console.log('\n· shared storage and the passcode');
 {
   const mod = await import('../api/tracker.js');
