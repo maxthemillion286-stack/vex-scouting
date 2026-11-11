@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v85**. Everything green: 65 test files. (The `v19` in §8's
+Current release: **v86**. Everything green: 65 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -402,6 +402,7 @@ proxy is at `api/proxy.js`.
 | t106 | **v83** — Settings, my team, the version badge, season-wide suggestions, active/inactive, the Jumper's shift and late-match estimate, row alignment, the computer layout — §23 |
 | t107 | **v84** — autonomous points in the event rating — §24 |
 | t108 | **v85** — what you need to move up, the season line, the My team page, play all — §25 |
+| t109 | **v86** — last time's answer painted at once; asking ahead of the tap — §26 |
 | sanity | CSS braces balance, inline JS parses, tabs present |
 | tool_sanity | Same for anchor-tool.html |
 
@@ -2108,7 +2109,48 @@ the live pick list.
 
 ---
 
-## 26. Feature ideas
+## 26. v86 — a speed pass, measured first
+
+Asked for as: *"just try to speed things up where you can and optimize it."*
+
+**What was measured, and found already fine** — so nobody repeats it:
+with the network free and the CPU throttled 4×, every view at a 40-team event
+rendered in under 150ms with at most one long task. The page is 719KB raw,
+about 200KB gzipped. Fonts load without blocking. The proxy already sets
+`s-maxage`. There was no rendering or parsing problem to fix.
+
+**What was left was waiting on requests**, in two places:
+
+- **`vex_snap` — last time's answer, at once.** A Favorites card and the My
+  team page showed "Loading…" for three requests. They now paint the name,
+  event and rank they showed last time immediately, marked "as of 5 min ago",
+  and the fresh answer replaces it. If the refresh fails, the old answer
+  stays — in a gym with no signal that beats a spinner. A remembered rank is
+  only shown for the event it was for (`rankEv`). Everything is escaped on the
+  way out; t109 boots with a poisoned snapshot.
+- **`apiWarm` — asking ahead of the tap.** The first Favorites card's event,
+  and My team's, is the likeliest next page, so its matches and rankings are
+  requested when the card draws (on idle). `apiGet` answers the tap from that
+  request. **This is not a cache of the live half**: each answer is used once
+  and is discarded after a minute, one event at a time. `API_FRESH_RULES`
+  still must not contain matches or rankings.
+- The Jumper preconnects to the video host when its tab opens.
+
+Measured with 300ms per request, phone width, a team's card then SCHEDULE:
+
+| | v85 | v86 |
+| --- | --- | --- |
+| rank on the card, first visit | 546ms | 553ms |
+| rank on the card, later visits | 546ms | **25ms** |
+| SCHEDULE tap → the page | 400ms, 4 requests | **90ms, 0 requests** |
+
+**Not done:** minifying `index.html` (comments are a large share of it) would
+cut the download, but there is no build step and adding one changes how this
+deploys. Worth doing only deliberately.
+
+---
+
+## 27. Feature ideas
 
 `IDEAS.md` holds the list of things worth building next, with what each one
 would cost against what already exists. It also records three things **not** to
