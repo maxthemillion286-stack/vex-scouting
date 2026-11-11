@@ -2402,6 +2402,7 @@
   .ptr.pulling { transition: none; }
   .ptr.show { opacity: 1; }
   @media (prefers-reduced-motion: reduce) { .ptr { transition: none; } }
+  .fav-asof { margin-left: 10px; font-family: var(--body); }
   .fav-saved { font-family: var(--body); font-size: 13px; line-height: 1.5; color: var(--text-muted); margin-top: 2px; }
   .fav-add { display: flex; gap: 8px; margin-bottom: 14px; }
   .fav-add input { flex: 1; min-width: 0; }
@@ -3543,7 +3544,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v85';
+const APP_BUILD = 'v86';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -6553,6 +6554,58 @@ async function favAddFromInput() {
   } catch (e) { showError('⚠ ' + e.message); }
 }
 
+
+// ── What you saw last time, at once (v86) ──────────────────────────────────
+//
+// Opening the app on venue wifi meant a card that said "Loading…" for as long
+// as three requests took, when the answer was the same as an hour ago apart
+// from, perhaps, the rank. So the last answer is kept per team and painted
+// immediately, with how old it is; the fresh one replaces it when it lands.
+// If it never lands — no signal in the gym — the last answer is still there,
+// which is more use than a spinner.
+const VS_SNAP_KEY = 'vex_snap';
+function vsSnapAll() {
+  try { const v = JSON.parse(lsGet(VS_SNAP_KEY) || '{}'); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; }
+  catch (e) { return {}; }
+}
+function vsSnapGet(n) {
+  const s = vsSnapAll()[n];
+  return s && typeof s === 'object' ? s : null;
+}
+function vsSnapPut(n, patch) {
+  const all = vsSnapAll();
+  all[n] = { ...(all[n] || {}), ...patch, at: Date.now() };
+  const keys = Object.keys(all);
+  if (keys.length > 30) {
+    keys.sort((a, b) => (all[a].at || 0) - (all[b].at || 0));
+    for (const k of keys.slice(0, keys.length - 30)) delete all[k];
+  }
+  lsSet(VS_SNAP_KEY, JSON.stringify(all));
+}
+// The pieces of a snapshot, as markup. Everything in it was API text once, so
+// everything is escaped again on the way out.
+function vsSnapEvent(s) {
+  const ev = s && s.ev;
+  if (!ev || !ev.start) return null;
+  const w = tWhen(ev);
+  return w ? { ev, w } : null;
+}
+function vsSnapRankHtml(s) {
+  const r = s && s.rank;
+  if (!r || !r.rank || !s.ev || String(s.rankEv) !== String(s.ev.id)) return '';
+  return `<div class="fav-rank">#${esc(r.rank)} <span style="color:var(--text-muted);font-weight:400;">/ ${esc(r.total)}</span><small>${esc(r.wins || 0)}–${esc(r.losses || 0)}–${esc(r.ties || 0)}</small><small class="fav-asof">as of ${esc(vsAgo(s.at))}</small></div>`;
+}
+function favPaintSnap(n) {
+  const s = vsSnapGet(n);
+  if (!s) return false;
+  const q = sel => document.querySelector(`[${sel}="${n}"]`);
+  if (s.name && q('data-favname')) q('data-favname').textContent = s.name;
+  const e = vsSnapEvent(s);
+  if (e && q('data-favnow')) q('data-favnow').innerHTML = `<strong>${esc(e.ev.name || 'Event')}</strong><br>${esc(e.w.label)} · ${esc(e.w.dates)}`;
+  if (q('data-favrank')) q('data-favrank').innerHTML = vsSnapRankHtml(s);
+  return true;
+}
+
 const favOpenEvents = new Set();   // numbers whose event list is expanded
 let favsRenderSeq = 0;
 function favsRender() {
@@ -6592,15 +6645,23 @@ function favsRender() {
 async function favFill(n, seq) {
   const q = sel => document.querySelector(`[${sel}="${n}"]`);
   const live = () => seq === favsRenderSeq;
+  const painted = favPaintSnap(n);   // last time's answer, before anything is asked
   let team;
   try { team = await sim_resolveTeamCached(n); }
-  catch (e) { if (live() && q('data-favnow')) q('data-favnow').textContent = 'Could not load this team right now.'; return; }
+  // With last time's answer on the card, a failure leaves it there.
+  catch (e) { if (live() && !painted && q('data-favnow')) q('data-favnow').textContent = 'Could not load this team right now.'; return; }
   if (!live()) return;
   if (q('data-favname')) q('data-favname').textContent = team.team_name || '';
-  let events = [];
-  try { events = await favTeamEvents(team); } catch (e) {}
+  vsSnapPut(n, { name: team.team_name || '' });
+  let events = [], eventsOk = true;
+  try { events = await favTeamEvents(team); } catch (e) { eventsOk = false; }
   if (!live()) return;
+  // No answer and something already on the card: keep what is there.
+  if (!eventsOk && painted) return;
   const ev = favPickEvent(events);
+  if (eventsOk) vsSnapPut(n, { ev: ev ? { id: ev.id, name: ev.name || '', start: ev.start, end: ev.end } : null });
+  // The first card's event is the likeliest next tap: ask for it now.
+  if (ev && vsFavList()[0] === n) vsWarmEvent(ev, team.id);
   const nowEl = q('data-favnow');
   if (nowEl) {
     if (!ev) nowEl.textContent = 'No events this season yet.';
@@ -6630,6 +6691,7 @@ async function favFill(n, seq) {
     } catch (e) {}
   }));
   const rankEl = q('data-favrank');
+  if (best && best.r.rank) vsSnapPut(n, { rankEv: ev.id, rank: { rank: best.r.rank, total: best.total, wins: best.r.wins || 0, losses: best.r.losses || 0, ties: best.r.ties || 0 } });
   if (live() && rankEl && best && best.r.rank) {
     const r = best.r;
     rankEl.innerHTML = `<div class="fav-rank">#${esc(r.rank)} <span style="color:var(--text-muted);font-weight:400;">/ ${esc(best.total)}</span><small>${esc(r.wins || 0)}–${esc(r.losses || 0)}–${esc(r.ties || 0)}</small></div>`;
@@ -7218,18 +7280,34 @@ async function homeRender() {
     <div class="home-card" id="homeSeason"><div class="home-k">Season</div><div class="home-v">Loading…</div></div></div>
     <div id="homeChart"></div>`;
   const live = () => seq === homeSeq;
+  // Last time's answer first (v86), so the page is never just "Loading…".
+  const snap = vsSnapGet(n), snapEv = vsSnapEvent(snap);
+  if (snap && snap.name) document.getElementById('homeName').textContent = snap.name;
+  if (snapEv) {
+    document.getElementById('homeEvent').innerHTML = `<div class="home-k">${snapEv.w.state === 'now' ? 'Playing now' : snapEv.w.state === 'ahead' ? 'Next event' : 'Latest event'}</div>
+      <div class="home-v">${esc(snapEv.ev.name || 'Event')}</div>
+      <div class="home-s">${esc(snapEv.w.label)}, ${esc(snapEv.w.dates)}</div>
+      <div class="home-rank" id="homeRank">${vsSnapRankHtml(snap)}</div>
+      <div class="home-acts">
+        <button class="btn btn-primary" onclick="favOpenEvent('${n}', ${teamAttr(snapEv.ev.id)})">Open schedule</button>
+        <button class="btn btn-secondary" onclick="favGo('${n}', 'watch')">Watch matches</button>
+      </div>`;
+  }
   let team;
   try { team = await sim_resolveTeamCached(n); }
-  catch (e) { if (live()) host.innerHTML = `<div class="fav-empty">Could not load ${n} right now. Pull to refresh or try again in a moment.</div>`; return; }
+  catch (e) { if (live() && !snapEv) host.innerHTML = `<div class="fav-empty">Could not load ${n} right now. Pull to refresh or try again in a moment.</div>`; return; }
   if (!live()) return;
   document.getElementById('homeName').textContent = team.team_name || '';
 
   // The event that matters now: rank and record, and the way in.
   (async () => {
-    let events = [];
-    try { events = await favTeamEvents(team); } catch (e) {}
+    let events = [], eventsOk = true;
+    try { events = await favTeamEvents(team); } catch (e) { eventsOk = false; }
     if (!live()) return;
+    if (!eventsOk && snapEv) return;   // keep what is on screen
     const ev = favPickEvent(events);
+    if (eventsOk) vsSnapPut(n, { name: team.team_name || '', ev: ev ? { id: ev.id, name: ev.name || '', start: ev.start, end: ev.end } : null });
+    if (ev) vsWarmEvent(ev, team.id);
     const box = document.getElementById('homeEvent');
     if (!box) return;
     if (!ev) { box.innerHTML = `<div class="home-k">Event</div><div class="home-v">No events this season yet.</div>`; return; }
@@ -7255,6 +7333,7 @@ async function homeRender() {
       } catch (e) {}
     }));
     const rk = document.getElementById('homeRank');
+    if (best && best.rank) vsSnapPut(n, { rankEv: ev.id, rank: { rank: best.rank, total: best._n, wins: best.wins || 0, losses: best.losses || 0, ties: best.ties || 0 } });
     if (live() && rk && best && best.rank) {
       rk.innerHTML = `<span class="home-big">#${esc(best.rank)}</span> of ${esc(best._n)} <span class="home-rec">${esc(best.wins || 0)}–${esc(best.losses || 0)}–${esc(best.ties || 0)}</span>` +
         (w.state === 'now' ? tClimbNote(bestRows, team.id, 1) : '');
@@ -7332,6 +7411,16 @@ function rwPlayAllButton() {
   return ctx.playAll
     ? `<div class="rw-playall"><span id="rwPlayAllIn">Playing every match in order</span><button class="rw-nudge-btn" onclick="rwPlayAllStop()">Stop</button></div>`
     : `<div class="rw-playall"><button class="rw-nudge-btn" onclick="rwPlayAllStart()">▶ Play all ${rwPlayOrder().length} matches in order</button></div>`;
+}
+
+// The Jumper's player comes from another site. Opening that connection when
+// the tab is opened, rather than when ▶ is pressed, takes its handshake out of
+// the wait for the video.
+function vsPreconnect(origin) {
+  if (document.querySelector(`link[rel="preconnect"][href="${origin}"]`)) return;
+  const l = document.createElement('link');
+  l.rel = 'preconnect'; l.href = origin;
+  document.head.appendChild(l);
 }
 
 // ── STATUS BADGE ──────────────────────────────
@@ -7746,6 +7835,56 @@ async function vsEventRecord(eventId) {
   return apiGet('/events', { 'id[]': [eventId] });
 }
 
+// ── Asking ahead of the tap (v86) ──────────────────────────────────────────
+//
+// The page you are most likely to open next is known before you open it: on
+// Favorites and on My team it is that team's event. Its matches and rankings
+// are the live half and are never cached (see apiFresh) — but they can be
+// REQUESTED early, so the answer is already on its way when the tap comes.
+//
+// Bounded so it cannot become a cache by another name: one event at a time,
+// each answer used once, and thrown away after a minute.
+const API_WARM_MS = 60000;
+const apiWarmStore = new Map();   // key → { at, p }
+function apiKeyOf(endpoint, params) {
+  const kqs = new URLSearchParams();
+  Object.entries(params || {}).forEach(([k, v]) => {
+    if (k === 'per_page') return;
+    if (Array.isArray(v)) v.forEach(val => kqs.append(k, val)); else kqs.set(k, v);
+  });
+  return endpoint + '?' + kqs.toString();
+}
+function apiWarm(endpoint, params = {}) {
+  if (vsOfflineCapture) return;
+  const key = apiKeyOf(endpoint, params);
+  const cur = apiWarmStore.get(key);
+  if (cur && Date.now() - cur.at < API_WARM_MS) return;
+  const p = apiGetLive(endpoint, { ...params });
+  p.catch(() => { if (apiWarmStore.get(key) && apiWarmStore.get(key).p === p) apiWarmStore.delete(key); });
+  apiWarmStore.set(key, { at: Date.now(), p });
+  if (apiWarmStore.size > 24) apiWarmStore.delete(apiWarmStore.keys().next().value);
+}
+let vsWarmedEvent = null, vsWarmedAt = 0;
+function vsWarmEvent(ev, teamId) {
+  if (!ev || ev.id == null || !vsAutoOfflineAllowed()) return false;
+  // Once per event per minute, whoever asks.
+  if (vsWarmedEvent === String(ev.id) && Date.now() - vsWarmedAt < API_WARM_MS) return false;
+  const w = tWhen(ev);
+  if (!w || w.state === 'ahead') return false;   // nothing has been played: nothing to fetch
+  vsWarmedEvent = String(ev.id); vsWarmedAt = Date.now();
+  const go = () => {
+    const divs = ev.divisions && ev.divisions.length ? ev.divisions : [{ id: 1 }];
+    for (const d of divs) {
+      apiWarm(`/events/${ev.id}/divisions/${d.id}/matches`);
+      apiWarm(`/events/${ev.id}/divisions/${d.id}/rankings`);
+    }
+    apiGet(`/events/${ev.id}/teams`).catch(() => {});   // already kept by apiFresh
+  };
+  // After the screen in front of you has finished drawing, not in its way.
+  if (typeof requestIdleCallback === 'function') requestIdleCallback(go, { timeout: 1500 }); else setTimeout(go, 300);
+  return true;
+}
+
 async function apiGet(endpoint, params = {}) {
   // A save for offline exists to MAKE requests, so it goes around all of this.
   if (vsOfflineCapture) return apiGetLive(endpoint, params);
@@ -7757,14 +7896,20 @@ async function apiGet(endpoint, params = {}) {
   }
 
   const ttl = apiFreshTtl(endpoint);
+  // A request made a moment ago ON PURPOSE, ahead of a tap that was likely
+  // (apiWarm). Used once, and only while it is under a minute old — which is
+  // exactly as fresh as if the tap had come a minute sooner.
+  const warmKey = apiKeyOf(endpoint, params);
+  const warm = apiWarmStore.get(warmKey);
+  if (warm) {
+    apiWarmStore.delete(warmKey);
+    if (Date.now() - warm.at < API_WARM_MS) {
+      try { return (await warm.p).slice(); } catch (e) { /* fall through to a real request */ }
+    }
+  }
   let key = null;
   if (ttl) {
-    const kqs = new URLSearchParams();
-    Object.entries(params).forEach(([k, v]) => {
-      if (k === 'per_page') return;
-      if (Array.isArray(v)) v.forEach(val => kqs.append(k, val)); else kqs.set(k, v);
-    });
-    key = endpoint + '?' + kqs.toString();
+    key = warmKey;
     const hit = apiFresh.get(key);
     // A copy of the array, never the array: callers sort what they are given.
     if (hit && Date.now() - hit.at < hit.ttl) return (await hit.p).slice();
@@ -11764,6 +11909,7 @@ function switchTab(tabName) {
   if (target) target.classList.add('active');
   if (tabName === 'favs') favsRender();
   if (tabName === 'home') homeRender();
+  if (tabName === 'rewatch') vsPreconnect('https://www.youtube.com');
   // Update tab button styles
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   const btn = document.querySelector('.tab-btn[data-tab="' + tabName + '"]');
