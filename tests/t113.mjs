@@ -150,6 +150,25 @@ console.log('\n· summaries in shared storage');
   delete E.KV_REST_API_URL; delete E.KV_REST_API_TOKEN; delete E.TRACKER_PASSCODE;
 }
 
+console.log('\n· people are not robots; events still to come');
+{
+  // [x, y, w, h, confidence, colour]
+  ok('a tall narrow box with no plate colour is a person, not a robot', win.vtRobotLike([0, 0, 60, 130, 0.48, 0]) === false);
+  ok('so is one much taller than wide even with colour on it', win.vtRobotLike([0, 0, 40, 100, 0.9, 1]) === false);
+  ok('a squarish box with a plate colour is a robot', win.vtRobotLike([0, 0, 50, 45, 0.5, 2]) === true);
+  ok('a squarish box with no colour needs the finder to be sure', win.vtRobotLike([0, 0, 50, 45, 0.5, 0]) === false && win.vtRobotLike([0, 0, 50, 45, 0.7, 0]) === true);
+  ok('the finder is asked to be surer than before', /const VT_CONF = 0\.45/.test(idx));
+  const st = win.vtRecStats({ f: [[0, 1, 1, 1, 9, 9, 50, 0], [1, 2, 1, 1, 9, 9, 90, 1, 5, 5, 9, 9, 90, 2], [2, 1, 1, 1, 9, 9, 90, 1]] });
+  ok('a frame only counts when it shows a robot of a known alliance', st.withRobot === 2 && st.red === 2 && st.blue === 1);
+  ok('a match is only saved when both alliances were seen', /st\.red < 10 \|\| st\.blue < 10/.test(idx));
+  const d = { team: { number: '66449A' }, upcomingList: [{ id: 7, name: 'Excalibur <b>', sku: 'VE-V5-26-65786', start: '2026-11-21T08:00:00', region: 'California' }], eventsList: [] };
+  const up = win.renderEventsUpcoming(d);
+  ok('a team page lists the events it is registered for', /Upcoming Events \(1\)/.test(up) && /VE-V5-26-65786/.test(up) && /openEventInTournament\('7'/.test(up));
+  ok('with names escaped', !/<b>/.test(up) && /Excalibur &lt;b&gt;/.test(up));
+  ok('and nothing when there are none', win.renderEventsUpcoming({ team: { number: 'X' }, upcomingList: [] }) === '');
+  ok('they come from the team\'s registrations, not from matches played', /\(teamEvents \|\| \[\]\)\.filter\(e => e && e\.id != null && !eventMap\.has\(e\.id\)\)/.test(idx));
+}
+
 console.log('\n· the browser\'s Back button');
 {
   ok('each place visited is a history entry', /history\.pushState\(\{ vs: key \}, ''\)/.test(idx));

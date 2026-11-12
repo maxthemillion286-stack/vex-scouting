@@ -76,7 +76,7 @@ console.log('\n· what gets watched');
   ok('no event, no queue', win.vtQueueFrom(null).length === 0 && win.vtQueueFrom({}).length === 0);
   ok('the panel is outside the Jumper\'s results, which are re-rendered', /<div id="rwResults"><\/div>\s*<div id="vtPanel"><\/div>/.test(idx));
   ok('already-tracked matches are skipped, here or shared', /local\[m\.id\]\.s === 'done'\) \|\| shared\.includes\(m\.id\)\) run\.skipped\+\+/.test(idx));
-  ok('a recording with almost no robots is not saved', /if \(st\.withRobot < VT_MIN_FRAMES\)/.test(idx));
+  ok('a recording with almost no robots is not saved', /if \(st\.withRobot < VT_MIN_FRAMES \|\| /.test(idx));
   ok('the computer is kept awake', /navigator\.wakeLock\.request\('screen'\)/.test(idx));
   ok('the timer survives a background tab', /new Worker\(URL\.createObjectURL/.test(idx));
   ok('up to four matches at once, never more than half the cores', win.vtParallel() >= 1 && win.vtParallel() <= 4 && /Math\.floor\(cores \/ 2\)/.test(idx));

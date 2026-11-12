@@ -3645,7 +3645,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v99';
+const APP_BUILD = 'v100';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -7909,7 +7909,7 @@ function sim_learnNote(R) {
 // started; a visitor who never uses it downloads neither.
 // ═══════════════════════════════════════════════════════════════
 const VT_SIZE = 640;            // the model's input; boxes are stored at this width
-const VT_CONF = 0.35, VT_IOU = 0.5;
+const VT_CONF = 0.45, VT_IOU = 0.5;
 const VT_RATE = 2;              // playback speed while watching
 const VT_LEAD = 3;              // seconds watched before the match's position
 const VT_WINDOW = 150;          // seconds of video per match: 15 s auto, the pause, 1:45 driver, a little after
@@ -7979,10 +7979,30 @@ function vtPackFrame(t, boxes, srcW) {
   for (const b of boxes) fr.push(Math.round(b[0] * k), Math.round(b[1] * k), Math.round(b[2] * k), Math.round(b[3] * k), Math.round(b[4] * 100), b[5] || 0);
   return fr;
 }
+// Is this box a robot? A screenshot showed the finder boxing a person in a
+// white shirt at 48%. A robot fits in an 18-inch cube: from any camera it is
+// about as wide as it is tall. A standing person is a tall, narrow box with no
+// licence plate. So: nothing much taller than wide; and a box with no red or
+// blue on it has to be both squarish and something the finder is sure of.
+function vtRobotLike(b) {
+  const tall = b[3] / Math.max(1, b[2]);
+  if (tall > 2) return false;
+  if (!b[5]) return tall <= 1.4 && b[4] >= 0.6;
+  return true;
+}
 function vtRecStats(rec) {
-  let withRobot = 0, boxes = 0;
-  for (const fr of (rec && rec.f) || []) { if (fr[1] > 0) withRobot++; boxes += fr[1]; }
-  return { frames: ((rec && rec.f) || []).length, withRobot, perFrame: withRobot ? boxes / withRobot : 0 };
+  // A frame counts when it shows a robot of a known alliance; a match counts
+  // when both alliances were seen. A crowd shot or an awards ceremony has
+  // neither, and used to be saved as if it were a match.
+  let withRobot = 0, boxes = 0, red = 0, blue = 0;
+  for (const fr of (rec && rec.f) || []) {
+    let r = false, b = false;
+    for (let i = 0; i < fr[1]; i++) { const c = fr[2 + 6 * i + 5]; if (c === 1) r = true; else if (c === 2) b = true; }
+    if (r) red++; if (b) blue++;
+    if (r || b) withRobot++;
+    boxes += fr[1];
+  }
+  return { frames: ((rec && rec.f) || []).length, withRobot, red, blue, perFrame: withRobot ? boxes / withRobot : 0 };
 }
 function vtSupported() {
   return !vsIsPhone() && !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) &&
@@ -8123,7 +8143,7 @@ function vtFinder() {
       const rgba = new Uint8ClampedArray(d.rgba);
       const boxes = vtNMS(vtDecode(new Float32Array(d.out), d.n, lb, w0, h0, VT_CONF), VT_IOU);
       for (const b of boxes) b[5] = vtColorOf(rgba, VT_SIZE, VT_SIZE, [b[0] * lb.s + lb.px, b[1] * lb.s + lb.py, b[2] * lb.s, b[3] * lb.s]);
-      return boxes;
+      return boxes.filter(vtRobotLike);
     },
     stop() { try { if (w) w.terminate(); } catch (e) {} }
   };
@@ -8471,7 +8491,7 @@ async function vtWatch(run, slot, m) {
   if (why === 'stopped') return;
   const st = vtRecStats(rec);
   if (why === 'video' || why === 'timeout') { run.failed++; await vtLocalSave(m.ev, m.id, null, 'failed'); return; }
-  if (st.withRobot < VT_MIN_FRAMES) { run.empty++; await vtLocalSave(m.ev, m.id, null, 'empty'); return; }
+  if (st.withRobot < VT_MIN_FRAMES || st.red < 10 || st.blue < 10) { run.empty++; await vtLocalSave(m.ev, m.id, null, 'empty'); return; }
   await vtLocalSave(m.ev, m.id, rec, 'done');
   run.saved++;
   let sum = null;
@@ -8488,7 +8508,7 @@ function vtFinish(why) {
   document.title = (run.saved ? 'Tracking finished · ' : '') + VT_TITLE;
   const bits = [`${run.saved} match${run.saved === 1 ? '' : 'es'} tracked`];
   if (run.skipped) bits.push(`${run.skipped} already done`);
-  if (run.empty) bits.push(`${run.empty} with no robots in view (wrong part of the video, or not a field camera)`);
+  if (run.empty) bits.push(`${run.empty} where it did not see robots of both alliances (wrong part of the video, or a camera not on the field)`);
   if (run.failed) bits.push(`${run.failed} whose video would not play`);
   if (run.noVideo) bits.push(`${run.noVideo} earlier event${run.noVideo === 1 ? '' : 's'} with no video the Jumper could find (${run.noVideoNames.slice(0, 4).join('; ')}${run.noVideoNames.length > 4 ? '; …' : ''})`);
   const share = run.saved ? (run.shared === 'saved' ? ' Saved to the shared storage.' : run.shared === 'no-passcode' ? ' Kept on this device only: no passcode is saved in Settings.' : ` Kept on this device; the shared storage said "${run.shared}".`) : '';
@@ -13717,6 +13737,14 @@ async function gatherTeamData(teamNumber, seasonId, gradeLevel = 'High School') 
     }
   }
   let eventsList = [...eventMap.values()].sort((a, b) => String(b.start).localeCompare(String(a.start)));
+  // Events it is REGISTERED for and has not played. The list above is built
+  // from matches, so an event with none — every event still to come — never
+  // appeared: "it says event attended but not the events theyre going to".
+  const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
+  const upcomingList = (teamEvents || []).filter(e => e && e.id != null && !eventMap.has(e.id))
+    .filter(e => { const end = Date.parse(e.end || e.start || ''); return !(end < dayStart.getTime() - 86400000); })
+    .map(e => ({ id: e.id, name: e.name || `Event ${e.id}`, sku: e.sku || '', start: e.start || '', region: (e.location && e.location.region) || '' }))
+    .sort((a, b) => String(a.start).localeCompare(String(b.start)));
   // Match payloads only carry an event's id/name — pull the real records so the
   // event list can show SKU, date and region.
   if (eventsList.length) {
@@ -13777,7 +13805,7 @@ async function gatherTeamData(teamNumber, seasonId, gradeLevel = 'High School') 
     progSkill, driverSkill, officialCombined, hasSkills, skillsRankPlaceholder,
     worldSkillsRank, stateSkillsRank, regionSkillsRank,
     totalWorldTeams, totalStateTeams, totalRegionTeams,
-    rankings, awardsList, eventsList, prosCons, scores, matches
+    rankings, awardsList, eventsList, upcomingList, prosCons, scores, matches
   };
 }
 
@@ -14175,6 +14203,27 @@ function renderEventPicker(d, eventFilter) {
 }
 
 // ── Events attended: a browsable list that hands off to the Tournament tab ──
+function renderEventsList(list, team) {
+  return `<div class="ev-attend-list">
+      ${list.map(e => `
+        <button class="ev-attend" onclick="openEventInTournament('${teamAttr(e.id)}', ${esc(JSON.stringify(e.name || 'Event'))})">
+          <span class="ev-attend-main">
+            <span class="ev-attend-name">${esc(e.name || 'Event')}</span>
+            <span class="ev-attend-meta">${esc([e.sku, evDate(e.start), e.region].filter(Boolean).join('  ·  '))}</span>
+          </span>
+          <span class="ev-attend-go">→</span>
+        </button>`).join('')}
+    </div>`;
+}
+function renderEventsUpcoming(d) {
+  const up = d.upcomingList || [];
+  if (!up.length) return '';
+  return `<div class="detail-block">
+    <div class="detail-block-label">Upcoming Events (${up.length})</div>
+    <div class="ev-attend-hint">Events ${esc(d.team.number)} is registered for and has not played yet, soonest first.</div>
+    ${renderEventsList(up, d.team.number)}
+  </div>`;
+}
 function renderEventsAttended(d) {
   if (!d.eventsList.length) return '';
   return `<div class="detail-block">
@@ -14518,6 +14567,7 @@ function renderDetailedTeam(d, eventFilter) {
   // What the robot tracker has seen of this team, filled in once it is fetched.
   html += `<div id="vtReport" data-team="${teamAttr(String(d.team.number).toUpperCase())}"></div>`;
   setTimeout(() => vtReportFill(d.team.number), 0);
+  html += renderEventsUpcoming(d);
   html += renderEventsAttended(d);
 
   // ── Awards ──
