@@ -15,7 +15,8 @@ console.log('t113 — v99: robot report');
 // A match as the tracker stores it. Each robot is a function of time → [x, y]
 // in a 640×360 picture; red starts on the left, blue on the right.
 function match(opts) {
-  const o = { lead: 4, redStop: null, redAuto: true, redUp: true, pressBlue: true, ...opts };
+  const o = { lead: 4, redStop: null, redAuto: true, redUp: true, pressBlue: true, v2: false, looks: null, plate: null, partnerHome: false, ...opts };
+  const pack = g => [0, 4, 8].map(k => g[k] | g[k + 1] << 4 | g[k + 2] << 8 | g[k + 3] << 12);
   const f = [];
   const lerp = (a, b, k) => a + (b - a) * Math.max(0, Math.min(1, k));
   const wob = (t, s) => 14 * Math.sin(t * 0.9 + s);
@@ -23,6 +24,7 @@ function match(opts) {
     const m = t - 0;                                    // match clock
     const red = i => {
       const y = i ? 250 : 130;
+      if (i === 1 && o.partnerHome) return [150 + (m > 20 && m < 117 ? wob(m, 9) * 0.6 : 0), y];
       if (m < 0) return [140, y];
       if (m < 15) return [o.redAuto ? lerp(140, 330, m / 10) : 140, y];
       if (m < 20) return [o.redAuto ? 330 : 140, y];
@@ -40,10 +42,18 @@ function match(opts) {
   };
   for (let t = -o.lead; t <= 128; t += 0.25) {
     const fr = [Math.round(t * 10), 4];
-    for (const [x, y, c] of robots(t)) fr.push(Math.round(x - 20), Math.round(y - 40), 40, 40, 90, c);
+    robots(t).forEach(([x, y, c], k) => {
+      fr.push(Math.round(x - 20), Math.round(y - 40), 40, 40, 90, c);
+      if (o.v2) {
+        const g = o.looks ? o.looks[k] : [5, 5, 5, 5, 0, 0, 0, 0, 5, 5, 0, 0];
+        // A plate is read now and then, when the robot is near the camera.
+        const who = o.plate && o.plate[k] && Math.round(t * 4) % 40 === 0 && t > 20 ? o.plate[k] : 0;
+        fr.push(...pack(g), who);
+      }
+    });
     f.push(fr);
   }
-  return { v: 1, name: 'Qualification ' + (o.n || 1), round: 2, num: o.n || 1, red: o.red || ['66449A', '1234X'], blue: o.blue || ['12345B', '777Z'],
+  return { v: o.v2 ? 2 : 1, name: 'Qualification ' + (o.n || 1), round: 2, num: o.n || 1, red: o.red || ['66449A', '1234X'], blue: o.blue || ['12345B', '777Z'],
     rs: o.rs ?? 40, bs: o.bs ?? 20, vid: 'abcDEF12345', off: 100, rate: 2, w: 640, h: 360, model: 'det1', at: 1, f };
 }
 
@@ -52,7 +62,7 @@ const { win, errors } = await boot();
 console.log('\n· one match');
 {
   const s = win.vtSummarise(match({}));
-  ok('a match is summarised', s.ok === 1 && s.sv === 1 && !!s.R && !!s.B, JSON.stringify(s).slice(0, 300));
+  ok('a match is summarised', s.ok === 1 && s.sv === 2 && !!s.R && !!s.B && !!s.Ra && !!s.Bb, JSON.stringify(s).slice(0, 300));
   ok('it finds when the match really started, not when the Jumper said', Math.abs(s.st) <= 2, 'start ' + s.st);
   ok('and when driver control began', s.dr >= 18 && s.dr <= 23, 'driver ' + s.dr);
   ok('red moved in autonomous with both robots, blue with neither', s.R.am === 2 && s.B.am === 0, JSON.stringify([s.R.am, s.B.am]));
@@ -97,7 +107,7 @@ console.log('\n· a team\'s report');
   ok('with no losses tracked, it does not invent a reason for losing', onlyWins.lines.lose.length === 0);
   const html = win.vtReportHtml('66449A', rep);
   ok('the block has all five sections', ['Good at', 'Autonomous', 'Does repeatedly', 'When it loses', 'How to use this'].every(h => html.includes(h)));
-  ok('says these are alliance measures', /describe the <strong>alliance<\/strong>/.test(html));
+  ok('says it is about the alliances when the robot could not be picked out', /describes the alliances 66449A was on, not its own robot/.test(html) && rep.own === false);
   ok('and that it is unchecked', /unchecked against human scouting/.test(html));
   ok('says what it needs when there are too few', /a report needs three/.test(win.vtReportHtml('66449A', few)) && /needs at least two tracked wins and two losses/i.test(win.vtReportHtml('66449A', onlyWins)));
   ok('a team number is escaped in the block', !/<img/.test(win.vtReportHtml('<img src=x>', few)));
@@ -141,13 +151,88 @@ console.log('\n· summaries in shared storage');
   ok('not without the passcode', r.code === 403);
   const bad = async over => (await call('POST', {}, { passcode: 'correct horse battery', ev: '55001', id: '9', sum: { ...sum, ...over } })).code;
   ok('markup anywhere in a summary is refused', await bad({ name: '<script>' }) === 400 && await bad({ red: ['<b>'] }) === 400 && await bad({ R: { am: '<i>' } }) === 400 && await bad({ note: 'hello' }) === 400);
-  ok('an oversized summary is refused', await bad({ R: Object.fromEntries(Array.from({ length: 30 }, (_, i) => ['k' + String.fromCharCode(97 + i % 26), 1])) }) === 400);
+  ok('an oversized summary is refused', await bad({ R: Object.fromEntries(Array.from({ length: 40 }, (_, i) => ['k' + String.fromCharCode(97 + i % 26) + (i > 25 ? 'x' : ''), 1])) }) === 400);
   r = await call('GET', { team: "x';--" });
   ok('a team that is not a team number is refused', r.code === 400);
   r = await call('POST', {}, { passcode: 'correct horse battery', ev: '55001', id: '9' });
   ok('saving nothing is an error', r.code === 400);
   globalThis.fetch = realFetch;
   delete E.KV_REST_API_URL; delete E.KV_REST_API_TOKEN; delete E.TRACKER_PASSCODE;
+}
+
+console.log('\n· which robot is which');
+{
+  // Four looks. 66449A is mostly green; each partner is something else.
+  const A = [0, 0, 12, 10, 0, 0, 0, 0, 3, 3, 1, 1], opp1 = [3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 1, 1], opp2 = [0, 8, 0, 0, 0, 0, 8, 0, 4, 4, 3, 3];
+  const partner = i => { const g = [0, 0, 0, 0, 0, 0, 0, 0, 4, 4, 2, 2]; g[(i * 3) % 8] = 12; g[(i * 3 + 1) % 8] = 6; if (i % 8 === 2 || (i * 3) % 8 === 2) { g[2] = 0; g[3] = 0; g[6] = 12; } return g; };
+  // 66449A drives up the field and runs an autonomous; its partner stays home.
+  const mk = (i, over) => match({ n: i, v2: true, partnerHome: true, rs: i <= 4 ? 50 : 10, bs: 20, red: ['66449A', 'P' + i], blue: ['B' + i, 'C' + i], looks: [A, partner(i), opp1, opp2], ...over });
+  const sums = new Map();
+  for (let i = 1; i <= 6; i++) sums.set('77:' + i, win.vtSummarise(mk(i)));
+  const s1 = sums.get('77:1');
+  ok('each robot gets its own numbers', s1.Ra.am + s1.Rb.am === 1 && Math.abs(s1.Ra.opp - s1.Rb.opp) > 0.8, JSON.stringify([s1.Ra, s1.Rb]).slice(0, 300));
+  ok('and its look is kept', s1.Ra.g2 !== undefined && s1.Rb.g2 !== undefined && s1.Ra.g2 !== s1.Rb.g2);
+  const picks = win.vtIdentify('66449A', sums);
+  const upfield = k => { const s = sums.get(k), p = picks.get(k); return p && s['R' + p.slot].opp > 0.5; };
+  ok('the look that recurs while the partner changes is taken to be the team', picks.size === 6 && [...sums.keys()].every(upfield), JSON.stringify([...picks]));
+  ok('found by look, not by plate', [...picks.values()].every(p => p.how === 'look'));
+  const rep = win.vtReport('66449A', sums);
+  ok('the report is then about its own robot', rep.own === true && rep.picked === 6 && rep.how.look === 6);
+  ok('and says what the robot does, not what the alliance averages to', rep.lines.auto.some(t => /^Moved in autonomous in 6 of 6 matches/.test(t)) && rep.lines.habits.some(t => /Spends most of driver control in the other alliance's half \(6 of 6/.test(t)), JSON.stringify(rep.lines));
+  const partnerRep = win.vtReport('P1', new Map([...sums].slice(0, 1)));
+  ok('one match is not enough to say anything about a partner', partnerRep.lines === null);
+  ok('the block says how it was picked out', /This is 66449A's own robot/.test(win.vtReportHtml('66449A', rep)) && /by its look turning up every time/.test(win.vtReportHtml('66449A', rep)));
+
+  // Two robots that look the same: the look cannot say. A plate read can.
+  const same = new Map();
+  for (let i = 1; i <= 4; i++) same.set('78:' + i, win.vtSummarise(mk(i, { looks: [A, A, opp1, opp2] })));
+  ok('lookalike robots are left unidentified', win.vtIdentify('66449A', same).size === 0);
+  ok('and the report falls back to the alliance', win.vtReport('66449A', same).own === false);
+  const plated = new Map();
+  for (let i = 1; i <= 4; i++) plated.set('79:' + i, win.vtSummarise(mk(i, { looks: [A, A, opp1, opp2], plate: [1, 2, 0, 0] })));
+  const pp = win.vtIdentify('66449A', plated);
+  ok('a plate read settles it even for lookalikes', pp.size === 4 && [...pp.values()].every(p => p.how === 'plate'), JSON.stringify([...pp]));
+  ok('and picks the robot that was actually read', [...plated.keys()].every(k => plated.get(k)['R' + pp.get(k).slot].opp > 0.5));
+  // The same partner every match (an elimination alliance): both robots recur.
+  const fixed = new Map();
+  for (let i = 1; i <= 4; i++) fixed.set('80:' + i, win.vtSummarise(mk(i, { red: ['66449A', 'P1'], looks: [A, partner(1), opp1, opp2] })));
+  ok('with the same partner every time the look is not trusted', win.vtIdentify('66449A', fixed).size === 0);
+  // Identities do not cross events.
+  const two = new Map([...[1, 2].map(i => ['81:' + i, win.vtSummarise(mk(i))]), ...[3, 4].map(i => ['82:' + i, win.vtSummarise(mk(i))])]);
+  ok('two matches at each of two events is not three at one', win.vtIdentify('66449A', two).size === 0);
+
+  // Paint is not a plate: a red-alliance robot called blue in most looks.
+  {
+    const rec = mk(1);
+    // Robot 0 (66449A, red) is recoloured blue in four looks out of five.
+    rec.f.forEach((fr, k) => { if (k % 5) fr[2 + 5] = 2; });
+    const s = win.vtSummarise(rec);
+    ok('a robot miscoloured by its paint is put back on its alliance', s.ok === 1 && s.Ra.sec > 60 && s.Rb.sec > 60 && s.Ba.sec > 60 && s.Bb.sec > 60, JSON.stringify([s.Ra.sec, s.Rb.sec, s.Ba.sec, s.Bb.sec]));
+    const rec2 = mk(2, { plate: [1, 0, 0, 0] });
+    rec2.f.forEach(fr => { fr[2 + 5] = 2; });          // called blue in EVERY look, but its plate was read
+    const s2 = win.vtSummarise(rec2);
+    ok('a plate read overrules the colour entirely', s2.Ra.sec + s2.Rb.sec > 150 && (s2.Ra.wa >= 2 || s2.Rb.wa >= 2), JSON.stringify([s2.Ra.sec, s2.Rb.sec, s2.Ra.wa, s2.Rb.wa]));
+    ok('a read names any of the four teams in the match', win.vtWhoFromText('12345B', ['66449A', '1234X', '12345B', '777Z']) === 3 && win.vtWhoFromText('66449A', ['66449A', '1234X', '12345B', '777Z']) === 1 && win.vtWhoFromText('zzzz', ['66449A', '1234X', '12345B', '777Z']) === 0);
+    ok('and a read corrects the box\'s colour as it is recorded', /big\[5\] = big\[7\] <= 2 \? 1 : 2;/.test(idx));
+  }
+  ok('a plate is matched against the two teams it could be', win.vtWhoFromText('66449A', ['66449A', '1234X']) === 1 && win.vtWhoFromText('1234X', ['66449A', '1234X']) === 2);
+  ok('lookalike characters are forgiven', win.vtWhoFromText('G6449A', ['66449A', '1234X']) === 1 && win.vtWhoFromText('88388', ['8838B', '2468X']) === 1);
+  ok('extra characters around it are ignored', win.vtWhoFromText('X66449A1', ['66449A', '1234X']) === 1);
+  ok('sister teams one letter apart need the letter', win.vtWhoFromText('6722A', ['6722A', '6722B']) === 1 && win.vtWhoFromText('6722', ['6722A', '6722B']) === 0);
+  ok('rubbish names nobody', win.vtWhoFromText('CHARA', ['66449A', '1234X']) === 0 && win.vtWhoFromText('', ['66449A', '1234X']) === 0 && win.vtWhoFromText('66', ['66449A', '1234X']) === 0);
+  // The plate inside a box: a red strip with white letters on a grey robot.
+  const W = 80, H = 60, px = new Uint8ClampedArray(W * H * 4);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const i = (y * W + x) * 4; const on = y >= 30 && y < 44 && x >= 10 && x < 70; const letter = on && y >= 33 && y < 41 && (x % 9) < 3;
+    px[i] = letter ? 255 : on ? 220 : 110; px[i + 1] = letter ? 255 : on ? 30 : 110; px[i + 2] = letter ? 255 : on ? 30 : 110; px[i + 3] = 255; }
+  const pb = win.vtPlateBox(px, W, H, 1);
+  ok('the plate is found inside the robot\'s box', !!pb && Math.abs(pb.y - 30) <= 1 && Math.abs(pb.h - 14) <= 2 && pb.x <= 12 && pb.x + pb.w >= 66, JSON.stringify(pb));
+  ok('no plate, no read', win.vtPlateBox(px, W, H, 2) === null);
+  ok('a plate too small to read is not sent to the reader', (() => { const q = new Uint8ClampedArray(px); for (let y = 36; y < 44; y++) for (let x = 0; x < W; x++) { const i = (y * W + x) * 4; q[i] = q[i + 1] = q[i + 2] = 110; } return win.vtPlateBox(q, W, H, 1) === null; })());
+  const g = win.vtSigOf(px, W, H, [0, 0, W, H], 1);
+  ok('a robot\'s look leaves out its own plate colour', !!g && g[0] === 0 && g[7] === 0 && g.slice(8).reduce((a, b) => a + b, 0) > 10, JSON.stringify(g));
+  ok('a look survives being packed into three numbers', JSON.stringify(win.vtSigUnpack(...win.eval('vtSigPack')(A))) === JSON.stringify(A));
+  ok('the reader model is in the repo and loaded only by the worker', fs.statSync('../models/plate_reader.onnx').size > 5e6 && /plate_reader\.onnx/.test(fs.readFileSync('../vendor/vt-worker.js', 'utf8')) && !/plate_reader/.test(idx));
+  ok('recordings from before this are watched once more', /const vtDone = e => !!e && e\.s === 'done' && \(e\.v \|\| 1\) >= VT_REC_V;/.test(idx));
 }
 
 console.log('\n· people are not robots; events still to come');
