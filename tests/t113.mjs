@@ -254,6 +254,20 @@ console.log('\n· people are not robots; events still to come');
   ok('they come from the team\'s registrations, not from matches played', /\(teamEvents \|\| \[\]\)\.filter\(e => e && e\.id != null && !eventMap\.has\(e\.id\)\)/.test(idx));
 }
 
+console.log('\n· the team overview, simplified');
+{
+  const d = { eventsList: [{ id: 1 }, { id: 2 }], worldSkillsRank: 12, upcomingList: [{ name: 'Excalibur <i>', start: '2026-11-21T08:00:00' }],
+    prosCons: { items: [{ kind: 'str', title: 'High ceiling (143)' }, { kind: 'weak', title: 'Inconsistent' }] } };
+  const g = win.teamGlance(d, { w: 8, l: 1, ti: 0, tot: 9, wr: 88.9, skillsBest: 120, filtered: false });
+  ok('one sentence says how good, on how much, and where next', /<strong>8–1<\/strong> this season \(89% of 9 matches, 2 events\)/.test(g) && /best skills <strong>120<\/strong>, #12 in the world/.test(g) && /next: <strong>Excalibur &lt;i&gt;<\/strong>/.test(g), g);
+  ok('with the top strength and weakness', /Strength: High ceiling \(143\)\. Watch for: Inconsistent\./.test(g));
+  ok('a team with no matches says so', /No matches played yet this season/.test(win.teamGlance({ eventsList: [], upcomingList: [], prosCons: { items: [] } }, { w: 0, l: 0, ti: 0, tot: 0, wr: null, skillsBest: 0 })));
+  ok('tiles with nothing in them are not drawn', /\]\.filter\(\(o, k\) => k === 0 \|\| o\.big !== '—'\);/.test(idx));
+  ok('the full table is folded away, without its empty rows', /<details class="detail-block detail-fold">/.test(idx) && /const row = \(name, val\) => \(val === null \|\| val === undefined \|\| val === '' \|\| val === 0\) \? ''/.test(idx));
+  ok('an empty awards list and an empty robot report take no space', /if \(d\.awardsList\.length\) html \+= `<div class="detail-block">/.test(idx) && /host\.innerHTML = sums\.size \? vtReportHtml\(num, vtReport\(num, sums\)\) : '';/.test(idx));
+  ok('what is coming up is above what is past', idx.indexOf('html += renderEventsUpcoming(d);') < idx.indexOf('html += renderEventsAttended(d);') && idx.indexOf('html += renderEventsUpcoming(d);') < idx.indexOf('const qs = qualStatusFromAwards(d.awardsList);'));
+}
+
 console.log('\n· the browser\'s Back button');
 {
   ok('each place visited is a history entry', /history\.pushState\(\{ vs: key \}, ''\)/.test(idx));

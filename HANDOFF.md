@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v102**. Everything green: 66 test files. (The `v19` in §8's
+Current release: **v103**. Everything green: 66 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -2471,6 +2471,16 @@ it. The status line counts these. **Not fixed: the cause.** When the Jumper's
 sync is off for part of a day every match there is skipped. The overlay often
 shows the match name ("QUAL 47"); reading it with the plate reader to
 re-sync is the real fix and is not built.
+
+**v103 — the team overview, simplified.** Asked for as "simplify and optimize
+overviews". On the Scout team page: a one-sentence summary first
+(`teamGlance`: record, skills and world rank, next event, top strength and
+weakness); only tiles that hold a number (three to five, not always six);
+Pros & Cons beside the radar; upcoming events, the robot report, the season
+chart and events attended before qualification; Awards and the Robot report
+are omitted when empty; "Full Breakdown" is a closed `<details>` whose N/A
+rows and empty groups are left out. Roughly a quarter shorter with the same
+information one click away.
 
 ---
 

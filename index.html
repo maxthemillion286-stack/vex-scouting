@@ -2464,6 +2464,24 @@
   .sg-chip.inactive b { color: var(--text-muted); }
   .sg-chip i { font-style: normal; font-size: 12px; color: var(--text-muted); margin-left: 6px; }
 
+  /* v103: the team overview, simplified */
+  /* Three to five tiles now, not always six: let them share the row evenly. */
+  .tab-panel .detail-overview { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); align-content: start; background: none; gap: 10px; }
+  .tab-panel .detail-overview .ov-cell { border-radius: var(--r-lg); }
+  .detail-left { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  /* On a phone the numbers come before the picture of them. */
+  .tab-panel .detail-radar { order: 0; }
+  .detail-left .detail-block { margin: 0; flex: 1; }
+  .team-glance { font-family: var(--body); font-size: 17px; line-height: 1.5; color: var(--text-dim); margin: 4px 0 18px; max-width: 90ch; }
+  .team-glance strong { color: var(--text); font-weight: 600; }
+  .tg-read { color: var(--text-muted); }
+  .detail-fold > summary { cursor: pointer; list-style: none; margin: 0; display: flex; align-items: baseline; gap: 10px; }
+  .detail-fold > summary::-webkit-details-marker { display: none; }
+  .detail-fold > summary::after { content: '+'; margin-left: auto; font-family: var(--mono); font-size: 16px; color: var(--text-muted); }
+  .detail-fold[open] > summary::after { content: '–'; }
+  .detail-fold[open] > summary { margin-bottom: 14px; }
+  .fold-hint { font-family: var(--body); font-size: 13px; letter-spacing: 0; text-transform: none; color: var(--text-muted); }
+
   /* v99: the robot report */
   .vr-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 10px; margin-bottom: 10px; align-items: start; }
   .vr-sec { background: var(--card); border-radius: var(--r-lg); padding: 14px 16px; }
@@ -3645,7 +3663,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v102';
+const APP_BUILD = 'v103';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -9291,7 +9309,9 @@ async function vtReportFill(number) {
   if (!host || host.dataset.team !== num) return;
   const sums = await vtTeamSums(num);
   if (host.dataset.team !== num) return;          // another team was opened meanwhile
-  host.innerHTML = sums.size ? vtReportHtml(num, vtReport(num, sums)) : (vsIsPhone() ? '' : vtReportHtml(num, { n: 0, lines: null }));
+  // A team nobody has tracked gets no block at all: an empty box telling you
+  // to go and do something is the first thing to cut from an overview.
+  host.innerHTML = sums.size ? vtReportHtml(num, vtReport(num, sums)) : '';
 }
 
 // ── STATUS BADGE ──────────────────────────────
@@ -14567,6 +14587,19 @@ function renderEventPicker(d, eventFilter) {
 }
 
 // ── Events attended: a browsable list that hands off to the Tournament tab ──
+// One sentence: how good, how much to go on, and where to see them next.
+function teamGlance(d, o) {
+  const bits = [];
+  if (o.tot > 0) bits.push(`<strong>${o.w}–${o.l}${o.ti ? '–' + o.ti : ''}</strong> ${o.filtered ? 'at this event' : 'this season'} (${o.wr.toFixed(0)}% of ${o.tot} matches${o.filtered ? '' : `, ${d.eventsList.length} event${d.eventsList.length === 1 ? '' : 's'}`})`);
+  else bits.push('No matches played yet this season');
+  if (o.skillsBest) bits.push(`best skills <strong>${esc(o.skillsBest)}</strong>${d.worldSkillsRank ? `, #${esc(d.worldSkillsRank)} in the world` : ''}`);
+  const up = (d.upcomingList || [])[0];
+  if (up) bits.push(`next: <strong>${esc(up.name)}</strong>${up.start ? ', ' + esc(evDate(up.start)) : ''}`);
+  const items = (d.prosCons && d.prosCons.items) || [];
+  const pro = items.find(i => i.kind === 'str'), con = items.find(i => i.kind === 'weak');
+  const read = [pro ? `Strength: ${esc(pro.title)}.` : '', con ? `Watch for: ${esc(con.title)}.` : ''].filter(Boolean).join(' ');
+  return `<div class="team-glance">${bits.join(' · ')}.${read ? ` <span class="tg-read">${read}</span>` : ''}</div>`;
+}
 function renderEventsList(list, team) {
   return `<div class="ev-attend-list">
       ${list.map(e => `
@@ -14801,14 +14834,22 @@ function renderDetailedTeam(d, eventFilter) {
     ${renderEventPicker(d, eventFilter)}`;
 
   // ── Quick overview + radar ──
+  // v103, asked for as "simplify and optimize overviews". The page opened with
+  // six tiles, two of them usually a dash and two saying the same thing, then a
+  // radar, then eighteen rows of which half read N/A — and the one sentence a
+  // person wants ("how good are they, and where do I see them next") was
+  // nowhere. Now: that sentence first; only tiles that hold a number; what is
+  // coming up before what is past; and the full table folded away, with its
+  // empty rows left out.
+  const skillsBest = d.officialCombined || (d.progSkill + d.driverSkill) || 0;
   const overview = [
     { label: 'WIN RATE', big: wr !== null ? `${wr.toFixed(0)}%` : '—', sub: tot > 0 ? `${w}-${l}${ti ? '-' + ti : ''} record` : 'no matches' },
-    { label: 'EVENTS PLAYED', big: String(d.eventsList.length || d.rankings.length || 0), sub: eventFilter !== 'all' ? 'filtered' : 'this season' },
-    { label: 'TOTAL MATCHES', big: String(tot), sub: `${d.eventsList.length} events` },
-    { label: 'HIGHEST SKILLS', big: String(d.officialCombined || (d.progSkill + d.driverSkill) || '—'), sub: `${d.driverSkill} driver ${d.progSkill} auton` },
-    { label: 'SIG WIN RATE', big: d.sigWinRate !== null ? `${d.sigWinRate.toFixed(0)}%` : '—', sub: d.sigTotal > 0 ? `${d.sigWins}-${d.sigLosses}${d.sigTies ? '-' + d.sigTies : ''} at signatures` : 'no signature matches' },
-    { label: 'AWP %', big: d.awpRate !== null ? `${d.awpRate.toFixed(0)}%` : '—', sub: d.totalRankedMatches > 0 ? `${d.finalAwpCount} of ${d.totalRankedMatches}` : 'no data' }
-  ];
+    { label: 'MATCHES', big: String(tot), sub: eventFilter !== 'all' ? 'at this event' : `${d.eventsList.length} event${d.eventsList.length === 1 ? '' : 's'} this season` },
+    { label: 'HIGHEST SKILLS', big: skillsBest ? String(skillsBest) : '—', sub: `${d.driverSkill} driver ${d.progSkill} auton` },
+    { label: 'SIG WIN RATE', big: d.sigWinRate !== null ? `${d.sigWinRate.toFixed(0)}%` : '—', sub: d.sigTotal > 0 ? `${d.sigWins}-${d.sigLosses}${d.sigTies ? '-' + d.sigTies : ''} at signatures` : '' },
+    { label: 'AWP %', big: d.awpRate !== null ? `${d.awpRate.toFixed(0)}%` : '—', sub: d.totalRankedMatches > 0 ? `${d.finalAwpCount} of ${d.totalRankedMatches}` : '' }
+  ].filter((o, k) => k === 0 || o.big !== '—');
+  html += teamGlance(d, { w, l, ti, tot, wr, skillsBest, filtered: eventFilter && eventFilter !== 'all' });
 
   const worldPct = (d.worldSkillsRank && d.totalWorldTeams)
     ? Math.max(0, (1 - d.worldSkillsRank / d.totalWorldTeams) * 100) : null;
@@ -14823,12 +14864,15 @@ function renderDetailedTeam(d, eventFilter) {
   const missing = axes.filter(a => a.value === null || a.value === undefined).map(a => a.label);
 
   html += `<div class="detail-grid">
+    <div class="detail-left">
     <div class="detail-overview">
       ${overview.map(o => `<div class="ov-cell">
         <div class="ov-label">${o.label}</div>
         <div class="ov-big">${o.big}</div>
         <div class="ov-sub">${o.sub}</div>
       </div>`).join('')}
+    </div>
+    <!--PROSCONS-->
     </div>
     <div class="detail-radar">
       <div class="detail-block-label">Team Profile</div>
@@ -14841,7 +14885,7 @@ function renderDetailedTeam(d, eventFilter) {
   const strengths = d.prosCons.items.filter(i => i.kind === 'str');
   const weaknesses = d.prosCons.items.filter(i => i.kind === 'weak');
   const notes = d.prosCons.items.filter(i => i.kind === 'note');
-  html += `<div class="detail-block">
+  const prosHtml = `<div class="detail-block">
     <div class="detail-block-label">Pros &amp; Cons</div>
     <div class="sim-ov-lists">
       <div class="sim-ov-col str">
@@ -14855,57 +14899,39 @@ function renderDetailedTeam(d, eventFilter) {
     </div>
     ${notes.length ? `<ul class="sim-ov-bullets" style="margin-top:10px;">${notes.map(i => `<li class="note" title="${esc(i.desc || '')}"><b>${esc(i.title)}</b></li>`).join('')}</ul>` : ''}
   </div>`;
+  // Beside the radar, under the tiles: the left column is as tall as the radar
+  // with or without them, and used to be padded out with an empty grey panel.
+  html = html.replace('<!--PROSCONS-->', prosHtml);
 
-  // ── Everything else from the compact card ──
-  const row = (name, val) => `<div class="stat-row"><div class="stat-name">${name}</div><div class="stat-value">${val}</div></div>`;
-  const rankCell = (r, totalN) => r
-    ? `<span class="highlight">#${r}</span>${totalN ? `<span style="color:var(--text-muted);font-size:11px;"> / ${totalN}</span>` : ''}`
-    : `<span class="na">${d.skillsRankPlaceholder}</span>`;
-
-  html += `<div class="detail-block">
-    <div class="detail-block-label">Full Breakdown</div>
-    <div class="stats-body">
-      <div class="stat-group">
-        <div class="stat-group-label">Skills</div>
-        ${row('Driver', d.driverSkill || '<span class="na">—</span>')}
-        ${row('Autonomous', d.progSkill || '<span class="na">—</span>')}
-        ${row('Combined', d.officialCombined || (d.progSkill + d.driverSkill) || '<span class="na">—</span>')}
-      </div>
-      <div class="stat-group">
-        <div class="stat-group-label">Skills Rankings</div>
-        ${row('World', rankCell(d.worldSkillsRank, d.totalWorldTeams))}
-        ${row('State', rankCell(d.stateSkillsRank, d.totalStateTeams))}
-        ${row('State Region', rankCell(d.regionSkillsRank, d.totalRegionTeams))}
-      </div>
-      <div class="stat-group">
-        <div class="stat-group-label">Scoring</div>
-        ${row('Avg Score', fmt(d.avgScore, '', 1))}
-        ${row('High Score', d.highScore !== null ? d.highScore : '<span class="na">—</span>')}
-        ${row('Consistency', fmt(d.consistency, '%', 0))}
-      </div>
-      <div class="stat-group">
-        <div class="stat-group-label">Qualification</div>
-        ${row('Avg WP', d.avgWp !== null ? d.avgWp.toFixed(2) : '<span class="na">N/A</span>')}
-        ${row('Avg SP', d.avgSp !== null ? d.avgSp : '<span class="na">N/A</span>')}
-        ${row('Avg Rank', d.avgRank ? '#' + d.avgRank : '<span class="na">N/A</span>')}
-      </div>
-      <div class="stat-group">
-        <div class="stat-group-label">Autonomous</div>
-        ${row('AWP %', fmt(d.awpRate))}
-        ${row('AWP Won', d.totalRankedMatches > 0 ? `${d.finalAwpCount} / ${d.totalRankedMatches}` : '<span class="na">N/A</span>')}
-        ${row('Auton Win %', fmt(d.autonRate))}
-      </div>
-      <div class="stat-group">
-        <div class="stat-group-label">Signature Events</div>
-        ${row('Sig Win Rate', fmt(d.sigWinRate))}
-        ${row('Sig Record', d.sigTotal > 0 ? `${d.sigWins}W · ${d.sigLosses}L${d.sigTies ? ' · ' + d.sigTies + 'T' : ''}` : '<span class="na">None</span>')}
-        ${row('Sig Matches', d.sigTotal || '<span class="na">0</span>')}
-      </div>
-    </div>
-  </div>`;
+  // ── Everything else, folded away ──
+  // A row is only worth a line if it has a value. A group with no rows is gone.
+  const row = (name, val) => (val === null || val === undefined || val === '' || val === 0) ? '' : `<div class="stat-row"><div class="stat-name">${name}</div><div class="stat-value">${val}</div></div>`;
+  const pct = (v, dec = 1) => (v !== null && v !== undefined) ? `${Number(v).toFixed(dec)}%` : null;
+  const rankCell = (r, totalN) => r ? `<span class="highlight">#${r}</span>${totalN ? `<span style="color:var(--text-muted);font-size:12px;"> / ${totalN}</span>` : ''}` : null;
+  const group = (label, rows) => { const body = rows.join(''); return body ? `<div class="stat-group"><div class="stat-group-label">${label}</div>${body}</div>` : ''; };
+  const breakdown = [
+    group('Skills', [row('Driver', d.driverSkill), row('Autonomous', d.progSkill), row('Combined', skillsBest)]),
+    group('Skills Rankings', [row('World', rankCell(d.worldSkillsRank, d.totalWorldTeams)), row('State', rankCell(d.stateSkillsRank, d.totalStateTeams)), row('State Region', rankCell(d.regionSkillsRank, d.totalRegionTeams))]),
+    group('Scoring', [row('Avg Score', d.avgScore !== null && d.avgScore !== undefined ? Number(d.avgScore).toFixed(1) : null), row('High Score', d.highScore), row('Consistency', pct(d.consistency, 0))]),
+    group('Qualification', [row('Avg WP', d.avgWp !== null ? d.avgWp.toFixed(2) : null), row('Avg SP', d.avgSp), row('Avg Rank', d.avgRank ? '#' + d.avgRank : null)]),
+    group('Autonomous', [row('AWP %', pct(d.awpRate)), row('AWP Won', d.totalRankedMatches > 0 ? `${d.finalAwpCount} / ${d.totalRankedMatches}` : null), row('Auton Win %', pct(d.autonRate))]),
+    group('Signature Events', [row('Sig Win Rate', pct(d.sigWinRate)), row('Sig Record', d.sigTotal > 0 ? `${d.sigWins}W · ${d.sigLosses}L${d.sigTies ? ' · ' + d.sigTies + 'T' : ''}` : null), row('Sig Matches', d.sigTotal)])
+  ].join('');
+  const breakdownHtml = breakdown ? `<details class="detail-block detail-fold">
+    <summary class="detail-block-label">Full Breakdown <span class="fold-hint">every number</span></summary>
+    <div class="stats-body">${breakdown}</div>
+  </details>` : '';
 
   // ── Match schedule for the selected event ──
   if (eventFilter && eventFilter !== 'all') html += renderEventSchedule(d, eventFilter);
+
+  // ── Coming up, the robot, the season, the past ──
+  html += renderEventsUpcoming(d);
+  // What the robot tracker has seen of this team, filled in once it is fetched.
+  html += `<div id="vtReport" data-team="${teamAttr(String(d.team.number).toUpperCase())}"></div>`;
+  setTimeout(() => vtReportFill(d.team.number), 0);
+  html += seasonChart(d);
+  html += renderEventsAttended(d);
 
   // ── Qualification status ──
   const qs = qualStatusFromAwards(d.awardsList);
@@ -14917,7 +14943,7 @@ function renderDetailedTeam(d, eventFilter) {
         <div class="qual-label">${qs.label}</div>
         ${qs.via.length
           ? `<div class="qual-via">${qs.via.map(v => `<span class="qual-via-item"><strong>${esc(v.award)}</strong> at ${esc(v.event || 'an event')}${v.inferred ? '<span class="inf-mark" title="Inferred from the award title and event level — this event didn\'t record the qualification explicitly.">?</span>' : ''}</span>`).join('')}</div>`
-          : `<div class="qual-via-none">No award this season carried a qualification. Teams can also qualify through the skills list or event rank — the ladder below shows where this team stands.</div>`}
+          : `<div class="qual-via-none">Nothing yet this season. The skills ladder below shows how close it is.</div>`}
       </div>
     </div>
     <div class="ladder-wrap">
@@ -14926,16 +14952,9 @@ function renderDetailedTeam(d, eventFilter) {
     </div>
   </div>`;
 
-  // ── Events attended ──
-  html += seasonChart(d);
-  // What the robot tracker has seen of this team, filled in once it is fetched.
-  html += `<div id="vtReport" data-team="${teamAttr(String(d.team.number).toUpperCase())}"></div>`;
-  setTimeout(() => vtReportFill(d.team.number), 0);
-  html += renderEventsUpcoming(d);
-  html += renderEventsAttended(d);
-
+  // ── What is next, then what has been ──
   // ── Awards ──
-  html += `<div class="detail-block">
+  if (d.awardsList.length) html += `<div class="detail-block">
     <div class="detail-block-label">Awards (${d.awardsList.length})</div>
     ${d.awardsList.length
       ? `<div class="awards-list">${d.awardsList.map((a, i) => {
@@ -14946,6 +14965,8 @@ function renderDetailedTeam(d, eventFilter) {
         }).join('')}</div>`
       : `<div class="no-awards">No awards found</div>`}
   </div>`;
+
+  html += breakdownHtml;
 
   out.innerHTML = html;
   // The ladder costs one request per team ranked above, so it's opt-in rather
