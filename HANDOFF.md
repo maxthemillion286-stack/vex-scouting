@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v99**. Everything green: 66 test files. (The `v19` in §8's
+Current release: **v100**. Everything green: 66 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -2397,6 +2397,17 @@ strategy if they repeatedly do something and how they lose".
 .pushState({vs: key})`); `popstate` walks the app's own `vsNav` list, so the
 browser's Back/Forward and a phone's swipe-back move within the site. A
 tracker run mutes `vsNavPush` so its event-hopping is not recorded.
+
+**v100.**
+- A team page listed only events with matches. `upcomingList` (from the
+  team's registrations, minus events it has played, minus finished ones) is
+  shown as "Upcoming Events" above "Events Attended".
+- A screenshot showed the finder boxing a spectator at 48%. `vtRobotLike`
+  drops boxes more than twice as tall as wide, and boxes with no plate colour
+  unless squarish and at 60%+; `VT_CONF` is 0.45. A match is saved only when
+  both alliances were seen in at least 10 looks each, so crowd shots and
+  ceremonies are not stored as matches. **These are shape rules, not a better
+  model; a retrain on such frames is the real fix.**
 
 ---
 
