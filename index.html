@@ -3645,7 +3645,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v100';
+const APP_BUILD = 'v101';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -7919,6 +7919,7 @@ const VT_MAX_LOOKS_PER_SEC = 6;   // of match time, per match: more than this is
 const VT_MIN_FRAMES = 30;       // fewer frames with a robot than this and the video was not a match
 const VT_PASS_KEY = 'vex_tracker_pass';
 const VT_MODEL = 'det1';
+const VT_REC_V = 2;              // what a recording must be to count as done: v1 has no look and no plate reads
 
 // ── Pure pieces (tested without a browser) ─────────────────────────────────
 // Fit a w×h frame into the model's square, keeping its shape.
@@ -7972,11 +7973,145 @@ function vtColorOf(rgba, W, H, box) {
   if (blue >= need && blue > 1.5 * red) return 2;
   return 0;
 }
+// ── Which robot is which (v101) ────────────────────────────────────────────
+//
+// Until now a box had an alliance colour and nothing else, so everything the
+// tracker said was about an alliance. Two things are now kept with each box:
+//
+//   · WHAT IT LOOKS LIKE — twelve numbers: how much of the robot is each of
+//     eight hues and four shades of grey, with its own plate colour left out
+//     (both partners wear the same plates, so that says nothing).
+//   · WHOSE PLATE WAS READ — when a plate is big enough in the picture it is
+//     cut out and read, and the text is compared with the two team numbers
+//     the alliance is known to contain. It is not asked "what does this say"
+//     but "which of these two is it", which is a far easier question.
+//
+// The owner's point, and the design: robots are rebuilt between events and a
+// season's robots look alike, so nothing is carried from one event to the
+// next. Within an event, a team is "whatever shows up every time that team is
+// on the field" — settled by a plate read when there is one, and otherwise by
+// the look that recurs across its matches while its partners change.
+function vtSigOf(rgba, W, H, box, col) {
+  const bins = new Array(12).fill(0);
+  let n = 0;
+  // The middle of the box: the edges are mostly field and other robots.
+  const x0 = Math.floor(box[0] + box[2] * 0.2), x1 = Math.ceil(box[0] + box[2] * 0.8);
+  const y0 = Math.floor(box[1] + box[3] * 0.15), y1 = Math.ceil(box[1] + box[3] * 0.85);
+  const sx = Math.max(1, Math.floor((x1 - x0) / 16)), sy = Math.max(1, Math.floor((y1 - y0) / 16));
+  for (let y = Math.max(0, y0); y < Math.min(H, y1); y += sy) for (let x = Math.max(0, x0); x < Math.min(W, x1); x += sx) {
+    const i = (y * W + x) * 4, r = rgba[i], g = rgba[i + 1], b = rgba[i + 2];
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+    if (mx >= 70 && d >= 0.35 * mx) {
+      let h = mx === r ? ((g - b) / d + 6) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;   // 0..6
+      const hb = Math.floor(h / 6 * 8) % 8;
+      // Its own plates: red is hue bin 0 or 7, blue is 5.
+      if ((col === 1 && (hb === 0 || hb === 7) && d > 0.5 * mx) || (col === 2 && hb === 5 && d > 0.5 * mx)) continue;
+      bins[hb]++;
+    } else bins[8 + Math.min(3, Math.floor(mx / 64))]++;
+    n++;
+  }
+  if (n < 12) return null;
+  return bins.map(v => Math.min(15, Math.round(v / n * 30)));
+}
+const vtSigPack = g => g ? [0, 4, 8].map(o => g[o] | g[o + 1] << 4 | g[o + 2] << 8 | g[o + 3] << 12) : [0, 0, 0];
+function vtSigUnpack(a, b, c) {
+  if (!a && !b && !c) return null;
+  const g = [];
+  for (const v of [a, b, c]) g.push(v & 15, v >> 4 & 15, v >> 8 & 15, v >> 12 & 15);
+  return g;
+}
+// 0 the same look, 1 nothing in common.
+function vtSigDist(a, b) {
+  if (!a || !b) return 0.5;
+  let d = 0, s = 0;
+  for (let i = 0; i < 12; i++) { d += Math.abs(a[i] - b[i]); s += a[i] + b[i]; }
+  return s ? d / s : 0.5;
+}
+// Where the plate is inside a robot's box: the widest band of its alliance
+// colour. Rows first, then the columns of that band. → {x, y, w, h} or null.
+function vtPlateBox(rgba, W, H, col) {
+  const hit = i => {
+    const r = rgba[i], g = rgba[i + 1], b = rgba[i + 2], mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+    if (mx < 90 || mx - mn < 0.45 * mx) return false;
+    return col === 1 ? (r === mx && g < 0.55 * r && b < 0.6 * r) : (b === mx && r < 0.55 * b);
+  };
+  const rows = new Array(H).fill(0);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (hit((y * W + x) * 4)) rows[y]++;
+  const run = (arr, floor) => {            // the longest stretch at or above `floor`
+    let best = [0, -1], s = -1;
+    for (let i = 0; i <= arr.length; i++) {
+      if (i < arr.length && arr[i] >= floor) { if (s < 0) s = i; }
+      else if (s >= 0) { if (i - s > best[1] - best[0] + 1) best = [s, i - 1]; s = -1; }
+    }
+    return best;
+  };
+  const top = Math.max(...rows);
+  if (top < 12) return null;
+  const [y0, y1] = run(rows, top * 0.45);
+  if (y1 < y0) return null;
+  const cols = new Array(W).fill(0);
+  for (let x = 0; x < W; x++) for (let y = y0; y <= y1; y++) if (hit((y * W + x) * 4)) cols[x]++;
+  const [x0, x1] = run(cols.map((v, x) => Math.max(v, cols[x - 1] || 0, cols[x + 1] || 0)), (y1 - y0 + 1) * 0.3);   // gaps where the white letters are
+  const w = x1 - x0 + 1, h = y1 - y0 + 1;
+  // A plate is a wide strip, and letters under about eight pixels cannot be read.
+  if (h < 9 || w < 2 * h || w > 9 * h) return null;
+  return { x: x0, y: y0, w, h };
+}
+// Characters a blurry plate swaps for one another.
+const VT_LOOKALIKE = ['0ODQ', '1IL', '8B', '5S', '2Z', '6G'];
+function vtEdit(a, b) {
+  const same = (x, y) => x === y ? 0 : VT_LOOKALIKE.some(g => g.includes(x) && g.includes(y)) ? 0.5 : 1;
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + same(a[i - 1], b[j - 1]));
+    prev = cur;
+  }
+  return prev[b.length];
+}
+function vtNearTeam(t, team) {
+  const T = String(team || '').toUpperCase();
+  if (!T) return 99;
+  let best = vtEdit(t, T);
+  for (const L of [T.length - 1, T.length, T.length + 1]) for (let s = 0; L > 2 && s + L <= t.length; s++) best = Math.min(best, vtEdit(t.slice(s, s + L), T));
+  return best;
+}
+// Which of an alliance's two teams does this text name? 1, 2, or 0 for
+// "cannot say". It must be close to one AND clearly further from the other:
+// 6722A and 6722B differ by a single character.
+function vtWhoFromText(text, teams) {
+  const t = String(text || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (t.length < 3 || !teams || teams.length < 2) return 0;
+  if (teams.length > 2) {
+    // Any of the match's teams: the nearest, if it is near and clearly nearer
+    // than the next. → its place in the list, from 1.
+    const ds = teams.map(team => vtNearTeam(t, team));
+    const order = ds.map((v, i) => i).sort((a, b) => ds[a] - ds[b]);
+    const lo = ds[order[0]], hi = ds[order[1]];
+    return lo <= 0.34 * String(teams[order[0]]).length && hi - lo >= 1 ? order[0] + 1 : 0;
+  }
+  const near = team => {
+    const T = String(team || '').toUpperCase();
+    if (!T) return 99;
+    let best = vtEdit(t, T);
+    // The read may have picked up a neighbour's edge: try every stretch of it.
+    for (const L of [T.length - 1, T.length, T.length + 1]) for (let s = 0; L > 2 && s + L <= t.length; s++) best = Math.min(best, vtEdit(t.slice(s, s + L), T));
+    return best;
+  };
+  const d1 = near(teams[0]), d2 = near(teams[1]);
+  const lo = Math.min(d1, d2), hi = Math.max(d1, d2);
+  const len = String(d1 <= d2 ? teams[0] : teams[1]).length;
+  if (lo > 0.34 * len || hi - lo < 1) return 0;
+  return d1 < d2 ? 1 : 2;
+}
+// Stored boxes come in two shapes: six numbers (v1) or ten (v2: + look, + plate).
+const vtStride = rec => (rec && rec.v === 2) ? 10 : 6;
 // One frame as integers: [tenths of a second from the match's position, k, then
 // k × (x, y, w, h, confidence %, colour)], coordinates at a 640-wide frame.
 function vtPackFrame(t, boxes, srcW) {
   const k = VT_SIZE / srcW, fr = [Math.round(t * 10), boxes.length];
-  for (const b of boxes) fr.push(Math.round(b[0] * k), Math.round(b[1] * k), Math.round(b[2] * k), Math.round(b[3] * k), Math.round(b[4] * 100), b[5] || 0);
+  for (const b of boxes) fr.push(Math.round(b[0] * k), Math.round(b[1] * k), Math.round(b[2] * k), Math.round(b[3] * k), Math.round(b[4] * 100), b[5] || 0,
+    ...vtSigPack(b[6]), b[7] || 0);
   return fr;
 }
 // Is this box a robot? A screenshot showed the finder boxing a person in a
@@ -7995,9 +8130,10 @@ function vtRecStats(rec) {
   // when both alliances were seen. A crowd shot or an awards ceremony has
   // neither, and used to be saved as if it were a match.
   let withRobot = 0, boxes = 0, red = 0, blue = 0;
+  const N = vtStride(rec);
   for (const fr of (rec && rec.f) || []) {
     let r = false, b = false;
-    for (let i = 0; i < fr[1]; i++) { const c = fr[2 + 6 * i + 5]; if (c === 1) r = true; else if (c === 2) b = true; }
+    for (let i = 0; i < fr[1]; i++) { const c = fr[2 + N * i + 5]; if (c === 1) r = true; else if (c === 2) b = true; }
     if (r) red++; if (b) blue++;
     if (r || b) withRobot++;
     boxes += fr[1];
@@ -8038,11 +8174,15 @@ function vtQueueFrom(ctx) {
 
 // ── What has been tracked: on this device, and shared ──────────────────────
 const vtPass = () => lsGet(VT_PASS_KEY) || '';
+// Done means done at today's recording version. A v1 recording has positions
+// and colours only; it is kept and still used, and the match is watched once
+// more so robots can be told apart.
+const vtDone = e => !!e && e.s === 'done' && (e.v || 1) >= VT_REC_V;
 async function vtLocalIndex(ev) { return (await idbGet('vt:idx:' + ev)) || {}; }
 async function vtLocalSave(ev, id, rec, status) {
   if (rec) await idbSet(`vt:m:${ev}:${id}`, rec);
   const idx = await vtLocalIndex(ev);
-  idx[id] = { s: status, at: Date.now() };
+  idx[id] = { s: status, at: Date.now(), v: rec ? rec.v : VT_REC_V };
   await idbSet('vt:idx:' + ev, idx);
 }
 async function vtApi(method, query, body) {
@@ -8142,8 +8282,18 @@ function vtFinder() {
       const d = await new Promise((resolve, reject) => { waiting.set(id, { resolve, reject }); w.postMessage({ id, rgba: square.data.buffer }, [square.data.buffer]); });
       const rgba = new Uint8ClampedArray(d.rgba);
       const boxes = vtNMS(vtDecode(new Float32Array(d.out), d.n, lb, w0, h0, VT_CONF), VT_IOU);
-      for (const b of boxes) b[5] = vtColorOf(rgba, VT_SIZE, VT_SIZE, [b[0] * lb.s + lb.px, b[1] * lb.s + lb.py, b[2] * lb.s, b[3] * lb.s]);
+      for (const b of boxes) {
+        const sq = [b[0] * lb.s + lb.px, b[1] * lb.s + lb.py, b[2] * lb.s, b[3] * lb.s];
+        b[5] = vtColorOf(rgba, VT_SIZE, VT_SIZE, sq);
+        b[6] = b[5] ? vtSigOf(rgba, VT_SIZE, VT_SIZE, sq, b[5]) : null;
+      }
       return boxes.filter(vtRobotLike);
+    },
+    // strip: ImageData 160×48 holding a cut-out plate in its first `used` columns.
+    async read(strip, used) {
+      const id = ++seq;
+      const d = await new Promise((resolve, reject) => { waiting.set(id, { resolve, reject }); w.postMessage({ id, plate: true, used, rgba: strip.data.buffer }, [strip.data.buffer]); });
+      return { text: d.text || '', conf: d.conf || 0 };
     },
     stop() { try { if (w) w.terminate(); } catch (e) {} }
   };
@@ -8193,7 +8343,7 @@ async function vtFeedHere(run, ctx) {
   const all = vtQueueFrom(ctx);
   const [local, shared] = await Promise.all([vtLocalIndex(ev), vtSharedIds(ev)]);
   for (const m of all) {
-    if ((local[m.id] && local[m.id].s === 'done') || shared.includes(m.id)) run.skipped++;
+    if (vtDone(local[m.id]) || shared.includes(m.id)) run.skipped++;
     else { m.ev = ev; run.queue.push(m); run.total++; }
   }
 }
@@ -8252,7 +8402,7 @@ async function vtFeedHistory(run, eventId) {
       let added = 0;
       for (const m of found) {
         if (!m.red.concat(m.blue).some(n => plan.want.has(n))) continue;
-        if ((local[m.id] && local[m.id].s === 'done') || shared.includes(m.id)) run.skipped++;
+        if (vtDone(local[m.id]) || shared.includes(m.id)) run.skipped++;
         else { m.ev = ev; run.queue.push(m); run.total++; added++; }
       }
       run.withVideo++;
@@ -8404,7 +8554,7 @@ function vtMeter(run) {
   // the robots are being followed.
   const nowMs = Date.now();
   if (!run.rateAt || nowMs - run.rateAt > 4000) { if (run.rateAt) run.rate = ((run.looks || 0) - (run.rateLooks || 0)) / ((nowMs - run.rateAt) / 1000); run.rateAt = nowMs; run.rateLooks = run.looks || 0; }
-  const speed = run.rate ? ` · ${run.rate.toFixed(1)} looks a second on the ${run.backend || 'processor'}` : '';
+  const speed = (run.rate ? ` · ${run.rate.toFixed(1)} looks a second on the ${run.backend || 'processor'}` : '') + (run.plates ? ` · ${run.plates} plates read` : '');
   const evs = run.mode === 'history' && (run.withVideo || run.noVideo) ? ` · earlier events with video: ${run.withVideo}, without: ${run.noVideo}` : '';
   if (sub) sub.textContent = `${run.saved} tracked and saved${evs}${speed}${spent ? ' · running ' + vtElapsed(spent) : ''}${leftMs ? ' · roughly ' + vtElapsed(leftMs) + ' left' : ''}. It stops by itself when everything is watched; press Stop tracking to stop sooner. What is already tracked is kept.`;
   document.title = `${Math.round(frac * 100)}% tracking · ${VT_TITLE}`;
@@ -8412,7 +8562,7 @@ function vtMeter(run) {
 function vtProgress(run) {
   vtMeter(run);
   const where = run.mode === 'history' && run.events ? ` · event ${run.eventAt || 0} of ${run.events}: ${run.eventName || ''}${run.phase ? ' — ' + run.phase : ''}` : '';
-  const live = run.slots.filter(s => s.now).map(s => `${s.now.name} (${s.now.note || s.now.boxes + ' robots'})`).join(' · ');
+  const live = run.slots.filter(s => s.now).map(s => `${s.now.name} (${s.now.note || s.now.boxes + ' robots'}${s.now.plate ? ', read ' + s.now.plate : ''})`).join(' · ');
   const perHour = run.t0 && run.done ? Math.round(run.done / ((Date.now() - run.t0) / 3600000)) : 0;
   vtSay(`${run.done} of ${run.total} matches done${where}${perHour ? ` · about ${perHour} an hour` : ''}${live ? ' · now: ' + live : ''}`);
 }
@@ -8427,10 +8577,14 @@ async function vtWatch(run, slot, m) {
   const start = Math.max(0, m.off - VT_LEAD), end = start + VT_WINDOW;
   player.loadVideoById({ videoId: m.vid, startSeconds: start });
   try { player.mute(); player.setPlaybackRate(VT_RATE); } catch (e) {}
-  const rec = { v: 1, name: String(m.name || '').slice(0, 60), round: m.round, num: m.num, red: m.red, blue: m.blue,
+  const rec = { v: 2, name: String(m.name || '').slice(0, 60), round: m.round, num: m.num, red: m.red, blue: m.blue,
     rs: m.rs, bs: m.bs, vid: m.vid, off: m.off, rate: VT_RATE, w: VT_SIZE, h: 0, model: VT_MODEL, at: Date.now(), f: [] };
   const seen = document.getElementById('vtSeen'), sc = seen && seen.getContext('2d');
   const stage = document.getElementById('vtPlayers'), tile = document.getElementById('vtTile' + slot.i);
+  const plateCv = document.createElement('canvas'), plateCx = plateCv.getContext('2d', { willReadFrequently: true });
+  const stripCv = document.createElement('canvas'); stripCv.width = 160; stripCv.height = 48;
+  const stripCx = stripCv.getContext('2d', { willReadFrequently: true });
+  let looks = 0;
   let busy = false, lastT = -1, apiT = -1, apiAt = 0, finished = false, stalledSince = Date.now(), why = '', pushes = 0;
   const wallLimit = Date.now() + (VT_WINDOW / VT_RATE + 60) * 1000;
   await new Promise(resolve => {
@@ -8476,6 +8630,36 @@ async function vtWatch(run, slot, m) {
         sq.drawImage(video, sx, sy, w, h, lb.px, lb.py, lb.nw, lb.nh);
         const boxes = await slot.finder.detect(sq.getImageData(0, 0, VT_SIZE, VT_SIZE), lb, w, h);
         rec.h = Math.round(h * VT_SIZE / w);
+        // A plate: every other look, the biggest robot of a known alliance.
+        // Cut from the capture at its own size, not from the model's picture —
+        // letters need every pixel there is.
+        if ((looks++ & 1) === 0) {
+          const big = boxes.filter(b => b[5]).sort((a, b) => b[2] * b[3] - a[2] * a[3])[0];
+          if (big && big[2] >= 40) {
+            try {
+              const cw = Math.min(240, Math.round(big[2])), ch = Math.max(8, Math.round(big[3] * cw / big[2]));
+              plateCv.width = cw; plateCv.height = ch;
+              plateCx.drawImage(video, sx + big[0], sy + big[1], big[2], big[3], 0, 0, cw, ch);
+              const px = plateCx.getImageData(0, 0, cw, ch).data;
+              // Either colour's plate: the box's colour may itself be wrong
+              // (blue-anodised metal on a red robot), and the plate is how
+              // that gets found out.
+              const pr = vtPlateBox(px, cw, ch, 1), pbl = vtPlateBox(px, cw, ch, 2);
+              const pb = pr && pbl ? (pr.w * pr.h >= pbl.w * pbl.h ? pr : pbl) : (pr || pbl);
+              if (pb) {
+                const used = Math.min(160, Math.max(8, Math.round(pb.w * 48 / pb.h)));
+                stripCx.fillStyle = '#000'; stripCx.fillRect(0, 0, 160, 48);
+                stripCx.drawImage(plateCv, pb.x, pb.y, pb.w, pb.h, 0, 0, used, 48);
+                const got = await slot.finder.read(stripCx.getImageData(0, 0, 160, 48), used);
+                if (got.conf >= 0.5) {
+                  const four = [m.red[0], m.red[1], m.blue[0], m.blue[1]];
+                  big[7] = vtWhoFromText(got.text, four);
+                  if (big[7]) { run.plates = (run.plates || 0) + 1; slot.now.plate = four[big[7] - 1]; big[5] = big[7] <= 2 ? 1 : 2; }
+                }
+              }
+            } catch (e) {}
+          }
+        }
         rec.f.push(vtPackFrame(est - m.off, boxes, w));
         run.looks = (run.looks || 0) + 1;
         slot.now.boxes = boxes.length;
@@ -8535,7 +8719,8 @@ async function vtRender(note) {
   if (vtRun || window._rwCtx !== ctx) return;       // things moved on while that was read
   vtBackfill(ev).catch(() => {});                   // summarise anything tracked before summaries existed
   const P = vtParallel();
-  const doneHere = queue.filter(m => local[m.id] && local[m.id].s === 'done').length;
+  const doneHere = queue.filter(m => vtDone(local[m.id])).length;
+  const older = queue.filter(m => local[m.id] && local[m.id].s === 'done' && !vtDone(local[m.id])).length;
   const left = queue.length - doneHere;
   const mins = Math.ceil(left * (VT_WINDOW / VT_RATE + 6) / 60 / P);
   const span = mins >= 90 ? (Math.round(mins / 6) / 10) + ' hours' : mins + ' minutes';
@@ -8548,7 +8733,7 @@ async function vtRender(note) {
   panel.innerHTML = `<div class="rw-block vt-block">
     <div class="detail-block-label">Robot tracker</div>
     ${note ? `<div class="vt-note">${esc(note)}</div>` : ''}
-    ${hasHere ? `<div class="rw-hint">Watches ${who}, ${P} at a time at ${VT_RATE}×, and records where every robot is. ${doneHere ? `${doneHere} already tracked on this device. ` : ''}${left
+    ${hasHere ? `<div class="rw-hint">Watches ${who}, ${P} at a time at ${VT_RATE}×, and records where every robot is. ${doneHere ? `${doneHere} already tracked on this device. ` : ''}${older ? `${older} tracked before robots could be told apart will be watched once more. ` : ''}${left
       ? `About ${span} for the rest.` : 'Nothing is left to watch here.'}</div>
     ${left ? `<div class="rw-playall"><button class="btn btn-primary" onclick="vtStart('here')">Track this event's matches</button></div>` : ''}`
     : (ctx.team ? `<div class="rw-hint">None of ${esc(ctx.team.number || 'this team')}'s played matches here has video the Jumper can open yet.</div>` : '')}
@@ -8603,19 +8788,20 @@ async function vtOpenEvent(eventId) {
 // VT_SUM_V is bumped whenever the arithmetic changes, and summaries are
 // recomputed from the stored boxes — nothing is watched again.
 // ═══════════════════════════════════════════════════════════════
-const VT_SUM_V = 1;
+const VT_SUM_V = 2;
 const VT_NEAR = 0.14;           // "next to" an opponent, as a fraction of the field
 const VT_SUMS_KEY = 'vt:sums';
 
 // Boxes → frames of points in field units (0..1 across the area robots used).
 // A robot's position is the middle of the bottom edge of its box: its wheels.
 function vtFrames(rec) {
-  const H = rec.h || 360, raw = [];
+  const H = rec.h || 360, raw = [], N = vtStride(rec);
   for (const fr of rec.f || []) {
     const pts = [];
     for (let i = 0; i < fr[1]; i++) {
-      const o = 2 + 6 * i;
-      pts.push({ x: (fr[o] + fr[o + 2] / 2) / VT_SIZE, y: (fr[o + 1] + fr[o + 3]) / H, c: fr[o + 5] });
+      const o = 2 + N * i;
+      pts.push({ x: (fr[o] + fr[o + 2] / 2) / VT_SIZE, y: (fr[o + 1] + fr[o + 3]) / H, c: fr[o + 5],
+        g: N === 10 ? vtSigUnpack(fr[o + 6], fr[o + 7], fr[o + 8]) : null, who: N === 10 ? fr[o + 9] : 0 });
     }
     raw.push({ t: fr[0] / 10, pts });
   }
@@ -8634,32 +8820,110 @@ function vtFrames(rec) {
 // last position and ages. Crude next to a real tracker, and enough to say how
 // far something moved and whether it stopped.
 function vtSlots(frames) {
-  const slots = { 1: [null, null], 2: [null, null] }, out = [];
+  // ── 1. Follow every box, whatever colour it was called ───────────────────
+  // Colour is decided for a whole track at the end, not look by look. Reported
+  // as: a red-alliance robot with blue-anodised metal "tracked as blue". One
+  // look can be fooled by paint; a robot's plates are seen again and again
+  // over a match, and a plate that is READ says which alliance outright.
   const d = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  const live = [], all = [];
+  const lookOf = tr => tr.gn ? tr.gs.map(v => v / tr.gn) : null;
   for (const f of frames) {
-    for (const c of [1, 2]) {
-      const cand = f.pts.filter(p => p.c === c).slice(0, 4), S = slots[c];
-      const used = new Set();
-      // Existing slots first, nearest candidate within reach.
-      const order = [0, 1].filter(i => S[i]).sort((a, b) => S[b].t - S[a].t);
-      for (const i of order) {
-        let best = -1, bd = Infinity;
-        cand.forEach((p, k) => { if (!used.has(k)) { const dd = d(S[i], p); if (dd < bd) { bd = dd; best = k; } } });
-        const reach = 0.12 + 0.3 * Math.min(3, f.t - S[i].t);
-        if (best >= 0 && bd <= reach) { used.add(best); S[i] = { x: cand[best].x, y: cand[best].y, t: f.t, seen: true }; }
-        else S[i].seen = false;
-      }
-      // Anything left starts a slot, or takes over the stalest one.
-      cand.forEach((p, k) => {
+    const used = new Set();
+    for (const tr of live.slice().sort((a, b) => b.t - a.t)) {
+      let best = -1, bd = Infinity, bcost = Infinity;
+      const mine = lookOf(tr), major = tr.cv[1] > tr.cv[2] ? 1 : tr.cv[2] > tr.cv[1] ? 2 : 0;
+      f.pts.forEach((p, k) => {
         if (used.has(k)) return;
-        let i = S.findIndex(s => !s);
-        if (i < 0) { const stale = [0, 1].filter(j => f.t - S[j].t > 2).sort((a, b) => S[a].t - S[b].t)[0]; if (stale === undefined) return; i = stale; }
-        S[i] = { x: p.x, y: p.y, t: f.t, seen: true };
+        // Nearest, looking the same, and of the colour this track has mostly
+        // been: when two robots meet, the last two keep each on its own track.
+        const dd = d(tr, p), cost = dd + (mine && p.g ? 0.2 * vtSigDist(mine, p.g) : 0) + (major && p.c && p.c !== major ? 0.1 : 0);
+        if (cost < bcost) { bcost = cost; bd = dd; best = k; }
       });
+      if (best >= 0 && bd <= 0.12 + 0.3 * Math.min(3, f.t - tr.t)) { used.add(best); vtTrackAdd(tr, f.pts[best], f.t); }
     }
-    out.push({ t: f.t, s: { 1: slots[1].map(s => s && { ...s }), 2: slots[2].map(s => s && { ...s }) } });
+    f.pts.forEach((p, k) => { if (!used.has(k)) { const tr = { pts: [], cv: [0, 0, 0], pv: [0, 0, 0, 0, 0], gs: new Array(12).fill(0), gn: 0 }; vtTrackAdd(tr, p, f.t); live.push(tr); all.push(tr); } });
+    for (let i = live.length - 1; i >= 0; i--) if (f.t - live[i].t > 4) live.splice(i, 1);
   }
+  // A track that slid from one robot onto another of the other alliance (they
+  // met, and the nearer box won) is cut where its colour changed for good:
+  // eight looks running of the other colour. Paint that fools the colour test
+  // flickers; it does not give eight in a row.
+  const pieces = [];
+  for (const tr of all) {
+    let start = 0, cnt = [0, 0, 0], run = 0, runStart = -1;
+    for (let k = 0; k < tr.pts.length; k++) {
+      const c = tr.pts[k].c;
+      if (!c) continue;
+      const major = cnt[1] > cnt[2] ? 1 : cnt[2] > cnt[1] ? 2 : 0;
+      if (major && c !== major && cnt[major] >= 8) { if (!run) runStart = k; run++; } else run = 0;
+      cnt[c]++;
+      if (run >= 8) { pieces.push(vtTrackFrom(tr.pts.slice(start, runStart))); start = runStart; cnt = [0, 0, 0]; for (let j = runStart; j <= k; j++) cnt[tr.pts[j].c]++; run = 0; }
+    }
+    pieces.push(start ? vtTrackFrom(tr.pts.slice(start)) : tr);
+  }
+  all.length = 0; all.push(...pieces.filter(tr => tr.pts.length));
+  // ── 2. Each track's alliance ─────────────────────────────────────────────
+  for (const tr of all) {
+    const plateRed = tr.pv[1] + tr.pv[2], plateBlue = tr.pv[3] + tr.pv[4];
+    if (Math.max(plateRed, plateBlue) >= 2 && Math.max(plateRed, plateBlue) >= 2 * Math.min(plateRed, plateBlue) + 1) { tr.c = plateRed > plateBlue ? 1 : 2; tr.sure = true; }
+    else tr.c = tr.cv[1] === 0 && tr.cv[2] === 0 ? 0 : tr.cv[1] >= tr.cv[2] ? 1 : 2;
+    tr.t0 = tr.pts[0].t; tr.t1 = tr.pts[tr.pts.length - 1].t;
+  }
+  // There are two robots a side. Three long tracks of one colour and one of
+  // the other means one was miscoloured: the one that showed the MOST of the
+  // other colour is moved across. (A robot wearing the wrong paint still wears
+  // the right plates.)
+  const long = c => all.filter(tr => tr.c === c && tr.t1 - tr.t0 >= 30);
+  for (const c of [1, 2]) {
+    const o = 3 - c;
+    if (long(c).length >= 3 && long(o).length <= 1) {
+      const cand = long(c).filter(tr => !tr.sure && tr.cv[o] > 0).sort((a, b) => b.cv[o] / (b.cv[1] + b.cv[2]) - a.cv[o] / (a.cv[1] + a.cv[2]))[0];
+      if (cand && cand.cv[o] / (cand.cv[1] + cand.cv[2]) >= 0.08) cand.c = o;
+    }
+  }
+  // ── 3. Two slots a side, built from tracks that do not overlap ───────────
+  const slotTracks = { 1: [[], []], 2: [[], []] };
+  for (const c of [1, 2]) {
+    const mine = all.filter(tr => tr.c === c && tr.pts.length >= 3).sort((a, b) => (b.t1 - b.t0) - (a.t1 - a.t0));   // longest first
+    for (const tr of mine) {
+      const free = [0, 1].filter(i => slotTracks[c][i].every(u => tr.t0 >= u.t1 - 0.5 || tr.t1 <= u.t0 + 0.5));
+      if (!free.length) continue;                       // a third thing in view at the same time
+      // Of the free slots, the one whose robot looks most like this one.
+      const cost = i => { const u = slotTracks[c][i]; if (!u.length) return 0.3; const g = lookOf(tr); return vtAvg(u.map(x => vtSigDist(lookOf(x), g))); };
+      slotTracks[c][free.sort((a, b) => cost(a) - cost(b))[0]].push(tr);
+    }
+  }
+  // ── 4. Back to one row per look: where each slot was ─────────────────────
+  const out = frames.map(f => ({ t: f.t, s: { 1: [null, null], 2: [null, null] } }));
+  const at = new Map(frames.map((f, k) => [f.t, k]));
+  const look = { 1: [null, null], 2: [null, null] }, votes = { 1: [[0, 0], [0, 0]], 2: [[0, 0], [0, 0]] };
+  for (const c of [1, 2]) for (const i of [0, 1]) {
+    const gs = new Array(12).fill(0); let gn = 0;
+    for (const tr of slotTracks[c][i]) {
+      for (const p of tr.pts) { const k = at.get(p.t); if (k !== undefined) out[k].s[c][i] = { x: p.x, y: p.y, t: p.t, seen: true }; }
+      for (let k = 0; k < 12; k++) gs[k] += tr.gs[k]; gn += tr.gn;
+      votes[c][i][0] += tr.pv[c === 1 ? 1 : 3]; votes[c][i][1] += tr.pv[c === 1 ? 2 : 4];
+    }
+    look[c][i] = gn ? gs.map(v => v / gn) : null;
+    // Between sightings a slot holds its last position, marked unseen.
+    let last = null;
+    for (const row of out) { if (row.s[c][i]) last = row.s[c][i]; else if (last && row.t - last.t <= 3) row.s[c][i] = { ...last, seen: false }; }
+  }
+  out.look = look; out.votes = votes; out.recoloured = all.filter(tr => tr.c && tr.cv[tr.c] < tr.cv[3 - tr.c]).length;
   return out;
+}
+function vtTrackFrom(pts) {
+  const tr = { pts: [], cv: [0, 0, 0], pv: [0, 0, 0, 0, 0], gs: new Array(12).fill(0), gn: 0 };
+  for (const p of pts) vtTrackAdd(tr, p, p.t);
+  return tr;
+}
+function vtTrackAdd(tr, p, t) {
+  tr.x = p.x; tr.y = p.y; tr.t = t;
+  tr.pts.push({ x: p.x, y: p.y, t, c: p.c || 0, who: p.who || 0, g: p.g || null });
+  tr.cv[p.c || 0]++;
+  if (p.who >= 1 && p.who <= 4) tr.pv[p.who]++;
+  if (p.g) { for (let k = 0; k < 12; k++) tr.gs[k] += p.g[k]; tr.gn++; }
 }
 // One position per robot per second: the mean of that second's looks. A box
 // jitters by a percent or two from look to look, and at several looks a second
@@ -8713,7 +8977,7 @@ function vtSummarise(rec) {
   const F = vtFrames(rec);
   const base = { sv: VT_SUM_V, name: rec.name, round: rec.round, num: rec.num, red: rec.red, blue: rec.blue, rs: rec.rs, bs: rec.bs };
   if (!F.ok) return { ...base, ok: 0 };
-  const track = vtBin(vtSlots(F.frames)), ph = vtPhases(track);
+  const slotted = vtSlots(F.frames), track = vtBin(slotted), ph = vtPhases(track);
   const span = F.frames.length > 1 ? F.frames[F.frames.length - 1].t - F.frames[0].t : 0;
   const lps = span > 0 ? F.frames.length / span : 0;
   // Which way each alliance attacks: where they stood before the start.
@@ -8733,6 +8997,8 @@ function vtSummarise(rec) {
   const side = c => {
     const o = 3 - c;
     let autoPath = [0, 0], autoReach = 0, drvPath = 0, drvTime = 0, opp = 0, press = 0, pressed = 0, both = 0, bins = 0, apart = 0, apartN = 0;
+    // The same sums, kept per robot.
+    const one = [0, 1].map(() => ({ reach: 0, path: 0, time: 0, opp: 0, press: 0, pressed: 0 }));
     const still = [0, 0], stillMax = [0, 0], anchor = [null, null];
     const endPts = [[], []];
     for (let k = 1; k < track.length; k++) {
@@ -8744,12 +9010,12 @@ function vtSummarise(rec) {
         const p = a.s[c][i], q = b.s[c][i];
         if (!q) { anchor[i] = null; still[i] = 0; continue; }
         const step = vtStep(p, q);
-        if (inAuto) { autoPath[i] += step; const v = adv(q, c); if (v !== null && v > autoReach) autoReach = v; }
+        if (inAuto) { autoPath[i] += step; const v = adv(q, c); if (v !== null && v > autoReach) autoReach = v; if (v !== null && v > one[i].reach) one[i].reach = v; }
         if (inDrv) {
-          drvPath += step; drvTime += dt;
+          drvPath += step; drvTime += dt; one[i].path += step; one[i].time += dt;
           const v = adv(q, c);
           const near = b.s[o].some(e => e && Math.hypot(e.x - q.x, e.y - q.y) < VT_NEAR);
-          if (v !== null) { if (v > 0.5) { opp += dt; if (near) press += dt; } else if (near) pressed += dt; }
+          if (v !== null) { if (v > 0.5) { opp += dt; one[i].opp += dt; if (near) { press += dt; one[i].press += dt; } } else if (near) { pressed += dt; one[i].pressed += dt; } }
           // Stopped: has not left a small circle. The last 15 s do not count —
           // stopping at the end is parking, not a problem.
           if (b.t < ph.end - 15) {
@@ -8766,7 +9032,21 @@ function vtSummarise(rec) {
     });
     const endAdv = [0, 1].filter(i => endPts[i].length).map(i => adv(endPts[i][endPts[i].length - 1], c)).filter(v => v !== null);
     const r = v => Math.round(v * 1000) / 1000;
+    // One robot's own numbers, under the same names as the alliance's, plus
+    // what it looked like (g0–g11) and whose plate was read on it (wa, wb).
+    const robot = i => {
+      const o1 = one[i], es = endPts[i].length >= 3 ? (() => { const xs = endPts[i].map(p => p.x), ys = endPts[i].map(p => p.y);
+        return Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) < 0.05 ? 1 : 0; })() : null;
+      const out = { am: autoPath[i] > 0.08 ? 1 : 0, ap: r(autoPath[i]), ar: axis ? r(Math.max(0, Math.min(1.5, o1.reach))) : null,
+        act: r(o1.time ? o1.path / o1.time : 0), opp: axis && o1.time ? r(o1.opp / o1.time) : null,
+        prs: axis && o1.time ? r(o1.press / o1.time) : null, prd: axis && o1.time ? r(o1.pressed / o1.time) : null,
+        stp: Math.round(stillMax[i]), es, sec: Math.round(o1.time), wa: slotted.votes[c][i][0], wb: slotted.votes[c][i][1] };
+      const g = slotted.look[c][i];
+      if (g) g.forEach((v, k) => { out['g' + k] = Math.round(v * 10) / 10; });
+      return out;
+    };
     return {
+      ra: robot(0), rb: robot(1),
       am: autoPath.filter(v => v > 0.08).length,                        // robots that moved in autonomous
       ap: r((autoPath[0] + autoPath[1]) / 2),                            // how far, per robot
       ar: axis ? r(Math.max(0, Math.min(1.5, autoReach))) : null,        // how far up the field
@@ -8781,7 +9061,11 @@ function vtSummarise(rec) {
       vis: bins ? r(both / bins) : 0                                     // how often both were in view
     };
   };
-  return { ...base, ok: 1, lps: Math.round(lps * 10) / 10, st: ph.start, dr: ph.driver, R: side(1), B: side(2) };
+  // Flattened for storage: the alliance's numbers under R and B, each robot's
+  // under Ra, Rb, Ba, Bb.
+  const A = side(1), Z = side(2);
+  const { ra: Ra, rb: Rb, ...Rall } = A, { ra: Ba, rb: Bb, ...Ball } = Z;
+  return { ...base, ok: 1, lps: Math.round(lps * 10) / 10, st: ph.start, dr: ph.driver, R: Rall, B: Ball, Ra, Rb, Ba, Bb };
 }
 
 // ── Keeping summaries: on the device, and shared ───────────────────────────
@@ -8826,39 +9110,106 @@ async function vtTeamSums(number) {
 // ── A team's report ────────────────────────────────────────────────────────
 const vtAvg = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;
 const vtPct = v => Math.round(v * 100) + '%';
+const vtLookOf = r => (r && r.g0 !== undefined) ? Array.from({ length: 12 }, (_, k) => r['g' + k] || 0) : null;
+// In each match a team played, which of its alliance's two robots is it?
+//   1. A plate read: at least two reads, and clearly more for one answer.
+//   2. Otherwise, within ONE event (robots are rebuilt between events): the
+//      look that recurs across its matches while the partner changes. Plate
+//      reads at that event, if any, say what that look is; if there are none,
+//      it is found by repeatedly taking the robot nearest the running average.
+// → Map(match key → { slot: 'a' | 'b', how: 'plate' | 'look', margin })
+function vtIdentify(number, sums) {
+  const num = String(number).toUpperCase(), picks = new Map(), byEvent = new Map();
+  for (const [key, s] of sums) {
+    const side = (s.red || []).includes(num) ? 'R' : (s.blue || []).includes(num) ? 'B' : null;
+    if (!side || !s[side + 'a'] || !s[side + 'b']) continue;
+    const list = side === 'R' ? s.red : s.blue, k = list.indexOf(num);
+    const a = s[side + 'a'], b = s[side + 'b'];
+    const own = k === 0 ? 'wa' : 'wb', other = k === 0 ? 'wb' : 'wa';
+    const forA = (a[own] || 0) + (b[other] || 0), forB = (b[own] || 0) + (a[other] || 0);
+    const e = { key, a, b, partner: list[1 - k] || '', la: vtLookOf(a), lb: vtLookOf(b), pick: null };
+    if (Math.max(forA, forB) >= 2 && Math.max(forA, forB) >= 2 * Math.min(forA, forB) + 1) { e.pick = forA > forB ? 'a' : 'b'; picks.set(key, { slot: e.pick, how: 'plate', margin: 1 }); }
+    const ev = key.split(':')[0];
+    if (!byEvent.has(ev)) byEvent.set(ev, []);
+    byEvent.get(ev).push(e);
+  }
+  const meanOf = looks => { const m = new Array(12).fill(0); for (const g of looks) for (let i = 0; i < 12; i++) m[i] += g[i] / looks.length; return m; };
+  for (const list of byEvent.values()) {
+    const open = list.filter(e => !e.pick && e.la && e.lb), seeds = list.filter(e => e.pick && e['l' + e.pick]).map(e => e['l' + e.pick]);
+    if (!open.length) continue;
+    // With the same partner every time, both robots recur: the look cannot say
+    // which is which. Only a plate can, and those are already settled.
+    const partners = new Set(list.map(e => e.partner));
+    if (!seeds.length && (partners.size < 2 || list.length < 3)) continue;
+    let proto = seeds.length ? meanOf(seeds) : meanOf(open.flatMap(e => [e.la, e.lb]));
+    let choice = new Map();
+    for (let it = 0; it < 8; it++) {
+      const next = new Map(open.map(e => [e.key, vtSigDist(e.la, proto) <= vtSigDist(e.lb, proto) ? 'a' : 'b']));
+      const same = open.every(e => next.get(e.key) === choice.get(e.key));
+      choice = next;
+      if (same) break;
+      proto = meanOf(seeds.concat(open.map(e => e['l' + choice.get(e.key)])));
+    }
+    const margins = open.map(e => { const c = choice.get(e.key), o = c === 'a' ? 'b' : 'a'; return vtSigDist(e['l' + o], proto) - vtSigDist(e['l' + c], proto); });
+    // The look has to separate the two robots by a real margin, on average
+    // and in the match in question. Two robots that look alike are left alone.
+    if (vtAvg(margins) < VT_LOOK_MARGIN) continue;
+    open.forEach((e, i) => { if (margins[i] >= VT_LOOK_MARGIN * 0.75) picks.set(e.key, { slot: choice.get(e.key), how: 'look', margin: margins[i] }); });
+  }
+  return picks;
+}
+const VT_LOOK_MARGIN = 0.08;
 function vtTeamRows(number, sums) {
-  const num = String(number).toUpperCase(), mine = [], others = [];
-  for (const s of sums.values()) {
+  const num = String(number).toUpperCase(), mine = [], others = [], own = [], ownOthers = [];
+  const picks = vtIdentify(num, sums), how = { plate: 0, look: 0 };
+  for (const [key, s] of sums) {
     const onRed = (s.red || []).includes(num), onBlue = (s.blue || []).includes(num);
     if (!onRed && !onBlue) continue;
     const a = onRed ? s.R : s.B, b = onRed ? s.B : s.R;
     if (!a || !b) continue;
     const my = onRed ? s.rs : s.bs, their = onRed ? s.bs : s.rs;
-    mine.push({ ...a, won: my > their ? 1 : my < their ? 0 : null, name: s.name, margin: (my || 0) - (their || 0) });
+    const res = { won: my > their ? 1 : my < their ? 0 : null, name: s.name, margin: (my || 0) - (their || 0) };
+    mine.push({ ...a, ...res });
     others.push(b);
+    const p = picks.get(key);
+    if (p) {
+      const me = s[(onRed ? 'R' : 'B') + p.slot];
+      if (me) { own.push({ ...me, ...res }); how[p.how]++; for (const o of ['a', 'b']) { const r = s[(onRed ? 'B' : 'R') + o]; if (r) ownOthers.push(r); } }
+    }
   }
-  return { mine, others };
+  return { mine, others, own, ownOthers, how };
 }
 // Everything said is a count or an average the reader could check, with the
 // number of matches it rests on. Nothing is said from fewer than three.
+// When the team's own robot was picked out in at least three matches and most
+// of them, the report is about THAT ROBOT. Otherwise it is about the alliances
+// the team was on, and says so.
 function vtReport(number, sums) {
-  const { mine, others } = vtTeamRows(number, sums);
-  const n = mine.length;
-  if (n < 3) return { n, lines: null };
-  const col = (rows, k) => rows.map(r => r[k]).filter(v => v !== null && v !== undefined);
+  const rows = vtTeamRows(number, sums);
+  const total = rows.mine.length;
+  if (total < 3) return { n: total, lines: null };
+  const isOwn = rows.own.length >= 3 && rows.own.length >= 0.6 * total;
+  const mine = isOwn ? rows.own : rows.mine, others = isOwn ? rows.ownOthers : rows.others, n = mine.length;
+  const col = (list, k) => list.map(r => r[k]).filter(v => v !== null && v !== undefined);
   const m = k => vtAvg(col(mine, k)), o = k => vtAvg(col(others, k));
   const count = (k, test) => { const v = col(mine, k); return [v.filter(test).length, v.length]; };
   const good = [], auto = [], habits = [], lose = [], use = [];
-  // Better than the alliances it faced, by a margin worth saying.
+  const It = isOwn ? 'it' : 'its alliances', vs = isOwn ? 'the robots it faces' : 'the ones they face';
+  // Better than what it faced, by a margin worth saying.
   const beats = (k, by) => m(k) !== null && o(k) !== null && m(k) > o(k) * (1 + by) && m(k) - o(k) > 0.01;
-  if (beats('ap', 0.25)) good.push(`Autonomous: its alliances travel further in the first 15 seconds than the ones they face (${vtPct(m('ap'))} of the field each, against ${vtPct(o('ap'))}).`);
-  if (beats('act', 0.15)) good.push(`Pace: its alliances cover more ground in driver control than their opponents.`);
+  if (beats('ap', 0.25)) good.push(`Autonomous: ${It} travel${isOwn ? 's' : ''} further in the first 15 seconds than ${vs} (${vtPct(m('ap'))} of the field${isOwn ? '' : ' each'}, against ${vtPct(o('ap'))}).`);
+  if (beats('act', 0.15)) good.push(`Pace: ${It} cover${isOwn ? 's' : ''} more ground in driver control than ${isOwn ? 'the robots it faces' : 'their opponents'}.`);
   if (beats('opp', 0.2)) good.push(`Playing up the field: ${vtPct(m('opp'))} of driver control is spent in the other alliance's half (opponents: ${vtPct(o('opp'))}).`);
-  if (m('stp') !== null && o('stp') !== null && m('stp') + 3 < o('stp')) good.push(`Reliability: its alliances rarely stop mid-match (longest stop ${Math.round(m('stp'))} s on average; opponents ${Math.round(o('stp'))} s).`);
+  if (m('stp') !== null && o('stp') !== null && m('stp') + 3 < o('stp')) good.push(`Reliability: ${It} rarely stop${isOwn ? 's' : ''} mid-match (longest stop ${Math.round(m('stp'))} s on average; opponents ${Math.round(o('stp'))} s).`);
   if (beats('prs', 0.3) && m('prs') > 0.08) good.push(`Pressure: often right next to an opponent in the opponent's half (${vtPct(m('prs'))} of driver control).`);
   // Autonomous.
-  const [mv2, mvN] = count('am', v => v >= 2), [mv1] = count('am', v => v === 1), [mv0] = count('am', v => v === 0);
-  if (mvN) auto.push(`Both robots moved in autonomous in ${mv2} of ${mvN} matches, one in ${mv1}, neither in ${mv0}.`);
+  if (isOwn) {
+    const [mv, mvN] = count('am', v => v >= 1);
+    if (mvN) auto.push(`Moved in autonomous in ${mv} of ${mvN} matches.`);
+  } else {
+    const [mv2, mvN] = count('am', v => v >= 2), [mv1] = count('am', v => v === 1), [mv0] = count('am', v => v === 0);
+    if (mvN) auto.push(`Both robots moved in autonomous in ${mv2} of ${mvN} matches, one in ${mv1}, neither in ${mv0}.`);
+  }
   if (m('ar') !== null) {
     const reach = m('ar');
     auto.push(reach > 0.55 ? `The routine usually crosses the middle (reaches ${vtPct(Math.min(1, reach))} of the way to the other side).`
@@ -8876,7 +9227,7 @@ function vtReport(number, sums) {
   habit('apt', v => v < 0.25, 'The two partners work close together');
   habit('apt', v => v > 0.5, 'The two partners split to opposite ends of the field');
   habit('prs', v => v > 0.15, "Sits on an opponent in the opponent's half — looks like deliberate defence");
-  habit('stp', v => v >= 12, 'A robot stops for twelve seconds or more mid-match');
+  habit('stp', v => v >= 12, isOwn ? 'Stops for twelve seconds or more mid-match' : 'A robot stops for twelve seconds or more mid-match');
   // How it loses: what was different in the losses.
   const W = mine.filter(r => r.won === 1), L = mine.filter(r => r.won === 0);
   if (L.length >= 2 && W.length >= 2) {
@@ -8885,9 +9236,9 @@ function vtReport(number, sums) {
       if (w === null || l === null || Math.abs(l - w) < minGap) return;
       lose.push({ gap: Math.abs(l - w) / minGap, text: `${word(l > w)} — ${what} ${fmt(l)} in losses, ${fmt(w)} in wins.` });
     };
-    diff('stp', up => up ? 'A robot stops for longer' : 'Fewer stops', v => Math.round(v) + ' s', 4, 'longest stop');
+    diff('stp', up => up ? (isOwn ? 'It stops for longer' : 'A robot stops for longer') : 'Fewer stops', v => Math.round(v) + ' s', 4, 'longest stop');
     diff('prd', up => up ? 'Opponents get in close in its own half more' : 'Less pressure in its own half', vtPct, 0.05, 'time with an opponent close by at home:');
-    diff('ap', up => up ? 'Goes further in autonomous' : 'Does less in autonomous', vtPct, 0.04, 'distance per robot, as a share of the field:');
+    diff('ap', up => up ? 'Goes further in autonomous' : 'Does less in autonomous', vtPct, 0.04, isOwn ? 'distance, as a share of the field:' : 'distance per robot, as a share of the field:');
     diff('opp', up => up ? "Spends more time in the opponent's half" : 'Gets pinned back in its own half', vtPct, 0.08, "time in the opponent's half:");
     diff('act', up => up ? 'Moves more' : 'Moves less', v => (v * 100).toFixed(1) + '% of the field a second', 0.01, 'speed in driver control:');
     lose.sort((a, b) => b.gap - a.gap);
@@ -8898,9 +9249,9 @@ function vtReport(number, sums) {
   if (m('opp') !== null && m('opp') > 0.5) use.push("They play in your half. As a partner, a robot that stays home complements them.");
   if (m('opp') !== null && m('opp') < 0.25) use.push('They stay home. As a partner, you would be the one going up the field.');
   const [stops, stopN] = count('stp', v => v >= 12);
-  if (stopN >= 3 && stops / stopN >= 0.4) use.push(`A robot stopped for 12 s or more in ${stops} of ${stopN} matches. Worth asking them about before picking.`);
-  const vis = m('vis');
-  return { n, wins: W.length, losses: L.length, vis, lines: { good, auto, habits, lose: lose.slice(0, 3).map(x => x.text), use } };
+  if (stopN >= 3 && stops / stopN >= 0.4) use.push(`${isOwn ? 'It' : 'A robot'} stopped for 12 s or more in ${stops} of ${stopN} matches. Worth asking them about before picking.`);
+  return { n, total, own: isOwn, how: rows.how, picked: rows.own.length, wins: W.length, losses: L.length, vis: vtAvg(col(rows.mine, 'vis')),
+    lines: { good, auto, habits, lose: lose.slice(0, 3).map(x => x.text), use } };
 }
 function vtReportHtml(number, rep) {
   const sec = (title, items, empty) => `<div class="vr-sec"><div class="vr-h">${title}</div>${items.length
@@ -8909,16 +9260,20 @@ function vtReportHtml(number, rep) {
     return `<div class="detail-block"><div class="detail-block-label">Robot report</div>
       <div class="sim-caveat">${rep.n ? `Only ${rep.n} tracked match${rep.n === 1 ? '' : 'es'} with ${esc(number)} so far; a report needs three.` : `No tracked matches with ${esc(number)} yet.`} On a computer, open one of its events and use <strong>Track robots</strong>.</div></div>`;
   }
-  const L = rep.lines;
-  return `<div class="detail-block"><div class="detail-block-label">Robot report · ${rep.n} tracked matches</div>
+  const L = rep.lines, h = rep.how || { plate: 0, look: 0 };
+  const whose = rep.own
+    ? `<strong>This is ${esc(number)}'s own robot</strong>, picked out in ${rep.picked} of its ${rep.total} tracked matches: by reading its licence plate in ${h.plate}, and in ${h.look} by its look turning up every time ${esc(number)} played while its partner changed.`
+    : `<strong>This describes the alliances ${esc(number)} was on, not its own robot.</strong> Its robot could be told from its partner's in only ${rep.picked || 0} of ${rep.total} tracked matches (plate read in ${h.plate}, look in ${h.look}); a robot-level report needs three and most of them. Matches tracked before v101 have no plate reads and are watched once more by Track robots.`;
+  return `<div class="detail-block"><div class="detail-block-label">Robot report · ${rep.total} tracked matches</div>
+    <div class="vt-note">${whose}</div>
     <div class="vr-grid">
-      ${sec('Good at', L.good, 'Nothing stands out against the alliances it faced.')}
+      ${sec('Good at', L.good, rep.own ? 'Nothing stands out against the robots it faced.' : 'Nothing stands out against the alliances it faced.')}
       ${sec('Autonomous', L.auto, 'Not enough of the autonomous period was in view.')}
       ${sec('Does repeatedly', L.habits, 'No habit shows up in seven matches out of ten.')}
       ${sec('When it loses', L.lose, rep.losses < 2 || rep.wins < 2 ? `Needs at least two tracked wins and two losses (has ${rep.wins} and ${rep.losses}).` : 'Its losses look like its wins on these measures.')}
       ${sec('How to use this', L.use, 'Nothing specific yet.')}
     </div>
-    <div class="sim-caveat">Worked out from where robots were on match video. These describe the <strong>alliance</strong> ${esc(number)} was on, averaged over its matches: the tracker sees an alliance's colour, not which robot is which. Distances are fractions of the area robots used, not measured field positions, and it cannot see scoring. Both robots were in view ${vtPct(rep.vis || 0)} of the time. New and unchecked against human scouting — treat it as a lead to confirm, not a fact.</div>
+    <div class="sim-caveat">Worked out from where robots were on match video. Distances are fractions of the area robots used, not measured field positions, and it cannot see scoring. Both robots of its alliance were in view ${vtPct(rep.vis || 0)} of the time. Identities are settled within one event only, because robots are rebuilt between events. New and unchecked against human scouting — treat it as a lead to confirm, not a fact.</div>
   </div>`;
 }
 async function vtReportFill(number) {

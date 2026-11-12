@@ -25,7 +25,7 @@ import crypto from 'crypto';
 
 export const config = { maxDuration: 15 };
 
-const MAX_REC_BYTES = 400 * 1024;      // one match is ~50 KB; this is a ceiling, not a target
+const MAX_REC_BYTES = 600 * 1024;      // one match is ~50 KB; this is a ceiling, not a target
 const MAX_FRAMES = 2000;
 const MIN_PASSCODE = 8;
 
@@ -66,7 +66,8 @@ async function redis(E, commands) {
 // refused: what is stored here is served to every visitor.
 export function validRec(rec) {
   if (!rec || typeof rec !== 'object' || Array.isArray(rec)) return 'not a record';
-  if (rec.v !== 1) return 'unknown version';
+  if (rec.v !== 1 && rec.v !== 2) return 'unknown version';
+  const per = rec.v === 2 ? 10 : 6;        // v2 boxes carry a look (3 numbers) and a plate read
   const str = (v, n) => typeof v === 'string' && v.length <= n;
   const num = v => typeof v === 'number' && Number.isFinite(v);
   if (!str(rec.name || '', 60) || !str(rec.vid || '', 20) || !/^[A-Za-z0-9_-]*$/.test(rec.vid || '')) return 'bad text';
@@ -76,8 +77,8 @@ export function validRec(rec) {
   }
   if (!Array.isArray(rec.f) || rec.f.length > MAX_FRAMES) return 'bad frames';
   for (const fr of rec.f) {
-    if (!Array.isArray(fr) || fr.length > 2 + 6 * 40 || !fr.every(v => Number.isInteger(v) && v > -100000 && v < 100000)) return 'bad frame';
-    if (fr.length < 2 || fr.length !== 2 + 6 * fr[1]) return 'bad frame length';
+    if (!Array.isArray(fr) || fr.length > 2 + per * 40 || !fr.every(v => Number.isInteger(v) && v > -100000 && v < 100000)) return 'bad frame';
+    if (fr.length < 2 || fr.length !== 2 + per * fr[1]) return 'bad frame length';
   }
   const allowed = ['v', 'name', 'round', 'num', 'red', 'blue', 'rs', 'bs', 'vid', 'off', 'rate', 'w', 'h', 'model', 'at', 'f'];
   for (const k of Object.keys(rec)) if (!allowed.includes(k)) return 'unknown field ' + k.slice(0, 20);
@@ -100,10 +101,10 @@ export function validSum(s) {
   }
   for (const k of Object.keys(s)) {
     if (['name', 'red', 'blue'].includes(k)) continue;
-    if (k === 'R' || k === 'B') {
+    if (['R', 'B', 'Ra', 'Rb', 'Ba', 'Bb'].includes(k)) {
       const o = s[k];
-      if (!o || typeof o !== 'object' || Array.isArray(o) || Object.keys(o).length > 24) return 'bad side';
-      for (const f of Object.keys(o)) if (!/^[a-z]{2,4}$/.test(f) || !num(o[f])) return 'bad measure';
+      if (!o || typeof o !== 'object' || Array.isArray(o) || Object.keys(o).length > 32) return 'bad side';
+      for (const f of Object.keys(o)) if (!/^[a-z][a-z0-9]{1,3}$/.test(f) || !num(o[f])) return 'bad measure';
       continue;
     }
     if (!/^[a-z]{2,6}$/.test(k) || !num(s[k])) return 'bad field';
@@ -142,7 +143,9 @@ export default async function handler(req, res) {
         try { rec = JSON.parse(raw); } catch (e) {}
         return res.status(200).json({ rec });
       }
-      const [ids] = await redis(E, [['SMEMBERS', `vt:ev:${ev}`]]);
+      // Only recordings that can tell robots apart count as done; a match
+      // tracked before that is offered again.
+      const [ids] = await redis(E, [['SMEMBERS', `vt:ev2:${ev}`]]);
       return res.status(200).json({ db: true, ids: (ids || []).filter(v => digits(v)) });
     }
     if (req.method === 'POST') {
@@ -165,6 +168,7 @@ export default async function handler(req, res) {
         const text = JSON.stringify(body.rec);
         if (text.length > MAX_REC_BYTES) return res.status(413).json({ error: 'record too large' });
         cmds.push(['SET', `vt:m:${ev}:${id}`, text], ['SADD', `vt:ev:${ev}`, id]);
+        if (body.rec.v === 2) cmds.push(['SADD', `vt:ev2:${ev}`, id]);
       }
       if (body.sum !== undefined) {
         const bad = validSum(body.sum);

@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v100**. Everything green: 66 test files. (The `v19` in §8's
+Current release: **v101**. Everything green: 66 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -406,7 +406,7 @@ proxy is at `api/proxy.js`.
 | t110 | **v87** — comparing teams; every match of a team's in the Jumper — §27 |
 | t111 | **v89** — win chances checked against results; season in the rating; play-style groups — §28 |
 | t112 | **v91** — robot tracker stage 1: finder maths, queue, shared storage and passcode — §29 |
-| t113 | **v99** — robot report: match summaries, team report, summary storage, browser Back — §30 |
+| t113 | **v99/v101** — robot report: summaries, team report, storage, browser Back; telling robots apart by plate and look — §30, §31 |
 | sanity | CSS braces balance, inline JS parses, tabs present |
 | tool_sanity | Same for anchor-tool.html |
 
@@ -2411,7 +2411,60 @@ tracker run mutes `vsNavPush` so its event-hopping is not recorded.
 
 ---
 
-## 31. Feature ideas
+## 31. v101 — which robot is which
+
+The owner noticed the report could not tell an alliance's two robots apart,
+and set the design: robots are rebuilt between events and a season's robots
+look alike, so "guess which robot a team is by seeing if the same thing shows
+up every time they are in a match", and "it should also know if it catches a
+glimpse of the license plate".
+
+- **Recordings are v2**: ten numbers a box (was six) — plus a LOOK (twelve
+  bins: eight hues and four greys of the box's middle, its own plate colour
+  left out; `vtSigOf`, packed into three integers) and WHO (0, or 1/2 for
+  which of the alliance's two teams a plate read named).
+- **Plate reading.** Every other look, the biggest coloured box is cut from
+  the capture at native size; `vtPlateBox` finds the band of alliance colour;
+  it is scaled to a 160×48 strip and read in the worker by
+  `models/plate_reader.onnx` (PP-OCRv3 recognition, the model the desktop
+  tracker uses through RapidOCR; always on wasm, fixed shape). `vtWhoFromText`
+  does not ask "what does it say" but "which of these two team numbers is it":
+  edit distance with look-alike characters at half cost, close to one AND a
+  full edit further from the other. In Chromium a drawn plate 9 px tall was
+  read correctly in about 30 ms.
+- **Slots** (`vtSlots`) match on position plus look, and collect each slot's
+  mean look and plate votes. `vtSummarise` adds per-robot rows `Ra Rb Ba Bb`
+  (same measure names as the alliance rows, plus `g0–g11`, `wa`, `wb`).
+  `VT_SUM_V = 2`.
+- **`vtIdentify(team, sums)`**, per match: (1) plate — at least two reads and
+  clearly more for one answer; (2) else, WITHIN ONE EVENT, the look that
+  recurs while the partner changes, seeded by that event's plate reads if any,
+  otherwise found by iterating to the running average. Refused when the
+  partner never changes, when there are under three matches at the event, or
+  when the two robots' looks do not separate by `VT_LOOK_MARGIN`.
+- **`vtReport`** is about the team's own robot when it was picked out in three
+  or more matches and 60% of them; otherwise about its alliances, and the
+  block says which and how (plate in N, look in M).
+- **v1 recordings are not thrown away** but no longer count as done
+  (`vtDone`, `VT_REC_V`; the server lists `vt:ev2:{event}`), so Track robots
+  watches those matches once more.
+- **Alliance colour is decided per track, not per look.** Reported: a
+  red-alliance robot with blue-anodised metal was "tracked as blue". `vtSlots`
+  now follows every box whatever colour it was called, cuts a track where it
+  slid onto the other alliance's robot (eight looks running of the other
+  colour), then colours each track: by plate reads if there are two or more
+  (`who` is 1–4 = red[0], red[1], blue[0], blue[1], matched against all four
+  teams, and a read also corrects the box's stored colour); otherwise by
+  majority; and when one alliance has three long tracks and the other one, the
+  track showing most of the other colour is moved across. Two slots a side are
+  then filled from non-overlapping tracks, longest first.
+- **Unverified on real footage**: whether stream resolution lets plates be
+  read at four players at once, and whether robots' looks separate. Both are
+  reported live ("N plates read" in the status line).
+
+---
+
+## 32. Feature ideas
 
 `IDEAS.md` holds the list of things worth building next, with what each one
 would cost against what already exists. It also records three things **not** to
