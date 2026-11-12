@@ -115,6 +115,8 @@ console.log('\n· event codes that begin VE-');
   ok('what is stored stays under the server\'s frame limit', 150 * 6 <= 2000 && /VT_MAX_LOOKS_PER_SEC = 6;/.test(idx));
   ok('the preview is drawn every screen frame, not once per look', /requestAnimationFrame\(paint\)/.test(idx));
   ok('the run reports looks a second and which chip is doing them', /looks a second on the \$\{run\.backend/.test(idx));
+  ok('a match\'s video with no robots in it is abandoned after 25 seconds, not watched to the end', /VT_GIVE_UP_SEC = 25/.test(idx) && /if \(est - start >= VT_GIVE_UP_SEC && robotLooks < 5\) \{ busy = false; return done\('nothing'\); \}/.test(idx));
+  ok('and counted, so the run says how many', /run\.gaveUp = \(run\.gaveUp \|\| 0\) \+ 1/.test(idx) && /skipped early \(no robots/.test(idx));
   ok('progress shows in the tab title, and so does finishing', /tracking · \$\{VT_TITLE\}/.test(idx) && /'Tracking finished · '/.test(idx));
 }
 

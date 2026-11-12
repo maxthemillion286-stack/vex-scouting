@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v101**. Everything green: 66 test files. (The `v19` in §8's
+Current release: **v102**. Everything green: 66 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -2461,6 +2461,16 @@ glimpse of the license plate".
 - **Unverified on real footage**: whether stream resolution lets plates be
   read at four players at once, and whether robots' looks separate. Both are
   reported live ("N plates read" in the status line).
+
+**v102.** A screenshot showed all four players on break slates (a countdown,
+a crowd shot, a sponsor card). The tracker does not know what a break is: it
+plays the Jumper's position for each match, and those can land in one. It now
+abandons a match after `VT_GIVE_UP_SEC` (25 s of video) with fewer than five
+looks containing a robot, instead of watching all 150 s and then discarding
+it. The status line counts these. **Not fixed: the cause.** When the Jumper's
+sync is off for part of a day every match there is skipped. The overlay often
+shows the match name ("QUAL 47"); reading it with the plate reader to
+re-sync is the real fix and is not built.
 
 ---
 
