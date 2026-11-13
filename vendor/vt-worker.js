@@ -42,11 +42,13 @@ const ready = (async () => {
 // 160×48 RGBA strip; this answers with the letters and digits it read. It
 // always runs on the processor: it is small, and one fixed shape on the
 // processor is steadier than recompiling for the graphics card.
-// PLATE_CHARS maps the model's 6,625 outputs to the 62 that can be on a plate.
-const PLATE_CHARS = {"25":"2","26":"0","27":"8","29":"7","93":"1","94":"3","425":"H","631":"5","632":"4","933":"6","1033":"s","1034":"u","1109":"9","1217":"S","1218":"Y","1219":"F","1220":"D","1221":"A","1310":"P","1381":"T","1958":"r","2156":"q","2697":"J","2710":"l","2993":"x","3316":"z","3332":"e","3333":"t","3463":"b","3506":"L","3537":"w","3538":"i","3539":"h","3587":"I","3588":"B","3589":"N","3639":"M","4136":"Z","4244":"C","4245":"o","4381":"E","4389":"f","4497":"U","4544":"a","4545":"p","4546":"y","4547":"n","4548":"g","4731":"Q","4741":"O","4849":"k","4902":"c","4922":"v","5033":"W","5127":"R","5128":"G","5171":"d","5193":"K","5200":"X","5233":"m","5405":"V","5493":"j"};
-const PW = 160, PH = 48;
+// PLATE_CHARS maps the model's 6,625 outputs to the letters, digits and the few
+// marks (- # : space) that a plate or a match name can contain.
+const PLATE_CHARS = {"25":"2","26":"0","27":"8","28":"-","29":"7","32":":","93":"1","94":"3","425":"H","631":"5","632":"4","933":"6","1033":"s","1034":"u","1109":"9","1217":"S","1218":"Y","1219":"F","1220":"D","1221":"A","1310":"P","1381":"T","1958":"r","2156":"q","2697":"J","2710":"l","2993":"x","3316":"z","3332":"e","3333":"t","3463":"b","3506":"L","3537":"w","3538":"i","3539":"h","3587":"I","3588":"B","3589":"N","3639":"M","4136":"Z","4244":"C","4245":"o","4381":"E","4389":"f","4497":"U","4544":"a","4545":"p","4546":"y","4547":"n","4548":"g","4731":"Q","4741":"O","4849":"k","4902":"c","4922":"v","5033":"W","5127":"R","5128":"G","5171":"d","5193":"K","5200":"X","5233":"m","5405":"V","5461":"#","5493":"j","6624":" "};
+const PW = 160, PH = 48;      // a plate; a line of overlay text is sent wider, up to 320
 let reader = null, readerFailed = false;
-async function read(rgba, used) {
+async function read(rgba, used, W) {
+  const PW = W || 160;
   if (readerFailed) return { text: '', conf: 0 };
   if (!reader) {
     try { reader = await ort.InferenceSession.create('/models/plate_reader.onnx', { executionProviders: ['wasm'] }); }
@@ -69,11 +71,56 @@ async function read(rgba, used) {
   }
   return { text, conf: cnt ? sum / cnt : 0 };
 }
+// ── Finding text in a frame (v104) ─────────────────────────────────────────
+// Where on the picture there is writing: the stream's overlay with the match
+// name, the scores, the clock. PP-OCRv3's detector (2.4 MB) marks text pixels;
+// touching ones are grouped into boxes here. The page then cuts each box out
+// and has it read. The picture comes as DW×DH RGBA, already fitted top-left.
+const DW = 640, DH = 352;
+let finder = null, finderFailed = false;
+async function findText(rgba) {
+  if (finderFailed) return [];
+  if (!finder) {
+    try { finder = await ort.InferenceSession.create('/models/text_finder.onnx', { executionProviders: ['wasm'] }); }
+    catch (e) { finderFailed = true; return []; }
+  }
+  const px = new Uint8ClampedArray(rgba), n = DW * DH, f = new Float32Array(3 * n);
+  const mean = [0.485, 0.456, 0.406], std = [0.229, 0.224, 0.225];
+  for (let i = 0, p = 0; i < n; i++, p += 4) for (let c = 0; c < 3; c++) f[c * n + i] = (px[p + c] / 255 - mean[c]) / std[c];
+  const res = await finder.run({ [finder.inputNames[0]]: new ort.Tensor('float32', f, [1, 3, DH, DW]) });
+  const prob = res[finder.outputNames[0]].data;
+  // Group touching text pixels (4-connected flood fill), keep each group's box.
+  const seen = new Uint8Array(n), boxes = [], stack = [];
+  for (let s = 0; s < n; s++) {
+    if (seen[s] || prob[s] <= 0.3) continue;
+    let x0 = DW, y0 = DH, x1 = 0, y1 = 0;
+    stack.push(s); seen[s] = 1;
+    while (stack.length) {
+      const i = stack.pop(), x = i % DW, y = (i - x) / DW;
+      if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+      if (x > 0 && !seen[i - 1] && prob[i - 1] > 0.3) { seen[i - 1] = 1; stack.push(i - 1); }
+      if (x < DW - 1 && !seen[i + 1] && prob[i + 1] > 0.3) { seen[i + 1] = 1; stack.push(i + 1); }
+      if (y > 0 && !seen[i - DW] && prob[i - DW] > 0.3) { seen[i - DW] = 1; stack.push(i - DW); }
+      if (y < DH - 1 && !seen[i + DW] && prob[i + DW] > 0.3) { seen[i + DW] = 1; stack.push(i + DW); }
+    }
+    const w = x1 - x0 + 1, h = y1 - y0 + 1;
+    if (w < 8 || h < 4) continue;
+    // The detector marks the core of a line; grow it back to the whole line.
+    const gx = h * 0.9, gy = h * 0.55;
+    boxes.push([Math.max(0, x0 - gx), Math.max(0, y0 - gy), w + 2 * gx, h + 2 * gy]);
+  }
+  return boxes;
+}
 onmessage = async ev => {
   const { id, rgba } = ev.data;
   if (ev.data.plate) {
-    try { await ready; const r = await read(rgba, ev.data.used || PW); postMessage({ id, text: r.text, conf: r.conf }); }
+    try { await ready; const r = await read(rgba, ev.data.used || PW, ev.data.w); postMessage({ id, text: r.text, conf: r.conf }); }
     catch (e) { postMessage({ id, text: '', conf: 0 }); }
+    return;
+  }
+  if (ev.data.overlay) {
+    try { await ready; postMessage({ id, boxes: await findText(rgba) }); }
+    catch (e) { postMessage({ id, boxes: [] }); }
     return;
   }
   try {

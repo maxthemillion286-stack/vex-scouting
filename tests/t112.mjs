@@ -115,8 +115,22 @@ console.log('\n· event codes that begin VE-');
   ok('what is stored stays under the server\'s frame limit', 150 * 6 <= 2000 && /VT_MAX_LOOKS_PER_SEC = 6;/.test(idx));
   ok('the preview is drawn every screen frame, not once per look', /requestAnimationFrame\(paint\)/.test(idx));
   ok('the run reports looks a second and which chip is doing them', /looks a second on the \$\{run\.backend/.test(idx));
-  ok('a match\'s video with no robots in it is abandoned after 25 seconds, not watched to the end', /VT_GIVE_UP_SEC = 25/.test(idx) && /if \(est - start >= VT_GIVE_UP_SEC && robotLooks < 5\) \{ busy = false; return done\('nothing'\); \}/.test(idx));
+  ok('a match\'s video with no robots in it is abandoned after 25 seconds, not watched to the end', /VT_GIVE_UP_SEC = 25/.test(idx) && /if \(!rec\.wide && est - start >= VT_GIVE_UP_SEC && robotLooks < 5\) \{/.test(idx) && /if \(!fixed\) \{ busy = false; return done\('nothing'\); \}/.test(idx));
   ok('and counted, so the run says how many', /run\.gaveUp = \(run\.gaveUp \|\| 0\) \+ 1/.test(idx) && /skipped early \(no robots/.test(idx));
+  // v104: the match name on the stream.
+  const L = x => JSON.stringify(win.vtMatchLabel(x));
+  ok('a qualification match name is read in its usual spellings', L('QUAL 47') === '{"round":2,"num":47}' && L('Qualification 12') === '{"round":2,"num":12}' && L('Q103') === '{"round":2,"num":103}' && L('Qualifier #7') === '{"round":2,"num":7}');
+  ok('elimination and practice names too', L('SF 1-1') === '{"round":4,"num":1,"inst":1}' && L('R16 3-1') === '{"round":6,"num":3,"inst":1}' && L('Final 1-2') === '{"round":5,"num":1,"inst":2}' && L('Practice 4') === '{"round":1,"num":4}');
+  ok('a team number, a clock and a score are not match names', [' 66449A', '1:23', '120', 'QUALITY', 'Q', 'RED 45', ''].every(x => win.vtMatchLabel(x) === null));
+  ok('the schedule turns a wrong match into a distance', (() => { const s = win.vtSched({ matches: [{ round: 2, num: 41, t: 1000 }, { round: 2, num: 47, t: 2161000 }, { round: 3, num: 1, t: 5 }] }); return s.size === 2 && (s.get(47) - s.get(41)) / 1000 === 2160; })());
+  ok('a wrong match on screen moves the player by that distance', /const to = here \+ \(sched\.get\(Number\(m\.num\)\) - tShown\) \/ 1000 - 20;/.test(idx));
+  ok('then it backs up to where the right name first appears and watches a long window', /if \(l && l\.round === 2 && l\.num === Number\(m\.num\)\) first -= 30; else break;/.test(idx) && /VT_WINDOW_WIDE = 330/.test(idx));
+  ok('what it learns moves the rest of that day\'s matches', /run\.shift\[dayKey\] = \(rec\.off \+ sum\.st\) - off0;/.test(idx) && /m\.off = off0 \+ \(run\.shift\[dayKey\] \|\| 0\);/.test(idx));
+  ok('with no robots and no name, it looks further along the stream once per event day', /for \(const jump of \[300, 600, 1200, 1800, 2700, -300, -900\]\)/.test(idx) && /run\.searched\[dayKey\] = true;/.test(idx));
+  ok('the player is left alone by the ticker while it is being moved', /if \(holding\) return;/.test(idx));
+  const wk2 = fs.readFileSync('../vendor/vt-worker.js', 'utf8');
+  ok('text is found by its own small model, in the worker', fs.statSync('../models/text_finder.onnx').size > 1e6 && /text_finder\.onnx/.test(wk2) && /async function findText/.test(wk2));
+  ok('a re-synced recording is accepted by the server', /'wide'\]/.test(fs.readFileSync('../api/tracker.js', 'utf8')));
   ok('progress shows in the tab title, and so does finishing', /tracking · \$\{VT_TITLE\}/.test(idx) && /'Tracking finished · '/.test(idx));
 }
 

@@ -80,9 +80,9 @@ export function validRec(rec) {
     if (!Array.isArray(fr) || fr.length > 2 + per * 40 || !fr.every(v => Number.isInteger(v) && v > -100000 && v < 100000)) return 'bad frame';
     if (fr.length < 2 || fr.length !== 2 + per * fr[1]) return 'bad frame length';
   }
-  const allowed = ['v', 'name', 'round', 'num', 'red', 'blue', 'rs', 'bs', 'vid', 'off', 'rate', 'w', 'h', 'model', 'at', 'f'];
+  const allowed = ['v', 'name', 'round', 'num', 'red', 'blue', 'rs', 'bs', 'vid', 'off', 'rate', 'w', 'h', 'model', 'at', 'f', 'wide'];
   for (const k of Object.keys(rec)) if (!allowed.includes(k)) return 'unknown field ' + k.slice(0, 20);
-  for (const k of ['round', 'num', 'rs', 'bs', 'at']) if (rec[k] != null && !num(rec[k])) return 'bad ' + k;
+  for (const k of ['round', 'num', 'rs', 'bs', 'at', 'wide']) if (rec[k] != null && !num(rec[k])) return 'bad ' + k;
   if (rec.model != null && !str(rec.model, 20)) return 'bad model';
   return null;
 }

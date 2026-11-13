@@ -2464,24 +2464,6 @@
   .sg-chip.inactive b { color: var(--text-muted); }
   .sg-chip i { font-style: normal; font-size: 12px; color: var(--text-muted); margin-left: 6px; }
 
-  /* v103: the team overview, simplified */
-  /* Three to five tiles now, not always six: let them share the row evenly. */
-  .tab-panel .detail-overview { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); align-content: start; background: none; gap: 10px; }
-  .tab-panel .detail-overview .ov-cell { border-radius: var(--r-lg); }
-  .detail-left { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
-  /* On a phone the numbers come before the picture of them. */
-  .tab-panel .detail-radar { order: 0; }
-  .detail-left .detail-block { margin: 0; flex: 1; }
-  .team-glance { font-family: var(--body); font-size: 17px; line-height: 1.5; color: var(--text-dim); margin: 4px 0 18px; max-width: 90ch; }
-  .team-glance strong { color: var(--text); font-weight: 600; }
-  .tg-read { color: var(--text-muted); }
-  .detail-fold > summary { cursor: pointer; list-style: none; margin: 0; display: flex; align-items: baseline; gap: 10px; }
-  .detail-fold > summary::-webkit-details-marker { display: none; }
-  .detail-fold > summary::after { content: '+'; margin-left: auto; font-family: var(--mono); font-size: 16px; color: var(--text-muted); }
-  .detail-fold[open] > summary::after { content: '–'; }
-  .detail-fold[open] > summary { margin-bottom: 14px; }
-  .fold-hint { font-family: var(--body); font-size: 13px; letter-spacing: 0; text-transform: none; color: var(--text-muted); }
-
   /* v99: the robot report */
   .vr-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 10px; margin-bottom: 10px; align-items: start; }
   .vr-sec { background: var(--card); border-radius: var(--r-lg); padding: 14px 16px; }
@@ -3663,7 +3645,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v103';
+const APP_BUILD = 'v104';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -8123,6 +8105,27 @@ function vtWhoFromText(text, teams) {
   if (lo > 0.34 * len || hi - lo < 1) return 0;
   return d1 < d2 ? 1 : 2;
 }
+// ── The match name on the stream (v104) ────────────────────────────────────
+// Most streams show which match is on the field: "QUAL 47", "Qualification
+// 12", "Q103", "SF 1-1". The tracker trusted the Jumper's position for every
+// match and so sat through lunch breaks whenever that position had drifted.
+// Now it reads the name off the picture: if it is the match it came for, good;
+// if it is another qualification match, the schedule says how far away the
+// right one is, and it goes there.
+// → { round, num } with RobotEvents' round numbers (1 practice, 2
+// qualification, 3 QF, 4 SF, 5 final, 6 round of 16), or null.
+function vtMatchLabel(text) {
+  const T = String(text || '').toUpperCase().replace(/\s+/g, ' ').trim();
+  if (T.length < 2 || T.length > 28) return null;
+  let m = T.match(/^(?:Q|QUAL|QUALS|QUALIFIER|QUALIFICATION|QUALIFICATIONS)\s*#?\s*(\d{1,3})$/);
+  if (m) return { round: 2, num: Number(m[1]) };
+  m = T.match(/^(R16|QF|SF|F|FINAL|FINALS)\s*#?\s*(\d{1,2})\s*-\s*(\d)$/);
+  if (m) return { round: ({ R16: 6, QF: 3, SF: 4 })[m[1]] || 5, num: Number(m[2]), inst: Number(m[3]) };
+  m = T.match(/^(?:P|PRACTICE)\s*#?\s*(\d{1,3})$/);
+  if (m) return { round: 1, num: Number(m[1]) };
+  return null;
+}
+const VT_WINDOW_WIDE = 330;     // seconds watched after a re-sync: from the name appearing to the match ending
 // Stored boxes come in two shapes: six numbers (v1) or ten (v2: + look, + plate).
 const vtStride = rec => (rec && rec.v === 2) ? 10 : 6;
 // One frame as integers: [tenths of a second from the match's position, k, then
@@ -8183,7 +8186,7 @@ function vtQueueFrom(ctx) {
     const off = rwOffsetFor(m, ctx.cal);
     if (!cal || off === null || !cal.videoId || (cal.platform || 'youtube') !== 'youtube') continue;
     if (!/^[A-Za-z0-9_-]{6,20}$/.test(String(cal.videoId))) continue;
-    out.push({ id: String(m.id), name: m.name, round: m.round, num: m.num, vid: String(cal.videoId), off,
+    out.push({ id: String(m.id), name: m.name, round: m.round, num: m.num, t: m.t, vid: String(cal.videoId), off,
       red: (m.redNums || []).map(v => String(v).toUpperCase().replace(/[^A-Z0-9]/g, '')),
       blue: (m.blueNums || []).map(v => String(v).toUpperCase().replace(/[^A-Z0-9]/g, '')),
       rs: m.redScore, bs: m.blueScore });
@@ -8309,10 +8312,16 @@ function vtFinder() {
       return boxes.filter(vtRobotLike);
     },
     // strip: ImageData 160×48 holding a cut-out plate in its first `used` columns.
-    async read(strip, used) {
+    async read(strip, used, width) {
       const id = ++seq;
-      const d = await new Promise((resolve, reject) => { waiting.set(id, { resolve, reject }); w.postMessage({ id, plate: true, used, rgba: strip.data.buffer }, [strip.data.buffer]); });
+      const d = await new Promise((resolve, reject) => { waiting.set(id, { resolve, reject }); w.postMessage({ id, plate: true, used, w: width || 160, rgba: strip.data.buffer }, [strip.data.buffer]); });
       return { text: d.text || '', conf: d.conf || 0 };
+    },
+    // frame: ImageData 640×352 with the picture fitted top-left. → boxes of text in it.
+    async findText(frame) {
+      const id = ++seq;
+      const d = await new Promise((resolve, reject) => { waiting.set(id, { resolve, reject }); w.postMessage({ id, overlay: true, rgba: frame.data.buffer }, [frame.data.buffer]); });
+      return d.boxes || [];
     },
     stop() { try { if (w) w.terminate(); } catch (e) {} }
   };
@@ -8357,8 +8366,12 @@ async function vtPlayerReady(elId, slot) {
 // Which matches a run watches. 'here' is what the Jumper has open. 'history'
 // is for an event that has not been played: every earlier event this season
 // that its teams went to, most teams first, and only the matches they were in.
+// When each qualification match was played, by number: what turns "the stream
+// is showing Q41 and I want Q47" into a number of seconds.
+function vtSched(ctx) { return new Map((ctx.matches || []).filter(x => x.round === 2 && x.t).map(x => [Number(x.num), x.t])); }
 async function vtFeedHere(run, ctx) {
   const ev = String(ctx.eventId);
+  run.sched[ev] = vtSched(ctx);
   const all = vtQueueFrom(ctx);
   const [local, shared] = await Promise.all([vtLocalIndex(ev), vtSharedIds(ev)]);
   for (const m of all) {
@@ -8415,6 +8428,7 @@ async function vtFeedHistory(run, eventId) {
       try { await rewatchSelectEvent(e.id); } finally { vsNav.mute = false; }
       const c = window._rwCtx;
       const found = c && String(c.eventId) === String(e.id) ? vtQueueFrom(c) : [];
+      if (c) run.sched[String(e.id)] = vtSched(c);
       if (!found.length) { run.noVideo++; run.noVideoNames.push(run.eventName); run.phase = 'no stream found, skipped'; vtProgress(run); continue; }
       const ev = String(e.id);
       const [local, shared] = await Promise.all([vtLocalIndex(ev), vtSharedIds(ev)]);
@@ -8475,7 +8489,7 @@ async function vtStart(mode, granted) {
   const room = (panel.getBoundingClientRect().width || 1000);
   const P = room < 760 ? 1 : vtParallel();
   const run = vtRun = { stream, stop: false, done: 0, saved: 0, skipped: 0, empty: 0, failed: 0, noVideo: 0, total: 0,
-    queue: [], feeding: true, slots: [], cleanup: [], mode, withVideo: 0, noVideoNames: [] };
+    queue: [], feeding: true, slots: [], cleanup: [], mode, withVideo: 0, noVideoNames: [], sched: {}, shift: {}, searched: {} };
   if (ctx.playAll) rwPlayAllStop();
   panel.innerHTML = `<div class="rw-block vt-block">
     <div class="rw-day-head"><div class="detail-block-label" style="margin:0;">Robot tracker · running</div>
@@ -8573,7 +8587,8 @@ function vtMeter(run) {
   // the robots are being followed.
   const nowMs = Date.now();
   if (!run.rateAt || nowMs - run.rateAt > 4000) { if (run.rateAt) run.rate = ((run.looks || 0) - (run.rateLooks || 0)) / ((nowMs - run.rateAt) / 1000); run.rateAt = nowMs; run.rateLooks = run.looks || 0; }
-  const gave = run.gaveUp ? ` · ${run.gaveUp} skipped early (no robots: a break or the wrong spot)` : '';
+  const sync = (run.confirmed || run.resynced) ? ` · match name read: ${run.confirmed || 0} right, ${run.resynced || 0} moved to the right place` : '';
+  const gave = sync + (run.gaveUp ? ` · ${run.gaveUp} skipped early (no robots: a break or the wrong spot)` : '');
   const speed = gave + (run.rate ? ` · ${run.rate.toFixed(1)} looks a second on the ${run.backend || 'processor'}` : '') + (run.plates ? ` · ${run.plates} plates read` : '');
   const evs = run.mode === 'history' && (run.withVideo || run.noVideo) ? ` · earlier events with video: ${run.withVideo}, without: ${run.noVideo}` : '';
   if (sub) sub.textContent = `${run.saved} tracked and saved${evs}${speed}${spent ? ' · running ' + vtElapsed(spent) : ''}${leftMs ? ' · roughly ' + vtElapsed(leftMs) + ' left' : ''}. It stops by itself when everything is watched; press Stop tracking to stop sooner. What is already tracked is kept.`;
@@ -8594,7 +8609,10 @@ async function vtWatch(run, slot, m) {
   const tileEl = document.getElementById('vtTile' + slot.i);
   if (tileEl) tileEl.classList.remove('vt-idle');
   const player = slot.player, video = run.video, sq = slot.sq;
-  const start = Math.max(0, m.off - VT_LEAD), end = start + VT_WINDOW;
+  // An earlier match that day showed how far out the Jumper's positions are.
+  const dayKey = m.ev + ':' + rwDayKey(m.t || 0), off0 = m.off;
+  m.off = off0 + (run.shift[dayKey] || 0);
+  let start = Math.max(0, m.off - VT_LEAD), end = start + VT_WINDOW;
   player.loadVideoById({ videoId: m.vid, startSeconds: start });
   try { player.mute(); player.setPlaybackRate(VT_RATE); } catch (e) {}
   const rec = { v: 2, name: String(m.name || '').slice(0, 60), round: m.round, num: m.num, red: m.red, blue: m.blue,
@@ -8604,15 +8622,84 @@ async function vtWatch(run, slot, m) {
   const plateCv = document.createElement('canvas'), plateCx = plateCv.getContext('2d', { willReadFrequently: true });
   const stripCv = document.createElement('canvas'); stripCv.width = 160; stripCv.height = 48;
   const stripCx = stripCv.getContext('2d', { willReadFrequently: true });
-  let looks = 0, robotLooks = 0;
+  const detCv = document.createElement('canvas'); detCv.width = 640; detCv.height = 352;
+  const detCx = detCv.getContext('2d', { willReadFrequently: true });
+  const lineCv = document.createElement('canvas'); lineCv.width = 320; lineCv.height = 48;
+  const lineCx = lineCv.getContext('2d', { willReadFrequently: true });
+  let looks = 0, robotLooks = 0, holding = false, checked = 0, resyncs = 0;
+  // Which match does the stream say this is? Finds every line of text in this
+  // player's picture and reads each until one is a match name.
+  const probe = async () => {
+    for (let i = 0; i < 30; i++) { let st = -1; try { st = player.getPlayerState(); } catch (e) {} if (st === 1) break; await vtSleep(200); }
+    await vtSleep(500);                                 // let the capture catch up with the player
+    if (!video.videoWidth || !stage || !tile) return null;
+    const S = stage.getBoundingClientRect(), T = tile.getBoundingClientRect();
+    const sx = (T.left - S.left) / S.width * video.videoWidth, sy = (T.top - S.top) / S.height * video.videoHeight;
+    const w = T.width / S.width * video.videoWidth, h = T.height / S.height * video.videoHeight;
+    const k = Math.min(640 / w, 352 / h);
+    detCx.fillStyle = '#000'; detCx.fillRect(0, 0, 640, 352);
+    detCx.drawImage(video, sx, sy, w, h, 0, 0, w * k, h * k);
+    const found = (await slot.finder.findText(detCx.getImageData(0, 0, 640, 352))).sort((a, b) => b[2] * b[3] - a[2] * a[3]).slice(0, 14);
+    let other = null;
+    for (const b of found) {
+      const bw = b[2] / k, bh = b[3] / k;
+      if (bh < 6) continue;
+      const used = Math.min(320, Math.max(8, Math.round(bw * 48 / bh)));
+      lineCx.fillStyle = '#000'; lineCx.fillRect(0, 0, 320, 48);
+      lineCx.drawImage(video, sx + b[0] / k, sy + b[1] / k, bw, bh, 0, 0, used, 48);
+      const got = await slot.finder.read(lineCx.getImageData(0, 0, 320, 48), used, 320);
+      const label = got.conf >= 0.5 ? vtMatchLabel(got.text) : null;
+      if (label && label.round === 2) return label;
+      if (label && !other) other = label;
+    }
+    return other;
+  };
+  const seek = async to => {
+    try { player.seekTo(Math.max(0, to), true); player.playVideo(); } catch (e) {}
+    for (let i = 0; i < 40; i++) { await vtSleep(200); let c = -1, st = -1; try { c = player.getCurrentTime(); st = player.getPlayerState(); } catch (e) {} if (st === 1 && Math.abs(c - to) < 4) break; }
+  };
+  // The stream is showing qualification match `shown` and this is not it. Go
+  // to where the schedule says the right one is, check, and repeat; then back
+  // up to where its name first appears, and watch from there.
+  const resync = async shown => {
+    const sched = run.sched[m.ev];
+    if (!sched || m.round !== 2 || !sched.get(Number(m.num))) return false;
+    let label = shown;
+    for (let hop = 0; hop < 4 && label && label.num !== Number(m.num); hop++) {
+      const tShown = sched.get(label.num);
+      if (!tShown) return false;
+      let here = 0; try { here = player.getCurrentTime(); } catch (e) {}
+      const to = here + (sched.get(Number(m.num)) - tShown) / 1000 - 20;
+      await seek(to);
+      label = await probe();
+      if (!label || label.round !== 2) { await seek(to + 40); label = await probe(); }
+      if (run.stop) return false;
+    }
+    if (!label || label.round !== 2 || label.num !== Number(m.num)) return false;
+    let first = 0; try { first = player.getCurrentTime(); } catch (e) {}
+    for (let i = 0; i < 6 && !run.stop; i++) {
+      await seek(first - 30);
+      const l = await probe();
+      if (l && l.round === 2 && l.num === Number(m.num)) first -= 30; else break;
+    }
+    // From just before the name appears. The match itself starts some time
+    // after that, so the window is long, and the summary finds the real start.
+    m.off = rec.off = Math.max(0, first - 15); rec.wide = 1; rec.f = [];
+    start = m.off; end = start + VT_WINDOW_WIDE; robotLooks = 0; lastT = -1; apiT = -1;
+    wallLimit = Date.now() + (VT_WINDOW_WIDE / VT_RATE + 90) * 1000;
+    await seek(start);
+    run.resynced = (run.resynced || 0) + 1;
+    return true;
+  };
   let busy = false, lastT = -1, apiT = -1, apiAt = 0, finished = false, stalledSince = Date.now(), why = '', pushes = 0;
-  const wallLimit = Date.now() + (VT_WINDOW / VT_RATE + 60) * 1000;
+  let wallLimit = Date.now() + (VT_WINDOW / VT_RATE + 60) * 1000;
   await new Promise(resolve => {
     const stopTick = vtTicker(VT_TICK_MS, async () => {
       if (finished) return;
       const done = w => { finished = true; stopTick(); why = w; resolve(); };
       if (run.stop) return done('stopped');
       if (slot.playerError !== null) return done('video');
+      if (holding) return;                               // a re-sync is moving the player about
       if (Date.now() > wallLimit) return done('timeout');
       let t = 0, state = -1;
       try { t = player.getCurrentTime(); state = player.getPlayerState(); } catch (e) {}
@@ -8683,11 +8770,47 @@ async function vtWatch(run, slot, m) {
         rec.f.push(vtPackFrame(est - m.off, boxes, w));
         run.looks = (run.looks || 0) + 1;
         if (boxes.some(b => b[5])) robotLooks++;
+        // Is this the match it came for? Checked a few seconds in, and once
+        // more a little later if no name could be read the first time.
+        if (m.round === 2 && !rec.wide && ((checked === 0 && est >= start + 4) || (checked === 1 && est >= start + 16))) {
+          checked++;
+          holding = true;
+          try {
+            const label = await probe();
+            if (label && label.round === 2) {
+              checked = 2;
+              if (label.num === Number(m.num)) run.confirmed = (run.confirmed || 0) + 1;
+              else if (resyncs++ < 2) { slot.now.note = `stream shows Q${label.num}, finding Q${m.num}`; vtProgress(run); if (!(await resync(label))) { holding = false; busy = false; return done('nothing'); } }
+            }
+          } catch (e) {}
+          holding = false;
+        }
         // Not a match. A stream has lunch breaks, countdown slates, sponsor
         // cards and crowd shots, and the Jumper's position for a match can
         // land in one. After VT_GIVE_UP_SEC of video with next to no robots
         // there is no point watching the other two minutes of it.
-        if (est - start >= VT_GIVE_UP_SEC && robotLooks < 5) { busy = false; return done('nothing'); }
+        if (!rec.wide && est - start >= VT_GIVE_UP_SEC && robotLooks < 5) {
+          // Before giving up: once per event day, look ahead and behind for
+          // any match name. A whole afternoon can be out by the length of
+          // lunch, and one name found puts every match after it right.
+          let fixed = false;
+          if (m.round === 2 && !run.searched[dayKey]) {
+            run.searched[dayKey] = true;
+            holding = true;
+            slot.now.note = 'no robots here; looking for where the matches are'; vtProgress(run);
+            try {
+              for (const jump of [300, 600, 1200, 1800, 2700, -300, -900]) {
+                if (run.stop) break;
+                await seek(start + jump);
+                const label = await probe();
+                if (label && label.round === 2) { fixed = await resync(label); break; }
+              }
+            } catch (e) {}
+            holding = false;
+          }
+          if (!fixed) { busy = false; return done('nothing'); }
+        }
+        if (rec.wide && est - start >= 200 && robotLooks < 5) { busy = false; return done('nothing'); }
         slot.now.boxes = boxes.length;
         if (slot.i === 0) run.view = { sx, sy, w, h, boxes };
         if (Date.now() - (run.saidAt || 0) > 500) { run.saidAt = Date.now(); vtProgress(run); }
@@ -8707,6 +8830,9 @@ async function vtWatch(run, slot, m) {
   run.saved++;
   let sum = null;
   try { sum = vtSummarise(rec); await vtSumSave(m.ev, m.id, sum); } catch (e) {}
+  // A re-synced match found its own start. The difference from where the
+  // Jumper put it is how far out that day is: the next match starts right.
+  if (rec.wide && sum && sum.ok) run.shift[dayKey] = (rec.off + sum.st) - off0;
   run.shared = await vtSharedSave(m.ev, m.id, rec, sum);
 }
 function vtStop() { if (vtRun) { vtRun.stop = true; vtRun.userStop = true; vtSay('Stopping…'); } }
@@ -8976,7 +9102,7 @@ function vtStep(p, q) { if (!p || !q) return 0; const d = Math.hypot(q.x - p.x, 
 // position can be several seconds out, and the pause after autonomous varies.
 // Robots are disabled before a match and between the two periods, so each
 // period begins with the first second of movement after three still ones.
-function vtPhases(bins) {
+function vtPhases(bins, wide) {
   if (!bins.length) return { start: 0, driver: 18, end: 123 };
   const t0 = bins[0].t, M = bins.map((b, k) => {
     if (!k) return 0;
@@ -8987,14 +9113,14 @@ function vtPhases(bins) {
   const quiet3 = k => k >= 3 && M[k - 1] < 0.03 && M[k - 2] < 0.03 && M[k - 3] < 0.03;
   const moving = k => M[k] > 0.04 && M[k] + (M[k + 1] || 0) > 0.1;
   const find = (lo, hi) => { for (let k = 1; k < bins.length; k++) { const t = t0 + k; if (t < lo || t > hi) continue; if (moving(k) && (quiet3(k) || k <= 3)) return t; } return null; };
-  let start = find(-15, 45), driver = null;
+  let start = find(-15, wide ? 260 : 45), driver = null;
   if (start === null) start = Math.max(t0, 0);
   driver = find(start + 12, start + 75);
   if (driver === null) {
     // No pause was seen after it. Either the pause was short, or nobody moved
     // in autonomous and what looked like the start was driver control
     // beginning. Well after the Jumper's position, it is the second.
-    if (start > 10) { driver = start; start = driver - 18; }
+    if (start > 10 && !wide) { driver = start; start = driver - 18; }
     else driver = start + 18;
   }
   return { start, driver, end: Math.min(bins[bins.length - 1].t, driver + 105) };
@@ -9004,7 +9130,7 @@ function vtSummarise(rec) {
   const F = vtFrames(rec);
   const base = { sv: VT_SUM_V, name: rec.name, round: rec.round, num: rec.num, red: rec.red, blue: rec.blue, rs: rec.rs, bs: rec.bs };
   if (!F.ok) return { ...base, ok: 0 };
-  const slotted = vtSlots(F.frames), track = vtBin(slotted), ph = vtPhases(track);
+  const slotted = vtSlots(F.frames), track = vtBin(slotted), ph = vtPhases(track, !!rec.wide);
   const span = F.frames.length > 1 ? F.frames[F.frames.length - 1].t - F.frames[0].t : 0;
   const lps = span > 0 ? F.frames.length / span : 0;
   // Which way each alliance attacks: where they stood before the start.
@@ -9309,9 +9435,7 @@ async function vtReportFill(number) {
   if (!host || host.dataset.team !== num) return;
   const sums = await vtTeamSums(num);
   if (host.dataset.team !== num) return;          // another team was opened meanwhile
-  // A team nobody has tracked gets no block at all: an empty box telling you
-  // to go and do something is the first thing to cut from an overview.
-  host.innerHTML = sums.size ? vtReportHtml(num, vtReport(num, sums)) : '';
+  host.innerHTML = sums.size ? vtReportHtml(num, vtReport(num, sums)) : (vsIsPhone() ? '' : vtReportHtml(num, { n: 0, lines: null }));
 }
 
 // ── STATUS BADGE ──────────────────────────────
@@ -14587,19 +14711,6 @@ function renderEventPicker(d, eventFilter) {
 }
 
 // ── Events attended: a browsable list that hands off to the Tournament tab ──
-// One sentence: how good, how much to go on, and where to see them next.
-function teamGlance(d, o) {
-  const bits = [];
-  if (o.tot > 0) bits.push(`<strong>${o.w}–${o.l}${o.ti ? '–' + o.ti : ''}</strong> ${o.filtered ? 'at this event' : 'this season'} (${o.wr.toFixed(0)}% of ${o.tot} matches${o.filtered ? '' : `, ${d.eventsList.length} event${d.eventsList.length === 1 ? '' : 's'}`})`);
-  else bits.push('No matches played yet this season');
-  if (o.skillsBest) bits.push(`best skills <strong>${esc(o.skillsBest)}</strong>${d.worldSkillsRank ? `, #${esc(d.worldSkillsRank)} in the world` : ''}`);
-  const up = (d.upcomingList || [])[0];
-  if (up) bits.push(`next: <strong>${esc(up.name)}</strong>${up.start ? ', ' + esc(evDate(up.start)) : ''}`);
-  const items = (d.prosCons && d.prosCons.items) || [];
-  const pro = items.find(i => i.kind === 'str'), con = items.find(i => i.kind === 'weak');
-  const read = [pro ? `Strength: ${esc(pro.title)}.` : '', con ? `Watch for: ${esc(con.title)}.` : ''].filter(Boolean).join(' ');
-  return `<div class="team-glance">${bits.join(' · ')}.${read ? ` <span class="tg-read">${read}</span>` : ''}</div>`;
-}
 function renderEventsList(list, team) {
   return `<div class="ev-attend-list">
       ${list.map(e => `
@@ -14834,22 +14945,14 @@ function renderDetailedTeam(d, eventFilter) {
     ${renderEventPicker(d, eventFilter)}`;
 
   // ── Quick overview + radar ──
-  // v103, asked for as "simplify and optimize overviews". The page opened with
-  // six tiles, two of them usually a dash and two saying the same thing, then a
-  // radar, then eighteen rows of which half read N/A — and the one sentence a
-  // person wants ("how good are they, and where do I see them next") was
-  // nowhere. Now: that sentence first; only tiles that hold a number; what is
-  // coming up before what is past; and the full table folded away, with its
-  // empty rows left out.
-  const skillsBest = d.officialCombined || (d.progSkill + d.driverSkill) || 0;
   const overview = [
     { label: 'WIN RATE', big: wr !== null ? `${wr.toFixed(0)}%` : '—', sub: tot > 0 ? `${w}-${l}${ti ? '-' + ti : ''} record` : 'no matches' },
-    { label: 'MATCHES', big: String(tot), sub: eventFilter !== 'all' ? 'at this event' : `${d.eventsList.length} event${d.eventsList.length === 1 ? '' : 's'} this season` },
-    { label: 'HIGHEST SKILLS', big: skillsBest ? String(skillsBest) : '—', sub: `${d.driverSkill} driver ${d.progSkill} auton` },
-    { label: 'SIG WIN RATE', big: d.sigWinRate !== null ? `${d.sigWinRate.toFixed(0)}%` : '—', sub: d.sigTotal > 0 ? `${d.sigWins}-${d.sigLosses}${d.sigTies ? '-' + d.sigTies : ''} at signatures` : '' },
-    { label: 'AWP %', big: d.awpRate !== null ? `${d.awpRate.toFixed(0)}%` : '—', sub: d.totalRankedMatches > 0 ? `${d.finalAwpCount} of ${d.totalRankedMatches}` : '' }
-  ].filter((o, k) => k === 0 || o.big !== '—');
-  html += teamGlance(d, { w, l, ti, tot, wr, skillsBest, filtered: eventFilter && eventFilter !== 'all' });
+    { label: 'EVENTS PLAYED', big: String(d.eventsList.length || d.rankings.length || 0), sub: eventFilter !== 'all' ? 'filtered' : 'this season' },
+    { label: 'TOTAL MATCHES', big: String(tot), sub: `${d.eventsList.length} events` },
+    { label: 'HIGHEST SKILLS', big: String(d.officialCombined || (d.progSkill + d.driverSkill) || '—'), sub: `${d.driverSkill} driver ${d.progSkill} auton` },
+    { label: 'SIG WIN RATE', big: d.sigWinRate !== null ? `${d.sigWinRate.toFixed(0)}%` : '—', sub: d.sigTotal > 0 ? `${d.sigWins}-${d.sigLosses}${d.sigTies ? '-' + d.sigTies : ''} at signatures` : 'no signature matches' },
+    { label: 'AWP %', big: d.awpRate !== null ? `${d.awpRate.toFixed(0)}%` : '—', sub: d.totalRankedMatches > 0 ? `${d.finalAwpCount} of ${d.totalRankedMatches}` : 'no data' }
+  ];
 
   const worldPct = (d.worldSkillsRank && d.totalWorldTeams)
     ? Math.max(0, (1 - d.worldSkillsRank / d.totalWorldTeams) * 100) : null;
@@ -14864,15 +14967,12 @@ function renderDetailedTeam(d, eventFilter) {
   const missing = axes.filter(a => a.value === null || a.value === undefined).map(a => a.label);
 
   html += `<div class="detail-grid">
-    <div class="detail-left">
     <div class="detail-overview">
       ${overview.map(o => `<div class="ov-cell">
         <div class="ov-label">${o.label}</div>
         <div class="ov-big">${o.big}</div>
         <div class="ov-sub">${o.sub}</div>
       </div>`).join('')}
-    </div>
-    <!--PROSCONS-->
     </div>
     <div class="detail-radar">
       <div class="detail-block-label">Team Profile</div>
@@ -14885,7 +14985,7 @@ function renderDetailedTeam(d, eventFilter) {
   const strengths = d.prosCons.items.filter(i => i.kind === 'str');
   const weaknesses = d.prosCons.items.filter(i => i.kind === 'weak');
   const notes = d.prosCons.items.filter(i => i.kind === 'note');
-  const prosHtml = `<div class="detail-block">
+  html += `<div class="detail-block">
     <div class="detail-block-label">Pros &amp; Cons</div>
     <div class="sim-ov-lists">
       <div class="sim-ov-col str">
@@ -14899,39 +14999,57 @@ function renderDetailedTeam(d, eventFilter) {
     </div>
     ${notes.length ? `<ul class="sim-ov-bullets" style="margin-top:10px;">${notes.map(i => `<li class="note" title="${esc(i.desc || '')}"><b>${esc(i.title)}</b></li>`).join('')}</ul>` : ''}
   </div>`;
-  // Beside the radar, under the tiles: the left column is as tall as the radar
-  // with or without them, and used to be padded out with an empty grey panel.
-  html = html.replace('<!--PROSCONS-->', prosHtml);
 
-  // ── Everything else, folded away ──
-  // A row is only worth a line if it has a value. A group with no rows is gone.
-  const row = (name, val) => (val === null || val === undefined || val === '' || val === 0) ? '' : `<div class="stat-row"><div class="stat-name">${name}</div><div class="stat-value">${val}</div></div>`;
-  const pct = (v, dec = 1) => (v !== null && v !== undefined) ? `${Number(v).toFixed(dec)}%` : null;
-  const rankCell = (r, totalN) => r ? `<span class="highlight">#${r}</span>${totalN ? `<span style="color:var(--text-muted);font-size:12px;"> / ${totalN}</span>` : ''}` : null;
-  const group = (label, rows) => { const body = rows.join(''); return body ? `<div class="stat-group"><div class="stat-group-label">${label}</div>${body}</div>` : ''; };
-  const breakdown = [
-    group('Skills', [row('Driver', d.driverSkill), row('Autonomous', d.progSkill), row('Combined', skillsBest)]),
-    group('Skills Rankings', [row('World', rankCell(d.worldSkillsRank, d.totalWorldTeams)), row('State', rankCell(d.stateSkillsRank, d.totalStateTeams)), row('State Region', rankCell(d.regionSkillsRank, d.totalRegionTeams))]),
-    group('Scoring', [row('Avg Score', d.avgScore !== null && d.avgScore !== undefined ? Number(d.avgScore).toFixed(1) : null), row('High Score', d.highScore), row('Consistency', pct(d.consistency, 0))]),
-    group('Qualification', [row('Avg WP', d.avgWp !== null ? d.avgWp.toFixed(2) : null), row('Avg SP', d.avgSp), row('Avg Rank', d.avgRank ? '#' + d.avgRank : null)]),
-    group('Autonomous', [row('AWP %', pct(d.awpRate)), row('AWP Won', d.totalRankedMatches > 0 ? `${d.finalAwpCount} / ${d.totalRankedMatches}` : null), row('Auton Win %', pct(d.autonRate))]),
-    group('Signature Events', [row('Sig Win Rate', pct(d.sigWinRate)), row('Sig Record', d.sigTotal > 0 ? `${d.sigWins}W · ${d.sigLosses}L${d.sigTies ? ' · ' + d.sigTies + 'T' : ''}` : null), row('Sig Matches', d.sigTotal)])
-  ].join('');
-  const breakdownHtml = breakdown ? `<details class="detail-block detail-fold">
-    <summary class="detail-block-label">Full Breakdown <span class="fold-hint">every number</span></summary>
-    <div class="stats-body">${breakdown}</div>
-  </details>` : '';
+  // ── Everything else from the compact card ──
+  const row = (name, val) => `<div class="stat-row"><div class="stat-name">${name}</div><div class="stat-value">${val}</div></div>`;
+  const rankCell = (r, totalN) => r
+    ? `<span class="highlight">#${r}</span>${totalN ? `<span style="color:var(--text-muted);font-size:11px;"> / ${totalN}</span>` : ''}`
+    : `<span class="na">${d.skillsRankPlaceholder}</span>`;
+
+  html += `<div class="detail-block">
+    <div class="detail-block-label">Full Breakdown</div>
+    <div class="stats-body">
+      <div class="stat-group">
+        <div class="stat-group-label">Skills</div>
+        ${row('Driver', d.driverSkill || '<span class="na">—</span>')}
+        ${row('Autonomous', d.progSkill || '<span class="na">—</span>')}
+        ${row('Combined', d.officialCombined || (d.progSkill + d.driverSkill) || '<span class="na">—</span>')}
+      </div>
+      <div class="stat-group">
+        <div class="stat-group-label">Skills Rankings</div>
+        ${row('World', rankCell(d.worldSkillsRank, d.totalWorldTeams))}
+        ${row('State', rankCell(d.stateSkillsRank, d.totalStateTeams))}
+        ${row('State Region', rankCell(d.regionSkillsRank, d.totalRegionTeams))}
+      </div>
+      <div class="stat-group">
+        <div class="stat-group-label">Scoring</div>
+        ${row('Avg Score', fmt(d.avgScore, '', 1))}
+        ${row('High Score', d.highScore !== null ? d.highScore : '<span class="na">—</span>')}
+        ${row('Consistency', fmt(d.consistency, '%', 0))}
+      </div>
+      <div class="stat-group">
+        <div class="stat-group-label">Qualification</div>
+        ${row('Avg WP', d.avgWp !== null ? d.avgWp.toFixed(2) : '<span class="na">N/A</span>')}
+        ${row('Avg SP', d.avgSp !== null ? d.avgSp : '<span class="na">N/A</span>')}
+        ${row('Avg Rank', d.avgRank ? '#' + d.avgRank : '<span class="na">N/A</span>')}
+      </div>
+      <div class="stat-group">
+        <div class="stat-group-label">Autonomous</div>
+        ${row('AWP %', fmt(d.awpRate))}
+        ${row('AWP Won', d.totalRankedMatches > 0 ? `${d.finalAwpCount} / ${d.totalRankedMatches}` : '<span class="na">N/A</span>')}
+        ${row('Auton Win %', fmt(d.autonRate))}
+      </div>
+      <div class="stat-group">
+        <div class="stat-group-label">Signature Events</div>
+        ${row('Sig Win Rate', fmt(d.sigWinRate))}
+        ${row('Sig Record', d.sigTotal > 0 ? `${d.sigWins}W · ${d.sigLosses}L${d.sigTies ? ' · ' + d.sigTies + 'T' : ''}` : '<span class="na">None</span>')}
+        ${row('Sig Matches', d.sigTotal || '<span class="na">0</span>')}
+      </div>
+    </div>
+  </div>`;
 
   // ── Match schedule for the selected event ──
   if (eventFilter && eventFilter !== 'all') html += renderEventSchedule(d, eventFilter);
-
-  // ── Coming up, the robot, the season, the past ──
-  html += renderEventsUpcoming(d);
-  // What the robot tracker has seen of this team, filled in once it is fetched.
-  html += `<div id="vtReport" data-team="${teamAttr(String(d.team.number).toUpperCase())}"></div>`;
-  setTimeout(() => vtReportFill(d.team.number), 0);
-  html += seasonChart(d);
-  html += renderEventsAttended(d);
 
   // ── Qualification status ──
   const qs = qualStatusFromAwards(d.awardsList);
@@ -14943,7 +15061,7 @@ function renderDetailedTeam(d, eventFilter) {
         <div class="qual-label">${qs.label}</div>
         ${qs.via.length
           ? `<div class="qual-via">${qs.via.map(v => `<span class="qual-via-item"><strong>${esc(v.award)}</strong> at ${esc(v.event || 'an event')}${v.inferred ? '<span class="inf-mark" title="Inferred from the award title and event level — this event didn\'t record the qualification explicitly.">?</span>' : ''}</span>`).join('')}</div>`
-          : `<div class="qual-via-none">Nothing yet this season. The skills ladder below shows how close it is.</div>`}
+          : `<div class="qual-via-none">No award this season carried a qualification. Teams can also qualify through the skills list or event rank — the ladder below shows where this team stands.</div>`}
       </div>
     </div>
     <div class="ladder-wrap">
@@ -14952,9 +15070,16 @@ function renderDetailedTeam(d, eventFilter) {
     </div>
   </div>`;
 
-  // ── What is next, then what has been ──
+  // ── Events attended ──
+  html += seasonChart(d);
+  // What the robot tracker has seen of this team, filled in once it is fetched.
+  html += `<div id="vtReport" data-team="${teamAttr(String(d.team.number).toUpperCase())}"></div>`;
+  setTimeout(() => vtReportFill(d.team.number), 0);
+  html += renderEventsUpcoming(d);
+  html += renderEventsAttended(d);
+
   // ── Awards ──
-  if (d.awardsList.length) html += `<div class="detail-block">
+  html += `<div class="detail-block">
     <div class="detail-block-label">Awards (${d.awardsList.length})</div>
     ${d.awardsList.length
       ? `<div class="awards-list">${d.awardsList.map((a, i) => {
@@ -14965,8 +15090,6 @@ function renderDetailedTeam(d, eventFilter) {
         }).join('')}</div>`
       : `<div class="no-awards">No awards found</div>`}
   </div>`;
-
-  html += breakdownHtml;
 
   out.innerHTML = html;
   // The ladder costs one request per team ranked above, so it's opt-in rather
