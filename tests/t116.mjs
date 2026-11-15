@@ -123,6 +123,11 @@ const f = n => win.eval(n);
   ok('Enter saves the key in the app', /id="keyIn"[^>]*onkeydown="if\(event\.key==='Enter'\)saveKey\(\)"/.test(app));
   ok('the app says what happened to the key, also when nothing answers', /Checking with the website/.test(app) && /did not answer/.test(app) && /Type the admin key first/.test(app));
   ok('Enter saves the key on the website', /id="vtPassInput"[^>]*onkeydown="if\(event\.key==='Enter'\)\{event\.preventDefault\(\);vtPassSave\(\);\}"/.test(idx));
+  // v113: the app's speed
+  ok('a robot already named is glanced at, not read every look', /if tr\['hits'\] >= 3:\s+return gap >= 3/.test(app));
+  ok('a plate that never shows is tried once a second', /if tr\['hits'\] == 0 and tr\['tries'\] >= 12:\s+return gap >= 1/.test(app));
+  ok('reading runs on the graphics card when it will take it, else the processor', /for wd in \(160, 320\):/.test(app) && /if self\.reader is None:/.test(app));
+  ok('workers share the processor instead of fighting over it', /threads=max\(1, \(os\.cpu_count\(\) or 8\) \/\/ max\(1, int\(cfg\.get\('workers', 4\)\)\)\)/.test(app));
   // v111: the window
   ok('the app opens a window, not a menu', /def serve_ui\(/.test(app) && /if not args:[\s\S]{0,400}return serve_ui\(cfg\)/.test(app));
   ok('three main buttons: Track, Review, Train', (app.match(/<div class="card"><h2>/g) || []).length === 3);

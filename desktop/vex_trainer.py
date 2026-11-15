@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.1'
+VERSION = '2.2'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -356,17 +356,40 @@ def label_of(texts):
 
 # ── the eyes: three models ──────────────────────────────────────────────────
 class Eyes:
-    def __init__(self, detector=None, quiet=False):
+    def __init__(self, detector=None, quiet=False, threads=0):
         import numpy as np, onnxruntime as ort
         self.np, self.ort = np, ort
         have = ort.get_available_providers()
         prov = [p for p in ('DmlExecutionProvider', 'CUDAExecutionProvider') if p in have] + ['CPUExecutionProvider']
         so = ort.SessionOptions()
         so.log_severity_level = 3
+        # Several of these run side by side, one per worker. Left alone, each
+        # would start a thread for every core and they would fight over them.
+        if threads:
+            so.intra_op_num_threads = threads
+            try:
+                import cv2
+                cv2.setNumThreads(threads)
+            except Exception:
+                pass
         self.det = ort.InferenceSession(detector or detector_path(), so, providers=prov)
         self.backend = self.det.get_providers()[0].replace('ExecutionProvider', '')
         cpu = ['CPUExecutionProvider']
-        self.reader = ort.InferenceSession(os.path.join(DIRS['models'], 'plate_reader.onnx'), so, providers=cpu)
+        # Reading plates and the clock was most of a match's time when it ran
+        # on the processor (measured: 12 of 17 seconds). On the graphics card
+        # when there is one; back to the processor if the card will not take
+        # the model, checked with one real read of each width it is asked for.
+        self.reader = None
+        if prov[0] != 'CPUExecutionProvider':
+            try:
+                r = ort.InferenceSession(os.path.join(DIRS['models'], 'plate_reader.onnx'), so, providers=prov)
+                for wd in (160, 320):
+                    r.run(None, {r.get_inputs()[0].name: np.zeros((1, 3, 48, wd), np.float32)})
+                self.reader = r
+            except Exception:
+                self.reader = None
+        if self.reader is None:
+            self.reader = ort.InferenceSession(os.path.join(DIRS['models'], 'plate_reader.onnx'), so, providers=cpu)
         self.finder = ort.InferenceSession(os.path.join(DIRS['models'], 'text_finder.onnx'), so, providers=cpu)
         with open(os.path.join(DIRS['models'], 'plate_chars.json'), encoding='utf-8') as f:
             self.chars = {int(k): v for k, v in json.load(f).items()}
@@ -501,7 +524,19 @@ def attend(att, boxes, t, w, n):
         best.update(x=x, y=y, t=t)
         pairs.append((b, best))
     att[:] = [tr for tr in att if not (t - tr['t'] > 4 or t < tr['t'] - 1)]
-    pairs = [p for p in pairs if p[0][2] >= 40]
+    # A person who has read a robot's plate three times does not keep reading
+    # it every instant: a glance every few seconds confirms it is still the
+    # same robot. Likewise one whose plate has not shown in a dozen tries is
+    # looked at once a second, not six times. This is where most of the
+    # reading went, and it bought nothing.
+    def due(tr):
+        gap = t - tr.get('read', -1e9)
+        if tr['hits'] >= 3:
+            return gap >= 3
+        if tr['hits'] == 0 and tr['tries'] >= 12:
+            return gap >= 1
+        return True
+    pairs = [p for p in pairs if p[0][2] >= 40 and due(p[1])]
     pairs.sort(key=lambda p: (p[1]['hits'], p[1]['tries'], -p[0][2] * p[0][3]))
     return pairs[:n]
 
@@ -635,6 +670,7 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
             rec['h'] = jround(h * SIZE / w)
             for b, tr in attend(att, boxes, t, w, reads):
                 tr['tries'] += 1
+                tr['read'] = t
                 who = eyes.plate(frame, b, four)
                 if who:
                     b[7] = who
@@ -711,7 +747,7 @@ def work_chunk(args):
     cfg, ev, path, jobs, spacing = args
     site = Site(cfg)
     if _EYES is None:
-        _EYES = Eyes(quiet=True)
+        _EYES = Eyes(quiet=True, threads=max(1, (os.cpu_count() or 8) // max(1, int(cfg.get('workers', 4)))))
     video = Video(path)
     out, shift, learn = [], 0, {}
     try:
