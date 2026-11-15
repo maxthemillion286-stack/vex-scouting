@@ -93,7 +93,7 @@ export function validRec(rec) {
 export function validSum(s) {
   if (!s || typeof s !== 'object' || Array.isArray(s)) return 'not a summary';
   if (!Number.isInteger(s.sv) || s.sv < 1 || s.sv > 99) return 'unknown version';
-  if (JSON.stringify(s).length > 4000) return 'summary too large';
+  if (JSON.stringify(s).length > 12000) return 'summary too large';
   const num = v => v === null || (typeof v === 'number' && Number.isFinite(v));
   if (s.name != null && !(typeof s.name === 'string' && s.name.length <= 60 && /^[A-Za-z0-9 #.,()\/-]*$/.test(s.name))) return 'bad name';
   for (const side of ['red', 'blue']) {
@@ -103,7 +103,7 @@ export function validSum(s) {
     if (['name', 'red', 'blue'].includes(k)) continue;
     if (['R', 'B', 'Ra', 'Rb', 'Ba', 'Bb'].includes(k)) {
       const o = s[k];
-      if (!o || typeof o !== 'object' || Array.isArray(o) || Object.keys(o).length > 32) return 'bad side';
+      if (!o || typeof o !== 'object' || Array.isArray(o) || Object.keys(o).length > 110) return 'bad side';
       for (const f of Object.keys(o)) if (!/^[a-z][a-z0-9]{1,3}$/.test(f) || !num(o[f])) return 'bad measure';
       continue;
     }
@@ -121,6 +121,16 @@ export default async function handler(req, res) {
     if (req.method === 'GET') {
       const q = req.query || {};
       if (q.status) return res.status(200).json({ db: hasDb, passcode: E.passcode.length >= MIN_PASSCODE });
+      if (q.field !== undefined) {
+        // The four corners of the field in one stream video, as someone marked them.
+        const vid = String(q.field);
+        if (!/^[A-Za-z0-9_-]{6,20}$/.test(vid)) return res.status(400).json({ error: 'field must be a video id' });
+        if (!hasDb) return res.status(200).json({ db: false, field: null });
+        const [raw] = await redis(E, [['GET', `vt:field:${vid}`]]);
+        let field = null;
+        try { field = raw ? JSON.parse(raw) : null; } catch (e) {}
+        return res.status(200).json({ db: true, field });
+      }
       if (q.team !== undefined) {
         const team = teamKey(q.team);
         if (!team) return res.status(400).json({ error: 'team must be a team number' });
@@ -159,6 +169,13 @@ export default async function handler(req, res) {
       }
       if (body.check) return res.status(200).json({ ok: true, db: hasDb });
       if (!hasDb) return res.status(503).json({ error: 'no database is connected' });
+      if (body.field !== undefined) {
+        const f = body.field;
+        if (!f || typeof f !== 'object' || !/^[A-Za-z0-9_-]{6,20}$/.test(String(f.vid || '')) || !Array.isArray(f.q) || f.q.length !== 8 ||
+            !f.q.every(v => typeof v === 'number' && Number.isFinite(v) && v >= -0.5 && v <= 1.5)) return res.status(400).json({ error: 'bad field' });
+        await redis(E, [['SET', `vt:field:${f.vid}`, JSON.stringify({ q: f.q, by: 'click', at: Date.now() })]]);
+        return res.status(200).json({ ok: true });
+      }
       const ev = digits(body.ev), id = digits(body.id);
       if (!ev || !id) return res.status(400).json({ error: 'ev and id must be numbers' });
       const cmds = [];

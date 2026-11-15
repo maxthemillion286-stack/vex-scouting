@@ -62,7 +62,7 @@ const { win, errors } = await boot();
 console.log('\n· one match');
 {
   const s = win.vtSummarise(match({}));
-  ok('a match is summarised', s.ok === 1 && s.sv === 2 && !!s.R && !!s.B && !!s.Ra && !!s.Bb, JSON.stringify(s).slice(0, 300));
+  ok('a match is summarised', s.ok === 1 && s.sv === 3 && !!s.R && !!s.B && !!s.Ra && !!s.Bb, JSON.stringify(s).slice(0, 300));
   ok('it finds when the match really started, not when the Jumper said', Math.abs(s.st) <= 2, 'start ' + s.st);
   ok('and when driver control began', s.dr >= 18 && s.dr <= 23, 'driver ' + s.dr);
   ok('red moved in autonomous with both robots, blue with neither', s.R.am === 2 && s.B.am === 0, JSON.stringify([s.R.am, s.B.am]));
@@ -106,7 +106,7 @@ console.log('\n· a team\'s report');
   const onlyWins = win.vtReport('66449A', new Map([...sums].slice(0, 4)));
   ok('with no losses tracked, it does not invent a reason for losing', onlyWins.lines.lose.length === 0);
   const html = win.vtReportHtml('66449A', rep);
-  ok('the block has all five sections', ['Good at', 'Autonomous', 'Does repeatedly', 'When it loses', 'How to use this'].every(h => html.includes(h)));
+  ok('the block has its sections', ['Strengths', 'Weaknesses', 'Autonomous', 'Does repeatedly', 'When it loses', 'How to use this'].every(h => html.includes(h)));
   ok('says it is about the alliances when the robot could not be picked out', /describes the alliances 66449A was on, not its own robot/.test(html) && rep.own === false);
   ok('and that it is unchecked', /unchecked against human scouting/.test(html));
   ok('says what it needs when there are too few', /a report needs three/.test(win.vtReportHtml('66449A', few)) && /needs at least two tracked wins and two losses/i.test(win.vtReportHtml('66449A', onlyWins)));
@@ -151,7 +151,11 @@ console.log('\n· summaries in shared storage');
   ok('not without the passcode', r.code === 403);
   const bad = async over => (await call('POST', {}, { passcode: 'correct horse battery', ev: '55001', id: '9', sum: { ...sum, ...over } })).code;
   ok('markup anywhere in a summary is refused', await bad({ name: '<script>' }) === 400 && await bad({ red: ['<b>'] }) === 400 && await bad({ R: { am: '<i>' } }) === 400 && await bad({ note: 'hello' }) === 400);
-  ok('an oversized summary is refused', await bad({ R: Object.fromEntries(Array.from({ length: 40 }, (_, i) => ['k' + String.fromCharCode(97 + i % 26) + (i > 25 ? 'x' : ''), 1])) }) === 400);
+  ok('an oversized summary is refused', await bad({ R: Object.fromEntries(Array.from({ length: 130 }, (_, i) => ['k' + (i % 10) + String.fromCharCode(97 + Math.floor(i / 10)), 1])) }) === 400);
+  r = await call('POST', {}, { passcode: 'correct horse battery', field: { vid: 'abcDEF12345', q: [0.1, 0.2, 0.9, 0.2, 0.9, 0.8, 0.1, 0.8] } });
+  ok('a stream\'s field corners are saved with the passcode', r.code === 200 && kv.has('vt:field:abcDEF12345'));
+  ok('and not without it, or when they are not corners', (await call('POST', {}, { passcode: 'no', field: { vid: 'abcDEF12345', q: [0, 0, 1, 0, 1, 1, 0, 1] } })).code === 403 && (await call('POST', {}, { passcode: 'correct horse battery', field: { vid: 'abcDEF12345', q: [0, 0, 1, 0, 'x', 1, 0, 1] } })).code === 400 && (await call('POST', {}, { passcode: 'correct horse battery', field: { vid: '<b>', q: [0, 0, 1, 0, 1, 1, 0, 1] } })).code === 400);
+  ok('a real summary with the game measures passes the server\'s check', (() => { const QUAD = { q: [100 / 640, 80 / 360, 540 / 640, 80 / 360, 540 / 640, 300 / 360, 100 / 640, 300 / 360], by: 'click' }; const sg = JSON.parse(JSON.stringify(win.vtSummarise(match({ v2: true }), QUAD))); return mod.validSum(sg) === null && JSON.stringify(sg).length < 12000; })());
   r = await call('GET', { team: "x';--" });
   ok('a team that is not a team number is refused', r.code === 400);
   r = await call('POST', {}, { passcode: 'correct horse battery', ev: '55001', id: '9' });
@@ -234,6 +238,93 @@ console.log('\n· which robot is which');
   ok('the reader model is in the repo and loaded only by the worker', fs.statSync('../models/plate_reader.onnx').size > 5e6 && /plate_reader\.onnx/.test(fs.readFileSync('../vendor/vt-worker.js', 'utf8')) && !/plate_reader/.test(idx));
   ok('recordings from before this are watched once more', /const vtDone = e => !!e && e\.s === 'done' && \(e\.v \|\| 1\) >= VT_REC_V;/.test(idx));
 }
+
+console.log('\n· the game: toggles, roles, routes');
+{
+  // The field in the picture: a rectangle from (100, 80) to (540, 300) of a 640×360 frame.
+  const QUAD = { q: [100 / 640, 80 / 360, 540 / 640, 80 / 360, 540 / 640, 300 / 360, 100 / 640, 300 / 360], by: 'click' };
+  const pack = g => [0, 4, 8].map(k => g[k] | g[k + 1] << 4 | g[k + 2] << 8 | g[k + 3] << 12);
+  // Each robot is a list of [second, u, v] keyframes on the real field (red's wall at u = 0).
+  const at = (keys, t) => { let a = keys[0]; for (const k of keys) { if (k[0] <= t) a = k; else { const f = (t - a[0]) / (k[0] - a[0]); return [a[1] + (k[1] - a[1]) * f, a[2] + (k[2] - a[2]) * f]; } } return [a[1], a[2]]; };
+  // The meta: one guards the side toggle while the other stacks in front of it, then they swap.
+  const SCRIPT = [
+    // 66449A: an autonomous to the side toggle; guards it; leaves the moment its partner is done; then stacks; midfield at the end.
+    [[-4, .08, .3], [0, .08, .3], [8, .5, .05], [20, .5, .05], [60, .5, .05], [63, .5, .22], [110, .48, .24], [113, .5, .5], [128, .5, .5]],
+    // Its partner: no autonomous; stacks in that quadrant; then takes over the toggle; is pushed off it once.
+    [[-4, .08, .7], [20, .08, .7], [23, .45, .24], [58, .45, .24], [61, .2, .5], [66, .5, .05], [81, .5, .05], [83, .4, .27], [90, .4, .27], [93, .5, .05], [128, .5, .05]],
+    // A blue robot that goes for that toggle twice: bounced the first time, takes it the second.
+    [[-4, .92, .4], [31, .92, .4], [35, .52, .1], [39, .52, .1], [42, .85, .5], [76, .85, .5], [80, .52, .08], [88, .52, .08], [91, .85, .5], [128, .85, .5]],
+    [[-4, .92, .65], [20, .92, .65], [25, .88, .6], [128, .86, .62]]
+  ];
+  const looksOf = i => { const g = [0, 0, 0, 0, 0, 0, 0, 0, 4, 4, 2, 2]; g[(i * 3) % 8] = 12; g[(i * 3 + 1) % 8] = 6; return g; };
+  const A = [0, 0, 12, 10, 0, 0, 0, 0, 3, 3, 1, 1];
+  const meta = (i, over) => {
+    const o = { red: ['66449A', 'P' + i], blue: ['ATK', 'C' + i], rs: 60, bs: 30, ...over }, f = [];
+    const looks = [A, looksOf(i === 2 ? 5 : i), [3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 1, 1], [0, 8, 0, 0, 0, 0, 8, 0, 4, 4, 3, 3]];
+    for (let t = -4; t <= 128; t += 0.25) {
+      const fr = [Math.round(t * 10), 4];
+      SCRIPT.forEach((keys, k) => { const [u, v] = at(keys, t), x = 100 + 440 * u, y = 80 + 220 * v; fr.push(Math.round(x - 20), Math.round(y - 40), 40, 40, 90, k < 2 ? 1 : 2, ...pack(looks[k]), 0); });
+      f.push(fr);
+    }
+    return { v: 2, name: 'Qualification ' + i, round: 2, num: i, red: o.red, blue: o.blue, rs: o.rs, bs: o.bs, vid: 'abcDEF12345', off: 100, rate: 2, w: 640, h: 360, model: 'det1', at: 1, f };
+  };
+  const h = win.vtHomography(QUAD.q);
+  const mid = h(320 / 640, 190 / 360), corner = h(100 / 640, 80 / 360);
+  ok('four corners map the picture onto the field', Math.abs(mid[0] - 0.5) < 1e-6 && Math.abs(mid[1] - 0.5) < 1e-6 && Math.abs(corner[0]) + Math.abs(corner[1]) < 1e-6, JSON.stringify([mid, corner]));
+  ok('corners can be clicked in any order', (() => { const g = win.vtHomography([540 / 640, 300 / 360, 100 / 640, 80 / 360, 100 / 640, 300 / 360, 540 / 640, 80 / 360]); const m2 = g(0.5, 190 / 360); return Math.abs(m2[0] - 0.5) < 1e-6 && Math.abs(m2[1] - 0.5) < 1e-6; })());
+  ok('a camera at an angle is handled (a trapezoid, not a rectangle)', (() => { const g = win.vtHomography([0.3, 0.2, 0.7, 0.2, 0.95, 0.9, 0.05, 0.9]); const c = g(0.5, 0.2), d = g(0.5, 0.9); return Math.abs(c[0] - 0.5) < 1e-6 && Math.abs(d[0] - 0.5) < 1e-6 && Math.abs(c[1] - d[1]) > 0.99; })());
+  ok('the zones of the field are named from a robot\'s own wall', win.vtZone(0.05, 0.5) === 6 && win.vtZone(0.97, 0.5) === 9 && win.vtZone(0.5, 0.03) === 7 && win.vtZone(0.5, 0.5) === 5 && win.vtZone(0.15, 0.5) === 6 - 5 + 0 || win.vtZone(0.2, 0.5) === 1);
+  ok('own quadrant, opponent\'s, the sides', win.vtZone(0.2, 0.5) === 1 && win.vtZone(0.8, 0.5) === 4 && win.vtZone(0.5, 0.22) === 2 && win.vtZone(0.5, 0.8) === 3);
+
+  const s = win.vtSummarise(meta(1), QUAD);
+  ok('with corners, a match gets the game\'s measures', s.ok === 1 && s.fq > 10000 && s.Ra.th !== undefined && s.Ba.ca !== undefined, JSON.stringify(s.Ra).slice(0, 300));
+  const mine = [s.Ra, s.Rb].find(r => r.art === 127 || String(r.art).startsWith('12')), mate = [s.Ra, s.Rb].find(r => r !== mine);
+  ok('the autonomous route is read as places in order', !!mine && String(mine.art) === '127', JSON.stringify([s.Ra.art, s.Rb.art]));
+  ok('and the partner is seen to have none', !!mate && String(mate.art).length === 1);
+  ok('the guard is seen guarding: forty seconds at the side toggle', mine.gd >= 36 && mine.gd <= 46 && mine.ts > 0.3, JSON.stringify([mine.gd, mine.gt, mine.ts]));
+  ok('a defence that held is counted', mine.da === 1 && mine.dw === 1, JSON.stringify([mine.da, mine.dw]));
+  ok('a defence that failed is counted', mate.da === 1 && mate.dw === 0, JSON.stringify([mate.da, mate.dw]));
+  const atk = [s.Ba, s.Bb].find(r => r.ca > 0);
+  ok('the attacker took a defended toggle in one of two tries', !!atk && atk.ca === 2 && atk.cw === 1, JSON.stringify(atk && [atk.ca, atk.cw]));
+  ok('leaving the toggle when the partner is done is caught', mine.rn === 1 && mine.rl === 1, JSON.stringify([mine.rn, mine.rl]));
+  ok('the alliance swapped guard and stacker', s.R.sw >= 1 && s.B.sw === 0, JSON.stringify([s.R.sw, s.B.sw]));
+  ok('midfield at the end', mine.eg === 1 && mate.eg === 0);
+  ok('where it plays is kept as a grid, and its autonomous as a path', mine.h0 !== undefined && mine.h24 !== undefined && mine.p0 >= 0 && mine.p11 >= 0 && [...Array(25)].reduce((a, _, k) => a + mine['h' + k], 0) >= 95);
+  ok('without corners none of this is claimed', win.vtSummarise(meta(1)).Ra.th === undefined && win.vtSummarise(meta(1)).fq === 0);
+  // Blue's wall on the left of the picture instead: the field is turned so red is still on the left.
+  const flipped = meta(1); flipped.f.forEach(fr => { for (let k = 0; k < 4; k++) { const o = 2 + 10 * k; fr[o] = 640 - fr[o] - 40; fr[o + 1] = 360 - fr[o + 1] - 40 - 40 + 40; } });
+  const sf = win.vtSummarise(flipped, QUAD);
+  ok('whichever wall red is on in the picture, it comes out the same', [sf.Ra, sf.Rb].some(r => r.gd >= 30 && r.ts > 0.25), JSON.stringify([sf.Ra.gd, sf.Rb.gd, sf.Ra.ts, sf.Rb.ts]));
+
+  const sums = new Map();
+  for (let i = 1; i <= 5; i++) sums.set('90:' + i, win.vtSummarise(meta(i, { rs: i <= 3 ? 60 : 20, bs: 30 }), QUAD));
+  const rep = win.vtReport('66449A', sums), G = rep.game, all = JSON.stringify(G);
+  ok('the report is about its own robot, on the real field', rep.own === true && G.n === 5, JSON.stringify([rep.own, rep.picked, G.n]));
+  ok('it lists the autonomous routine, with how often', G.autos.some(x => /^5 of 5: starts in its own quadrant, then a side quadrant, then a side toggle\./.test(x)), JSON.stringify(G.autos));
+  ok('and counts that as a strength', rep.lines.good.some(x => /repeatable autonomous/.test(x)));
+  ok('it says what it does at toggles', G.toggles.some(x => /Held its toggle against 5 of 5/.test(x)) && rep.lines.good.some(x => /Hard to push off a toggle/.test(x)), JSON.stringify(G.toggles));
+  ok('it says its strategy changes when its partner finishes', G.shift.some(x => /Stops guarding as soon as its partner is done.*5 of 5/.test(x)), JSON.stringify(G.shift));
+  ok('and that its alliances swap roles', G.role.some(x => /swap guard and stacker/.test(x)), JSON.stringify(G.role));
+  ok('it says where it spends its time', G.where.some(x => /Most of its time is in the side quadrants/.test(x)), JSON.stringify(G.where));
+  ok('and the endgame', G.shift.some(x => /In midfield for the last ten seconds in 5 of 5/.test(x)));
+  const atkRep = win.vtReport('ATK', sums);
+  ok('for the attacker: its record on defended toggles', atkRep.game.toggles.some(x => /Took a defended toggle in 5 of 10 tries \(50%\)/.test(x)) || atkRep.game.toggles.some(x => /Took a defended toggle in \d+ of \d+ tries/.test(x)), JSON.stringify(atkRep.game.toggles));
+  const html = win.vtReportHtml('66449A', rep);
+  ok('the block shows routes and a heat map of the field', (html.match(/class="vr-field"/g) || []).length === 2 && /<polyline/.test(html) && /Role and strategy/.test(html) && /Toggles/.test(html) && /Where it plays/.test(html));
+  ok('and says what it cannot see', /It sees robots, not pins or toggles/.test(html));
+  const noField = new Map(); for (let i = 1; i <= 5; i++) noField.set('91:' + i, win.vtSummarise(meta(i)));
+  ok('with no corners it asks for them, and claims nothing about toggles', /press <strong>Mark the field<\/strong>/.test(win.vtReportHtml('66449A', win.vtReport('66449A', noField))) && win.vtReport('66449A', noField).game.n === 0);
+  // Guessing the corners from where robots have been.
+  const pts = []; for (let k = 0; k < 4000; k++) pts.push([100 / 640 + (440 / 640) * ((k * 37) % 100) / 100, 80 / 360 + (220 / 360) * ((k * 53) % 97) / 97]);
+  const guess = win.vtQuadGuess(pts);
+  ok('corners nobody clicked are guessed from the robots\' footprint', !!guess && guess.length === 8 && Math.min(...guess.filter((_, k) => k % 2 === 0)) < 0.2 && Math.max(...guess.filter((_, k) => k % 2 === 0)) > 0.8, JSON.stringify(guess));
+  ok('but not from too little', win.vtQuadGuess(pts.slice(0, 500)) === null);
+  ok('a clicked field and a guessed one are told apart', win.eval('vtQuadMark')({ q: QUAD.q, by: 'click' }) > 10000 && win.eval('vtQuadMark')({ q: QUAD.q, by: 'auto' }) < 10000 && win.eval('vtQuadMark')(null) === 0);
+  ok('summaries are redone when a stream\'s field is marked', /\(have\.fq \|\| 0\) === vtQuadMark\(quad\)/.test(idx) && /vtBackfill\(String\(ctx\.eventId\), true\)/.test(idx));
+  ok('the corners are marked over the Jumper\'s player, in four clicks', /function vtMarkField\(\)/.test(idx) && /onclick="vtMarkField\(\)">Mark the field</.test(idx));
+}
+
+ok('My team shows the report on your own robot, with a row per event', /<div id="vtCoach"><\/div>/.test(idx) && /async function vtCoachFill/.test(idx) && /Your robot, as the tracker sees it/.test(idx) && /vtCoachFill\(n\);/.test(idx));
 
 console.log('\n· people are not robots; events still to come');
 {

@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v104**. Everything green: 66 test files. (The `v19` in §8's
+Current release: **v105**. Everything green: 66 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -2501,7 +2501,52 @@ break slates. It now reads the stream's overlay:
 
 ---
 
-## 32. Feature ideas
+## 32. v105 — the tracker learns the game (Override)
+
+The owner described the meta — one robot guards a toggle while its partner
+stacks yellow in front of it, then they swap; pressure on the other side;
+some teams go round all the toggles — and asked for the report in those terms.
+
+- **The game model** (manual v2.1): four toggles at the wall midpoints, each
+  owning the yellow pins of the quadrant in front of it (the triangles between
+  the diagonals); a midfield diamond that matters in the last 10 s.
+  `vtZone(a, b)` names a position from a robot's own wall: 1 own quadrant, 2/3
+  side quadrants, 4 opponent's, 5 midfield, 6 own toggle, 7/8 side toggles, 9
+  opponent's toggle. `VT_TOG_R`, `VT_MID_R` are guesses.
+- **Field mapping.** Nothing above is knowable until the picture is tied to
+  the field. Per stream VIDEO, four corners: clicked (`vtMarkField`, an
+  overlay on the Jumper's player; any order; shared via `?field=`) or guessed
+  from the hull of robots' positions (`vtQuadGuess`, flagged `auto`).
+  `vtHomography` maps picture → unit square; `vtSummarise(rec, quad)` then
+  turns the square a quarter at a time until red starts on the left. Applied
+  at ANALYSIS time, so marking a field later re-does existing recordings
+  (`vtBackfill` compares `fq`, the mark of the quad a summary was made with).
+  A stream that cuts between cameras will be wrong while it is on another one.
+- **`vtGame(bins, ph)`**, per robot: share of driver at own / side / opponent
+  toggle and in each quadrant and midfield; toggle visits; CONTESTS (arriving
+  at a toggle an opponent is on; won if alone on it 3 s within 12) and
+  DEFENCES; guard stints (3 s+ at one toggle); RELEASE (its partner stops
+  working in the guarded quadrant — does it leave within 6 s?); midfield in
+  the last 10 s; the autonomous route as zone digits (`art`), six path points
+  (`p0–p11`) and a 5×5 heat grid (`h0–h24`). Per alliance: role swaps (`sw`)
+  and seconds worked in quadrants (`wk`).
+- **`vtGameLines`** writes Strengths, Weaknesses, Autonomous routines (each
+  with its count), Role and strategy, Toggles, Where it plays. Stacking pace
+  is the alliance's score per ten seconds its robots worked in a quadrant — an
+  estimate, since pins are not seen. `vtFieldSvg` draws routes and the heat
+  map. Mid-match stops no longer count time on a toggle.
+- **Your robot** (`vtCoachFill`, My team): the same report on the owner's
+  team plus a per-event table of what a driver can change.
+- `VT_SUM_V = 3`; summaries are up to 12 kB and 110 fields a robot.
+- **Not built yet:** reading the timer for exact period timing; live mode;
+  reading a toggle's colour (wins are judged by position only).
+- **Checked only on hand-drawn matches** (t113: guard, stack, swap, a held
+  and a lost defence, a won and a lost attack, routes, a field filmed from
+  the other side). Zone sizes and time thresholds are untested on real play.
+
+---
+
+## 33. Feature ideas
 
 `IDEAS.md` holds the list of things worth building next, with what each one
 would cost against what already exists. It also records three things **not** to
