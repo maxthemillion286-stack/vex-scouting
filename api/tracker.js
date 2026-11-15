@@ -46,15 +46,17 @@ function env() {
   return {
     url: String(e.KV_REST_API_URL || e.UPSTASH_REDIS_REST_URL || '').replace(/\/+$/, ''),
     token: String(e.KV_REST_API_TOKEN || e.UPSTASH_REDIS_REST_TOKEN || ''),
-    passcode: String(e.TRACKER_PASSCODE || '')
+    // Trimmed: a key pasted into Vercel with a space or a line break after it
+    // could otherwise never be matched by typing it.
+    passcode: String(e.TRACKER_PASSCODE || '').trim()
   };
 }
 
 // Compared as digests, in constant time: the length of the real passcode and
 // how much of a guess was right must not show in how long the answer takes.
 function passcodeOk(given, real) {
-  if (!real || real.length < MIN_PASSCODE || typeof given !== 'string' || !given) return false;
-  const a = crypto.createHash('sha256').update(given).digest();
+  if (!real || real.length < MIN_PASSCODE || typeof given !== 'string' || !given.trim()) return false;
+  const a = crypto.createHash('sha256').update(given.trim()).digest();
   const b = crypto.createHash('sha256').update(real).digest();
   return crypto.timingSafeEqual(a, b);
 }

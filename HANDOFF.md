@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v115**. Everything green: 80 test files. (The `v19` in §8's
+Current release: **v116**. Everything green: 80 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -2806,6 +2806,15 @@ and make the overviews simple and app simple".
   page is untouched (v103's simplification of it was reverted on request).
 - **App window**: shorter card text; the log and the paste box are inside
   `<details>`.
+
+**v116.** Reported: the right admin key "doesn't work". Both clients said "not
+accepted" for two different 403s: a wrong key, and a server with no
+`TRACKER_PASSCODE` in the running deployment (missing, under 8 characters, or
+added without a redeploy). They now say which (`vtPassSave`; the app's
+`key_problem`, which also names a 404 and no connection). The server trims the
+stored and the given key, so a trailing space or line break in Vercel no longer
+makes a key unmatchable. The owner pasted the key into the chat while
+reporting this; he was told to change it.
 
 ## 33. Feature ideas
 

@@ -115,7 +115,7 @@ const f = n => win.eval(n);
 {
   const bat = fs.readFileSync('../desktop/VEX_Trainer.bat', 'utf8');
   ok('the launcher fetches the program from this site', /vex-scouting-by-max\.vercel\.app\/desktop\/vex_trainer\.py/.test(bat) && /\r\n/.test(bat));
-  ok('the app sends the key only to the site\'s own endpoint', (app.match(/passcode/g) || []).length === 1 && /self\.base \+ '\/api\/tracker'/.test(app));
+  ok('the app sends the key only to the site\'s own endpoint', (app.match(/passcode=/g) || []).length === 1 && !/['"]passcode['"]\s*:/.test(app) && /self\.base \+ '\/api\/tracker'/.test(app));
   ok('the app saves recordings in the website\'s format', /'v': 2/.test(app) && /def pack_frame/.test(app) && /'tm': \[\]/.test(app));
   ok('the app never publishes a finder by itself', /Type YES to publish it anyway/.test(app) && /if pick != '1':\s+return/.test(app));
   ok('the review page is only on this computer', /ThreadingHTTPServer\(\('127\.0\.0\.1', port\)/.test(app));
