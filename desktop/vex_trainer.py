@@ -1,0 +1,1381 @@
+# VEX Trainer — the desktop half of the robot tracker on vex-scouting.
+#
+# The website's tracker watches matches by playing them in a browser tab, which
+# tops out at a few matches at 2x. This program reads video FILES, so it goes
+# as fast as the computer can decode, and it can retrain the robot finder on
+# the graphics card. It talks to the website through the same shared storage
+# the website uses, with the same admin key:
+#
+#   1. The website says what to watch ("Send to the app" in the Robot tracker
+#      box): which matches, in which video, at which second.
+#   2. This program watches them and saves each recording to the website, in
+#      exactly the format the website's own tracker saves.
+#   3. The website brings those in and works out the reports.
+#
+# It also collects frames while it watches. You correct a few hundred of them
+# in a review page (it opens in your browser), it trains a new finder from
+# them, measures it against the current one on frames it never trained on,
+# and — only if you say so — publishes it to the website.
+#
+# Everything that decides what a box IS (letterbox, decode, colour, look,
+# plate) is a line-for-line port of the website's JavaScript, so a recording
+# made here and one made in the browser mean the same thing.
+
+import base64, hashlib, json, math, os, random, re, shutil, subprocess, sys, threading, time
+import urllib.request, urllib.error, urllib.parse
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+VERSION = '1.0'
+HERE = os.path.dirname(os.path.abspath(__file__))
+DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
+FRAMES, PROPS, LABELS = (os.path.join(HERE, 'data', k) for k in ('frames', 'prop', 'labels'))
+CONFIG = os.path.join(HERE, 'config.json')
+DEFAULT_SITE = 'https://vex-scouting-by-max.vercel.app'
+
+SIZE = 640
+CONF, IOU = 0.45, 0.5            # the website's VT_CONF, VT_IOU
+PROPOSE = 0.25                   # boxes this sure are kept as suggestions for review
+LOOKS_PER_SEC = 6                # looks per second of VIDEO (the website manages about 3)
+LEAD, WINDOW, WINDOW_WIDE = 3, 150, 330
+GIVE_UP_SEC, MIN_FRAMES = 25, 30
+LOOKALIKE = ['0ODQ', '1IL', '8B', '5S', '2Z', '6G']
+
+
+# ── small things ────────────────────────────────────────────────────────────
+def say(*a):
+    print(*a, flush=True)
+
+def jround(v):
+    """JavaScript's Math.round: halves go up."""
+    return int(math.floor(v + 0.5))
+
+def load_config():
+    cfg = {'site': DEFAULT_SITE, 'key': '', 'workers': 4, 'keep_videos': False, 'files': {}}
+    try:
+        with open(CONFIG, encoding='utf-8') as f:
+            cfg.update(json.load(f))
+    except Exception:
+        pass
+    return cfg
+
+def save_config(cfg):
+    with open(CONFIG, 'w', encoding='utf-8') as f:
+        json.dump(cfg, f, indent=1)
+
+def video_id(text):
+    """A YouTube link or a bare id → the 11-character id, or None."""
+    t = str(text or '').strip()
+    m = re.search(r'(?:v=|youtu\.be/|/live/|/embed/|/shorts/)([A-Za-z0-9_-]{11})', t)
+    if m:
+        return m.group(1)
+    return t if re.fullmatch(r'[A-Za-z0-9_-]{11}', t) else None
+
+
+# ── the website ─────────────────────────────────────────────────────────────
+class Site:
+    def __init__(self, cfg):
+        self.base = cfg['site'].rstrip('/')
+        self.key = cfg.get('key', '')
+
+    def _open(self, url, data=None, timeout=60):
+        req = urllib.request.Request(url, data=data, headers={'User-Agent': 'vex-trainer/' + VERSION, 'Content-Type': 'application/json'})
+        return urllib.request.urlopen(req, timeout=timeout)
+
+    def get(self, query):
+        try:
+            with self._open(self.base + '/api/tracker' + query) as r:
+                return json.loads(r.read().decode('utf-8'))
+        except urllib.error.HTTPError as e:
+            return {'error': 'HTTP %d' % e.code, 'status': e.code}
+        except Exception as e:
+            return {'error': str(e)}
+
+    def post(self, body, tries=3):
+        body = dict(body, passcode=self.key)
+        data = json.dumps(body, separators=(',', ':')).encode('utf-8')
+        last = None
+        for i in range(tries):
+            try:
+                with self._open(self.base + '/api/tracker', data) as r:
+                    return json.loads(r.read().decode('utf-8'))
+            except urllib.error.HTTPError as e:
+                try:
+                    last = json.loads(e.read().decode('utf-8'))
+                except Exception:
+                    last = {}
+                last['status'] = e.code
+                last.setdefault('error', 'HTTP %d' % e.code)
+                if e.code < 500:
+                    return last             # refused: asking again will not help
+            except Exception as e:
+                last = {'error': str(e)}
+            time.sleep(1.5 * (i + 1))
+        return last or {'error': 'no answer'}
+
+    def fetch_file(self, path, dest):
+        with self._open(self.base + path, timeout=300) as r, open(dest + '.part', 'wb') as f:
+            shutil.copyfileobj(r, f)
+        os.replace(dest + '.part', dest)
+
+
+def ensure_models(site):
+    """The three models and the reader's alphabet, straight from the website."""
+    os.makedirs(DIRS['models'], exist_ok=True)
+    for name in ('robot_detector.onnx', 'plate_reader.onnx', 'text_finder.onnx'):
+        dest = os.path.join(DIRS['models'], name)
+        if not os.path.exists(dest) or os.path.getsize(dest) < 100000:
+            say('  getting', name, '…')
+            site.fetch_file('/models/' + name, dest)
+    chars = os.path.join(DIRS['models'], 'plate_chars.json')
+    if not os.path.exists(chars):
+        tmp = os.path.join(DIRS['models'], 'vt-worker.js')
+        site.fetch_file('/vendor/vt-worker.js', tmp)
+        with open(tmp, encoding='utf-8') as f:
+            m = re.search(r'const PLATE_CHARS = (\{.*?\});', f.read(), re.S)
+        if not m:
+            raise RuntimeError('The website did not have the plate alphabet where it was expected.')
+        with open(chars, 'w', encoding='utf-8') as f:
+            f.write(m.group(1))
+        os.remove(tmp)
+
+def detector_path():
+    mine = os.path.join(DIRS['models'], 'trained_current.onnx')
+    return mine if os.path.exists(mine) else os.path.join(DIRS['models'], 'robot_detector.onnx')
+
+
+# ── what a box is: the website's arithmetic, ported ─────────────────────────
+def letterbox(w, h):
+    s = SIZE / max(w, h)
+    nw, nh = jround(w * s), jround(h * s)
+    return {'s': s, 'nw': nw, 'nh': nh, 'px': (SIZE - nw) // 2, 'py': (SIZE - nh) // 2}
+
+def iou(a, b):
+    x0, y0 = max(a[0], b[0]), max(a[1], b[1])
+    x1, y1 = min(a[0] + a[2], b[0] + b[2]), min(a[1] + a[3], b[1] + b[3])
+    inter = max(0, x1 - x0) * max(0, y1 - y0)
+    return inter / ((a[2] * a[3] + b[2] * b[3] - inter) or 1)
+
+def nms(boxes, thr):
+    keep = []
+    for b in sorted(boxes, key=lambda b: -b[4]):
+        if all(iou(k, b) <= thr for k in keep):
+            keep.append(b)
+    return keep
+
+def decode(out, lb, w, h, conf):
+    """out: (5, N) — cx, cy, w, h, score in the square's pixels → boxes in the frame's."""
+    import numpy as np
+    idx = np.nonzero(out[4] >= conf)[0]
+    boxes = []
+    for i in idx:
+        bw, bh = out[2, i] / lb['s'], out[3, i] / lb['s']
+        x = (out[0, i] - lb['px']) / lb['s'] - bw / 2
+        y = (out[1, i] - lb['py']) / lb['s'] - bh / 2
+        x0, y0, x1, y1 = max(0, x), max(0, y), min(w, x + bw), min(h, y + bh)
+        if x1 - x0 >= 6 and y1 - y0 >= 6:
+            boxes.append([float(x0), float(y0), float(x1 - x0), float(y1 - y0), float(out[4, i]), 0, None, 0])
+    return boxes
+
+def _grid(img, x0, x1, y0, y1, sx, sy):
+    import numpy as np
+    H, W = img.shape[:2]
+    ys = np.arange(max(0, y0), min(H, y1), sy).astype(int)
+    xs = np.arange(max(0, x0), min(W, x1), sx).astype(int)
+    if not len(ys) or not len(xs):
+        return None
+    return img[np.ix_(ys, xs)].reshape(-1, 3).astype(np.float64)
+
+def color_of(img, box):
+    """1 red, 2 blue, 0 cannot tell: strongly red and strongly blue pixels on a grid."""
+    import numpy as np
+    px = _grid(img, math.floor(box[0]), box[0] + box[2], math.floor(box[1]), box[1] + box[3],
+               max(1, int(box[2] // 20)), max(1, int(box[3] // 20)))
+    if px is None:
+        return 0
+    r, g, b = px[:, 0], px[:, 1], px[:, 2]
+    mx, mn = px.max(1), px.min(1)
+    strong = (mx >= 90) & ((mx - mn) >= 0.45 * mx)
+    red = strong & (r == mx) & (g < 0.55 * r) & (b < 0.6 * r)
+    blue = strong & ~red & (b == mx) & (r < 0.55 * b)
+    nr, nb, need = int(red.sum()), int(blue.sum()), max(3, 0.02 * len(px))
+    if nr >= need and nr > 1.5 * nb:
+        return 1
+    if nb >= need and nb > 1.5 * nr:
+        return 2
+    return 0
+
+def sig_of(img, box, col):
+    """What a robot looks like: twelve numbers, its own plate colour left out."""
+    import numpy as np
+    x0, x1 = math.floor(box[0] + box[2] * 0.2), math.ceil(box[0] + box[2] * 0.8)
+    y0, y1 = math.floor(box[1] + box[3] * 0.15), math.ceil(box[1] + box[3] * 0.85)
+    px = _grid(img, x0, x1, y0, y1, max(1, (x1 - x0) // 16), max(1, (y1 - y0) // 16))
+    if px is None:
+        return None
+    r, g, b = px[:, 0], px[:, 1], px[:, 2]
+    mx, mn = px.max(1), px.min(1)
+    d = mx - mn
+    coloured = (mx >= 70) & (d >= 0.35 * mx)
+    ds = np.where(d == 0, 1, d)
+    h = np.where(mx == r, np.mod((g - b) / ds + 6, 6), np.where(mx == g, (b - r) / ds + 2, (r - g) / ds + 4))
+    hb = np.floor(h / 6 * 8).astype(int) % 8
+    own = coloured & (d > 0.5 * mx) & ((((hb == 0) | (hb == 7)) & (col == 1)) | ((hb == 5) & (col == 2)))
+    bins = [0] * 12
+    for k in range(8):
+        bins[k] = int((coloured & ~own & (hb == k)).sum())
+    grey = np.minimum(3, np.floor(mx / 64)).astype(int)
+    for k in range(4):
+        bins[8 + k] = int((~coloured & (grey == k)).sum())
+    n = int((~own).sum())
+    if n < 12:
+        return None
+    return [min(15, jround(v / n * 30)) for v in bins]
+
+def sig_pack(g):
+    if not g:
+        return [0, 0, 0]
+    return [g[o] | g[o + 1] << 4 | g[o + 2] << 8 | g[o + 3] << 12 for o in (0, 4, 8)]
+
+def robot_like(b):
+    tall = b[3] / max(1, b[2])
+    if tall > 2:
+        return False
+    if not b[5]:
+        return tall <= 1.4 and b[4] >= 0.6
+    return True
+
+def pack_frame(t, boxes, src_w):
+    k = SIZE / src_w
+    fr = [jround(t * 10), len(boxes)]
+    for b in boxes:
+        fr += [jround(b[0] * k), jround(b[1] * k), jround(b[2] * k), jround(b[3] * k), jround(b[4] * 100), b[5] or 0] + sig_pack(b[6]) + [b[7] or 0]
+    return fr
+
+def plate_box(img, col):
+    """Where the plate is inside a robot's box: the widest band of its colour."""
+    import numpy as np
+    px = img.astype(np.float64)
+    r, g, b = px[..., 0], px[..., 1], px[..., 2]
+    mx, mn = px.max(2), px.min(2)
+    strong = (mx >= 90) & ((mx - mn) >= 0.45 * mx)
+    hit = strong & ((r == mx) & (g < 0.55 * r) & (b < 0.6 * r) if col == 1 else (b == mx) & (r < 0.55 * b))
+    H, W = hit.shape
+
+    def run(arr, floor):
+        best, s = (0, -1), -1
+        for i in range(len(arr) + 1):
+            if i < len(arr) and arr[i] >= floor:
+                if s < 0:
+                    s = i
+            elif s >= 0:
+                if i - s > best[1] - best[0] + 1:
+                    best = (s, i - 1)
+                s = -1
+        return best
+
+    rows = hit.sum(1)
+    top = int(rows.max()) if H else 0
+    if top < 12:
+        return None
+    y0, y1 = run(rows, top * 0.45)
+    if y1 < y0:
+        return None
+    cols = hit[y0:y1 + 1].sum(0)
+    wide = [max(int(cols[x]), int(cols[x - 1]) if x else 0, int(cols[x + 1]) if x + 1 < W else 0) for x in range(W)]
+    x0, x1 = run(wide, (y1 - y0 + 1) * 0.3)
+    w, h = x1 - x0 + 1, y1 - y0 + 1
+    if h < 9 or w < 2 * h or w > 9 * h:
+        return None
+    return x0, y0, w, h
+
+def edit(a, b):
+    def same(x, y):
+        return 0 if x == y else 0.5 if any(x in g and y in g for g in LOOKALIKE) else 1
+    prev = list(range(len(b) + 1))
+    for i in range(1, len(a) + 1):
+        cur = [i]
+        for j in range(1, len(b) + 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + same(a[i - 1], b[j - 1])))
+        prev = cur
+    return prev[len(b)]
+
+def near_team(t, team):
+    T = str(team or '').upper()
+    if not T:
+        return 99
+    best = edit(t, T)
+    for L in (len(T) - 1, len(T), len(T) + 1):
+        s = 0
+        while L > 2 and s + L <= len(t):
+            best = min(best, edit(t[s:s + L], T))
+            s += 1
+    return best
+
+def who_from_text(text, teams):
+    """Which of the match's four teams does this text name? 1–4, or 0."""
+    t = re.sub(r'[^A-Z0-9]', '', str(text or '').upper())
+    teams = [x for x in teams]
+    if len(t) < 3 or len(teams) < 2:
+        return 0
+    ds = [near_team(t, team) for team in teams]
+    order = sorted(range(len(ds)), key=lambda i: ds[i])
+    lo, hi = ds[order[0]], ds[order[1]]
+    return order[0] + 1 if lo <= 0.34 * len(str(teams[order[0]] or '')) and hi - lo >= 1 else 0
+
+def match_label(text):
+    T = re.sub(r'\s+', ' ', str(text or '').upper()).strip()
+    if len(T) < 2 or len(T) > 28:
+        return None
+    m = re.match(r'^(?:Q|QUAL|QUALS|QUALIFIER|QUALIFICATION|QUALIFICATIONS)\s*#?\s*(\d{1,3})$', T)
+    if m:
+        return {'round': 2, 'num': int(m.group(1))}
+    m = re.match(r'^(R16|QF|SF|F|FINAL|FINALS)\s*#?\s*(\d{1,2})\s*-\s*(\d)$', T)
+    if m:
+        return {'round': {'R16': 6, 'QF': 3, 'SF': 4}.get(m.group(1), 5), 'num': int(m.group(2))}
+    m = re.match(r'^(?:P|PRACTICE)\s*#?\s*(\d{1,3})$', T)
+    if m:
+        return {'round': 1, 'num': int(m.group(1))}
+    return None
+
+def timer_text(text):
+    m = re.match(r'^([0-2]):([0-5]\d)$', str(text or '').strip())
+    return int(m.group(1)) * 60 + int(m.group(2)) if m else None
+
+def label_of(texts):
+    other = None
+    for t in texts:
+        l = match_label(t['text'])
+        if l and l['round'] == 2:
+            return l
+        if l and not other:
+            other = l
+    return other
+
+
+# ── the eyes: three models ──────────────────────────────────────────────────
+class Eyes:
+    def __init__(self, detector=None, quiet=False):
+        import numpy as np, onnxruntime as ort
+        self.np, self.ort = np, ort
+        have = ort.get_available_providers()
+        prov = [p for p in ('DmlExecutionProvider', 'CUDAExecutionProvider') if p in have] + ['CPUExecutionProvider']
+        so = ort.SessionOptions()
+        so.log_severity_level = 3
+        self.det = ort.InferenceSession(detector or detector_path(), so, providers=prov)
+        self.backend = self.det.get_providers()[0].replace('ExecutionProvider', '')
+        cpu = ['CPUExecutionProvider']
+        self.reader = ort.InferenceSession(os.path.join(DIRS['models'], 'plate_reader.onnx'), so, providers=cpu)
+        self.finder = ort.InferenceSession(os.path.join(DIRS['models'], 'text_finder.onnx'), so, providers=cpu)
+        with open(os.path.join(DIRS['models'], 'plate_chars.json'), encoding='utf-8') as f:
+            self.chars = {int(k): v for k, v in json.load(f).items()}
+        if not quiet:
+            say('  robot finder running on:', 'the graphics card' if self.backend != 'CPU' else 'the processor', '(%s)' % self.backend)
+
+    def detect(self, frame, conf=CONF):
+        """frame: BGR picture. → boxes [x, y, w, h, conf, colour, look, who] in its pixels."""
+        import cv2
+        np = self.np
+        h, w = frame.shape[:2]
+        lb = letterbox(w, h)
+        sq = np.full((SIZE, SIZE, 3), 114, np.uint8)
+        small = cv2.resize(frame, (lb['nw'], lb['nh']), interpolation=cv2.INTER_LINEAR)
+        sq[lb['py']:lb['py'] + lb['nh'], lb['px']:lb['px'] + lb['nw']] = small[:, :, ::-1]
+        x = (sq.astype(np.float32) / 255).transpose(2, 0, 1)[None]
+        out = self.det.run(None, {self.det.get_inputs()[0].name: x})[0][0]
+        boxes = nms(decode(out, lb, w, h, conf), IOU)
+        for b in boxes:
+            s = [b[0] * lb['s'] + lb['px'], b[1] * lb['s'] + lb['py'], b[2] * lb['s'], b[3] * lb['s']]
+            b[5] = color_of(sq, s)
+            b[6] = sig_of(sq, s, b[5]) if b[5] else None
+        return boxes
+
+    def read(self, strip, used):
+        """strip: RGB, 48 high; its first `used` columns hold the writing."""
+        np = self.np
+        f = np.zeros((1, 3, 48, strip.shape[1]), np.float32)
+        f[0, :, :, :used] = ((strip[:, :used].astype(np.float32) / 255 - 0.5) / 0.5).transpose(2, 0, 1)
+        out = self.reader.run(None, {self.reader.get_inputs()[0].name: f})[0][0]
+        text, total, cnt, last = '', 0.0, 0, 0
+        for i, v in zip(out.argmax(1), out.max(1)):
+            i = int(i)
+            if i != 0 and i != last:
+                ch = self.chars.get(i)
+                if ch:
+                    text += ch
+                    total += float(v)
+                    cnt += 1
+            last = i
+        return text, (total / cnt if cnt else 0)
+
+    def plate(self, frame, box, four):
+        """Read the plate on one robot. → 1–4 (which of the match's teams) or 0."""
+        import cv2
+        np = self.np
+        if box[2] < 40:
+            return 0
+        x, y, w, h = (int(round(v)) for v in box[:4])
+        crop = frame[max(0, y):y + h, max(0, x):x + w]
+        if crop.size == 0:
+            return 0
+        cw = min(240, max(1, int(round(box[2]))))
+        ch = max(8, int(round(box[3] * cw / box[2])))
+        crop = cv2.resize(crop, (cw, ch), interpolation=cv2.INTER_LINEAR)[:, :, ::-1]
+        pr, pb = plate_box(crop, 1), plate_box(crop, 2)
+        p = (pr if pr[2] * pr[3] >= pb[2] * pb[3] else pb) if pr and pb else (pr or pb)
+        if not p:
+            return 0
+        used = min(160, max(8, jround(p[2] * 48 / p[3])))
+        strip = np.zeros((48, 160, 3), np.uint8)
+        strip[:, :used] = cv2.resize(np.ascontiguousarray(crop[p[1]:p[1] + p[3], p[0]:p[0] + p[2]]), (used, 48), interpolation=cv2.INTER_LINEAR)
+        text, conf = self.read(strip, used)
+        return who_from_text(text, four) if conf >= 0.5 else 0
+
+    def scan(self, frame):
+        """Every line of writing in the picture, read. → [{text, conf, box}]"""
+        import cv2
+        np = self.np
+        h, w = frame.shape[:2]
+        k = min(640 / w, 352 / h)
+        pic = np.zeros((352, 640, 3), np.uint8)
+        nw, nh = max(1, int(w * k)), max(1, int(h * k))
+        pic[:nh, :nw] = cv2.resize(frame, (nw, nh), interpolation=cv2.INTER_LINEAR)[:, :, ::-1]
+        f = ((pic.astype(np.float32) / 255 - np.array([0.485, 0.456, 0.406], np.float32)) / np.array([0.229, 0.224, 0.225], np.float32)).transpose(2, 0, 1)[None]
+        prob = self.finder.run(None, {self.finder.get_inputs()[0].name: f})[0][0, 0]
+        n, _, stats, _ = cv2.connectedComponentsWithStats((prob > 0.3).astype(np.uint8), connectivity=4)
+        found = []
+        for i in range(1, n):
+            x0, y0, bw, bh = (int(v) for v in stats[i][:4])
+            if bw < 8 or bh < 4:
+                continue
+            gx, gy = bh * 0.9, bh * 0.55
+            found.append([max(0, x0 - gx), max(0, y0 - gy), bw + 2 * gx, bh + 2 * gy])
+        found.sort(key=lambda b: -b[2] * b[3])
+        out = []
+        for b in found[:14]:
+            bx, by, bw, bh = b[0] / k, b[1] / k, b[2] / k, b[3] / k
+            if bh < 6:
+                continue
+            got = self._line(frame, bx, by, bw, bh)
+            if got and got[1] >= 0.5 and got[0]:
+                out.append({'text': got[0], 'conf': got[1], 'box': [bx / w, by / h, bw / w, bh / h]})
+        return out
+
+    def _line(self, frame, bx, by, bw, bh):
+        import cv2
+        np = self.np
+        h, w = frame.shape[:2]
+        x0, y0, x1, y1 = max(0, int(bx)), max(0, int(by)), min(w, int(math.ceil(bx + bw))), min(h, int(math.ceil(by + bh)))
+        if x1 - x0 < 4 or y1 - y0 < 4:
+            return None
+        used = min(320, max(8, jround(bw * 48 / bh)))
+        strip = np.zeros((48, 320, 3), np.uint8)
+        strip[:, :used] = cv2.resize(frame[y0:y1, x0:x1], (used, 48), interpolation=cv2.INTER_LINEAR)[:, :, ::-1]
+        return self.read(strip, used)
+
+    def clock_at(self, frame, box):
+        h, w = frame.shape[:2]
+        got = self._line(frame, box[0] * w, box[1] * h, box[2] * w, box[3] * h)
+        return timer_text(got[0]) if got and got[1] >= 0.5 else None
+
+
+def attend(att, boxes, t, w, n):
+    """Follow every robot from look to look; pick the n whose plates are least known."""
+    used, pairs = set(), []
+    for b in boxes:
+        if not b[5] or not robot_like(b):
+            continue
+        x, y = (b[0] + b[2] / 2) / w, (b[1] + b[3] / 2) / w
+        best, bd = None, 0.12
+        for tr in att:
+            if id(tr) in used:
+                continue
+            d = math.hypot(tr['x'] - x, tr['y'] - y)
+            if d < bd:
+                bd, best = d, tr
+        if best is None:
+            best = {'hits': 0, 'tries': 0}
+            att.append(best)
+        used.add(id(best))
+        best.update(x=x, y=y, t=t)
+        pairs.append((b, best))
+    att[:] = [tr for tr in att if not (t - tr['t'] > 4 or t < tr['t'] - 1)]
+    pairs = [p for p in pairs if p[0][2] >= 40]
+    pairs.sort(key=lambda p: (p[1]['hits'], p[1]['tries'], -p[0][2] * p[0][3]))
+    return pairs[:n]
+
+
+# ── frames kept for training ────────────────────────────────────────────────
+def keep_frame(frame, boxes, tag, hard):
+    """Save a picture with the finder's suggestions, for review later."""
+    import cv2
+    for d in (FRAMES, PROPS, LABELS):
+        os.makedirs(d, exist_ok=True)
+    name = tag + '_' + hashlib.md5(frame[::16, ::16].tobytes()).hexdigest()[:10]
+    path = os.path.join(FRAMES, name + '.jpg')
+    if os.path.exists(path):
+        return
+    cv2.imwrite(path, frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
+    h, w = frame.shape[:2]
+    with open(os.path.join(PROPS, name + '.json'), 'w') as f:
+        json.dump({'w': w, 'h': h, 'hard': hard, 'boxes': [[round(b[0], 1), round(b[1], 1), round(b[2], 1), round(b[3], 1), round(b[4], 3)] for b in boxes]}, f)
+
+def hardness(boxes):
+    """How much a person's look would teach: unsure boxes, or not four robots."""
+    unsure = sum(1 for b in boxes if b[4] < 0.5)
+    sure = sum(1 for b in boxes if b[4] >= CONF and b[5])
+    return unsure * 2 + (0 if sure == 4 else 1 + abs(sure - 4))
+
+
+# ── one match ───────────────────────────────────────────────────────────────
+class Video:
+    """A video file, read forwards from wherever it is pointed."""
+    def __init__(self, path):
+        import cv2
+        self.cv2 = cv2
+        self.cap = cv2.VideoCapture(path)
+        if not self.cap.isOpened():
+            raise RuntimeError('That video could not be opened: ' + path)
+        self.fps = self.cap.get(cv2.CAP_PROP_FPS) or 30
+        if not (5 <= self.fps <= 130):
+            self.fps = 30
+        frames = self.cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0
+        self.length = frames / self.fps if frames > 0 else 0
+        self.pos = 0.0
+
+    def seek(self, sec):
+        self.cap.set(self.cv2.CAP_PROP_POS_MSEC, max(0, sec) * 1000)
+        self.pos = max(0, sec)
+
+    def read_at_step(self, step):
+        """Skip step-1 frames, return the next. → (seconds, frame) or (None, None) at the end."""
+        for _ in range(step - 1):
+            if not self.cap.grab():
+                return None, None
+        ok, frame = self.cap.read()
+        if not ok:
+            return None, None
+        ms = self.cap.get(self.cv2.CAP_PROP_POS_MSEC)
+        self.pos = ms / 1000 if ms > 0 else self.pos + step / self.fps
+        return self.pos, frame
+
+    def frame_at(self, sec):
+        self.seek(sec)
+        ok, frame = self.cap.read()
+        return frame if ok else None
+
+    def close(self):
+        self.cap.release()
+
+
+def find_match(video, eyes, job, spacing, around):
+    """The stream shows another qualification match. Go to where the right one
+    should be, read the name again, and repeat; then back up to where its name
+    first appears. → the second it starts at, or None."""
+    pos = around
+    for _ in range(8):
+        label = None
+        for extra in (0, 20, 45):
+            fr = video.frame_at(pos + extra)
+            if fr is None:
+                return None
+            label = label_of(eyes.scan(fr))
+            if label and label['round'] == 2:
+                pos += extra
+                break
+        if not label or label['round'] != 2:
+            return None
+        if label['num'] == job.get('num'):
+            first = pos
+            for _ in range(20):                      # back up while it is still this match
+                fr = video.frame_at(first - 20)
+                l = label_of(eyes.scan(fr)) if fr is not None and first - 20 >= 0 else None
+                if not l or l['round'] != 2 or l['num'] != job.get('num'):
+                    break
+                first -= 20
+            return max(0, first - 15)
+        pos = max(0, pos + (job.get('num', 0) - label['num']) * spacing)
+    return None
+
+
+def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None):
+    """Watch one match. → (recording or None, why, shift found)"""
+    learn = learn if learn is not None else {}
+    four = [(job['red'] + ['', ''])[0], (job['red'] + ['', ''])[1], (job['blue'] + ['', ''])[0], (job['blue'] + ['', ''])[1]]
+    off0 = job['off']
+    off = max(0, off0 + shift)
+    step = max(1, int(round(video.fps / LOOKS_PER_SEC)))
+    reads = 2 if eyes.backend != 'CPU' else 1
+    wide, tried_find = False, False
+
+    def fresh():
+        return {'v': 2, 'name': str(job.get('name', ''))[:60], 'round': job.get('round'), 'num': job.get('num'), 'red': job['red'], 'blue': job['blue'],
+                'rs': job.get('rs'), 'bs': job.get('bs'), 'vid': job['vid'], 'off': int(round(off)), 'rate': 4, 'w': SIZE, 'h': 0,
+                'model': 'det1', 'at': int(time.time() * 1000), 'f': [], 'tm': []}
+
+    while True:
+        rec = fresh()
+        if wide:
+            rec['wide'] = 1
+        start = max(0, off - (0 if wide else LEAD))
+        end = start + (WINDOW_WIDE if wide else WINDOW)
+        if video.length and start > video.length - 20:
+            return None, 'past the end of the video', 0
+        video.seek(start)
+        att, robot_looks, clock_at, checked, kept, next_keep, misses = [], 0, -1e9, False, 0, start + 6, 0
+        redo = None
+        while True:
+            t, frame = video.read_at_step(step)
+            if frame is None or t >= end:
+                break
+            h, w = frame.shape[:2]
+            every = eyes.detect(frame, PROPOSE)
+            boxes = [b for b in every if b[4] >= learn.get('conf', CONF) and robot_like(b)]
+            rec['h'] = jround(h * SIZE / w)
+            for b, tr in attend(att, boxes, t, w, reads):
+                tr['tries'] += 1
+                who = eyes.plate(frame, b, four)
+                if who:
+                    b[7] = who
+                    b[5] = 1 if who <= 2 else 2
+                    tr['hits'] += 1
+            rec['f'].append(pack_frame(t - rec['off'], boxes, w))
+            if any(b[5] for b in boxes):
+                robot_looks += 1
+            # The match clock: from its known place every second, else searched for every five.
+            if t >= clock_at + (1 if learn.get('clock') else 5) and len(rec['tm']) < 320:
+                clock_at = t
+                c = None
+                if learn.get('clock'):
+                    c = eyes.clock_at(frame, learn['clock'])
+                    misses = 0 if c is not None else misses + 1
+                    if misses >= 8:
+                        learn['clock'], misses = None, 0
+                else:
+                    hit = next((x for x in eyes.scan(frame) if timer_text(x['text']) is not None), None)
+                    if hit:
+                        learn['clock'] = [round(v, 3) for v in hit['box']]
+                        c = timer_text(hit['text'])
+                if c is not None:
+                    rec['tm'] += [jround((t - rec['off']) * 10), c]
+            # Is this the match it came for? Once, a few seconds in.
+            if not checked and not wide and t >= start + 8:
+                checked = True
+                label = label_of(eyes.scan(frame))
+                if label and label['round'] == 2 and job.get('round') == 2 and label['num'] != job.get('num') and not tried_find:
+                    redo = t + (job.get('num', 0) - label['num']) * spacing
+                    break
+            # No robots for a while: a break, or the wrong place.
+            if not wide and t - start >= GIVE_UP_SEC and robot_looks < 5:
+                if not tried_find and job.get('round') == 2:
+                    redo = t
+                break
+            if harvest and kept < 10 and t >= next_keep and every:
+                hard = hardness(every)
+                if hard or kept < 4:
+                    keep_frame(frame, every, job['vid'], hard)
+                    kept += 1
+                    next_keep = t + (6 if hard else 14)
+        if redo is not None:
+            tried_find = True
+            found = find_match(video, eyes, job, spacing, redo)
+            if found is None:
+                return None, 'no robots there, and the match name could not be found on the stream', 0
+            off, wide = found, True
+            continue
+        break
+    with_robot = sum(1 for fr in rec['f'] if any(fr[2 + 10 * i + 5] for i in range(fr[1])))
+    red = sum(1 for fr in rec['f'] if any(fr[2 + 10 * i + 5] == 1 for i in range(fr[1])))
+    blue = sum(1 for fr in rec['f'] if any(fr[2 + 10 * i + 5] == 2 for i in range(fr[1])))
+    if with_robot < MIN_FRAMES or red < 10 or blue < 10:
+        return None, 'robots of both alliances were not seen (a break, a slate, or the wrong place)', 0
+    if len(rec['f']) > 2000:                         # the website's ceiling
+        keep = len(rec['f']) / 2000
+        rec['f'] = [rec['f'][int(i * keep)] for i in range(2000)]
+    return rec, 'ok', (rec['off'] - off0) if wide else shift
+
+
+def spacing_of(jobs):
+    """Seconds between one qualification match and the next, from the schedule."""
+    q = sorted((j for j in jobs if j.get('round') == 2 and j.get('num') is not None), key=lambda j: j['num'])
+    gaps = [(b['off'] - a['off']) / (b['num'] - a['num']) for a, b in zip(q, q[1:]) if b['num'] > a['num'] and 60 < (b['off'] - a['off']) / (b['num'] - a['num']) < 1500]
+    gaps.sort()
+    return gaps[len(gaps) // 2] if gaps else 300
+
+
+_EYES = None
+def work_chunk(args):
+    """One worker: a run of consecutive matches from one video."""
+    global _EYES
+    cfg, ev, path, jobs, spacing = args
+    site = Site(cfg)
+    if _EYES is None:
+        _EYES = Eyes(quiet=True)
+    video = Video(path)
+    out, shift, learn = [], 0, {}
+    try:
+        for job in jobs:
+            t0 = time.time()
+            try:
+                rec, why, shift = track_match(video, _EYES, job, shift, spacing, True, learn)
+            except Exception as e:
+                rec, why = None, 'error: ' + str(e)
+            saved = None
+            if rec is not None:
+                r = site.post({'ev': str(ev), 'id': str(job['id']), 'rec': rec})
+                saved = bool(r and r.get('ok'))
+                if not saved:
+                    why = 'the website refused it: ' + str((r or {}).get('error'))
+            plates = sum(1 for fr in (rec['f'] if rec else []) for i in range(fr[1]) if fr[2 + 10 * i + 9])
+            out.append({'id': job['id'], 'name': job.get('name'), 'ok': bool(saved), 'why': why, 'sec': time.time() - t0,
+                        'looks': len(rec['f']) if rec else 0, 'plates': plates, 'clock': len(rec['tm']) // 2 if rec else 0})
+    finally:
+        video.close()
+    return out
+
+
+# ── getting the video ───────────────────────────────────────────────────────
+def find_video(cfg, vid):
+    mapped = cfg.get('files', {}).get(vid)
+    if mapped and os.path.exists(mapped):
+        return mapped
+    os.makedirs(DIRS['videos'], exist_ok=True)
+    for name in os.listdir(DIRS['videos']):
+        if name.startswith(vid + '.') and not name.endswith(('.part', '.ytdl')):
+            return os.path.join(DIRS['videos'], name)
+    return None
+
+def download(vid_or_url, dest_stem):
+    """Fetch a stream's recording as a file, 720p at most (robots are still big enough)."""
+    try:
+        import yt_dlp
+    except ImportError:
+        say('  The downloader is not installed. Close this, run VEX_Trainer.bat again and it will be.')
+        return None
+    url = vid_or_url if '://' in vid_or_url else 'https://www.youtube.com/watch?v=' + vid_or_url
+    opts = {'format': 'bv*[height<=720][ext=mp4]/bv*[height<=720]/b[height<=720]/b', 'outtmpl': dest_stem + '.%(ext)s',
+            'quiet': True, 'no_warnings': True, 'noprogress': False, 'concurrent_fragment_downloads': 8, 'retries': 5}
+    try:
+        with yt_dlp.YoutubeDL(opts) as y:
+            info = y.extract_info(url, download=True)
+            return y.prepare_filename(info)
+    except Exception as e:
+        say('  Could not download it:', str(e)[:300])
+        return None
+
+
+# ── menu: track what the website asked for ──────────────────────────────────
+def do_jobs(cfg):
+    site = Site(cfg)
+    if not need_key(cfg, site):
+        return
+    r = site.get('?jobs=1')
+    events = r.get('events') or []
+    if not events:
+        say('\nThe website has not asked for anything. On the website, open an event in the Jumper, and in the\n'
+            'Robot tracker box press "Send this event to the app" or "Send these teams\' earlier matches to the app".')
+        return
+    todo = {}                                         # vid → [(ev, job)]
+    asked = done_already = 0
+    for ev in events:
+        jobs = site.get('?jobs=' + str(ev)).get('list') or []
+        have = set(str(i) for i in (site.get('?event=' + str(ev)).get('ids') or []))
+        asked += len(jobs)
+        for j in jobs:
+            if str(j['id']) in have:
+                done_already += 1
+            else:
+                todo.setdefault(j['vid'], []).append((ev, j))
+    left = sum(len(v) for v in todo.values())
+    say('\nThe website asked for %d matches in %d events. %d are already tracked; %d to go, in %d videos.' % (asked, len(events), done_already, left, len(todo)))
+    if not left:
+        say('Nothing left to do. Open the Robot tracker box on the website and it brings them in.')
+        return
+    workers = max(1, int(cfg.get('workers', 4)))
+    totals = {'ok': 0, 'no': 0, 'plates': 0, 'clock': 0, 'looks': 0}
+    t_all = time.time()
+    for n, (vid, pairs) in enumerate(sorted(todo.items(), key=lambda kv: -len(kv[1])), 1):
+        say('\nVideo %d of %d (%s): %d matches' % (n, len(todo), vid, len(pairs)))
+        path = find_video(cfg, vid)
+        if not path:
+            say('  downloading it (this is the slow part; a long stream is a few GB)…')
+            path = download(vid, os.path.join(DIRS['videos'], vid))
+        if not path or not os.path.exists(path):
+            say('  no video, skipped. If you have the file, choose "Use a video file I already have" and point it at this stream.')
+            totals['no'] += len(pairs)
+            continue
+        by_ev = {}
+        for ev, j in pairs:
+            by_ev.setdefault(ev, []).append(j)
+        chunks = []
+        for ev, jobs in by_ev.items():
+            jobs.sort(key=lambda j: j['off'])
+            sp = spacing_of(jobs)
+            size = max(4, math.ceil(len(jobs) / workers))
+            for i in range(0, len(jobs), size):
+                chunks.append((cfg, ev, path, jobs[i:i + size], sp))
+        done = 0
+        with ProcessPoolExecutor(max_workers=min(workers, len(chunks))) as pool:
+            for fut in as_completed([pool.submit(work_chunk, c) for c in chunks]):
+                try:
+                    results = fut.result()
+                except Exception as e:
+                    say('  a worker stopped:', str(e)[:200])
+                    continue
+                for res in results:
+                    done += 1
+                    totals['ok' if res['ok'] else 'no'] += 1
+                    totals['plates'] += res['plates']
+                    totals['clock'] += res['clock']
+                    totals['looks'] += res['looks']
+                    say('  %3d/%d  %-22s %s' % (done, len(pairs), str(res['name'])[:22],
+                        ('saved · %d looks · %d plates · clock %d · %.0fs' % (res['looks'], res['plates'], res['clock'], res['sec'])) if res['ok'] else 'not saved: ' + res['why']))
+        if not cfg.get('keep_videos') and path.startswith(DIRS['videos']):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+    mins = (time.time() - t_all) / 60
+    say('\nDone in %.1f minutes: %d matches saved to the website, %d not. %d plates read, the clock read %d times.' % (mins, totals['ok'], totals['no'], totals['plates'], totals['clock']))
+    say('Now open the Robot tracker box on the website (any event). It brings these in and builds the reports by itself.')
+    say('Frames were kept for training as it went: choose "Review frames" when you have a few minutes.')
+
+
+def need_key(cfg, site):
+    if cfg.get('key'):
+        return True
+    say('\nThe admin key is the one saved in the website\'s Settings. It is kept in config.json in this folder\n'
+        'and sent only to ' + cfg['site'] + '.')
+    key = input('Admin key: ').strip()
+    if not key:
+        return False
+    site.key = key
+    r = site.post({'check': True}, tries=1)
+    if not (r and r.get('ok')):
+        say('The website did not accept that key (%s).' % (r or {}).get('error'))
+        return False
+    cfg['key'] = key
+    save_config(cfg)
+    say('Accepted.')
+    return True
+
+
+# ── menu: frames for training from any video ────────────────────────────────
+def harvest_video(path, tag, live=False, every_sec=2.0, limit=3000):
+    """Go through a video and keep the frames worth a person's look."""
+    import cv2
+    eyes = Eyes()
+    cap = cv2.VideoCapture(path)
+    if not cap.isOpened():
+        say('That could not be opened.')
+        return
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30
+    if not (5 <= fps <= 130):
+        fps = 30
+    step = max(1, int(round(fps * every_sec)))
+    seen = kept = 0
+    say('Reading it. Press Ctrl+C to stop; what is kept so far stays.' if live else 'Reading it…')
+    try:
+        while kept < limit:
+            ok = True
+            for _ in range(step - 1):
+                ok = cap.grab()
+                if not ok:
+                    break
+            if not ok:
+                break
+            ok, frame = cap.read()
+            if not ok:
+                break
+            seen += 1
+            every = eyes.detect(frame, PROPOSE)
+            coloured = [b for b in every if b[5]]
+            if len(coloured) >= 2:                    # a view of the field, not a crowd or a slate
+                hard = hardness(every)
+                if hard or seen % 4 == 0:
+                    keep_frame(frame, every, tag, hard)
+                    kept += 1
+            if seen % 50 == 0:
+                say('  looked at %d frames, kept %d' % (seen, kept))
+    except KeyboardInterrupt:
+        pass
+    cap.release()
+    say('Kept %d frames for review.' % kept)
+
+def do_add_video(cfg):
+    say('\nPaste a link to a stream or video, or the path of a video file (you can drag the file onto this window).')
+    src = input('Link or file: ').strip().strip('"')
+    if not src:
+        return
+    ensure_models(Site(cfg))
+    if os.path.exists(src):
+        harvest_video(src, 'file' + hashlib.md5(src.encode()).hexdigest()[:6])
+        return
+    vid = video_id(src)
+    path = find_video(cfg, vid) if vid else None
+    if not path:
+        say('Downloading it…')
+        path = download(src, os.path.join(DIRS['videos'], vid or ('v' + hashlib.md5(src.encode()).hexdigest()[:10])))
+    if path:
+        harvest_video(path, vid or 'link')
+        if not cfg.get('keep_videos'):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
+def do_live(cfg):
+    say('\nPaste the link of a stream that is live now. It is watched as it plays, and frames are kept for\n'
+        'training until you press Ctrl+C. (To have live matches tracked into reports, use "Track live" on the website.)')
+    src = input('Link: ').strip()
+    if not src:
+        return
+    try:
+        import yt_dlp
+    except ImportError:
+        say('The downloader is not installed. Run VEX_Trainer.bat again.')
+        return
+    ensure_models(Site(cfg))
+    try:
+        with yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True, 'format': 'b[height<=720]/b'}) as y:
+            info = y.extract_info(src, download=False)
+        url = info.get('url') or (info.get('formats') or [{}])[-1].get('url')
+    except Exception as e:
+        say('Could not open that stream:', str(e)[:300])
+        return
+    if not url:
+        say('Could not find a playable address for that stream.')
+        return
+    harvest_video(url, video_id(src) or 'live', live=True, every_sec=3.0, limit=100000)
+
+def do_map_file(cfg):
+    say('\nIf you already have the recording of a stream as a file, it is used instead of downloading.\n'
+        'Paste the stream\'s YouTube link (the one the Jumper uses for the event), then the file.')
+    vid = video_id(input('Stream link: '))
+    if not vid:
+        say('That is not a YouTube link.')
+        return
+    path = input('Video file (drag it onto this window): ').strip().strip('"')
+    if not os.path.exists(path):
+        say('That file was not found.')
+        return
+    cfg.setdefault('files', {})[vid] = path
+    save_config(cfg)
+    say('Saved. Matches in that stream will be read from your file. The file must be the whole stream, from its start,\n'
+        'or every match will be looked for in the wrong place.')
+
+
+# ── menu: review ────────────────────────────────────────────────────────────
+REVIEW_HTML = r"""<!doctype html><meta charset="utf-8"><title>Review frames</title>
+<style>
+ body{margin:0;background:#14161a;color:#e8e8e8;font:15px/1.5 system-ui,sans-serif}
+ header{padding:10px 16px;display:flex;gap:16px;align-items:center;flex-wrap:wrap;border-bottom:1px solid #2a2e36}
+ header b{font-size:17px} .keys span{background:#262a33;border-radius:5px;padding:2px 7px;margin-right:4px;font-family:ui-monospace,monospace}
+ #wrap{padding:12px 16px} canvas{max-width:100%;background:#000;cursor:crosshair;display:block;border-radius:6px}
+ button{font:inherit;background:#2d6cdf;color:#fff;border:0;border-radius:6px;padding:7px 14px;cursor:pointer} button.sec{background:#30343d}
+ #msg{color:#9aa3b2}
+</style>
+<header><b>Review frames</b><span id="left"></span>
+ <span class="keys"><span>click a box</span>remove it &nbsp; <span>drag</span>draw a missing robot &nbsp; <span>Enter</span>save, next &nbsp; <span>S</span>skip (not a field view) &nbsp; <span>Z</span>undo &nbsp; <span>B</span>back</span>
+ <button onclick="save(false)">Save, next</button><button class="sec" onclick="save(true)">Skip</button><span id="msg"></span></header>
+<div id="wrap"><canvas id="c"></canvas></div>
+<script>
+const c=document.getElementById('c'),x=c.getContext('2d');let cur=null,img=new Image(),boxes=[],hist=[],drag=null,back=[];
+async function next(id){const r=await fetch('/api/next'+(id?'?id='+id:''));cur=await r.json();document.getElementById('left').textContent=cur.id?cur.left+' to review · '+cur.done+' done':'';
+ if(!cur.id){document.getElementById('wrap').innerHTML='<p style="padding:30px;font-size:18px">Nothing left to review. You can close this tab; in the app, choose Train.</p>';return;}
+ boxes=cur.boxes.map(b=>b.slice(0,4));hist=[];img=new Image();img.onload=()=>{c.width=cur.w;c.height=cur.h;draw()};img.src='/img/'+cur.id+'.jpg';}
+function draw(){x.drawImage(img,0,0);x.lineWidth=Math.max(2,c.width/500);boxes.forEach(b=>{x.strokeStyle='#39ff88';x.strokeRect(b[0],b[1],b[2],b[3])});
+ if(drag&&drag.w){x.strokeStyle='#ffd23f';x.strokeRect(drag.x,drag.y,drag.w,drag.h)}}
+function pos(e){const r=c.getBoundingClientRect();return[(e.clientX-r.left)*c.width/r.width,(e.clientY-r.top)*c.height/r.height]}
+c.onmousedown=e=>{const[px,py]=pos(e);drag={x0:px,y0:py,x:px,y:py,w:0,h:0}};
+c.onmousemove=e=>{if(!drag)return;const[px,py]=pos(e);drag.x=Math.min(px,drag.x0);drag.y=Math.min(py,drag.y0);drag.w=Math.abs(px-drag.x0);drag.h=Math.abs(py-drag.y0);draw()};
+window.onmouseup=e=>{if(!drag)return;const d=drag;drag=null;hist.push(boxes.map(b=>b.slice()));
+ if(d.w>8&&d.h>8)boxes.push([d.x,d.y,d.w,d.h]);
+ else{let k=-1,a=1e12;boxes.forEach((b,i)=>{if(d.x0>=b[0]&&d.x0<=b[0]+b[2]&&d.y0>=b[1]&&d.y0<=b[1]+b[3]&&b[2]*b[3]<a){a=b[2]*b[3];k=i}});if(k>=0)boxes.splice(k,1);else hist.pop()}
+ draw()};
+async function save(skip){if(!cur||!cur.id)return;back.push(cur.id);await fetch('/api/save',{method:'POST',body:JSON.stringify({id:cur.id,skip,boxes})});next()}
+window.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();save(false)}else if(e.key==='s'||e.key==='S')save(true);
+ else if(e.key==='z'||e.key==='Z'){if(hist.length){boxes=hist.pop();draw()}}else if(e.key==='b'||e.key==='B'){if(back.length)next(back.pop())}};
+next();
+</script>"""
+
+def review_queue():
+    """Frames not yet reviewed, the ones that teach most first."""
+    if not os.path.isdir(PROPS):
+        return [], 0
+    done = set(n[:-5] for n in os.listdir(LABELS)) if os.path.isdir(LABELS) else set()
+    todo = []
+    for n in os.listdir(PROPS):
+        name = n[:-5]
+        if name in done or not os.path.exists(os.path.join(FRAMES, name + '.jpg')):
+            continue
+        try:
+            with open(os.path.join(PROPS, n)) as f:
+                hard = json.load(f).get('hard', 0)
+        except Exception:
+            continue
+        todo.append((-hard, hashlib.md5(name.encode()).hexdigest(), name))
+    todo.sort()
+    return [t[2] for t in todo], len(done)
+
+def do_review(cfg, port=8765, open_browser=True):
+    queue, _ = review_queue()
+    if not queue:
+        say('\nThere are no frames to review yet. Track some matches or add a video first.')
+        return None
+    state = {'queue': queue}
+
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+        def _send(self, code, body, ctype='application/json'):
+            body = body if isinstance(body, bytes) else body.encode('utf-8')
+            self.send_response(code)
+            self.send_header('Content-Type', ctype)
+            self.send_header('Content-Length', str(len(body)))
+            self.send_header('Cache-Control', 'no-store')
+            self.end_headers()
+            self.wfile.write(body)
+        def do_GET(self):
+            u = urllib.parse.urlparse(self.path)
+            if u.path == '/':
+                return self._send(200, REVIEW_HTML, 'text/html; charset=utf-8')
+            if u.path.startswith('/img/'):
+                name = os.path.basename(u.path)
+                if not re.fullmatch(r'[A-Za-z0-9_-]+\.jpg', name):
+                    return self._send(404, '{}')
+                try:
+                    with open(os.path.join(FRAMES, name), 'rb') as f:
+                        return self._send(200, f.read(), 'image/jpeg')
+                except OSError:
+                    return self._send(404, '{}')
+            if u.path == '/api/next':
+                want = urllib.parse.parse_qs(u.query).get('id', [None])[0]
+                done = len(os.listdir(LABELS)) if os.path.isdir(LABELS) else 0
+                if want and re.fullmatch(r'[A-Za-z0-9_-]+', want) and os.path.exists(os.path.join(PROPS, want + '.json')):
+                    name = want
+                    if name not in state['queue']:
+                        state['queue'].insert(0, name)
+                else:
+                    name = state['queue'][0] if state['queue'] else None
+                if not name:
+                    return self._send(200, json.dumps({'id': None, 'done': done}))
+                with open(os.path.join(PROPS, name + '.json')) as f:
+                    p = json.load(f)
+                boxes = p['boxes']
+                lab = os.path.join(LABELS, name + '.json')
+                if os.path.exists(lab):                 # going back: show what was saved
+                    with open(lab) as f:
+                        boxes = json.load(f).get('boxes', boxes)
+                else:
+                    boxes = [b for b in boxes if b[4] >= 0.35]
+                return self._send(200, json.dumps({'id': name, 'w': p['w'], 'h': p['h'], 'boxes': boxes, 'left': len(state['queue']), 'done': done}))
+            self._send(404, '{}')
+        def do_POST(self):
+            if self.path != '/api/save':
+                return self._send(404, '{}')
+            try:
+                body = json.loads(self.rfile.read(int(self.headers.get('Content-Length', 0))).decode('utf-8'))
+                name = str(body['id'])
+                if not re.fullmatch(r'[A-Za-z0-9_-]+', name):
+                    raise ValueError('bad id')
+                boxes = [[float(v) for v in b[:4]] for b in body.get('boxes', []) if len(b) >= 4]
+                os.makedirs(LABELS, exist_ok=True)
+                with open(os.path.join(LABELS, name + '.json'), 'w') as f:
+                    json.dump({'skip': bool(body.get('skip')), 'boxes': boxes}, f)
+                if name in state['queue']:
+                    state['queue'].remove(name)
+                self._send(200, '{"ok":true}')
+            except Exception as e:
+                self._send(400, json.dumps({'error': str(e)}))
+
+    srv = ThreadingHTTPServer(('127.0.0.1', port), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    url = 'http://127.0.0.1:%d/' % port
+    if open_browser:
+        say('\n%d frames to review, the most useful first. The review page is opening in your browser:\n  %s' % (len(queue), url))
+        say('Green boxes are what the finder thinks are robots. Click a wrong one to remove it, drag to draw a missing one,\n'
+            'Enter to save and go on. Box every robot you can see, even partly hidden ones. Press S for a picture that is\n'
+            'not a view of the field. 300 frames is a good first session; more is better.\n')
+        try:
+            import webbrowser
+            webbrowser.open(url)
+        except Exception:
+            pass
+        input('Press Enter here when you have finished reviewing… ')
+        srv.shutdown()
+        _, done = review_queue()
+        say('%d frames reviewed in total.' % done)
+    return srv
+
+
+# ── menu: train ─────────────────────────────────────────────────────────────
+def reviewed():
+    out = []
+    if not os.path.isdir(LABELS):
+        return out
+    for n in sorted(os.listdir(LABELS)):
+        name = n[:-5]
+        try:
+            with open(os.path.join(LABELS, n)) as f:
+                lab = json.load(f)
+            with open(os.path.join(PROPS, name + '.json')) as f:
+                p = json.load(f)
+        except Exception:
+            continue
+        if lab.get('skip') or not os.path.exists(os.path.join(FRAMES, name + '.jpg')):
+            continue
+        out.append((name, p['w'], p['h'], lab.get('boxes', [])))
+    return out
+
+def is_val(name):
+    return int(hashlib.md5(name.encode()).hexdigest(), 16) % 100 < 15
+
+def build_dataset():
+    """Reviewed frames are the truth. Frames nobody looked at join the training
+    side only when the finder was sure of exactly four robots on them."""
+    root = os.path.join(DIRS['build'], 'dataset')
+    shutil.rmtree(root, ignore_errors=True)
+    for part in ('train', 'val'):
+        os.makedirs(os.path.join(root, 'images', part))
+        os.makedirs(os.path.join(root, 'labels', part))
+    def put(name, w, h, boxes, part):
+        shutil.copyfile(os.path.join(FRAMES, name + '.jpg'), os.path.join(root, 'images', part, name + '.jpg'))
+        with open(os.path.join(root, 'labels', part, name + '.txt'), 'w') as f:
+            for b in boxes:
+                x, y, bw, bh = max(0, b[0]), max(0, b[1]), b[2], b[3]
+                bw, bh = min(bw, w - x), min(bh, h - y)
+                if bw > 2 and bh > 2:
+                    f.write('0 %.6f %.6f %.6f %.6f\n' % ((x + bw / 2) / w, (y + bh / 2) / h, bw / w, bh / h))
+    gold = reviewed()
+    counts = {'train': 0, 'val': 0, 'pseudo': 0}
+    names = set()
+    for name, w, h, boxes in gold:
+        part = 'val' if is_val(name) else 'train'
+        put(name, w, h, boxes, part)
+        counts[part] += 1
+        names.add(name)
+    pseudo = []
+    for n in os.listdir(PROPS):
+        name = n[:-5]
+        if name in names or os.path.exists(os.path.join(LABELS, n)) or not os.path.exists(os.path.join(FRAMES, name + '.jpg')):
+            continue
+        try:
+            with open(os.path.join(PROPS, n)) as f:
+                p = json.load(f)
+        except Exception:
+            continue
+        if len(p['boxes']) == 4 and all(b[4] >= 0.6 for b in p['boxes']):
+            pseudo.append((name, p['w'], p['h'], p['boxes']))
+    random.Random(7).shuffle(pseudo)
+    for name, w, h, boxes in pseudo[:2 * max(1, counts['train'])]:
+        put(name, w, h, boxes, 'train')
+        counts['pseudo'] += 1
+    with open(os.path.join(root, 'data.yaml'), 'w') as f:
+        f.write('path: %s\ntrain: images/train\nval: images/val\nnames:\n  0: robot\n' % root.replace('\\', '/'))
+    return root, counts
+
+def score_finder(model_path, val):
+    """How a finder does on reviewed frames it never trained on. → precision, recall, F1"""
+    import cv2
+    eyes = Eyes(model_path, quiet=True)
+    tp = fp = fn = 0
+    for name, w, h, truth in val:
+        frame = cv2.imread(os.path.join(FRAMES, name + '.jpg'))
+        if frame is None:
+            continue
+        found = [b for b in eyes.detect(frame, CONF)]
+        used = set()
+        for b in found:
+            best, bi = 0, -1
+            for i, t in enumerate(truth):
+                if i in used:
+                    continue
+                v = iou(b, t)
+                if v > best:
+                    best, bi = v, i
+            if best >= 0.5:
+                used.add(bi)
+                tp += 1
+            else:
+                fp += 1
+        fn += len(truth) - len(used)
+    p = tp / (tp + fp) if tp + fp else 0
+    r = tp / (tp + fn) if tp + fn else 0
+    return p, r, (2 * p * r / (p + r) if p + r else 0)
+
+def pip(*args):
+    return subprocess.call([sys.executable, '-m', 'pip', 'install', '-q'] + list(args)) == 0
+
+def ensure_training_tools():
+    try:
+        import torch, ultralytics  # noqa
+        if torch.cuda.is_available():
+            return True
+        say('The training tools are installed but cannot see the graphics card; reinstalling the graphics-card build…')
+    except ImportError:
+        say('\nInstalling the training tools (about 3 GB, once)…')
+    # RTX 50-series cards need the CUDA 12.8 build.
+    if not pip('torch', 'torchvision', '--index-url', 'https://download.pytorch.org/whl/cu128', '--upgrade'):
+        say('That did not install. Check the internet connection and try again.')
+        return False
+    if not pip('ultralytics', 'onnx', 'onnxslim'):
+        return False
+    return True
+
+def do_train(cfg):
+    gold = reviewed()
+    val = [g for g in gold if is_val(g[0])]
+    say('\n%d reviewed frames (%d held back for testing).' % (len(gold), len(val)))
+    if len(gold) < 150:
+        say('That is too few to train on: review at least 150, and 300 or more to expect a real improvement.')
+        return
+    if len(val) < 20:
+        say('Too few test frames yet to measure a new finder fairly; review some more.')
+        return
+    ensure_models(Site(cfg))
+    if not ensure_training_tools():
+        return
+    import torch
+    from ultralytics import YOLO
+    root, counts = build_dataset()
+    say('Training on %d reviewed frames and %d the finder was sure of; testing on %d.' % (counts['train'], counts['pseudo'], counts['val']))
+    device = 0 if torch.cuda.is_available() else 'cpu'
+    if device == 'cpu':
+        say('The graphics card is not being used (PyTorch cannot see it), so this will be slow.')
+    tag = 'u' + time.strftime('%y%m%d%H%M')
+    runs = os.path.join(DIRS['build'], 'runs')
+    model = YOLO('yolov8n.pt')                        # the same size as the website's finder, so it stays fast in a browser
+    model.train(data=os.path.join(root, 'data.yaml'), epochs=int(cfg.get('epochs', 80)), imgsz=SIZE, batch=int(cfg.get('batch', 32)), device=device,
+                workers=4, patience=20, project=runs, name=tag, exist_ok=True, single_cls=True, verbose=False, plots=False)
+    best = os.path.join(runs, tag, 'weights', 'best.pt')
+    onnx_path = YOLO(best).export(format='onnx', imgsz=SIZE, opset=12, simplify=True, dynamic=False)
+    out = os.path.join(DIRS['models'], 'trained_%s.onnx' % tag)
+    shutil.copyfile(onnx_path, out)
+    # Does it answer in the shape the website expects?
+    import onnxruntime as ort
+    shape = ort.InferenceSession(out, providers=['CPUExecutionProvider']).get_outputs()[0].shape
+    if list(shape) != [1, 5, 8400]:
+        say('The new finder answers in a shape the website cannot read (%s), so it will not be offered for publishing.' % shape)
+        return
+    say('\nMeasuring both finders on the %d test frames (ones neither trained on)…' % len(val))
+    old = score_finder(os.path.join(DIRS['models'], 'robot_detector.onnx'), val)
+    new = score_finder(out, val)
+    say('                    right when it says robot   robots it finds   overall')
+    say('  current finder          %5.1f%%                %5.1f%%          %5.1f' % (old[0] * 100, old[1] * 100, old[2] * 100))
+    say('  new finder              %5.1f%%                %5.1f%%          %5.1f' % (new[0] * 100, new[1] * 100, new[2] * 100))
+    with open(os.path.join(DIRS['models'], 'trained_latest.json'), 'w') as f:
+        json.dump({'tag': tag, 'file': out, 'old': old, 'new': new, 'frames': len(gold)}, f)
+    if new[2] > old[2]:
+        say('\nThe new finder is better on frames it has never seen. Choose "Publish" to put it on the website.')
+    else:
+        say('\nThe new finder is NOT better than the current one. Do not publish it; review more frames (especially ones\n'
+            'where the green boxes were wrong) and train again.')
+
+
+def do_publish(cfg):
+    site = Site(cfg)
+    if not need_key(cfg, site):
+        return
+    info_path = os.path.join(DIRS['models'], 'trained_latest.json')
+    if not os.path.exists(info_path):
+        say('\nNo trained finder yet. Choose Train first.')
+        return
+    with open(info_path) as f:
+        info = json.load(f)
+    old, new = info['old'], info['new']
+    say('\nNewest trained finder: %s — overall %.1f against the current %.1f, from %d reviewed frames.' % (info['tag'], new[2] * 100, old[2] * 100, info['frames']))
+    say('  1  Publish it: the website and this app use it from now on\n  2  Take my finder off the website (back to the built-in one)\n  Enter  do nothing')
+    pick = input('> ').strip()
+    if pick == '2':
+        r = site.post({'model': {'clear': True}})
+        if r and r.get('ok'):
+            try:
+                os.remove(os.path.join(DIRS['models'], 'trained_current.onnx'))
+            except OSError:
+                pass
+            say('Removed. The website is back on its built-in finder.')
+        else:
+            say('The website did not accept that:', (r or {}).get('error'))
+        return
+    if pick != '1':
+        return
+    if new[2] <= old[2]:
+        if input('It measured no better than the current finder. Type YES to publish it anyway: ').strip() != 'YES':
+            return
+    with open(info['file'], 'rb') as f:
+        data = f.read()
+    part = 640 * 1024
+    n = math.ceil(len(data) / part)
+    note = 'overall %.1f vs %.1f, %d frames' % (new[2] * 100, old[2] * 100, info['frames'])
+    for i in range(n):
+        r = site.post({'model': {'tag': info['tag'], 'i': i, 'n': n, 'note': note, 'b64': base64.b64encode(data[i * part:(i + 1) * part]).decode('ascii')}})
+        if not (r and r.get('ok')):
+            say('Stopped at part %d of %d: %s. Nothing changed on the website.' % (i + 1, n, (r or {}).get('error')))
+            return
+        say('  sent part %d of %d' % (i + 1, n))
+    shutil.copyfile(info['file'], os.path.join(DIRS['models'], 'trained_current.onnx'))
+    say('Published. The website\'s tracker fetches it the next time it starts and uses it from the start after that;\n'
+        'its status line then says "your trained finder".')
+
+
+# ── menu ────────────────────────────────────────────────────────────────────
+def do_settings(cfg):
+    say('\nWebsite: %s\nAdmin key: %s\nMatches watched at once: %d\nKeep downloaded videos: %s' % (cfg['site'], 'saved' if cfg.get('key') else 'not set', cfg.get('workers', 4), 'yes' if cfg.get('keep_videos') else 'no'))
+    say('  1  Change the admin key\n  2  Change how many matches are watched at once\n  3  Keep / delete downloaded videos after tracking\n  Enter  back')
+    pick = input('> ').strip()
+    if pick == '1':
+        cfg['key'] = ''
+        need_key(cfg, Site(cfg))
+    elif pick == '2':
+        try:
+            cfg['workers'] = max(1, min(16, int(input('How many (1-16; 4 to 8 suits an 8-core processor): '))))
+            save_config(cfg)
+        except ValueError:
+            pass
+    elif pick == '3':
+        cfg['keep_videos'] = not cfg.get('keep_videos')
+        save_config(cfg)
+        say('Downloaded videos will be', 'kept.' if cfg['keep_videos'] else 'deleted after tracking.')
+
+def main():
+    cfg = load_config()
+    say('VEX Trainer %s — works with %s' % (VERSION, cfg['site']))
+    for d in DIRS.values():
+        os.makedirs(d, exist_ok=True)
+    try:
+        ensure_models(Site(cfg))
+    except Exception as e:
+        say('Could not get the models from the website:', e)
+        return
+    actions = {'1': do_jobs, '2': do_add_video, '3': do_live, '4': do_map_file, '5': do_review, '6': do_train, '7': do_publish, '8': do_settings}
+    while True:
+        queue, done = review_queue()
+        say('\n────────────────────────────────────────────────────────')
+        say('  1  Track what the website asked for')
+        say('  2  Add a video for training (a link or a file)')
+        say('  3  Watch a live stream for training')
+        say('  4  Use a video file I already have for a stream')
+        say('  5  Review frames            (%d waiting, %d done)' % (len(queue), done))
+        say('  6  Train the robot finder')
+        say('  7  Publish the trained finder to the website')
+        say('  8  Settings')
+        say('  Enter  quit')
+        pick = input('> ').strip()
+        if not pick:
+            return
+        fn = actions.get(pick)
+        if not fn:
+            continue
+        try:
+            fn(cfg)
+        except KeyboardInterrupt:
+            say('\nStopped.')
+        except Exception as e:
+            say('\nThat went wrong:', e)
+            import traceback
+            traceback.print_exc()
+
+
+if __name__ == '__main__':
+    main()

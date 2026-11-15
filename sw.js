@@ -1,4 +1,4 @@
-// VEX Scout Service Worker — v108
+// VEX Scout Service Worker — v109
 //
 // Built on the v3 network-first design (updates always appear immediately),
 // with three additions aimed at competition venues:
@@ -21,8 +21,8 @@
 //
 // Bump CACHE_NAME whenever index.html changes.
 
-const CACHE_NAME = 'vex-scout-v108';
-const API_CACHE = 'vex-scout-v108-api';
+const CACHE_NAME = 'vex-scout-v109';
+const API_CACHE = 'vex-scout-v109-api';
 
 // How long to wait for the network before showing the cached copy.
 const HTML_TIMEOUT_MS = 2500;
@@ -50,7 +50,7 @@ self.addEventListener('activate', (event) => {
     caches.keys().then((keys) =>
       Promise.all(
         keys
-          .filter((k) => k !== CACHE_NAME && k !== API_CACHE)
+          .filter((k) => k !== CACHE_NAME && k !== API_CACHE && k !== 'vt-models')
           .map((k) => caches.delete(k))
       )
     ).then(() => self.clients.claim())

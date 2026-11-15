@@ -13,11 +13,50 @@
 // which is the one that has been checked against the original Python.
 const N = 640 * 640;
 let session = null, backend = 'processor';
+// Which finder: the one that ships with the site, or one trained in the
+// desktop app and published from it. The trained one is fetched in parts,
+// kept in the browser's cache, and dropped for the built-in one if anything
+// about it fails — a finder that cannot be loaded must not stop the tracker.
+const BUILT_IN = '/models/robot_detector.onnx';
+let modelSrc = BUILT_IN, custom = '';
+async function loadCustom() {
+  try {
+    const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 4000);
+    const m = ((await (await fetch('/api/tracker?model=1', { signal: ctl.signal })).json()) || {}).model;
+    clearTimeout(timer);
+    if (!m || !/^[a-z0-9]{4,16}$/.test(m.tag) || !(m.n >= 1 && m.n <= 80)) return;
+    const key = '/__vt_model/' + m.tag, cache = await caches.open('vt-models'), hit = await cache.match(key);
+    if (hit) {
+      const buf = new Uint8Array(await hit.arrayBuffer());
+      if (buf.length > 100000) { modelSrc = buf; custom = m.tag; }
+      return;
+    }
+    // Not here yet: this run uses the built-in finder and the trained one is
+    // fetched meanwhile, ready for the next start. Waiting for some megabytes
+    // here would look to the page like a finder that hangs.
+    (async () => {
+      try {
+        const parts = [];
+        let total = 0;
+        for (let i = 0; i < m.n; i++) {
+          const j = await (await fetch('/api/tracker?model=' + m.tag + '&part=' + i)).json();
+          const bin = atob(j.b64), u = new Uint8Array(bin.length);
+          for (let k = 0; k < bin.length; k++) u[k] = bin.charCodeAt(k);
+          parts.push(u); total += u.length;
+        }
+        const buf = new Uint8Array(total);
+        let o = 0; for (const u of parts) { buf.set(u, o); o += u.length; }
+        for (const k of await cache.keys()) await cache.delete(k);
+        await cache.put(key, new Response(buf));
+      } catch (e) {}
+    })();
+  } catch (e) {}
+}
 async function make(script, providers) {
   importScripts(script);
   ort.env.wasm.wasmPaths = '/vendor/ort/';
   ort.env.wasm.numThreads = 1;
-  const s = await ort.InferenceSession.create('/models/robot_detector.onnx', { executionProviders: providers });
+  const s = await ort.InferenceSession.create(modelSrc, { executionProviders: providers });
   // One real run before it is trusted: a session can be created and still fail.
   const res = await s.run({ [s.inputNames[0]]: new ort.Tensor('float32', new Float32Array(3 * N).fill(0.4), [1, 3, 640, 640]) });
   const out = res[s.outputNames[0]];
@@ -25,8 +64,9 @@ async function make(script, providers) {
   if (!data || data.length !== 5 * 8400 || !Number.isFinite(data[4 * 8400])) throw new Error('unexpected answer');
   return s;
 }
-const ready = (async () => {
+async function start() {
   const want = !(self.location.search || '').includes('cpu');
+  session = null;
   if (want && self.navigator && navigator.gpu) {
     try {
       const adapter = await navigator.gpu.requestAdapter();
@@ -34,7 +74,12 @@ const ready = (async () => {
     } catch (e) { session = null; }
   }
   if (!session) { session = await make('/vendor/ort/ort.wasm.min.js', ['wasm']); backend = 'processor'; }
-  postMessage({ ready: true, backend });
+}
+const ready = (async () => {
+  await loadCustom();
+  try { await start(); }
+  catch (e) { if (!custom) throw e; modelSrc = BUILT_IN; custom = ''; await start(); }
+  postMessage({ ready: true, backend: backend + (custom ? ', your trained finder' : ''), model: custom || 'built-in' });
 })().catch(e => postMessage({ ready: false, error: String((e && e.message) || e) }));
 // ── Reading a licence plate (v101) ─────────────────────────────────────────
 // A second, small model (PP-OCRv3 recognition, the one the desktop tracker
