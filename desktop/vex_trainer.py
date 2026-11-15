@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.5'
+VERSION = '2.6'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -854,16 +854,62 @@ def find_video(cfg, vid):
             return os.path.join(DIRS['videos'], name)
     return None
 
+def ensure_downloader():
+    """What YouTube downloads need now, fetched once.
+
+    Reported: "why does it download so slow even though i have fast internet".
+    Since late 2025 yt-dlp needs two more things for YouTube: its yt-dlp-ejs
+    component and a JavaScript runtime (Deno is the one it uses by default).
+    Without them it still works, on a path its authors call deprecated, with
+    fewer formats to choose from — and the launcher installed neither. Both
+    are put in place here, so nobody needs a new launcher.
+    """
+    tools = os.path.join(HERE, 'tools')
+    os.makedirs(tools, exist_ok=True)
+    if tools not in os.environ.get('PATH', ''):
+        os.environ['PATH'] = tools + os.pathsep + os.environ.get('PATH', '')
+    try:
+        import yt_dlp_ejs  # noqa
+    except ImportError:
+        say('  setting up the downloader (once)…')
+        pip('-U', 'yt-dlp[default]')
+    if not shutil.which('deno') and os.name == 'nt':
+        try:
+            import zipfile
+            say('  getting the JavaScript runtime the downloader needs (once, about 40 MB)…')
+            z = os.path.join(tools, 'deno.zip')
+            req = urllib.request.Request('https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip', headers={'User-Agent': 'vex-trainer/' + VERSION})
+            with urllib.request.urlopen(req, timeout=120) as r, open(z, 'wb') as f:
+                shutil.copyfileobj(r, f)
+            with zipfile.ZipFile(z) as zf:
+                zf.extract('deno.exe', tools)
+            os.remove(z)
+        except Exception as e:
+            say('  could not get it (%s); downloading the slower way.' % str(e)[:100])
+    return bool(shutil.which('deno'))
+
 def download(vid_or_url, dest_stem):
-    """Fetch a stream's recording as a file, 720p at most (robots are still big enough)."""
+    """Fetch a stream's recording as a file: 720p, 30 frames a second at most.
+    Robots and plates are as readable as at 60, and the file is half the size."""
+    ensure_downloader()
     try:
         import yt_dlp
     except ImportError:
         say('  The downloader is not installed. Close this, run VEX_Trainer.bat again and it will be.')
         return None
     url = vid_or_url if '://' in vid_or_url else 'https://www.youtube.com/watch?v=' + vid_or_url
-    opts = {'format': 'bv*[height<=720][ext=mp4]/bv*[height<=720]/b[height<=720]/b', 'outtmpl': dest_stem + '.%(ext)s',
-            'quiet': True, 'no_warnings': True, 'noprogress': False, 'concurrent_fragment_downloads': 8, 'retries': 5}
+    last = {'at': 0}
+    def hook(d):
+        if d.get('status') == 'downloading' and time.time() - last['at'] > 5:
+            last['at'] = time.time()
+            total = d.get('total_bytes') or d.get('total_bytes_estimate') or 0
+            done, speed = d.get('downloaded_bytes') or 0, d.get('speed') or 0
+            say('  downloading: %s%.0f MB at %.1f MB/s' % (('%d%% of ' % (100 * done / total)) if total else '', (total or done) / 1e6, speed / 1e6))
+    opts = {'format': 'bv*[height<=720][fps<=30][vcodec^=avc1]/bv*[height<=720][fps<=30]/bv*[height<=720]/b[height<=720]/b',
+            'outtmpl': dest_stem + '.%(ext)s', 'quiet': True, 'no_warnings': True, 'noprogress': True, 'progress_hooks': [hook],
+            # Many pieces at once, and asked for in 10 MB ranges: a single plain
+            # connection is what YouTube slows down.
+            'concurrent_fragment_downloads': 16, 'http_chunk_size': 10 * 1024 * 1024, 'retries': 5, 'fragment_retries': 5}
     try:
         with yt_dlp.YoutubeDL(opts) as y:
             info = y.extract_info(url, download=True)
@@ -1592,6 +1638,7 @@ def add_source(cfg, src):
     if '://' not in src and not video_id(src):
         say('That is neither a file on this computer nor a link.')
         return
+    ensure_downloader()
     try:
         import yt_dlp
     except ImportError:
