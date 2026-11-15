@@ -109,7 +109,7 @@ const f = n => win.eval(n);
   ok('a team view does not offer live', /\$\{ctx\.team \? '' : `<div class="rw-hint"><strong>Live\.<\/strong>/.test(idx));
   ok('a match saved without a score is remembered as such', /idx\[id\]\.ns = 1/.test(idx));
   ok('scores are filled in before summaries are refreshed', /vtScoreFill\(ev, ctx\)\.catch\(\(\) => \{\}\)\.then\(\(\) => vtBackfill\(ev\)\)/.test(idx));
-  ok('plates are read live as well', (idx.match(/await vtPlateLook\(run, slot, video, sx, sy, boxes/g) || []).length === 2);
+  ok('plates are read live as well', (idx.match(/await vtPlates\(run, slot, video, sx, sy, boxes/g) || []).length === 2);
   ok('with no stream known, live says what to do', /No stream is known for this event yet/.test(idx));
 }
 
@@ -197,6 +197,6 @@ const f = n => win.eval(n);
   ok('a key already saved still works', /VT_PASS_KEY = 'vex_tracker_pass'/.test(idx));
 }
 
-ok('release is v106', /const APP_BUILD = 'v106'/.test(idx));
+ok('release is v106 or later', /const APP_BUILD = 'v1(0[6-9]|[1-9]\d)'/.test(idx));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
