@@ -3020,14 +3020,14 @@
       <div class="set-state" id="myTeamState"></div>
     </div>
     <div class="set-group">
-      <h3 class="set-h">Robot tracker</h3>
-      <p class="set-p">The tracker watches match video on a computer and records where the robots are. What it records can be shared with every device. Saving to the shared storage needs the passcode; reading does not.</p>
+      <h3 class="set-h">Admin key</h3>
+      <p class="set-p">With the admin key saved here, what this device works out is shared with every device: the robot tracker's recordings, and the stream links you find or paste in the Jumper. Reading needs no key.</p>
       <div class="fav-add">
-        <input type="password" id="vtPassInput" placeholder="Tracker passcode" autocomplete="off" enterkeyhint="done">
+        <input type="password" id="vtPassInput" placeholder="Admin key" autocomplete="off" enterkeyhint="done">
         <button class="btn btn-primary" onclick="vtPassSave()">Save</button>
       </div>
       <div class="set-state" id="vtSetState"></div>
-      <button class="set-link" onclick="vtPassForget()">Remove the passcode from this device</button>
+      <button class="set-link" onclick="vtPassForget()">Remove the admin key from this device</button>
     </div>
     <div class="set-group">
       <h3 class="set-h">Color theme</h3>
@@ -3652,7 +3652,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v105';
+const APP_BUILD = 'v106';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -4585,6 +4585,57 @@ function rwDropImpossible(byDay) {
 }
 function rwSaveCal(eid, calByDay) {
   lsSet(rwCalKey(eid), JSON.stringify(calByDay));
+  rwShareCal(eid, calByDay);
+}
+// ── Stream links for everyone (v106) ───────────────────────────────────────
+// A stream link found or pasted on a device that holds the admin key is saved
+// to the shared storage, so the event has its link on every device. Asked for
+// as: "if i have the tracker password i can paste a stream link and it syncs
+// so the event has a link". Without the key nothing is sent, and everything
+// works as before, on this device only.
+const rwShareTimers = {};
+function rwCalForShare(calByDay) {
+  const days = {}, txt = (v, n) => String(v == null ? '' : v).replace(/[^A-Za-z0-9 #.,()\/_-]/g, '').slice(0, n);
+  for (const [day, c] of Object.entries(calByDay || {})) {
+    if (!c || c.published || !/^[0-9-]{8,10}$/.test(day)) continue;          // what came from the shared copy is already there
+    if (!['youtube', 'vimeo'].includes(c.platform || 'youtube') || !/^[A-Za-z0-9_-]{4,20}$/.test(String(c.videoId || ''))) continue;
+    const anchors = (c.anchors || []).filter(a => Number.isFinite(a.matchMs) && Number.isFinite(a.videoSec)).slice(0, 8)
+      .map(a => ({ matchId: txt(a.matchId, 20), name: txt(a.name, 60), matchMs: a.matchMs, videoSec: a.videoSec }));
+    if (!anchors.length) continue;
+    const d = { videoId: String(c.videoId), platform: c.platform || 'youtube', day, anchors };
+    if (Number.isFinite(c.durationSec)) d.durationSec = c.durationSec;
+    if (c.hash && /^[A-Za-z0-9]{1,20}$/.test(String(c.hash))) d.hash = String(c.hash);
+    if (Array.isArray(c.segments)) {
+      const segs = c.segments.filter(g => g && /^[A-Za-z0-9_-]{4,20}$/.test(String(g.videoId || '')) && Number.isFinite(g.startMs)).slice(0, 12)
+        .map(g => { const o = { videoId: String(g.videoId), platform: g.platform === 'vimeo' ? 'vimeo' : 'youtube', startMs: g.startMs }; for (const k of ['endMs', 'durationSec']) if (Number.isFinite(g[k])) o[k] = g[k]; return o; });
+      if (segs.length > 1) d.segments = segs;
+    }
+    days[day] = d;
+  }
+  return days;
+}
+function rwShareCal(eid, calByDay) {
+  if (typeof vtPass !== 'function' || !vtPass() || !/^\d{1,12}$/.test(String(eid))) return;
+  clearTimeout(rwShareTimers[eid]);
+  rwShareTimers[eid] = setTimeout(async () => {
+    const days = rwCalForShare(calByDay);
+    if (!Object.keys(days).length) return;
+    try { await vtApi('POST', '', { passcode: vtPass(), cal: { ev: String(eid), days } }); } catch (e) {}
+  }, 1500);
+}
+// The shared links for one event, folded into the published ones. Waits two
+// and a half seconds at most: a slow answer must not hold the Jumper up.
+const rwSharedCalAt = {};
+async function rwSharedCal(eid) {
+  if (!/^\d{1,12}$/.test(String(eid)) || Date.now() - (rwSharedCalAt[eid] || 0) < 300000) return;
+  rwSharedCalAt[eid] = Date.now();
+  try {
+    const r = await Promise.race([vtApi('GET', '?cal=' + encodeURIComponent(eid)), new Promise(res => setTimeout(() => res(null), 2500))]);
+    const cal = r && r.ok && r.body && r.body.cal;
+    if (!cal || typeof cal !== 'object' || !Object.keys(cal).length) return;
+    rwPublished = rwPublished || {};
+    rwPublished[String(eid)] = { ...(rwPublished[String(eid)] || {}), ...cal };
+  } catch (e) {}
 }
 // The stream covering a given match — strictly the one calibrated for that
 // match's own day. Never borrow another day's stream: at a multi-day event that
@@ -4724,10 +4775,16 @@ async function jumpToMatch(eventId, eventName, matchId, teamNumber) {
   if (teamInput && teamNumber) teamInput.value = teamNumber;
 
   // Reuse an already-loaded event rather than refetching
+  // Came from a team's page: the Jumper lists THAT team's matches, not the
+  // whole event's. Reported as: "it takes me to jumper and doesnt remember i
+  // need the matches of the team instead of just all the matches".
+  let team = null;
+  if (teamNumber) { try { team = await sim_resolveTeamCached(String(teamNumber)); } catch (e) {} }
   const ctx = window._rwCtx;
-  if (!ctx || String(ctx.eventId) !== String(eventId)) {
+  const sameTeam = !!ctx && String((ctx.team && ctx.team.id) || '') === String((team && team.id) || '');
+  if (!ctx || String(ctx.eventId) !== String(eventId) || !sameTeam) {
     window._rwCtx = {
-      team: null, events: [{ id: eventId, name: eventName }],
+      team, events: [{ id: eventId, name: eventName }],
       eventId: null, matches: [], videoId: null, cal: {}, calDay: null
     };
     await rewatchSelectEvent(eventId);
@@ -5165,6 +5222,7 @@ async function rewatchSelectEvent(eventId) {
     // nobody asked. anchors.json has to be loaded before this can be known;
     // it's a small static file and usually already cached.
     await rwLoadPublished();
+    await rwSharedCal(eventId);
     ctx.shift = rwLoadShift(eventId);
     const preCal = rwMergePublished(eventId, rwLoadCal(eventId));
     const daysNeeded = [...new Set(matches.filter(m => m.t !== null).map(m => rwDayKey(m.t)))]
@@ -8214,6 +8272,7 @@ async function vtLocalSave(ev, id, rec, status) {
   if (rec) await idbSet(`vt:m:${ev}:${id}`, rec);
   const idx = await vtLocalIndex(ev);
   idx[id] = { s: status, at: Date.now(), v: rec ? rec.v : VT_REC_V, vid: rec ? rec.vid : undefined };
+  if (rec && (rec.rs === null || rec.rs === undefined)) idx[id].ns = 1;      // no score yet (tracked live)
   await idbSet('vt:idx:' + ev, idx);
 }
 async function vtApi(method, query, body) {
@@ -8243,25 +8302,25 @@ async function vtSettingsRefresh(note) {
   const lines = [];
   if (!st) lines.push('Could not reach the shared storage just now.');
   else if (!st.db) lines.push('<strong>Shared storage is not set up.</strong> What the tracker learns stays on this device.');
-  else if (!st.passcode) lines.push('<strong>Shared storage is connected, but no passcode is set on the server</strong>, so nothing can be saved to it yet.');
-  else lines.push('<strong>Shared storage is connected.</strong> Anyone can read what has been learned; saving needs the passcode.');
-  lines.push(vtPass() ? 'A passcode is saved on this device.' : 'No passcode is saved on this device.');
+  else if (!st.passcode) lines.push('<strong>Shared storage is connected, but no admin key is set on the server</strong>, so nothing can be saved to it yet.');
+  else lines.push('<strong>Shared storage is connected.</strong> Anyone can read what has been learned; saving needs the admin key. With it, stream links you find or paste in the Jumper are shared with every device too.');
+  lines.push(vtPass() ? 'The admin key is saved on this device.' : 'No admin key is saved on this device.');
   if (note) lines.push(esc(note));
   el.innerHTML = lines.join(' ');
 }
 async function vtPassSave() {
   const input = document.getElementById('vtPassInput');
   const v = input ? input.value.trim() : '';
-  if (!v) return vtSettingsRefresh('Type the passcode first.');
+  if (!v) return vtSettingsRefresh('Type the admin key first.');
   let r = null;
   try { r = await vtApi('POST', '', { passcode: v, check: true }); } catch (e) {}
-  if (!r) return vtSettingsRefresh('Could not check the passcode: no connection.');
-  if (!r.ok) return vtSettingsRefresh(r.status === 403 ? 'That passcode was not accepted.' : 'The passcode could not be checked.');
+  if (!r) return vtSettingsRefresh('Could not check the admin key: no connection.');
+  if (!r.ok) return vtSettingsRefresh(r.status === 403 ? 'That admin key was not accepted.' : 'The admin key could not be checked.');
   lsSet(VT_PASS_KEY, v);
   input.value = '';
-  vtSettingsRefresh('Passcode accepted and saved.');
+  vtSettingsRefresh('Admin key accepted and saved.');
 }
-function vtPassForget() { lsRemove(VT_PASS_KEY); vtSettingsRefresh('Passcode removed from this device.'); }
+function vtPassForget() { lsRemove(VT_PASS_KEY); vtSettingsRefresh('Admin key removed from this device.'); }
 
 // ── The finder ─────────────────────────────────────────────────────────────
 // One worker per match being watched (vendor/vt-worker.js), each with its own
@@ -8496,7 +8555,7 @@ async function vtStart(mode, granted) {
   // Each player must be at least 200px tall to play at all, and bigger is
   // better for the finder: two columns of 16:9 need about 720px of width.
   const room = (panel.getBoundingClientRect().width || 1000);
-  const P = room < 760 ? 1 : vtParallel();
+  const P = room < 760 || mode === 'live' ? 1 : vtParallel();
   const run = vtRun = { stream, stop: false, done: 0, saved: 0, skipped: 0, empty: 0, failed: 0, noVideo: 0, total: 0,
     queue: [], feeding: true, slots: [], cleanup: [], mode, withVideo: 0, noVideoNames: [], sched: {}, shift: {}, searched: {} };
   if (ctx.playAll) rwPlayAllStop();
@@ -8510,7 +8569,7 @@ async function vtStart(mode, granted) {
       <div class="vt-players vt-p${P}" id="vtPlayers">${Array.from({ length: P }, (_, i) => `<div class="vt-player vt-idle" id="vtTile${i}"><div id="vtPlayerInner${i}"></div></div>`).join('')}</div>
       <div class="vt-seen"><canvas id="vtSeen" width="640" height="360"></canvas><div class="vt-cap">What the tracker sees</div></div>
     </div>
-    <div class="rw-hint">Watching ${P} match${P === 1 ? '' : 'es'} at a time, each at ${VT_RATE}×. Leave this tab open and on screen, on the Jumper. You can use other windows; the computer is kept awake while this runs. Already-tracked matches are skipped, so stopping and starting again loses nothing.</div>
+    <div class="rw-hint">${mode === 'live' ? 'Following the live stream at normal speed. A match starts being recorded when its name appears on the stream. Leave' : `Watching ${P} match${P === 1 ? '' : 'es'} at a time, each at ${VT_RATE}×. Leave`} this tab open and on screen, on the Jumper. You can use other windows; the computer is kept awake while this runs. Already-tracked matches are skipped, so stopping and starting again loses nothing.</div>
   </div>`;
   const track = stream.getVideoTracks()[0];
   track.addEventListener('ended', () => { if (vtRun === run) { run.stop = true; run.why = 'Sharing was stopped.'; } });
@@ -8561,6 +8620,12 @@ async function vtStart(mode, granted) {
       requestAnimationFrame(paint);
     };
     requestAnimationFrame(paint);
+    if (mode === 'live') {
+      await vtLiveLoop(run, run.slots[0], ctx, homeEvent);
+      run.stop = true;
+      vtFinish(run.why || (run.userStop ? 'Stopped live tracking.' : 'Live tracking ended.'));
+      return;
+    }
     const feed = (mode === 'history' ? vtFeedHistory(run, homeEvent) : vtFeedHere(run, ctx))
       .catch(e => { run.why = String((e && e.message) || e); }).then(() => { run.feeding = false; });
     await Promise.all(run.slots.map(async slot => {
@@ -8596,7 +8661,8 @@ function vtMeter(run) {
   // the robots are being followed.
   const nowMs = Date.now();
   if (!run.rateAt || nowMs - run.rateAt > 4000) { if (run.rateAt) run.rate = ((run.looks || 0) - (run.rateLooks || 0)) / ((nowMs - run.rateAt) / 1000); run.rateAt = nowMs; run.rateLooks = run.looks || 0; }
-  const sync = (run.confirmed || run.resynced) ? ` · match name read: ${run.confirmed || 0} right, ${run.resynced || 0} moved to the right place` : '';
+  const clk = run.clocks ? ` · clock read ${run.clocks} times` : '';
+  const sync = clk + ((run.confirmed || run.resynced) ? ` · match name read: ${run.confirmed || 0} right, ${run.resynced || 0} moved to the right place` : '');
   const gave = sync + (run.gaveUp ? ` · ${run.gaveUp} skipped early (no robots: a break or the wrong spot)` : '');
   const speed = gave + (run.rate ? ` · ${run.rate.toFixed(1)} looks a second on the ${run.backend || 'processor'}` : '') + (run.plates ? ` · ${run.plates} plates read` : '');
   const evs = run.mode === 'history' && (run.withVideo || run.noVideo) ? ` · earlier events with video: ${run.withVideo}, without: ${run.noVideo}` : '';
@@ -8625,43 +8691,15 @@ async function vtWatch(run, slot, m) {
   player.loadVideoById({ videoId: m.vid, startSeconds: start });
   try { player.mute(); player.setPlaybackRate(VT_RATE); } catch (e) {}
   const rec = { v: 2, name: String(m.name || '').slice(0, 60), round: m.round, num: m.num, red: m.red, blue: m.blue,
-    rs: m.rs, bs: m.bs, vid: m.vid, off: m.off, rate: VT_RATE, w: VT_SIZE, h: 0, model: VT_MODEL, at: Date.now(), f: [] };
+    rs: m.rs, bs: m.bs, vid: m.vid, off: m.off, rate: VT_RATE, w: VT_SIZE, h: 0, model: VT_MODEL, at: Date.now(), f: [], tm: [] };
   const seen = document.getElementById('vtSeen'), sc = seen && seen.getContext('2d');
   const stage = document.getElementById('vtPlayers'), tile = document.getElementById('vtTile' + slot.i);
-  const plateCv = document.createElement('canvas'), plateCx = plateCv.getContext('2d', { willReadFrequently: true });
-  const stripCv = document.createElement('canvas'); stripCv.width = 160; stripCv.height = 48;
-  const stripCx = stripCv.getContext('2d', { willReadFrequently: true });
-  const detCv = document.createElement('canvas'); detCv.width = 640; detCv.height = 352;
-  const detCx = detCv.getContext('2d', { willReadFrequently: true });
-  const lineCv = document.createElement('canvas'); lineCv.width = 320; lineCv.height = 48;
-  const lineCx = lineCv.getContext('2d', { willReadFrequently: true });
-  let looks = 0, robotLooks = 0, holding = false, checked = 0, resyncs = 0;
-  // Which match does the stream say this is? Finds every line of text in this
-  // player's picture and reads each until one is a match name.
+  let looks = 0, robotLooks = 0, holding = false, checked = 0, resyncs = 0, clockAt = -1e9;
+  // Which match does the stream say this is?
   const probe = async () => {
     for (let i = 0; i < 30; i++) { let st = -1; try { st = player.getPlayerState(); } catch (e) {} if (st === 1) break; await vtSleep(200); }
     await vtSleep(500);                                 // let the capture catch up with the player
-    if (!video.videoWidth || !stage || !tile) return null;
-    const S = stage.getBoundingClientRect(), T = tile.getBoundingClientRect();
-    const sx = (T.left - S.left) / S.width * video.videoWidth, sy = (T.top - S.top) / S.height * video.videoHeight;
-    const w = T.width / S.width * video.videoWidth, h = T.height / S.height * video.videoHeight;
-    const k = Math.min(640 / w, 352 / h);
-    detCx.fillStyle = '#000'; detCx.fillRect(0, 0, 640, 352);
-    detCx.drawImage(video, sx, sy, w, h, 0, 0, w * k, h * k);
-    const found = (await slot.finder.findText(detCx.getImageData(0, 0, 640, 352))).sort((a, b) => b[2] * b[3] - a[2] * a[3]).slice(0, 14);
-    let other = null;
-    for (const b of found) {
-      const bw = b[2] / k, bh = b[3] / k;
-      if (bh < 6) continue;
-      const used = Math.min(320, Math.max(8, Math.round(bw * 48 / bh)));
-      lineCx.fillStyle = '#000'; lineCx.fillRect(0, 0, 320, 48);
-      lineCx.drawImage(video, sx + b[0] / k, sy + b[1] / k, bw, bh, 0, 0, used, 48);
-      const got = await slot.finder.read(lineCx.getImageData(0, 0, 320, 48), used, 320);
-      const label = got.conf >= 0.5 ? vtMatchLabel(got.text) : null;
-      if (label && label.round === 2) return label;
-      if (label && !other) other = label;
-    }
-    return other;
+    return vtLabelOf(await vtScan(slot, video, stage, tile));
   };
   const seek = async to => {
     try { player.seekTo(Math.max(0, to), true); player.playVideo(); } catch (e) {}
@@ -8693,7 +8731,7 @@ async function vtWatch(run, slot, m) {
     }
     // From just before the name appears. The match itself starts some time
     // after that, so the window is long, and the summary finds the real start.
-    m.off = rec.off = Math.max(0, first - 15); rec.wide = 1; rec.f = [];
+    m.off = rec.off = Math.max(0, first - 15); rec.wide = 1; rec.f = []; rec.tm = [];
     start = m.off; end = start + VT_WINDOW_WIDE; robotLooks = 0; lastT = -1; apiT = -1;
     wallLimit = Date.now() + (VT_WINDOW_WIDE / VT_RATE + 90) * 1000;
     await seek(start);
@@ -8746,39 +8784,16 @@ async function vtWatch(run, slot, m) {
         sq.drawImage(video, sx, sy, w, h, lb.px, lb.py, lb.nw, lb.nh);
         const boxes = await slot.finder.detect(sq.getImageData(0, 0, VT_SIZE, VT_SIZE), lb, w, h);
         rec.h = Math.round(h * VT_SIZE / w);
-        // A plate: every other look, the biggest robot of a known alliance.
-        // Cut from the capture at its own size, not from the model's picture —
-        // letters need every pixel there is.
-        if ((looks++ & 1) === 0) {
-          const big = boxes.filter(b => b[5]).sort((a, b) => b[2] * b[3] - a[2] * a[3])[0];
-          if (big && big[2] >= 40) {
-            try {
-              const cw = Math.min(240, Math.round(big[2])), ch = Math.max(8, Math.round(big[3] * cw / big[2]));
-              plateCv.width = cw; plateCv.height = ch;
-              plateCx.drawImage(video, sx + big[0], sy + big[1], big[2], big[3], 0, 0, cw, ch);
-              const px = plateCx.getImageData(0, 0, cw, ch).data;
-              // Either colour's plate: the box's colour may itself be wrong
-              // (blue-anodised metal on a red robot), and the plate is how
-              // that gets found out.
-              const pr = vtPlateBox(px, cw, ch, 1), pbl = vtPlateBox(px, cw, ch, 2);
-              const pb = pr && pbl ? (pr.w * pr.h >= pbl.w * pbl.h ? pr : pbl) : (pr || pbl);
-              if (pb) {
-                const used = Math.min(160, Math.max(8, Math.round(pb.w * 48 / pb.h)));
-                stripCx.fillStyle = '#000'; stripCx.fillRect(0, 0, 160, 48);
-                stripCx.drawImage(plateCv, pb.x, pb.y, pb.w, pb.h, 0, 0, used, 48);
-                const got = await slot.finder.read(stripCx.getImageData(0, 0, 160, 48), used);
-                if (got.conf >= 0.5) {
-                  const four = [m.red[0], m.red[1], m.blue[0], m.blue[1]];
-                  big[7] = vtWhoFromText(got.text, four);
-                  if (big[7]) { run.plates = (run.plates || 0) + 1; slot.now.plate = four[big[7] - 1]; big[5] = big[7] <= 2 ? 1 : 2; }
-                }
-              }
-            } catch (e) {}
-          }
-        }
+        if ((looks++ & 1) === 0) await vtPlateLook(run, slot, video, sx, sy, boxes, [m.red[0], m.red[1], m.blue[0], m.blue[1]]);
         rec.f.push(vtPackFrame(est - m.off, boxes, w));
         run.looks = (run.looks || 0) + 1;
         if (boxes.some(b => b[5])) robotLooks++;
+        // The match clock, every five seconds of video: it says exactly when
+        // autonomous and driver control began, which movement can only guess.
+        if (est >= clockAt + 5 && rec.tm.length < 160) {
+          clockAt = est;
+          try { const texts = await vtScan(slot, video, stage, tile); const c = texts.map(x => vtTimerText(x.text)).find(v => v !== null); if (c !== undefined) { rec.tm.push(Math.round((est - m.off) * 10), c); run.clocks = (run.clocks || 0) + 1; } } catch (e) {}
+        }
         // Is this the match it came for? Checked a few seconds in, and once
         // more a little later if no name could be read the first time.
         if (m.round === 2 && !rec.wide && ((checked === 0 && est >= start + 4) || (checked === 1 && est >= start + 16))) {
@@ -8831,18 +8846,176 @@ async function vtWatch(run, slot, m) {
   slot.now = null;
   if (tileEl) tileEl.classList.add('vt-idle');
   if (why === 'stopped') return;
-  const st = vtRecStats(rec);
   if (why === 'video' || why === 'timeout') { run.failed++; await vtLocalSave(m.ev, m.id, null, 'failed'); return; }
   if (why === 'nothing') { run.empty++; run.gaveUp = (run.gaveUp || 0) + 1; await vtLocalSave(m.ev, m.id, null, 'empty'); return; }
-  if (st.withRobot < VT_MIN_FRAMES || st.red < 10 || st.blue < 10) { run.empty++; await vtLocalSave(m.ev, m.id, null, 'empty'); return; }
+  const sum = await vtKeep(run, m, rec);
+  // A re-synced match found its own start. The difference from where the
+  // Jumper put it is how far out that day is: the next match starts right.
+  if (rec.wide && sum && sum.ok) run.shift[dayKey] = (rec.off + sum.st) - off0;
+}
+// A plate: the biggest robot of a known alliance, cut from the capture at its
+// own size (letters need every pixel there is) and read. Either colour's plate
+// is looked for: the box's colour may itself be wrong (blue-anodised metal on
+// a red robot), and the plate is how that gets found out.
+async function vtPlateLook(run, slot, video, sx, sy, boxes, four) {
+  const big = boxes.filter(b => b[5]).sort((a, b) => b[2] * b[3] - a[2] * a[3])[0];
+  if (!big || big[2] < 40) return;
+  try {
+    if (!slot.plateCx) {
+      slot.plateCv = document.createElement('canvas'); slot.plateCx = slot.plateCv.getContext('2d', { willReadFrequently: true });
+      const st = document.createElement('canvas'); st.width = 160; st.height = 48; slot.stripCx = st.getContext('2d', { willReadFrequently: true });
+    }
+    const cw = Math.min(240, Math.round(big[2])), ch = Math.max(8, Math.round(big[3] * cw / big[2]));
+    slot.plateCv.width = cw; slot.plateCv.height = ch;
+    slot.plateCx.drawImage(video, sx + big[0], sy + big[1], big[2], big[3], 0, 0, cw, ch);
+    const px = slot.plateCx.getImageData(0, 0, cw, ch).data;
+    const pr = vtPlateBox(px, cw, ch, 1), pbl = vtPlateBox(px, cw, ch, 2);
+    const pb = pr && pbl ? (pr.w * pr.h >= pbl.w * pbl.h ? pr : pbl) : (pr || pbl);
+    if (!pb) return;
+    const used = Math.min(160, Math.max(8, Math.round(pb.w * 48 / pb.h)));
+    slot.stripCx.fillStyle = '#000'; slot.stripCx.fillRect(0, 0, 160, 48);
+    slot.stripCx.drawImage(slot.plateCv, pb.x, pb.y, pb.w, pb.h, 0, 0, used, 48);
+    const got = await slot.finder.read(slot.stripCx.getImageData(0, 0, 160, 48), used);
+    if (got.conf < 0.5) return;
+    big[7] = vtWhoFromText(got.text, four);
+    if (big[7]) { run.plates = (run.plates || 0) + 1; if (slot.now) slot.now.plate = four[big[7] - 1]; big[5] = big[7] <= 2 ? 1 : 2; }
+  } catch (e) {}
+}
+// A match tracked live was saved before it had a score. Once the score is
+// posted, it is added and the match summarised again, so "when it loses" has
+// it. Costs nothing unless a live-tracked match is waiting.
+async function vtScoreFill(ev, ctx) {
+  const idx = await vtLocalIndex(ev), by = new Map((ctx.matches || []).map(m => [String(m.id), m]));
+  let changed = 0;
+  for (const id of Object.keys(idx)) {
+    if (!idx[id].ns || idx[id].s !== 'done') continue;
+    const m = by.get(id);
+    if (!m || !vtPlayed(m)) continue;
+    const rec = await idbGet(`vt:m:${ev}:${id}`);
+    if (!rec) continue;
+    rec.rs = m.redScore; rec.bs = m.blueScore;
+    await vtLocalSave(ev, id, rec, 'done');
+    const sum = vtSummarise(rec, await vtFieldGet(rec.vid));
+    await vtSumSave(ev, id, sum); await vtSharedSave(ev, id, rec, sum);
+    changed++;
+  }
+  return changed;
+}
+// A finished recording: kept if it shows a match (robots of both alliances),
+// summarised, and saved here and to the shared storage. → its summary, or null.
+async function vtKeep(run, m, rec) {
+  const st = vtRecStats(rec);
+  if (st.withRobot < VT_MIN_FRAMES || st.red < 10 || st.blue < 10) { run.empty++; await vtLocalSave(m.ev, m.id, null, 'empty'); return null; }
   await vtLocalSave(m.ev, m.id, rec, 'done');
   run.saved++;
   let sum = null;
   try { sum = vtSummarise(rec, await vtFieldGet(m.vid)); await vtSumSave(m.ev, m.id, sum); } catch (e) {}
-  // A re-synced match found its own start. The difference from where the
-  // Jumper put it is how far out that day is: the next match starts right.
-  if (rec.wide && sum && sum.ok) run.shift[dayKey] = (rec.off + sum.st) - off0;
   run.shared = await vtSharedSave(m.ev, m.id, rec, sum);
+  return sum;
+}
+// ── Live (v106) ────────────────────────────────────────────────────────────
+// Leave a computer on the event's stream and it tracks matches as they are
+// played. There is no schedule position to go to: the stream's own match name
+// says when a match is on. A new qualification number starts a recording; the
+// next one (or five and a half minutes) ends it. Scores are not known yet when
+// a match is saved, so "when it loses" waits for the match to be re-read later.
+async function vtLiveLoop(run, slot, ctx, ev) {
+  const video = run.video, player = slot.player;
+  const day = rwDayKey(Date.now());
+  const cal = (ctx.cal && ctx.cal[day]) || Object.values(ctx.cal || {}).filter(c => c && c.videoId).pop();
+  const vid = String((cal && cal.videoId) || ctx.videoId || '');
+  if (!/^[A-Za-z0-9_-]{6,20}$/.test(vid)) { run.why = 'No stream is known for this event yet. Find it in the Jumper first, then start live tracking.'; return; }
+  const byNum = new Map((ctx.matches || []).filter(x => x.round === 2).map(x => [Number(x.num), x]));
+  const stage = document.getElementById('vtPlayers'), tile = document.getElementById('vtTile' + slot.i);
+  if (tile) tile.classList.remove('vt-idle');
+  player.loadVideoById({ videoId: vid });
+  try { player.mute(); player.setPlaybackRate(1); } catch (e) {}
+  run.mode = 'live'; run.t0 = Date.now(); run.total = 0;
+  const clean = v => String(v).toUpperCase().replace(/[^A-Z0-9]/g, '');
+  let cur = null, busy = false, lastScan = 0, lastLook = 0;
+  const begin = (label, now) => {
+    const m = byNum.get(label.num);
+    if (!m) return null;                                   // not on the schedule this page loaded
+    run.total++;
+    return { m: { id: String(m.id), ev, vid, name: m.name, round: 2, num: m.num }, t0: now, last: now,
+      rec: { v: 2, name: String(m.name || '').slice(0, 60), round: 2, num: m.num, red: (m.redNums || []).map(clean), blue: (m.blueNums || []).map(clean),
+        rs: null, bs: null, vid, off: Math.round(now), rate: 1, w: VT_SIZE, h: 0, model: VT_MODEL, at: Date.now(), f: [], tm: [], wide: 1 } };
+  };
+  const finish = async () => { if (!cur) return; const c = cur; cur = null; if (c.rec.f.length >= 60) { await vtKeep(run, c.m, c.rec); run.done++; } };
+  await new Promise(resolve => {
+    const stopTick = vtTicker(120, async () => {
+      if (run.stop) { stopTick(); return resolve(); }
+      if (busy || Date.now() - lastLook < 1000 / VT_MAX_LOOKS_PER_SEC || !video.videoWidth || !stage || !tile) return;
+      let now = 0, state = -1;
+      try { now = player.getCurrentTime(); state = player.getPlayerState(); } catch (e) {}
+      if (state !== 1) { if (state === 2 || state === 5 || state === -1) { try { player.playVideo(); } catch (e) {} } return; }
+      busy = true; lastLook = Date.now();
+      try {
+        const S = stage.getBoundingClientRect(), T = tile.getBoundingClientRect();
+        const sx = (T.left - S.left) / S.width * video.videoWidth, sy = (T.top - S.top) / S.height * video.videoHeight;
+        const w = T.width / S.width * video.videoWidth, h = T.height / S.height * video.videoHeight, lb = vtLetterbox(w, h);
+        slot.sq.fillStyle = 'rgb(114,114,114)'; slot.sq.fillRect(0, 0, VT_SIZE, VT_SIZE);
+        slot.sq.drawImage(video, sx, sy, w, h, lb.px, lb.py, lb.nw, lb.nh);
+        const boxes = await slot.finder.detect(slot.sq.getImageData(0, 0, VT_SIZE, VT_SIZE), lb, w, h);
+        run.looks = (run.looks || 0) + 1; run.view = { sx, sy, w, h, boxes };
+        if (cur && (run.looks & 1) === 0) await vtPlateLook(run, slot, video, sx, sy, boxes, [cur.rec.red[0], cur.rec.red[1], cur.rec.blue[0], cur.rec.blue[1]]);
+        if (cur) { cur.rec.h = Math.round(h * VT_SIZE / w); cur.rec.f.push(vtPackFrame(now - cur.rec.off, boxes, w)); }
+        if (Date.now() - lastScan > 4000) {
+          lastScan = Date.now();
+          const texts = await vtScan(slot, video, stage, tile), label = vtLabelOf(texts), clock = texts.map(x => vtTimerText(x.text)).find(v => v !== null);
+          if (cur && clock !== undefined && cur.rec.tm.length < 160) cur.rec.tm.push(Math.round((now - cur.rec.off) * 10), clock);
+          if (label && label.round === 2 && (!cur || Number(cur.m.num) !== label.num)) { await finish(); cur = begin(label, now); }
+          else if (cur && label && label.round === 2) cur.last = now;
+        }
+        if (cur && now - cur.t0 > VT_WINDOW_WIDE) await finish();
+        slot.now = { name: cur ? cur.m.name : 'waiting for a match name on the stream', boxes: boxes.length, note: '' };
+        if (Date.now() - (run.saidAt || 0) > 1000) { run.saidAt = Date.now(); vtSay(`Live · ${run.saved} matches tracked and saved · now: ${slot.now.name}${cur ? ' (' + boxes.length + ' robots)' : ''}`); const sub = document.getElementById('vtSub'); if (sub) sub.textContent = 'Runs until you press Stop tracking or the stream ends. Each match is saved when the next one starts.'; document.title = `Live tracking · ${VT_TITLE}`; }
+      } catch (e) { run.lastError = String((e && e.message) || e); }
+      busy = false;
+    });
+  });
+  await finish();
+}
+// Every line of text in one player's picture, read. Finds where the writing is
+// (the worker's text finder), cuts each line from the capture at its own size
+// and has it read. → [{ text, conf }]
+async function vtScan(slot, video, stage, tile) {
+  if (!video.videoWidth || !stage || !tile) return [];
+  const S = stage.getBoundingClientRect(), T = tile.getBoundingClientRect();
+  const sx = (T.left - S.left) / S.width * video.videoWidth, sy = (T.top - S.top) / S.height * video.videoHeight;
+  const w = T.width / S.width * video.videoWidth, h = T.height / S.height * video.videoHeight;
+  if (!slot.detCx) {
+    const a = document.createElement('canvas'); a.width = 640; a.height = 352; slot.detCx = a.getContext('2d', { willReadFrequently: true });
+    const b = document.createElement('canvas'); b.width = 320; b.height = 48; slot.lineCx = b.getContext('2d', { willReadFrequently: true });
+  }
+  const k = Math.min(640 / w, 352 / h), out = [];
+  slot.detCx.fillStyle = '#000'; slot.detCx.fillRect(0, 0, 640, 352);
+  slot.detCx.drawImage(video, sx, sy, w, h, 0, 0, w * k, h * k);
+  const found = (await slot.finder.findText(slot.detCx.getImageData(0, 0, 640, 352))).sort((a, b) => b[2] * b[3] - a[2] * a[3]).slice(0, 14);
+  for (const b of found) {
+    const bw = b[2] / k, bh = b[3] / k;
+    if (bh < 6) continue;
+    const used = Math.min(320, Math.max(8, Math.round(bw * 48 / bh)));
+    slot.lineCx.fillStyle = '#000'; slot.lineCx.fillRect(0, 0, 320, 48);
+    slot.lineCx.drawImage(video, sx + b[0] / k, sy + b[1] / k, bw, bh, 0, 0, used, 48);
+    const got = await slot.finder.read(slot.lineCx.getImageData(0, 0, 320, 48), used, 320);
+    if (got.conf >= 0.5 && got.text) out.push(got);
+  }
+  return out;
+}
+// The match name among what was read: a qualification match if there is one.
+function vtLabelOf(texts) {
+  let other = null;
+  for (const t of texts) { const l = vtMatchLabel(t.text); if (l && l.round === 2) return l; if (l && !other) other = l; }
+  return other;
+}
+// The match clock among what was read, in seconds: "1:45", "0:07", "15".
+// Only the m:ss form counts: scores are bare numbers too.
+function vtTimerText(text) {
+  const T = String(text || '').trim();
+  let m = T.match(/^([0-2]):([0-5]\d)$/);
+  if (m) return Number(m[1]) * 60 + Number(m[2]);
+  return null;
 }
 function vtStop() { if (vtRun) { vtRun.stop = true; vtRun.userStop = true; vtSay('Stopping…'); } }
 function vtFinish(why) {
@@ -8857,7 +9030,7 @@ function vtFinish(why) {
   if (run.empty) bits.push(`${run.empty} where it did not see robots of both alliances (a break, a slate, a camera not on the field, or the Jumper's position for that match being off)`);
   if (run.failed) bits.push(`${run.failed} whose video would not play`);
   if (run.noVideo) bits.push(`${run.noVideo} earlier event${run.noVideo === 1 ? '' : 's'} with no video the Jumper could find (${run.noVideoNames.slice(0, 4).join('; ')}${run.noVideoNames.length > 4 ? '; …' : ''})`);
-  const share = run.saved ? (run.shared === 'saved' ? ' Saved to the shared storage.' : run.shared === 'no-passcode' ? ' Kept on this device only: no passcode is saved in Settings.' : ` Kept on this device; the shared storage said "${run.shared}".`) : '';
+  const share = run.saved ? (run.shared === 'saved' ? ' Saved to the shared storage.' : run.shared === 'no-passcode' ? ' Kept on this device only: no admin key is saved in Settings.' : ` Kept on this device; the shared storage said "${run.shared}".`) : '';
   vtRender(`${why} ${bits.join(', ')}.${share}`).then(() => {
     const panel = document.getElementById('vtPanel');
     if (panel && panel.scrollIntoView) panel.scrollIntoView({ block: 'center' });
@@ -8879,7 +9052,7 @@ async function vtRender(note) {
   }
   const local = await vtLocalIndex(ev);
   if (vtRun || window._rwCtx !== ctx) return;       // things moved on while that was read
-  vtBackfill(ev).catch(() => {});                   // summarise anything tracked before summaries existed
+  vtScoreFill(ev, ctx).catch(() => {}).then(() => vtBackfill(ev)).catch(() => {});   // scores for live-tracked matches, then summaries
   const P = vtParallel();
   const doneHere = queue.filter(m => vtDone(local[m.id])).length;
   const older = queue.filter(m => local[m.id] && local[m.id].s === 'done' && !vtDone(local[m.id])).length;
@@ -8900,9 +9073,11 @@ async function vtRender(note) {
     ${left ? `<div class="rw-playall"><button class="btn btn-primary" onclick="vtStart('here')">Track this event's matches</button></div>` : ''}`
     : (ctx.team ? `<div class="rw-hint">None of ${esc(ctx.team.number || 'this team')}'s played matches here has video the Jumper can open yet.</div>` : '')}
     ${history}
+    ${ctx.team ? '' : `<div class="rw-hint"><strong>Live.</strong> While the event is being played, follow its stream and track each match as it happens. It reads the match name off the stream to know which match is on, so it needs no schedule times.</div>
+    <div class="rw-playall"><button class="btn btn-secondary" onclick="vtStart('live')">Track live</button></div>`}
     <div class="rw-hint"><strong>Field positions.</strong> For toggle, role and route details the tracker needs the field's four corners in this stream. Open a match in the player above (▶), pause on a view of the whole field, then:</div>
     <div class="rw-playall"><button class="btn btn-secondary" onclick="vtMarkField()">Mark the field</button></div>
-    <div class="rw-hint">Chrome will ask what to share: choose <strong>This tab</strong>. This stage records positions; turning them into each robot's job, parking and autonomous routine comes next and will use these recordings without watching again.</div>
+    <div class="rw-hint">Chrome will ask what to share: choose <strong>This tab</strong>.</div>
   </div>`;
 }
 // From an event page: open the Jumper on the whole event, where Start is.
@@ -9119,8 +9294,21 @@ function vtStep(p, q) { if (!p || !q) return 0; const d = Math.hypot(q.x - p.x, 
 // position can be several seconds out, and the pause after autonomous varies.
 // Robots are disabled before a match and between the two periods, so each
 // period begins with the first second of movement after three still ones.
-function vtPhases(bins, wide) {
+function vtPhases(bins, wide, clock) {
   if (!bins.length) return { start: 0, driver: 18, end: 123 };
+  // The stream's own clock, when it was read: driver control counts down from
+  // 1:45, autonomous from 0:15. Each reading says when its period began; the
+  // middle one of several is taken, since a misread digit is far off.
+  // A clock standing at 1:45, 0:15 or 0:00 is waiting, not counting, and says nothing.
+  const med = a => { const s = a.slice().sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; };
+  const drv = [], aut = [];
+  for (let k = 0; clock && k + 1 < clock.length; k += 2) { const t = clock[k] / 10, c = clock[k + 1]; if (c > 15 && c < 105) drv.push(t - (105 - c)); }
+  let byClock = null;
+  if (drv.length >= 3) {
+    const driver = med(drv);
+    for (let k = 0; k + 1 < clock.length; k += 2) { const t = clock[k] / 10, c = clock[k + 1]; if (c > 0 && c < 15 && t < driver - 1 && t > driver - 90) aut.push(t - (15 - c)); }
+    byClock = { driver: Math.round(driver), start: aut.length >= 2 ? Math.round(med(aut)) : null };
+  }
   const t0 = bins[0].t, M = bins.map((b, k) => {
     if (!k) return 0;
     let m = 0;
@@ -9140,14 +9328,20 @@ function vtPhases(bins, wide) {
     if (start > 10 && !wide) { driver = start; start = driver - 18; }
     else driver = start + 18;
   }
-  return { start, driver, end: Math.min(bins[bins.length - 1].t, driver + 105) };
+  if (byClock) {
+    // The clock wins. Movement still supplies the autonomous start if the
+    // clock was not read during it and movement found one that fits.
+    driver = byClock.driver;
+    start = byClock.start !== null ? byClock.start : (start < driver - 14 && start > driver - 80 ? start : driver - 18);
+  }
+  return { start, driver, end: Math.min(bins[bins.length - 1].t, driver + 105), clock: !!byClock };
 }
 // One match → its summary.
 function vtSummarise(rec, quad) {
   const F = vtFrames(rec, quad);
   const base = { sv: VT_SUM_V, fq: vtQuadMark(quad), name: rec.name, round: rec.round, num: rec.num, red: rec.red, blue: rec.blue, rs: rec.rs, bs: rec.bs };
   if (!F.ok) return { ...base, ok: 0 };
-  const slotted = vtSlots(F.frames), track = vtBin(slotted), ph = vtPhases(track, !!rec.wide);
+  const slotted = vtSlots(F.frames), track = vtBin(slotted), ph = vtPhases(track, !!rec.wide, rec.tm);
   const span = F.frames.length > 1 ? F.frames[F.frames.length - 1].t - F.frames[0].t : 0;
   const lps = span > 0 ? F.frames.length / span : 0;
   // Which way each alliance attacks: where they stood before the start.
@@ -9256,7 +9450,7 @@ function vtSummarise(rec, quad) {
       Rall.sw = g.sw[1]; Ball.sw = g.sw[2]; Rall.wk = g.wk[1]; Ball.wk = g.wk[2];
     } catch (e) {}
   }
-  return { ...base, ok: 1, lps: Math.round(lps * 10) / 10, st: ph.start, dr: ph.driver, R: Rall, B: Ball, Ra, Rb, Ba, Bb };
+  return { ...base, ok: 1, lps: Math.round(lps * 10) / 10, st: ph.start, dr: ph.driver, ck: ph.clock ? 1 : 0, R: Rall, B: Ball, Ra, Rb, Ba, Bb };
 }
 
 // ── Keeping summaries: on the device, and shared ───────────────────────────

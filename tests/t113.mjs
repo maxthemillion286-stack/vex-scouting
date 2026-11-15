@@ -113,7 +113,7 @@ console.log('\n· a team\'s report');
   ok('a team number is escaped in the block', !/<img/.test(win.vtReportHtml('<img src=x>', few)));
   ok('the team page asks for the report', /<div id="vtReport" data-team=/.test(idx) && /setTimeout\(\(\) => vtReportFill\(d\.team\.number\), 0\)/.test(idx));
   ok('a report for a team no longer on screen is dropped', /if \(host\.dataset\.team !== num\) return;\s+\/\/ another team was opened meanwhile/.test(idx));
-  ok('matches tracked before summaries existed are summarised from stored boxes', /async function vtBackfill/.test(idx) && /vtBackfill\(ev\)\.catch/.test(idx));
+  ok('matches tracked before summaries existed are summarised from stored boxes', /async function vtBackfill/.test(idx) && /\.then\(\(\) => vtBackfill\(ev\)\)\.catch/.test(idx));
 }
 
 console.log('\n· summaries in shared storage');

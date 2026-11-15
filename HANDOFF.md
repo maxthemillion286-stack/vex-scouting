@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v105**. Everything green: 66 test files. (The `v19` in §8's
+Current release: **v106**. Everything green: 75 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -407,6 +407,7 @@ proxy is at `api/proxy.js`.
 | t111 | **v89** — win chances checked against results; season in the rating; play-style groups — §28 |
 | t112 | **v91** — robot tracker stage 1: finder maths, queue, shared storage and passcode — §29 |
 | t113 | **v99/v101** — robot report: summaries, team report, storage, browser Back; telling robots apart by plate and look — §30, §31 |
+| t114 | **v106** — the stream's clock sets the periods; live tracking; late scores — §32b |
 | sanity | CSS braces balance, inline JS parses, tabs present |
 | tool_sanity | Same for anchor-tool.html |
 
@@ -2545,6 +2546,50 @@ some teams go round all the toggles — and asked for the report in those terms.
   the other side). Zone sizes and time thresholds are untested on real play.
 
 ---
+
+## 32b. v106 — the stream's clock, and live tracking
+
+- **Clock.** `vtScan(slot, video, stage, tile)` is the old `probe` body made a
+  function: every line of text in one player's picture, read. `vtLabelOf` picks
+  the match name from it, `vtTimerText` the clock (`m:ss` only — a bare number
+  is a score). While watching, the clock is read every 5 s of video into
+  `rec.tm = [tenths, seconds on clock, …]` (server: `validRec` allows `tm`,
+  ≤400 integers, in pairs). `vtPhases(bins, wide, clock)` uses it when there
+  are ≥3 running driver readings: each says when driver began, the median is
+  taken; autonomous the same from readings under 0:15. Clocks standing at
+  1:45, 0:15 or 0:00 are waiting and ignored. Summary field `ck` = 1 when the
+  periods came from the clock. `VT_SUM_V` not bumped: old recordings have no
+  clock, so re-doing them would change nothing.
+- **Live.** `vtStart('live')` → one player at 1× on today's stream
+  (`ctx.cal[today].videoId`) → `vtLiveLoop`. Every 4 s it scans the overlay; a
+  new qualification number closes the current recording (`vtKeep`, shared with
+  `vtWatch`) and starts the next; 330 s is the ceiling. Recordings are `wide`
+  with `rs/bs` null; the index entry gets `ns: 1` and `vtScoreFill(ev, ctx)`
+  (run from `vtRender`) adds the score once posted and re-summarises.
+- `vtPlateLook` is the plate read, shared by both loops.
+- **Not built:** reading toggle colour from the video. Contests are still
+  judged by position. It needs pictures of a toggle in each state on a real
+  stream to know what to sample; guessing would put a robot's own colour into
+  the answer whenever one sits on the toggle.
+- **Unverified on real footage:** whether streams show the clock as `m:ss` in
+  a place the text finder picks up; live streams' `getCurrentTime` behaviour.
+  The status line shows "clock read N times" — zero after a few matches means
+  the overlay is not being read.
+
+### Also in v106
+
+- **Jumper remembers the team.** `jumpToMatch(…, teamNumber)` built its context
+  with `team: null`, so a ▶ from a team's page listed the whole event. It now
+  resolves the team first and reloads when the team differs.
+- **Shared stream links.** `rwSaveCal` → `rwShareCal` (1.5 s debounce, only
+  with the admin key saved) → `POST { passcode, cal: { ev, days } }` →
+  `HSET vt:cal:{ev} day json` (`validCalDay`). `rwSharedCal(ev)` (`GET ?cal=`,
+  2.5 s at most, 5 min memo) folds them into `rwPublished` before
+  `rwMergePublished`, so they behave exactly like anchors.json: local wins.
+  Days marked `published` are not re-uploaded.
+- **"Admin key"** is the on-screen name of what was the tracker passcode. The
+  environment variable is still `TRACKER_PASSCODE` and the localStorage key
+  still `vex_tracker_pass`; nobody has to re-enter anything.
 
 ## 33. Feature ideas
 
