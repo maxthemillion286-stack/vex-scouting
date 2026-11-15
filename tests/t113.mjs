@@ -311,7 +311,7 @@ console.log('\n· the game: toggles, roles, routes');
   ok('for the attacker: its record on defended toggles', atkRep.game.toggles.some(x => /Took a defended toggle in 5 of 10 tries \(50%\)/.test(x)) || atkRep.game.toggles.some(x => /Took a defended toggle in \d+ of \d+ tries/.test(x)), JSON.stringify(atkRep.game.toggles));
   const html = win.vtReportHtml('66449A', rep);
   ok('the block shows routes and a heat map of the field', (html.match(/class="vr-field"/g) || []).length === 2 && /<polyline/.test(html) && /Role and strategy/.test(html) && /Toggles/.test(html) && /Where it plays/.test(html));
-  ok('and says what it cannot see', /It sees robots, not pins or toggles/.test(html));
+  ok('and says what it cannot see', /It does not see toggles/.test(html) && /cannot tell a pin on a goal from one beside it/.test(html));
   const noField = new Map(); for (let i = 1; i <= 5; i++) noField.set('91:' + i, win.vtSummarise(meta(i)));
   ok('with no corners it asks for them, and claims nothing about toggles', /press <strong>Mark the field<\/strong>/.test(win.vtReportHtml('66449A', win.vtReport('66449A', noField))) && win.vtReport('66449A', noField).game.n === 0);
   // Guessing the corners from where robots have been.

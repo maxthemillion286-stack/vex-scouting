@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.3'
+VERSION = '2.4'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -256,6 +256,39 @@ def pack_frame(t, boxes, src_w):
     for b in boxes:
         fr += [jround(b[0] * k), jround(b[1] * k), jround(b[2] * k), jround(b[3] * k), jround(b[4] * 100), b[5] or 0] + sig_pack(b[6]) + [b[7] or 0]
     return fr
+
+PIN_W, PIN_MAX_INTS, PIN_MAX_BLOBS = 960, 36000, 60
+
+def pin_blobs(frame, boxes):
+    """Every red, blue or yellow patch of about a pin's size that is not on a
+    robot. The website's vtPinBlobs, same tests and limits.
+    → (W, H, [[x, bottom y, w, h, area, colour], …]) in a picture W wide."""
+    import cv2, numpy as np
+    h0, w0 = frame.shape[:2]
+    W, H = PIN_W, max(2, jround(h0 * PIN_W / w0))
+    k = W / w0
+    img = cv2.resize(frame, (W, H), interpolation=cv2.INTER_AREA if k < 1 else cv2.INTER_LINEAR).astype(np.float32)
+    b, g, r = img[..., 0], img[..., 1], img[..., 2]
+    mx, mn = img.max(2), img.min(2)
+    strong = (mx >= 90) & ((mx - mn) >= 0.45 * mx)
+    yellow = strong & (r >= 140) & (g >= 105) & (b < 0.55 * np.minimum(r, g)) & (np.abs(r - g) < 0.32 * mx)
+    red = strong & ~yellow & (r == mx) & (g < 0.55 * r) & (b < 0.6 * r)
+    blue = strong & ~yellow & ~red & (b == mx) & (r < 0.55 * b)
+    cls = np.zeros((H, W), np.uint8)
+    cls[red], cls[blue], cls[yellow] = 1, 2, 3
+    for bx in boxes or []:
+        x, y, bw, bh = bx[0] * k, bx[1] * k, bx[2] * k, bx[3] * k
+        cls[max(0, int(math.floor(y - bh * 0.06))):min(H, int(math.ceil(y + bh * 1.06))), max(0, int(math.floor(x - bw * 0.06))):min(W, int(math.ceil(x + bw * 1.06)))] = 0
+    out = []
+    for c in (1, 2, 3):
+        n, _, stats, _ = cv2.connectedComponentsWithStats((cls == c).astype(np.uint8), connectivity=4)
+        for i in range(1, n):
+            x0, y0, bw, bh, area = (int(v) for v in stats[i])
+            if area < 10 or bw > W * 0.08 or bh > H * 0.2:
+                continue
+            out.append([jround((2 * x0 + bw) / 2), y0 + bh, bw, bh, area, c])
+    out.sort(key=lambda q: -q[4])
+    return W, H, out[:PIN_MAX_BLOBS]
 
 def plate_box(img, col):
     """Where the plate is inside a robot's box: the widest band of its colour."""
@@ -674,7 +707,7 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
     def fresh():
         return {'v': 2, 'name': str(job.get('name', ''))[:60], 'round': job.get('round'), 'num': job.get('num'), 'red': job['red'], 'blue': job['blue'],
                 'rs': job.get('rs'), 'bs': job.get('bs'), 'vid': job['vid'], 'off': int(round(off)), 'rate': 4, 'w': SIZE, 'h': 0,
-                'model': 'det1', 'at': int(time.time() * 1000), 'f': [], 'tm': []}
+                'model': 'det1', 'at': int(time.time() * 1000), 'f': [], 'tm': [], 'pn': []}
 
     while True:
         rec = fresh()
@@ -685,7 +718,7 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
         if video.length and start > video.length - 20:
             return None, 'past the end of the video', 0
         video.seek(start)
-        att, robot_looks, clock_at, checked, kept, next_keep, misses = [], 0, -1e9, False, 0, start + 6, 0
+        att, robot_looks, clock_at, checked, kept, next_keep, misses, pin_at = [], 0, -1e9, False, 0, start + 6, 0, -1e9
         redo = None
         while True:
             t, frame = video.read_at_step(step)
@@ -706,6 +739,12 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
             rec['f'].append(pack_frame(t - rec['off'], boxes, w))
             if any(b[5] for b in boxes):
                 robot_looks += 1
+            # The pins, every two seconds: by colour and size, off the robots.
+            if t >= pin_at + 2 and len(rec['pn']) < PIN_MAX_INTS:
+                pin_at = t
+                pw, ph_, blobs = pin_blobs(frame, boxes)
+                rec['pw'], rec['ph'] = pw, ph_
+                rec['pn'] += [jround((t - rec['off']) * 10), len(blobs)] + [v for bl in blobs for v in bl]
             # The match clock: from its known place every second, else searched for every five.
             if t >= clock_at + (1 if learn.get('clock') else 5) and len(rec['tm']) < 320:
                 clock_at = t
@@ -791,8 +830,14 @@ def work_chunk(args):
                 if not saved:
                     why = 'the website refused it: ' + str((r or {}).get('error'))
             plates = sum(1 for fr in (rec['f'] if rec else []) for i in range(fr[1]) if fr[2 + 10 * i + 9])
+            pins = 0
+            if rec:
+                i = 0
+                while i + 1 < len(rec['pn']):
+                    pins += rec['pn'][i + 1]
+                    i += 2 + 6 * rec['pn'][i + 1]
             out.append({'id': job['id'], 'name': job.get('name'), 'ok': bool(saved), 'why': why, 'sec': time.time() - t0, 'hw': video.hw,
-                        'looks': len(rec['f']) if rec else 0, 'plates': plates, 'clock': len(rec['tm']) // 2 if rec else 0})
+                        'looks': len(rec['f']) if rec else 0, 'plates': plates, 'pins': pins, 'clock': len(rec['tm']) // 2 if rec else 0})
     finally:
         video.close()
     return out
@@ -894,7 +939,7 @@ def do_jobs(cfg):
                     totals['looks'] += res['looks']
                     totals['hw'] = totals.get('hw') or res.get('hw')
                     say('  %3d/%d  %-22s %s' % (done, len(pairs), str(res['name'])[:22],
-                        ('saved · %d looks · %d plates · clock %d · %.0fs' % (res['looks'], res['plates'], res['clock'], res['sec'])) if res['ok'] else 'not saved: ' + res['why']))
+                        ('saved · %d looks · %d plates · %d pin sightings · clock %d · %.0fs' % (res['looks'], res['plates'], res.get('pins', 0), res['clock'], res['sec'])) if res['ok'] else 'not saved: ' + res['why']))
         if not cfg.get('keep_videos') and path.startswith(DIRS['videos']):
             try:
                 os.remove(path)
@@ -1628,6 +1673,7 @@ UI_HTML = r"""<!doctype html><html lang="en"><meta charset="utf-8"><meta name="v
  .bar{height:6px;background:#0c0f14;border-radius:9px;margin:12px 0 10px;overflow:hidden} .bar i{display:block;height:100%;width:0;background:var(--blue);transition:width .4s}
  pre{margin:0;max-height:270px;overflow:auto;font:12.5px/1.55 ui-monospace,Consolas,monospace;color:#b7c0cf;white-space:pre-wrap;word-break:break-word}
  .hint{color:var(--dim);font-size:13px;margin-top:10px}
+ details.more{margin-top:14px} details.more>summary{cursor:pointer;color:var(--dim);font-size:13px} details.more .add{margin-top:10px} .panel details.more{margin-top:4px}
  #key{display:none;margin-bottom:16px;border-color:#4a3d1a;background:#1d1a12} #key .row{display:flex;gap:10px;margin-top:10px} #key input{flex:1}
  #rev{display:none} #rev .top{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px} #rev .top .sp{flex:1}
  #rev canvas{max-width:100%;max-height:calc(100vh - 210px);background:#000;border-radius:10px;cursor:crosshair;display:block;margin:0 auto}
@@ -1642,17 +1688,17 @@ UI_HTML = r"""<!doctype html><html lang="en"><meta charset="utf-8"><meta name="v
  <div class="panel" id="key"><b>Enter the admin key once</b><div class="hint" style="margin-top:4px">The same key that is saved in the website's Settings. It is kept on this computer and sent only to your website.</div>
   <div class="row"><input id="keyIn" type="password" placeholder="Admin key" autocomplete="off" onkeydown="if(event.key==='Enter')saveKey()"><button id="bKey" onclick="saveKey()">Save</button></div><div class="hint" id="keyMsg"></div></div>
  <div class="cards">
-  <div class="card"><h2>1 · Track</h2><p>Watches every match the website asked for and sends the results back. Then keeps checking for more by itself.</p>
+  <div class="card"><h2>1 · Track</h2><p>Watches the matches the website sent. Starts by itself.</p>
    <div class="n" id="trackN">&nbsp;</div><button id="bTrack" onclick="start('track')">Start tracking</button></div>
-  <div class="card"><h2>2 · Review</h2><p>Fix the finder's boxes on the frames it was least sure of. This is what teaches it. Five minutes at a time is fine.</p>
+  <div class="card"><h2>2 · Review</h2><p>Fix the boxes on a few frames. This is what teaches it.</p>
    <div class="n" id="revN">&nbsp;</div><button id="bRev" onclick="openReview()">Review frames</button></div>
-  <div class="card"><h2>3 · Train</h2><p>Trains a new robot finder on your graphics card, tests it against the current one, and publishes it to the website only if it is better.</p>
+  <div class="card"><h2>3 · Train</h2><p>Makes a better robot finder and publishes it only if it wins.</p>
    <div class="n" id="trainN">&nbsp;</div><button id="bTrain" onclick="start('train')">Train</button></div>
  </div>
- <div class="add"><input id="src" placeholder="Optional: paste a stream link (recorded or live) or a video file's path to learn from it" autocomplete="off" onkeydown="if(event.key==='Enter'&&!$('bAdd').disabled)start('add')"><button class="ghost" id="bAdd" onclick="start('add')">Learn from this</button></div>
+ <details class="more"><summary>More: learn from another video</summary><div class="add"><input id="src" placeholder="Optional: paste a stream link (recorded or live) or a video file's path to learn from it" autocomplete="off" onkeydown="if(event.key==='Enter'&&!$('bAdd').disabled)start('add')"><button class="ghost" id="bAdd" onclick="start('add')">Learn from this</button></div></details>
  <div class="panel"><div class="now"><b id="now">Ready.</b><button class="stop" id="bStop" style="display:none" onclick="stopJob()">Stop</button></div>
-  <div class="bar"><i id="bar"></i></div><pre id="log"></pre></div>
- <div class="hint">To give it work: on the website open the Jumper, open an event, and in the Robot tracker box press <b>Send this event to the app</b>. Leave this window open; closing it stops everything.</div>
+  <div class="bar"><i id="bar"></i></div><details class="more"><summary>Details</summary><pre id="log"></pre></details></div>
+ <div class="hint">To give it work: on the website, Jumper → open an event → <b>Send this event to the app</b>.</div>
 </main>
 <main id="rev">
  <div class="top"><button class="ghost" onclick="closeReview()">← Back</button><b id="revLeft"></b><span class="sp"></span>
@@ -1677,7 +1723,7 @@ function paint(){
  $('key').style.display=st.key?'none':'block';
  $('revN').textContent=st.waiting+' waiting · '+st.done+' reviewed';
  $('bRev').disabled=!st.waiting;
- $('trackN').textContent=st.task==='track'?'Running. It starts by itself when this window opens.':' ';
+ $('trackN').textContent=st.task==='track'?'Running':' ';
  const need=Math.max(0,150-st.gold);
  $('trainN').textContent=need?('Review '+need+' more frames first'):(st.last?('Last: new '+st.last.new+' vs current '+st.last.old+(st.last.better?' · published':' · not published')):(st.gold+' reviewed frames ready'));
  for(const b of ['bTrack','bTrain','bAdd'])$(b).disabled=st.busy||(b==='bTrain'&&need>0)||(b==='bTrack'&&!st.key);
