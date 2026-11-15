@@ -11,6 +11,7 @@ written against (`/home/claude/vex-scouting`), so change those first.
   server, training set, scoring, publishing in parts. Needs
   `run/vex_trainer.py` and `run/models/*.onnx` copied in first.
 - `val.mjs`: what `e2e.py` posted is accepted by `api/tracker.js`.
+- `ui.py` then `ui.cjs`: the window, driven in Chromium against a stand-in website (22 checks).
 
 Not covered anywhere: DirectML on a real graphics card, yt-dlp downloads, and
 training (PyTorch + ultralytics). Those first ran on the owner's machine.

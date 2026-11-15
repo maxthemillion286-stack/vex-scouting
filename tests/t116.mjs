@@ -119,6 +119,15 @@ const f = n => win.eval(n);
   ok('the app saves recordings in the website\'s format', /'v': 2/.test(app) && /def pack_frame/.test(app) && /'tm': \[\]/.test(app));
   ok('the app never publishes a finder by itself', /Type YES to publish it anyway/.test(app) && /if pick != '1':\s+return/.test(app));
   ok('the review page is only on this computer', /ThreadingHTTPServer\(\('127\.0\.0\.1', port\)/.test(app));
+  // v111: the window
+  ok('the app opens a window, not a menu', /def serve_ui\(/.test(app) && /if not args:[\s\S]{0,400}return serve_ui\(cfg\)/.test(app));
+  ok('three main buttons: Track, Review, Train', (app.match(/<div class="card"><h2>/g) || []).length === 3);
+  ok('the window is served to this computer only', /ThreadingHTTPServer\(\('127\.0\.0\.1', p\), H\)/.test(app));
+  ok('every request needs the window\'s own token', /secrets\.compare_digest\(given, token\)/.test(app) && /if not self\._allowed\(u\):\s+return self\._send\(403/.test(app));
+  ok('a request under another host name is refused', /if host not in \('127\.0\.0\.1', 'localhost'\):\s+return False/.test(app));
+  ok('tracking starts with the window once the key is saved', /if cfg\.get\('key'\):\s+job\.start\('track', \['--track'\]\)/.test(app));
+  ok('a new finder is published only if it measured better', /if info\['new'\]\[2\] <= info\['old'\]\[2\]:\s+return/.test(app));
+  ok('a button can only start one of four known jobs', /return self\._send\(400, \{'error': 'unknown task'\}\)/.test(app));
 }
 ok('release is v109 or later', /const APP_BUILD = 'v1(09|[1-9]\d)'/.test(idx));
 console.log(`\n${pass} passed, ${fail} failed`);
