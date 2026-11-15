@@ -11,6 +11,7 @@ ok('without the window\'s token nothing is served', bare.status() === 403);
 const wrongHost = await pg.request.get(url.replace('/?t=', '/api/state?t='), { headers: { Host: 'evil.example' } });
 ok('a request under another site\'s name is refused', wrongHost.status() === 403);
 await pg.goto(url); await pg.waitForTimeout(1500);
+ok('the log and the extra box are folded away until asked for', !(await pg.locator('#log').isVisible()) && !(await pg.locator('#src').isVisible()));
 ok('three main buttons', await pg.locator('.card button').count() === 3);
 ok('it asks for the admin key first', await pg.locator('#key').isVisible());
 ok('tracking is not offered without the key', await pg.locator('#bTrack').isDisabled());
@@ -31,6 +32,7 @@ await pg.screenshot({ path: 'ui-run.png' });
 await pg.click('#bStop'); await pg.waitForTimeout(1500);
 ok('Stop stops it', /Stopped\./.test(await pg.textContent('#log')) && !(await pg.locator('#bStop').isVisible()));
 // learn from a file that is not there
+await pg.click('details.more > summary >> nth=0');
 await pg.fill('#src', 'C:\\nothing\\here.mp4'); await pg.click('#bAdd'); await pg.waitForTimeout(7000);
 ok('a bad path is answered plainly', /neither a file on this computer nor a link/.test(await pg.textContent('#log')), (await pg.textContent('#log')).slice(-200));
 // review

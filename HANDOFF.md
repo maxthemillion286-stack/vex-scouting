@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v114**. Everything green: 79 test files. (The `v19` in §8's
+Current release: **v115**. Everything green: 80 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -412,6 +412,7 @@ proxy is at `api/proxy.js`.
 | t116 | **v109** — desktop app: jobs, import, published finder — §32d |
 | t117 | **v112** — stream finding reads YouTube's search page before the paid search |
 | t118 | **v114** — briefing, clips, review anywhere, organiser channels, tracking in win chances — §32e |
+| t119 | **v115** — pins found by colour and size, counted on a marked field; the short report — §32f |
 | sanity | CSS braces balance, inline JS parses, tabs present |
 | tool_sanity | Same for anchor-tool.html |
 
@@ -2761,6 +2762,50 @@ strategy they run, and scoring speed (study the game override …). 10, 11".
   `Video` tries `CAP_PROP_HW_ACCELERATION` and keeps it only after a real
   frame and a seek that lands; `hw_decode: false` in config.json turns it off.
 - Unverified on real data, all of it. Rendered at phone width in Chromium.
+
+## 32f. v115 — counting pins; the short report
+
+Asked: "why is it unable to count pins scored? if a human can so should a
+machine", then, with the manual's Figure P-1 (a pin: ~40 mm across, 165 mm
+tall, two halves, each red, blue or yellow; four kinds: red/blue, red/yellow,
+blue/yellow, yellow/yellow): "can it use this as a baseline? build it now …
+and make the overviews simple and app simple".
+
+- **Finding** — no trained model. `vtPinClass` (one pixel → red/blue/yellow),
+  `vtPinBlobs` (4-connected patches, ≥10 px, ≤8% wide, ≤20% tall, not inside a
+  robot's box grown 6%), on the tile drawn 960 wide, every 2 s of video.
+  Python: `pin_blobs`, same numbers; on one picture both find the identical 14
+  blobs. Recorded as `rec.pn = [tenths, n, (x, footY, w, h, area, colour)×n, …]`
+  with `pw`, `ph`; ≤36,000 ints (`validRec` allows 40,000).
+- **Counting** — `vtPinCount(rec, quad, turnK, track, ph)`, only with a marked
+  field. A patch's foot → field place; its area ÷ the area half a pin has at
+  that spot (camera scale from the homography; 0.75 × 40 mm × 82.5 mm × 0.9)
+  → halves. 8×8 grid; per square, median of five looks minus the pre-match
+  median = pins moved there and left. When a quadrant's total rises ≥0.4, the
+  robot that came closest (12 s back) to where it rose is credited: `ys`
+  yellow halves, `as` its own colour's (own alliance's robots only). Summary
+  top level: `py`, `pr`, `pb`, `pk`. `VT_SUM_V` not bumped.
+- **What it cannot do**, and the report says so: tell a pin on a goal from one
+  beside it; see a stack a robot is parked in front of for long; know who
+  owned the toggle, so "worth N" is "when its alliance holds that toggle".
+  Elevated pins project further from the camera than their base, so a tall
+  stack can land in a neighbouring square; the before/after difference still
+  holds because it lands there every look.
+- **Check**: `desktop/dev/pins.py` draws a match (six yellow pins by one red
+  robot, two red-over-yellow by the other, four untouched, one carried), the
+  app tracks it, `tests/fixtures/pins_rec.json` is that recording, t119 counts
+  from it on the page: 15.9 / 2.9 yellow halves, 2.8 red, blue 0, untouched
+  and carried pins not counted. Drawn pins are a pixel wide of true, hence
+  ~1.3× high. **Never run on real footage**: the yellow test, the size limits
+  and the half-pin area are from the manual's numbers, not from a stream. The
+  preview draws a mark on everything it takes for a pin, and the status line
+  counts "pin sightings" — that is how to see whether it is right.
+- **Short report**: `vtReportHtml` opens with up to five lines (Autonomous,
+  Strategy, Scoring from `rep.brief` = `vtBrief`; Best at; Watch for) and puts
+  the whole previous report inside `<details class="vr-more">`. The main team
+  page is untouched (v103's simplification of it was reverted on request).
+- **App window**: shorter card text; the log and the paste box are inside
+  `<details>`.
 
 ## 33. Feature ideas
 

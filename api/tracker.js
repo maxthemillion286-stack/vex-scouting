@@ -92,7 +92,10 @@ export function validRec(rec) {
     if (!Array.isArray(fr) || fr.length > 2 + per * 40 || !fr.every(v => Number.isInteger(v) && v > -100000 && v < 100000)) return 'bad frame';
     if (fr.length < 2 || fr.length !== 2 + per * fr[1]) return 'bad frame length';
   }
-  const allowed = ['v', 'name', 'round', 'num', 'red', 'blue', 'rs', 'bs', 'vid', 'off', 'rate', 'w', 'h', 'model', 'at', 'f', 'wide', 'tm'];
+  const allowed = ['v', 'name', 'round', 'num', 'red', 'blue', 'rs', 'bs', 'vid', 'off', 'rate', 'w', 'h', 'model', 'at', 'f', 'wide', 'tm', 'pn', 'pw', 'ph'];
+  // Pin sightings: [tenths, how many, then six whole numbers each: x, y, w, h, area, colour].
+  if (rec.pn != null && !(Array.isArray(rec.pn) && rec.pn.length <= 40000 && rec.pn.every(v => Number.isInteger(v) && v > -100000 && v < 10000000))) return 'bad pins';
+  for (const k of ['pw', 'ph']) if (rec[k] != null && !(Number.isInteger(rec[k]) && rec[k] > 0 && rec[k] < 10000)) return 'bad ' + k;
   // The stream's clock as it was read: [tenths of a second, seconds on the clock, …].
   if (rec.tm != null && !(Array.isArray(rec.tm) && rec.tm.length <= 400 && rec.tm.length % 2 === 0 && rec.tm.every(v => Number.isInteger(v) && v > -100000 && v < 100000))) return 'bad clock';
   for (const k of Object.keys(rec)) if (!allowed.includes(k)) return 'unknown field ' + k.slice(0, 20);
