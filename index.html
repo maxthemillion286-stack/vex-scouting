@@ -2494,6 +2494,8 @@
   .vt-player { min-width: 200px; min-height: 200px; }
   .vt-players { display: grid; grid-template-columns: 1fr 1fr; gap: 0; background: #000; border-radius: var(--r-md); overflow: hidden; }
   .vt-players.vt-p1 { grid-template-columns: 1fr; }
+  /* Six: three across, let out of the page's column so each stays as wide as one of four. */
+  .vt-players.vt-p6 { grid-template-columns: 1fr 1fr 1fr; width: min(96vw, 1680px); margin-left: calc((100% - min(96vw, 1680px)) / 2); }
   .vt-player { aspect-ratio: 16 / 9; background: #000; overflow: hidden; position: relative; }
   .vt-player.vt-idle::after { content: 'Waiting for a match with video'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
     background: #0c0c0c; color: var(--text-muted); font-family: var(--body); font-size: 13px; text-align: center; padding: 8px; }
@@ -3676,7 +3678,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v118';
+const APP_BUILD = 'v119';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -8025,7 +8027,7 @@ const VT_CONF = 0.45, VT_IOU = 0.5;
 const VT_RATE = 2;              // playback speed while watching
 const VT_LEAD = 3;              // seconds watched before the match's position
 const VT_WINDOW = 150;          // seconds of video per match: 15 s auto, the pause, 1:45 driver, a little after
-const VT_MAX_PARALLEL = 4;      // matches watched at once
+const VT_MAX_PARALLEL = 4;      // matches watched at once; six on a wide screen with the processor for it (vtParallel)
 const VT_TICK_MS = 60;          // how often a player is offered a look; it takes one whenever its finder is free
 const VT_MAX_LOOKS_PER_SEC = 6;   // of match time, per match: more than this is not worth storing
 const VT_GIVE_UP_SEC = 25;        // seconds of a match's video with no robots before it is abandoned
@@ -8450,6 +8452,10 @@ function vtFinder() {
 // video stream; past four the players get too small for the finder to see.
 function vtParallel() {
   const cores = Number(navigator.hardwareConcurrency) || 4;
+  // Six, three across, when the window is wide and tall enough for six
+  // players as big as four are now (each must keep its size: plates are read
+  // off them) and the processor has the threads. Otherwise four as before.
+  if (cores >= 12 && window.innerWidth >= 1700 && window.innerHeight >= 760) return 6;
   return Math.max(1, Math.min(VT_MAX_PARALLEL, Math.floor(cores / 2)));
 }
 
@@ -9206,13 +9212,13 @@ async function vtAppImport(quiet) {
       const [idx, shared, jr] = await Promise.all([vtLocalIndex(ev), vtSharedIds(ev), vtApi('GET', '?jobs=' + encodeURIComponent(ev))]);
       const jobs = (jr.ok && jr.body.list) || [], want = new Set(jobs.map(j => String(j.id)));
       const todo = shared.filter(id => want.has(id) && !(idx[id] && idx[id].s === 'done'));
-      for (const id of todo) {
-        if (vtRun) break;
-        const m = await vtApi('GET', `?event=${encodeURIComponent(ev)}&match=${encodeURIComponent(id)}`);
-        if (!m.ok || !m.body.rec || !Array.isArray(m.body.rec.f)) continue;
-        await vtLocalSave(ev, id, m.body.rec, 'done');
-        got++;
-        if (got % 5 === 0) say(`Bringing in what the app tracked: ${got} matches…`);
+      // Fetched six at a time (one at a time took minutes for a season of
+      // matches); saved one at a time, because saving rewrites one shared index.
+      for (let at = 0; at < todo.length && !vtRun; at += 24) {
+        const batch = todo.slice(at, at + 24);
+        const recs = await sim_pool(batch, async id => { try { const m = await vtApi('GET', `?event=${encodeURIComponent(ev)}&match=${encodeURIComponent(id)}`); return m.ok && m.body.rec && Array.isArray(m.body.rec.f) ? m.body.rec : null; } catch (e) { return null; } }, 6);
+        for (let k = 0; k < batch.length; k++) { if (!recs[k]) continue; await vtLocalSave(ev, batch[k], recs[k], 'done'); got++; }
+        say(`Bringing in what the app tracked: ${got} matches…`);
       }
       if (todo.length) await vtBackfill(ev, true);
       // Every match the app was asked for is in: that event's work is done.
@@ -9872,6 +9878,7 @@ async function vtBackfill(ev, force) {
   const idx = await vtLocalIndex(ev), all = await vtSumsLocal(), fields = {};
   const field = async vid => { if (!(vid in fields)) fields[vid] = vid ? await vtFieldGet(vid) : null; return fields[vid]; };
   let made = 0, idxChanged = false;
+  const toPost = [];
   const done = Object.keys(idx).filter(id => idx[id].s === 'done');
   // A video with no corners yet: guess them from every recording of it here.
   const need = new Map();
@@ -9898,10 +9905,12 @@ async function vtBackfill(ev, force) {
     if (!rec) continue;
     const sum = vtSummarise(rec, quad, await vtLearnGet(idx[id].vid));
     all[ev + ':' + id] = sum; made++;
-    const pass = vtPass();
-    if (pass) { try { await vtApi('POST', '', { passcode: pass, ev: String(ev), id: String(id), sum }); } catch (e) {} }
+    toPost.push([id, sum]);
   }
   if (made) await idbSet(VT_SUMS_KEY, all);
+  // Shared six at a time, after they are safe on this device.
+  const pass = vtPass();
+  if (pass && toPost.length) await sim_pool(toPost, async ([id, sum]) => { try { await vtApi('POST', '', { passcode: pass, ev: String(ev), id: String(id), sum }); } catch (e) {} }, 6);
   if (idxChanged) await idbSet('vt:idx:' + ev, idx);
   return made;
 }

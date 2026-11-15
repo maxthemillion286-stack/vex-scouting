@@ -235,6 +235,17 @@ console.log('\n· settings, and the top tabs');
   const app = fs.readFileSync('../desktop/vex_trainer.py', 'utf8');
   ok('so does the app', /def key_problem/.test(app) && /no passcode is set/.test(app) && /it answered 404/.test(app));
 }
+// v119: six players only where there is room and power for them
+{
+  const P = win.eval('vtParallel');
+  const set = (cores, w, h) => { Object.defineProperty(win.navigator, 'hardwareConcurrency', { value: cores, configurable: true }); win.innerWidth = w; win.innerHeight = h; };
+  set(16, 1920, 1000); ok('a wide screen and sixteen threads: six at once', P() === 6);
+  set(16, 1500, 1000); ok('the same machine in a narrow window: four', P() === 4);
+  set(16, 1920, 700); ok('or a short one: four', P() === 4);
+  set(8, 1920, 1000); ok('eight threads: four', P() === 4);
+  set(4, 1920, 1000); ok('four threads: two', P() === 2);
+  ok('six are laid three across at the size four have', /\.vt-players\.vt-p6 \{ grid-template-columns: 1fr 1fr 1fr; width: min\(96vw, 1680px\)/.test(idx));
+}
 win.close();
 console.log(`\nt112: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

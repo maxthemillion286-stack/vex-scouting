@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v118**. Everything green: 80 test files. (The `v19` in §8's
+Current release: **v119**. Everything green: 80 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -2836,6 +2836,20 @@ a plain http(s) file and falls back to yt-dlp on any failure.
 `desktop/dev/par.py` checks it against a local range server (identical file,
 20 at once, nothing left behind on a refusal). Not run against YouTube; if it
 answers 403 to parallel ranges the fallback is the old speed.
+
+**v119 — "push it to its limits".** Measured first; changed only what waited
+on something it did not need to.
+- App: the next video downloads while the current one is tracked (`fetch`
+  thread, one ahead); 32 connections per download.
+- Page: `vtAppImport` fetches recordings 6 at a time (was one; a season took
+  minutes) and still saves them one by one (shared index); `vtBackfill` posts
+  summaries 6 at a time after saving them locally. `vtParallel` gives 6
+  players (3 across, stage widened to `min(96vw, 1680px)`) when
+  `hardwareConcurrency ≥ 12`, window ≥1700×760; else as before.
+- Measured and left alone: summarising a match is 45 ms (19 of it `vtSlots`);
+  the page head already defers fonts; index.html is 950 KB / ~270 KB gzipped
+  and cached by the service worker after one visit — shrinking it needs a
+  build step, and the tests would then be testing a file that is not served.
 
 ## 33. Feature ideas
 

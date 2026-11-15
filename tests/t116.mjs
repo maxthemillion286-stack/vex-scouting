@@ -123,8 +123,13 @@ const f = n => win.eval(n);
   ok('Enter saves the key in the app', /id="keyIn"[^>]*onkeydown="if\(event\.key==='Enter'\)saveKey\(\)"/.test(app));
   ok('the app says what happened to the key, also when nothing answers', /Checking with the website/.test(app) && /did not answer/.test(app) && /Type the admin key first/.test(app));
   ok('Enter saves the key on the website', /id="vtPassInput"[^>]*onkeydown="if\(event\.key==='Enter'\)\{event\.preventDefault\(\);vtPassSave\(\);\}"/.test(idx));
+  // v119: nothing waits that does not have to
+  ok('the next video downloads while this one is tracked', /ahead = \(nxt, threading\.Thread\(target=fetch, args=\(nxt,\), daemon=True\)\)/.test(app));
+  ok('the app\'s recordings come in six at a time', /sim_pool\(batch, async id =>/.test(idx) && /\}, 6\);\n        for \(let k = 0; k < batch\.length; k\+\+\)/.test(idx));
+  ok('but are saved one at a time (they share an index)', /await vtLocalSave\(ev, batch\[k\], recs\[k\], 'done'\); got\+\+;/.test(idx));
+  ok('summaries are shared six at a time, after they are saved here', idx.indexOf("if (made) await idbSet(VT_SUMS_KEY, all);") < idx.indexOf("await sim_pool(toPost,") && /sim_pool\(toPost,/.test(idx));
   // v118: many connections
-  ok('a plain file is fetched over many connections at once', /def fetch_parallel\(url, dest, headers=None, total=0, conns=24, piece=8 \* 1024 \* 1024/.test(app) && /Range='bytes=%d-%d' % \(a, b\)/.test(app));
+  ok('a plain file is fetched over many connections at once', /def fetch_parallel\(url, dest, headers=None, total=0, conns=32, piece=8 \* 1024 \* 1024/.test(app) && /Range='bytes=%d-%d' % \(a, b\)/.test(app));
   ok('a refusal falls back to the ordinary download', /the fast way was refused; downloading the ordinary way/.test(app) && /info = y\.extract_info\(url, download=True\)/.test(app));
   // v117: downloads
   ok('the downloader gets what YouTube needs now, by itself', /def ensure_downloader/.test(app) && /yt-dlp\[default\]/.test(app) && /deno-x86_64-pc-windows-msvc\.zip/.test(app));

@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.7'
+VERSION = '2.8'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -888,13 +888,13 @@ def ensure_downloader():
             say('  could not get it (%s); downloading the slower way.' % str(e)[:100])
     return bool(shutil.which('deno'))
 
-def fetch_parallel(url, dest, headers=None, total=0, conns=24, piece=8 * 1024 * 1024, report=None):
+def fetch_parallel(url, dest, headers=None, total=0, conns=32, piece=8 * 1024 * 1024, report=None):
     """One file over many connections at once, each asking for its own range.
 
     Reported, with a gigabit line: "downloading: 13% of 6232 MB at 11.6 MB/s".
     YouTube gives each connection about that much and no more, however fast
     the line is. The file it serves is an ordinary one that can be asked for
-    in ranges, so it is asked for in 8 MB pieces over 24 connections at once
+    in ranges, so it is asked for in 8 MB pieces over 32 connections at once
     and each piece is written where it belongs. → True when the whole file is
     there; False (and nothing left behind) if any piece could not be had.
     """
@@ -1039,12 +1039,34 @@ def do_jobs(cfg):
     workers = max(1, int(cfg.get('workers', 4)))
     totals = {'ok': 0, 'no': 0, 'plates': 0, 'clock': 0, 'looks': 0}
     t_all = time.time()
-    for n, (vid, pairs) in enumerate(sorted(todo.items(), key=lambda kv: -len(kv[1])), 1):
-        say('\nVideo %d of %d (%s): %d matches' % (n, len(todo), vid, len(pairs)))
-        path = find_video(cfg, vid)
-        if not path:
-            say('  downloading it (this is the slow part; a long stream is a few GB)…')
-            path = download(vid, os.path.join(DIRS['videos'], vid))
+    # The next video is fetched while this one is being tracked: downloading
+    # uses the network and tracking the processor and graphics card, so neither
+    # waits for the other.
+    order = sorted(todo.items(), key=lambda kv: -len(kv[1]))
+    fetched = {}
+    def fetch(vid):
+        try:
+            fetched[vid] = find_video(cfg, vid) or download(vid, os.path.join(DIRS['videos'], vid))
+        except Exception as e:
+            say('  could not get %s: %s' % (vid, str(e)[:120]))
+            fetched[vid] = None
+    ahead = None
+    for n, (vid, pairs) in enumerate(order, 1):
+        say('\nVideo %d of %d (%s): %d matches' % (n, len(order), vid, len(pairs)))
+        if ahead and ahead[0] == vid:
+            if ahead[1].is_alive():
+                say('  finishing its download…')
+            ahead[1].join()
+        else:
+            if not find_video(cfg, vid):
+                say('  downloading it…')
+            fetch(vid)
+        path = fetched.get(vid)
+        ahead = None
+        if n < len(order):
+            nxt = order[n][0]
+            ahead = (nxt, threading.Thread(target=fetch, args=(nxt,), daemon=True))
+            ahead[1].start()
         if not path or not os.path.exists(path):
             say('  no video, skipped. If you have the file, choose "Use a video file I already have" and point it at this stream.')
             totals['no'] += len(pairs)
