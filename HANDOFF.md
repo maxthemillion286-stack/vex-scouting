@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v109**. Everything green: 77 test files. (The `v19` in §8's
+Current release: **v110**. Everything green: 77 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -2676,6 +2676,8 @@ the website. Owner's machine: RTX 5070 Ti, 9800X3D, Windows.
 - **Downloading streams is against YouTube's terms**; the owner was told and
   chose it. Files he already has can be mapped instead (menu 4).
 - **Never run by me:** DirectML, yt-dlp, torch/ultralytics training, the .bat.
+
+**v110:** the Desktop app row (`#vtAppRow`) is always rendered on a computer — also in a team's view and in browsers that cannot capture a tab — and without the admin key it says so with a link to Settings, instead of being absent.
 
 ## 33. Feature ideas
 

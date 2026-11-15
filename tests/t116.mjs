@@ -99,7 +99,8 @@ const f = n => win.eval(n);
   ok('a second pass brings in nothing new', await f('vtAppImport')(false) === 0 && !win.__posts116.some(p => p.sum));
   win.eval(`lsRemove(VT_PASS_KEY)`);
   ok('without the admin key nothing is imported', await f('vtAppImport')(false) === 0);
-  ok('only an admin is offered the app buttons', /\$\{ctx\.team \|\| !vtPass\(\) \? '' : `<div class="rw-hint"><strong>Desktop app\.<\/strong>/.test(idx));
+  ok('the app row is always there on a computer', /const appRow = `<div class="rw-hint" id="vtAppRow">/.test(idx) && (idx.match(/\$\{appRow\}/g) || []).length === 2);
+  ok('only an admin gets the buttons; anyone else is told what is missing', /\$\{vtPass\(\) \? `<div class="rw-playall">/.test(idx) && /save the admin key on this device first/.test(idx));
   ok('sending work needs the key', /if \(!pass\) return say\('Save the admin key in Settings first/.test(idx));
   ok('the quiet import is not run on every redraw', /if \(quiet && Date\.now\(\) - vtImportAt < 60000\) return 0;/.test(idx));
 }
