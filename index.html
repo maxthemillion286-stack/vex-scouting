@@ -3652,7 +3652,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v109';
+const APP_BUILD = 'v110';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -9342,9 +9342,20 @@ async function vtRender(note) {
   if (vsIsPhone() || !ctx || !ctx.eventId) { panel.innerHTML = ''; return; }
   const queue = vtQueueFrom(ctx);
   const ev = String(ctx.eventId);
+  // The desktop app's row. Always shown on a computer, so it can be found:
+  // reported as "i cant find the spot in the website where it says send this
+  // event to app". Without the admin key it says what is missing instead of
+  // not being there at all.
+  const appRow = `<div class="rw-hint" id="vtAppRow"><strong>Desktop app.</strong> The app on your computer watches video files many times faster than this page can play them, and can retrain the robot finder. Send it the matches to watch; what it tracks comes back here by itself.</div>
+    ${vtPass() ? `<div class="rw-playall">${queue.length ? `<button class="btn btn-primary" onclick="vtJobsSend('here')">Send ${ctx.team && ctx.team.number ? esc(ctx.team.number) + "'s matches here" : 'this event'} to the app</button>` : ''}
+      ${ctx.team ? '' : `<button class="btn btn-secondary" onclick="vtJobsSend('history')">Send these teams' earlier matches to the app</button>`}
+      <button class="btn btn-secondary" onclick="vtAppImport()">Bring in what the app tracked</button></div>`
+      : `<div class="vt-note">To use it, save the admin key on this device first: <button class="set-link" onclick="switchTab('settings')">open Settings</button>, type it under Admin key and press Save, then come back here.</div>`}
+    <div class="vt-note" id="vtAppState"></div>`;
   if (!vtSupported()) {
     panel.innerHTML = `<div class="rw-block vt-block"><div class="detail-block-label">Robot tracker</div>
-      <div class="rw-hint">The tracker watches matches by capturing this tab, which needs Chrome or Edge on a computer.</div></div>`;
+      <div class="rw-hint">Tracking in this page captures the tab, which needs Chrome or Edge on a computer. The desktop app does not need that.</div>
+      ${appRow}</div>`;
     return;
   }
   const local = await vtLocalIndex(ev);
@@ -9376,11 +9387,7 @@ async function vtRender(note) {
     ${history}
     ${ctx.team ? '' : `<div class="rw-hint"><strong>Live.</strong> While the event is being played, follow its stream and track each match as it happens. It reads the match name off the stream to know which match is on, so it needs no schedule times.</div>
     <div class="rw-playall"><button class="btn btn-secondary" onclick="vtStart('live')">Track live</button></div>`}
-    ${ctx.team || !vtPass() ? '' : `<div class="rw-hint"><strong>Desktop app.</strong> The app on your computer watches video files many times faster than this page can play them, and can retrain the robot finder. Send it the matches to watch; what it tracks comes back here by itself.</div>
-    <div class="rw-playall">${hasHere ? `<button class="btn btn-secondary" onclick="vtJobsSend('here')">Send this event to the app</button>` : ''}
-      <button class="btn btn-secondary" onclick="vtJobsSend('history')">Send these teams' earlier matches to the app</button>
-      <button class="btn btn-secondary" onclick="vtAppImport()">Bring in what the app tracked</button></div>
-    <div class="vt-note" id="vtAppState"></div>`}
+    ${appRow}
     <div class="rw-hint"><strong>Field positions.</strong> For toggle, role and route details the tracker needs the field's four corners in this stream. Open a match in the player above (▶), pause on a view of the whole field, then:</div>
     <div class="rw-playall"><button class="btn btn-secondary" onclick="vtMarkField()">Mark the field</button></div>
     <div class="rw-hint">Chrome will ask what to share: choose <strong>This tab</strong>.</div>
