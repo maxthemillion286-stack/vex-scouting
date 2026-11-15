@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.0'
+VERSION = '2.1'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -1490,7 +1490,7 @@ UI_HTML = r"""<!doctype html><html lang="en"><meta charset="utf-8"><meta name="v
  <span class="pill" id="keyPill">…</span><button class="ghost" onclick="openSettings()">Settings</button></header>
 <main id="home">
  <div class="panel" id="key"><b>Enter the admin key once</b><div class="hint" style="margin-top:4px">The same key that is saved in the website's Settings. It is kept on this computer and sent only to your website.</div>
-  <div class="row"><input id="keyIn" type="password" placeholder="Admin key" autocomplete="off"><button onclick="saveKey()">Save</button></div><div class="hint" id="keyMsg"></div></div>
+  <div class="row"><input id="keyIn" type="password" placeholder="Admin key" autocomplete="off" onkeydown="if(event.key==='Enter')saveKey()"><button id="bKey" onclick="saveKey()">Save</button></div><div class="hint" id="keyMsg"></div></div>
  <div class="cards">
   <div class="card"><h2>1 · Track</h2><p>Watches every match the website asked for and sends the results back. Then keeps checking for more by itself.</p>
    <div class="n" id="trackN">&nbsp;</div><button id="bTrack" onclick="start('track')">Start tracking</button></div>
@@ -1499,7 +1499,7 @@ UI_HTML = r"""<!doctype html><html lang="en"><meta charset="utf-8"><meta name="v
   <div class="card"><h2>3 · Train</h2><p>Trains a new robot finder on your graphics card, tests it against the current one, and publishes it to the website only if it is better.</p>
    <div class="n" id="trainN">&nbsp;</div><button id="bTrain" onclick="start('train')">Train</button></div>
  </div>
- <div class="add"><input id="src" placeholder="Optional: paste a stream link (recorded or live) or a video file's path to learn from it" autocomplete="off"><button class="ghost" id="bAdd" onclick="start('add')">Learn from this</button></div>
+ <div class="add"><input id="src" placeholder="Optional: paste a stream link (recorded or live) or a video file's path to learn from it" autocomplete="off" onkeydown="if(event.key==='Enter'&&!$('bAdd').disabled)start('add')"><button class="ghost" id="bAdd" onclick="start('add')">Learn from this</button></div>
  <div class="panel"><div class="now"><b id="now">Ready.</b><button class="stop" id="bStop" style="display:none" onclick="stopJob()">Stop</button></div>
   <div class="bar"><i id="bar"></i></div><pre id="log"></pre></div>
  <div class="hint">To give it work: on the website open the Jumper, open an event, and in the Robot tracker box press <b>Send this event to the app</b>. Leave this window open; closing it stops everything.</div>
@@ -1540,7 +1540,11 @@ function paint(){
 }
 async function start(task){const r=await api('/api/start',{task,src:$('src').value});if(r.error)alert(r.error);if(task==='add'&&!r.error)$('src').value='';poll()}
 async function stopJob(){await api('/api/stop',{});poll()}
-async function saveKey(){$('keyMsg').textContent='Checking…';const r=await api('/api/key',{key:$('keyIn').value});$('keyMsg').textContent=r.ok?'':(r.error||'Not accepted.');poll()}
+async function saveKey(){const v=$('keyIn').value.trim();if(!v){$('keyMsg').textContent='Type the admin key first.';return}
+ $('keyMsg').textContent='Checking with the website…';$('bKey').disabled=true;
+ try{const r=await api('/api/key',{key:v});$('keyMsg').textContent=r.ok?'Saved.':(r.error||'Not accepted.')}
+ catch(e){$('keyMsg').textContent='The program behind this window did not answer. Close it and run VEX_Trainer.bat again.'}
+ $('bKey').disabled=false;poll()}
 async function forgetKey(){await api('/api/key',{key:''});dlg.close();poll()}
 function openSettings(){$('sWorkers').value=st.workers;$('sKeep').checked=st.keep;dlg.showModal()}
 async function saveSettings(){await api('/api/settings',{workers:+$('sWorkers').value,keep:$('sKeep').checked});dlg.close();poll()}

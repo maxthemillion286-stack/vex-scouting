@@ -3023,7 +3023,7 @@
       <h3 class="set-h">Admin key</h3>
       <p class="set-p">With the admin key saved here, what this device works out is shared with every device: the robot tracker's recordings, and the stream links you find or paste in the Jumper. Reading needs no key.</p>
       <div class="fav-add">
-        <input type="password" id="vtPassInput" placeholder="Admin key" autocomplete="off" enterkeyhint="done">
+        <input type="password" id="vtPassInput" placeholder="Admin key" autocomplete="off" enterkeyhint="done" onkeydown="if(event.key==='Enter'){event.preventDefault();vtPassSave();}">
         <button class="btn btn-primary" onclick="vtPassSave()">Save</button>
       </div>
       <div class="set-state" id="vtSetState"></div>
@@ -3652,7 +3652,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v111';
+const APP_BUILD = 'v112';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -4148,7 +4148,7 @@ const RW_MAX_BROADCAST_SEC = 14 * 3600;
 //
 // Bump this ONLY when the lookup changes in a way that makes old answers
 // wrong. A cosmetic or client-side release should reuse what is cached.
-const RW_STREAM_LOGIC = 'L5';
+const RW_STREAM_LOGIC = 'L6';
 
 let rwEventStartDay = null;
 

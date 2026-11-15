@@ -18,7 +18,7 @@ export const config = { maxDuration: 60 };
 // Bumped whenever the streams lookup changes. Surfaced in `diag` and in every
 // streams response so the debug page can prove WHICH proxy is actually live —
 // a stale cached reply is otherwise indistinguishable from a fresh failure.
-const PROXY_BUILD = 'v111';
+const PROXY_BUILD = 'v112';
 // A failed stream lookup is expensive (page race + a YouTube search), and the
 // answer rarely changes within a session. Cache the miss too, or every revisit
 // pays the full cost again.
@@ -757,6 +757,34 @@ function bareQuery(name) {
 // weeks ahead of the event falls outside any sane window and is never seen.
 // Searching wide and then filtering on actualStartTime fixes that, and costs
 // a single extra unit.
+// YouTube's search results page, read as a visitor would get it: no key, no
+// quota. → the same shape search.list gives ({ id: { videoId }, snippet: {
+// title } }), or [] when the page could not be had or read. Never throws.
+export function parseYtResults(html) {
+  const out = [], seen = new Set();
+  const re = /"videoRenderer":\{"videoId":"([A-Za-z0-9_-]{11})"[\s\S]{0,2500}?"title":\{"runs":\[\{"text":"((?:[^"\\]|\\.)*)"/g;
+  let m;
+  while ((m = re.exec(String(html || ''))) && out.length < 40) {
+    if (seen.has(m[1])) continue;
+    let title = '';
+    try { title = JSON.parse('"' + m[2] + '"'); } catch (e) { continue; }
+    seen.add(m[1]);
+    out.push({ id: { videoId: m[1] }, snippet: { title: String(title).slice(0, 200), description: '', publishedAt: null } });
+  }
+  return out;
+}
+async function ytPageSearch(q) {
+  try {
+    // sp=EgIQAQ== is the page's own "videos only" filter.
+    const r = await fetch('https://www.youtube.com/results?search_query=' + encodeURIComponent(q) + '&sp=EgIQAQ%253D%253D&hl=en&gl=US', {
+      headers: { ...BROWSER_HEADERS, 'Accept-Language': 'en-US,en;q=0.9', Cookie: 'CONSENT=YES+1; SOCS=CAI' },
+      signal: AbortSignal.timeout(6000)
+    });
+    if (!r.ok) return [];
+    return parseYtResults(await r.text());
+  } catch (e) { return []; }
+}
+
 async function searchYouTubeByName(name, startISO, endISO, ytKey) {
   const want = nameTokens(name);
   // Nothing distinctive left to match on — a search would be a coin flip.
@@ -795,12 +823,33 @@ async function searchYouTubeByName(name, startISO, endISO, ytKey) {
   // 50 rather than 25: the cost is the same 100 units either way (search.list
   // is priced per call, not per result), and a club that streams two grades
   // across two days puts four near-identical titles in the running at once.
+  // Asked: "why is it so hard for it to find the stream automatically even
+  // though the stream names are almost identical to the competition name".
+  // A large part of the answer is the price: search.list costs 100 of the
+  // key's 10,000 daily units, so about a hundred events a day can be looked
+  // up, and the tracker walking a season of earlier events spends that in
+  // minutes. Everything after it fails until the quota resets, whatever the
+  // stream is called.
+  //
+  // So YouTube's own search page is read first. It costs nothing, and it is
+  // the search a person types the event name into. Only when it gives no
+  // accepted stream (blocked, unreadable, or simply not there) is the paid
+  // search made, exactly as before — so nothing found before is lost.
   async function runQuery(q) {
+    const page = await ytPageSearch(q);
+    if (page.length) {
+      const viaPage = await judge(page);
+      if (viaPage.length) { viaPage.how = 'page'; return viaPage; }
+    }
     const j = await ytGet('search?part=snippet&type=video&maxResults=50&order=relevance' +
       '&q=' + encodeURIComponent(q) +
       '&publishedAfter=' + new Date(startMs - 60 * 86400e3).toISOString() +
       '&publishedBefore=' + new Date(endMs + 7 * 86400e3).toISOString(), 100, ytKey);
-    const items = (j && j.items) || [];
+    const out = await judge((j && j.items) || []);
+    out.how = 'api';
+    return out;
+  }
+  async function judge(items) {
     // Carried on the returned array so every caller keeps working unchanged.
     const withRejects = (arr, rejects, searched) => {
       arr.rejects = rejects; arr.searched = searched; return arr;

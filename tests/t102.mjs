@@ -315,7 +315,7 @@ console.log('\n· and it knows the offset before it needs it');
     /encodeURIComponent\(rwEventDays\[0\] \+ 'T00:00:00' \+ rwTzSuffix\(\)\)/.test(code),
     'a "+09:00" appended raw arrives as a space');
   ok('the lookup version moved, so yesterday\'s cached day assignment is not reused',
-    /const RW_STREAM_LOGIC = 'L5';/.test(code));
+    /const RW_STREAM_LOGIC = 'L[5-9]';/.test(code));
 }
 
 // ══ 6. "Upcoming" is a question about YOUR calendar ════════════════════════

@@ -119,6 +119,10 @@ const f = n => win.eval(n);
   ok('the app saves recordings in the website\'s format', /'v': 2/.test(app) && /def pack_frame/.test(app) && /'tm': \[\]/.test(app));
   ok('the app never publishes a finder by itself', /Type YES to publish it anyway/.test(app) && /if pick != '1':\s+return/.test(app));
   ok('the review page is only on this computer', /ThreadingHTTPServer\(\('127\.0\.0\.1', port\)/.test(app));
+  // v112: Enter saves the admin key, in the app and on the website
+  ok('Enter saves the key in the app', /id="keyIn"[^>]*onkeydown="if\(event\.key==='Enter'\)saveKey\(\)"/.test(app));
+  ok('the app says what happened to the key, also when nothing answers', /Checking with the website/.test(app) && /did not answer/.test(app) && /Type the admin key first/.test(app));
+  ok('Enter saves the key on the website', /id="vtPassInput"[^>]*onkeydown="if\(event\.key==='Enter'\)\{event\.preventDefault\(\);vtPassSave\(\);\}"/.test(idx));
   // v111: the window
   ok('the app opens a window, not a menu', /def serve_ui\(/.test(app) && /if not args:[\s\S]{0,400}return serve_ui\(cfg\)/.test(app));
   ok('three main buttons: Track, Review, Train', (app.match(/<div class="card"><h2>/g) || []).length === 3);
