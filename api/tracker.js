@@ -15,6 +15,10 @@
 //   GET  ?team=66449A            → { sums }           every tracked match of a team, summarised
 //   POST { passcode, check }     → { ok }             is this passcode right
 //   POST { passcode, ev, id, rec } → { ok }           save one match
+//   GET  ?jobs=1 | ?jobs=EV      → { events } | { list }   work for the desktop app
+//   POST { passcode, jobs: { ev, list } | { ev, done } }
+//   GET  ?model=1 | ?model=TAG&part=i → { model } | { b64 }   a finder trained in the app
+//   POST { passcode, model: { tag, i, n, b64 } | { clear } }
 //   GET  ?learn=VID              → { learn }          what was learned about a stream
 //   POST { passcode, learn }     → { ok }             save it
 //   GET  ?cal=EV                 → { cal }            the event's stream links, by day
@@ -161,6 +165,21 @@ export function validLearn(L) {
   }
   return null;
 }
+// Work for the desktop app: which matches to watch, and where each is in its
+// video. Written by the website (it knows the schedule and the stream), read
+// by the app. Team numbers, match names, video ids and numbers only.
+export function validJob(j) {
+  if (!j || typeof j !== 'object' || Array.isArray(j)) return 'bad job';
+  const num = v => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) < 1e14;
+  for (const k of Object.keys(j)) if (!['id', 'name', 'round', 'num', 'vid', 'off', 'red', 'blue', 'rs', 'bs', 't'].includes(k)) return 'unknown field';
+  if (!digits(j.id) || typeof j.vid !== 'string' || !/^[A-Za-z0-9_-]{6,20}$/.test(j.vid) || !num(j.off) || j.off < 0) return 'bad job';
+  if (typeof j.name !== 'string' || j.name.length > 60 || !/^[A-Za-z0-9 #.,()\/-]*$/.test(j.name)) return 'bad name';
+  for (const k of ['round', 'num', 'rs', 'bs', 't']) if (j[k] != null && !num(j[k])) return 'bad ' + k;
+  for (const side of ['red', 'blue']) if (!Array.isArray(j[side]) || j[side].length > 4 || !j[side].every(x => typeof x === 'string' && /^[A-Z0-9]{1,10}$/.test(x))) return 'bad teams';
+  return null;
+}
+const MODEL_PART_B64 = 900 * 1024, MODEL_MAX_PARTS = 80;
+const modelTag = v => typeof v === 'string' && /^[a-z0-9]{4,16}$/.test(v) ? v : null;
 const teamKey = v => /^[A-Z0-9]{1,10}$/.test(String(v || '').toUpperCase()) ? String(v).toUpperCase() : null;
 
 export default async function handler(req, res) {
@@ -180,6 +199,35 @@ export default async function handler(req, res) {
         let field = null;
         try { field = raw ? JSON.parse(raw) : null; } catch (e) {}
         return res.status(200).json({ db: true, field });
+      }
+      if (q.jobs !== undefined) {
+        if (!hasDb) return res.status(200).json({ db: false, events: [], list: [] });
+        if (String(q.jobs) === '1') {
+          const [evs] = await redis(E, [['SMEMBERS', 'vt:jobsets']]);
+          return res.status(200).json({ db: true, events: (evs || []).filter(v => digits(v)) });
+        }
+        const ev = digits(q.jobs);
+        if (!ev) return res.status(400).json({ error: 'jobs must be 1 or an event number' });
+        const [raw] = await redis(E, [['GET', `vt:jobs:${ev}`]]);
+        let list = [];
+        try { list = raw ? JSON.parse(raw).filter(j => !validJob(j)) : []; } catch (e) {}
+        return res.status(200).json({ db: true, list });
+      }
+      if (q.model !== undefined) {
+        // A robot finder trained in the desktop app, stored in parts.
+        if (!hasDb) return res.status(200).json({ db: false, model: null });
+        if (String(q.model) === '1') {
+          const [raw] = await redis(E, [['GET', 'vt:model:cur']]);
+          let model = null;
+          try { model = raw ? JSON.parse(raw) : null; } catch (e) {}
+          return res.status(200).json({ db: true, model });
+        }
+        const tag = modelTag(String(q.model)), part = digits(q.part);
+        if (!tag || part === null || Number(part) >= MODEL_MAX_PARTS) return res.status(400).json({ error: 'bad model part' });
+        const [b64] = await redis(E, [['GET', `vt:model:${tag}:${part}`]]);
+        if (!b64) return res.status(404).json({ error: 'no such part' });
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        return res.status(200).json({ b64 });
       }
       if (q.learn !== undefined) {
         const vid = String(q.learn);
@@ -243,6 +291,32 @@ export default async function handler(req, res) {
         if (!f || typeof f !== 'object' || !/^[A-Za-z0-9_-]{6,20}$/.test(String(f.vid || '')) || !Array.isArray(f.q) || f.q.length !== 8 ||
             !f.q.every(v => typeof v === 'number' && Number.isFinite(v) && v >= -0.5 && v <= 1.5)) return res.status(400).json({ error: 'bad field' });
         await redis(E, [['SET', `vt:field:${f.vid}`, JSON.stringify({ q: f.q, by: 'click', at: Date.now() })]]);
+        return res.status(200).json({ ok: true });
+      }
+      if (body.jobs !== undefined) {
+        const J = body.jobs, jev = J && digits(J.ev);
+        if (!jev) return res.status(400).json({ error: 'bad jobs' });
+        if (J.done) { await redis(E, [['DEL', `vt:jobs:${jev}`], ['SREM', 'vt:jobsets', jev]]); return res.status(200).json({ ok: true }); }
+        if (!Array.isArray(J.list) || !J.list.length || J.list.length > 600) return res.status(400).json({ error: 'bad jobs' });
+        for (const j of J.list) { const bad = validJob(j); if (bad) return res.status(400).json({ error: bad }); }
+        await redis(E, [['SET', `vt:jobs:${jev}`, JSON.stringify(J.list)], ['SADD', 'vt:jobsets', jev]]);
+        return res.status(200).json({ ok: true });
+      }
+      if (body.model !== undefined) {
+        const M = body.model;
+        if (M && M.clear) { await redis(E, [['DEL', 'vt:model:cur']]); return res.status(200).json({ ok: true }); }
+        const tag = M && modelTag(M.tag);
+        if (!tag || !Number.isInteger(M.i) || !Number.isInteger(M.n) || M.n < 1 || M.n > MODEL_MAX_PARTS || M.i < 0 || M.i >= M.n) return res.status(400).json({ error: 'bad model' });
+        if (typeof M.b64 !== 'string' || !M.b64.length || M.b64.length > MODEL_PART_B64 || !/^[A-Za-z0-9+/]+=*$/.test(M.b64)) return res.status(400).json({ error: 'bad model part' });
+        const cmds = [['SET', `vt:model:${tag}:${M.i}`, M.b64]];
+        // The last part makes it the one in use; the one before is let go.
+        if (M.i === M.n - 1) {
+          const [old] = await redis(E, [['GET', 'vt:model:cur']]);
+          let prev = null; try { prev = old ? JSON.parse(old) : null; } catch (e) {}
+          if (prev && modelTag(prev.tag) && prev.tag !== tag) for (let k = 0; k < Math.min(MODEL_MAX_PARTS, prev.n || 0); k++) cmds.push(['DEL', `vt:model:${prev.tag}:${k}`]);
+          cmds.push(['SET', 'vt:model:cur', JSON.stringify({ tag, n: M.n, at: Date.now(), note: typeof M.note === 'string' ? M.note.replace(/[^A-Za-z0-9 .,%:-]/g, '').slice(0, 120) : '' })]);
+        }
+        await redis(E, cmds);
         return res.status(200).json({ ok: true });
       }
       if (body.learn !== undefined) {

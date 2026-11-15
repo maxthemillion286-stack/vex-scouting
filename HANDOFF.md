@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v108**. Everything green: 76 test files. (The `v19` in §8's
+Current release: **v109**. Everything green: 77 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -409,6 +409,7 @@ proxy is at `api/proxy.js`.
 | t113 | **v99/v101** — robot report: summaries, team report, storage, browser Back; telling robots apart by plate and look — §30, §31 |
 | t114 | **v106** — the stream's clock sets the periods; live tracking; late scores — §32b |
 | t115 | **v107** — plate attention across all robots; per-stream learning (clock place, scenery, threshold) — §32c |
+| t116 | **v109** — desktop app: jobs, import, published finder — §32d |
 | sanity | CSS braces balance, inline JS parses, tabs present |
 | tool_sanity | Same for anchor-tool.html |
 
@@ -2630,6 +2631,51 @@ better at tracking as you track matches".
 - `vtLearnFrom`: a still spot is not scenery if any plate was read on it (and
   an existing spot there is deleted), or if its look is within
   `VT_ROBOT_LOOK` (0.35) of the look of everything that moved in the match.
+
+## 32d. v109 — the desktop app (`desktop/`)
+
+Asked for as: an app that tracks as fast as the machine can and trains on it,
+fed by "a video file, an actual stream, or just a stream link", synced with
+the website. Owner's machine: RTX 5070 Ti, 9800X3D, Windows.
+
+- `desktop/VEX_Trainer.bat` — the only file the owner keeps. Makes a venv in
+  `VEX_Trainer/`, installs numpy, opencv-python, onnxruntime-directml, yt-dlp,
+  and **fetches `/desktop/vex_trainer.py` from the live site on every start**,
+  so merging a change to that file updates the app.
+- `desktop/vex_trainer.py` — one file. Menu: track the website's jobs · add a
+  video for training · watch a live stream for training · map a file to a
+  stream · review · train · publish · settings. Models and `PLATE_CHARS` are
+  fetched from the site (`/models/*.onnx`, `/vendor/vt-worker.js`).
+- **Same arithmetic as the page.** letterbox, decode, NMS, `color_of`,
+  `sig_of`, `plate_box`, `pack_frame`, `who_from_text`, `match_label`,
+  `timer_text`, `attend` are ports; `desktop/dev/parity.*` compares them with
+  the JS (0 of 305 differ). Change one side, change the other.
+- **Sync, through `/api/tracker`:**
+  - page → app: `vtJobsSend('here'|'history')` posts `jobs: { ev, list }`
+    (`validJob`; keys `vt:jobs:{ev}`, set `vt:jobsets`). The app reads
+    `?jobs=1`, `?jobs=EV`, skips ids already in `?event=EV`.
+  - app → page: recordings posted exactly like the page's (`rec` only, v2,
+    `rate: 4`, with `tm`). `vtAppImport` (quiet from `vtRender` once a minute
+    with the admin key, or the button) pulls recordings for job events into
+    idb, `vtBackfill(ev, true)` summarises and posts the sums, and clears a
+    job set once every match in it is saved.
+  - finder: `do_publish` posts the ONNX in 640 KB parts (`model: { tag, i, n,
+    b64 }`; Upstash's free request limit is 1 MB). `vt:model:cur` flips on the
+    last part. `vendor/vt-worker.js` `loadCustom`: uses it from the
+    `vt-models` cache if present, else fetches it in the background for the
+    next start; any failure → built-in. `sw.js` keeps `vt-models`.
+- **Tracking** (`track_match`): 6 looks per second of video, plates on up to 2
+  robots a look, clock from its learned place, name check 8 s in →
+  `find_match` jumps by schedule spacing and backs up to the name's first
+  appearance (`wide`). `ProcessPoolExecutor`, `workers` chunks per video.
+- **Training**: reviewed frames are truth (85/15 split by name hash);
+  unreviewed frames with exactly four boxes ≥0.6 join training only (≤2×).
+  `yolov8n` (same size as the shipped finder), exported to ONNX, must answer
+  `[1, 5, 8400]`. Old and new are scored on the held-back frames and the app
+  recommends publishing only if the new F1 is higher.
+- **Downloading streams is against YouTube's terms**; the owner was told and
+  chose it. Files he already has can be mapped instead (menu 4).
+- **Never run by me:** DirectML, yt-dlp, torch/ultralytics training, the .bat.
 
 ## 33. Feature ideas
 

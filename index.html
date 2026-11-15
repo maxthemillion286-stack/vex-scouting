@@ -3652,7 +3652,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v108';
+const APP_BUILD = 'v109';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -9069,6 +9069,98 @@ async function vtScoreFill(ev, ctx) {
   }
   return changed;
 }
+// ── The desktop app (v109) ─────────────────────────────────────────────────
+// A program on the owner's computer that watches video files far faster than
+// a browser can play them, and can retrain the robot finder. The website and
+// the app meet in the shared storage:
+//   · the website says WHAT to watch (it knows the schedule and where each
+//     match is in the stream): vtJobsSend;
+//   · the app watches and saves recordings there;
+//   · the website brings those recordings in and works out the summaries,
+//     exactly as for matches it watched itself: vtAppImport.
+function vtJobClean(m) {
+  const j = { id: String(m.id), name: String(m.name || '').replace(/[^A-Za-z0-9 #.,()\/-]/g, '').slice(0, 60), vid: String(m.vid), off: Math.max(0, Math.round(m.off)), red: m.red.slice(0, 4), blue: m.blue.slice(0, 4) };
+  for (const k of ['round', 'num', 't']) if (Number.isFinite(m[k])) j[k] = m[k];
+  if (Number.isFinite(m.redScore ?? m.rs)) j.rs = m.redScore ?? m.rs;
+  if (Number.isFinite(m.blueScore ?? m.bs)) j.bs = m.blueScore ?? m.bs;
+  return j;
+}
+let vtJobsBusy = false;
+async function vtJobsSend(mode) {
+  const say = t => { const el = document.getElementById('vtAppState'); if (el) el.textContent = t; };
+  if (vtJobsBusy || vtRun) return;
+  const pass = vtPass();
+  if (!pass) return say('Save the admin key in Settings first: only an admin can give the app work.');
+  const ctx = window._rwCtx;
+  if (!ctx || !ctx.eventId) return;
+  vtJobsBusy = true;
+  const home = String(ctx.eventId), post = async (ev, list) => (await vtApi('POST', '', { passcode: pass, jobs: { ev: String(ev), list: list.slice(0, 600).map(vtJobClean) } })).ok;
+  let sent = 0, events = 0, noVideo = 0;
+  try {
+    if (mode === 'here') {
+      const list = vtQueueFrom(ctx);
+      if (!list.length) { say('No played match here has video yet, so there is nothing to send.'); return; }
+      if (await post(home, list)) { sent = list.length; events = 1; }
+    } else {
+      say('Finding the earlier events these teams played…');
+      const plan = await vtHistoryPlan(home);
+      for (const e of plan.events) {
+        say(`Finding video for earlier events: ${events + noVideo + 1} of ${plan.events.length} · ${sent} matches sent so far…`);
+        try {
+          window._rwCtx = { team: null, events: [{ id: e.id, name: e.name, sku: e.sku, start: e.start, location: e.location }], eventId: null, matches: [], videoId: null, cal: {}, calDay: null };
+          vsNav.mute = true;
+          try { await rewatchSelectEvent(e.id); } finally { vsNav.mute = false; }
+          const c = window._rwCtx;
+          const list = (c && String(c.eventId) === String(e.id) ? vtQueueFrom(c) : []).filter(m => m.red.concat(m.blue).some(n => plan.want.has(n)));
+          if (!list.length) { noVideo++; continue; }
+          if (await post(e.id, list)) { sent += list.length; events++; }
+        } catch (err) { noVideo++; }
+      }
+      // Back to the event this was started from.
+      window._rwCtx = { team: null, events: ctx.events, eventId: null, matches: [], videoId: null, cal: {}, calDay: null };
+      vsNav.mute = true;
+      try { await rewatchSelectEvent(home); } finally { vsNav.mute = false; }
+    }
+  } finally { vtJobsBusy = false; }
+  say(sent ? `Sent ${sent} matches from ${events} event${events === 1 ? '' : 's'} to the desktop app${noVideo ? ` (${noVideo} events had no video)` : ''}. Start the app and choose "Track what the website asked for".` : 'Nothing could be sent.');
+}
+// Bring in what the app tracked: every event it was given work for. Each
+// recording is saved here like one this device watched; the summaries follow
+// (vtBackfill) and are saved for everyone. → how many came in.
+let vtImportBusy = false;
+let vtImportAt = 0;
+async function vtAppImport(quiet) {
+  if (quiet && Date.now() - vtImportAt < 60000) return 0;      // not on every redraw
+  vtImportAt = Date.now();
+  const say = t => { const el = document.getElementById('vtAppState'); if (el && !quiet) el.textContent = t; };
+  const pass = vtPass();
+  if (!pass || vtImportBusy || vtRun) return 0;
+  vtImportBusy = true;
+  let got = 0;
+  try {
+    const r = await vtApi('GET', '?jobs=1');
+    const events = (r.ok && r.body.events) || [];
+    for (const ev of events) {
+      const [idx, shared, jr] = await Promise.all([vtLocalIndex(ev), vtSharedIds(ev), vtApi('GET', '?jobs=' + encodeURIComponent(ev))]);
+      const jobs = (jr.ok && jr.body.list) || [], want = new Set(jobs.map(j => String(j.id)));
+      const todo = shared.filter(id => want.has(id) && !(idx[id] && idx[id].s === 'done'));
+      for (const id of todo) {
+        if (vtRun) break;
+        const m = await vtApi('GET', `?event=${encodeURIComponent(ev)}&match=${encodeURIComponent(id)}`);
+        if (!m.ok || !m.body.rec || !Array.isArray(m.body.rec.f)) continue;
+        await vtLocalSave(ev, id, m.body.rec, 'done');
+        got++;
+        if (got % 5 === 0) say(`Bringing in what the app tracked: ${got} matches…`);
+      }
+      if (todo.length) await vtBackfill(ev, true);
+      // Every match the app was asked for is in: that event's work is done.
+      if (jobs.length && jobs.every(j => shared.includes(String(j.id)))) { try { await vtApi('POST', '', { passcode: pass, jobs: { ev: String(ev), done: true } }); } catch (e) {} }
+    }
+    say(got ? `Brought in ${got} matches the app tracked. Their reports are ready.` : (events.length ? 'The app has not finished anything new yet.' : 'The app has no work waiting and nothing new to bring in.'));
+  } catch (e) { say('Could not reach the shared storage.'); }
+  finally { vtImportBusy = false; }
+  return got;
+}
 // A finished recording: kept if it shows a match (robots of both alliances),
 // summarised, and saved here and to the shared storage. → its summary, or null.
 async function vtKeep(run, m, rec) {
@@ -9259,6 +9351,7 @@ async function vtRender(note) {
   if (vtRun || window._rwCtx !== ctx) return;       // things moved on while that was read
   const learned = await vtLearnLine([...new Set(Object.values(ctx.cal || {}).map(c => c && c.videoId).filter(Boolean).map(String))]).catch(() => '');
   if (vtRun || window._rwCtx !== ctx) return;
+  vtAppImport(true).then(n => { if (n && !vtRun && window._rwCtx === ctx) vtRender(`Brought in ${n} matches the desktop app tracked.`); }).catch(() => {});
   vtScoreFill(ev, ctx).catch(() => {}).then(() => vtBackfill(ev)).catch(() => {});   // scores for live-tracked matches, then summaries
   const P = vtParallel();
   const doneHere = queue.filter(m => vtDone(local[m.id])).length;
@@ -9283,6 +9376,11 @@ async function vtRender(note) {
     ${history}
     ${ctx.team ? '' : `<div class="rw-hint"><strong>Live.</strong> While the event is being played, follow its stream and track each match as it happens. It reads the match name off the stream to know which match is on, so it needs no schedule times.</div>
     <div class="rw-playall"><button class="btn btn-secondary" onclick="vtStart('live')">Track live</button></div>`}
+    ${ctx.team || !vtPass() ? '' : `<div class="rw-hint"><strong>Desktop app.</strong> The app on your computer watches video files many times faster than this page can play them, and can retrain the robot finder. Send it the matches to watch; what it tracks comes back here by itself.</div>
+    <div class="rw-playall">${hasHere ? `<button class="btn btn-secondary" onclick="vtJobsSend('here')">Send this event to the app</button>` : ''}
+      <button class="btn btn-secondary" onclick="vtJobsSend('history')">Send these teams' earlier matches to the app</button>
+      <button class="btn btn-secondary" onclick="vtAppImport()">Bring in what the app tracked</button></div>
+    <div class="vt-note" id="vtAppState"></div>`}
     <div class="rw-hint"><strong>Field positions.</strong> For toggle, role and route details the tracker needs the field's four corners in this stream. Open a match in the player above (▶), pause on a view of the whole field, then:</div>
     <div class="rw-playall"><button class="btn btn-secondary" onclick="vtMarkField()">Mark the field</button></div>
     <div class="rw-hint">Chrome will ask what to share: choose <strong>This tab</strong>.</div>

@@ -217,7 +217,7 @@ console.log('\n· settings, and the top tabs');
   await settle(win, 200);
   ok('and says where things stand', /shared storage|passcode/i.test(win.document.getElementById('vtSetState').textContent), win.document.getElementById('vtSetState').textContent);
   ok('the passcode is listed on the privacy page', /the admin key if you have entered one/.test(fs.readFileSync('../privacy.html', 'utf8')) && /The robot tracker<\/h2>/.test(fs.readFileSync('../privacy.html', 'utf8')));
-  ok('the passcode is only ever sent to this site\'s own endpoint', (idx.match(/vtPass\(\)/g) || []).length <= 7 && (idx.match(/passcode: /g) || []).every((_, i, all) => true) && !/passcode: [^\n]*fetch\(['"`]https?:/.test(idx) && /fetch\('\/api\/tracker'/.test(idx));
+  ok('the passcode is only ever sent to this site\'s own endpoint', (idx.match(/vtPass\(\)/g) || []).length <= 12 && (idx.match(/passcode: /g) || []).every((_, i, all) => true) && !/passcode: [^\n]*fetch\(['"`]https?:/.test(idx) && /fetch\('\/api\/tracker'/.test(idx));
   ok('no errors', errors.length === 0, errors.join('\n'));
 }
 win.close();
