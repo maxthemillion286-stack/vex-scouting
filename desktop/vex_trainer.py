@@ -26,7 +26,8 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '1.0'
+VERSION = '2.0'
+INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
 FRAMES, PROPS, LABELS = (os.path.join(HERE, 'data', k) for k in ('frames', 'prop', 'labels'))
@@ -838,12 +839,16 @@ def do_jobs(cfg):
     mins = (time.time() - t_all) / 60
     say('\nDone in %.1f minutes: %d matches saved to the website, %d not. %d plates read, the clock read %d times.' % (mins, totals['ok'], totals['no'], totals['plates'], totals['clock']))
     say('Now open the Robot tracker box on the website (any event). It brings these in and builds the reports by itself.')
-    say('Frames were kept for training as it went: choose "Review frames" when you have a few minutes.')
+    say('Frames were kept for training as it went: review them when you have a few minutes.')
+    return totals['ok']
 
 
 def need_key(cfg, site):
     if cfg.get('key'):
         return True
+    if not INTERACTIVE:
+        say('The admin key is not saved yet. Enter it at the top of the window.')
+        return False
     say('\nThe admin key is the one saved in the website\'s Settings. It is kept in config.json in this folder\n'
         'and sent only to ' + cfg['site'] + '.')
     key = input('Admin key: ').strip()
@@ -1267,10 +1272,11 @@ def do_train(cfg):
     with open(os.path.join(DIRS['models'], 'trained_latest.json'), 'w') as f:
         json.dump({'tag': tag, 'file': out, 'old': old, 'new': new, 'frames': len(gold)}, f)
     if new[2] > old[2]:
-        say('\nThe new finder is better on frames it has never seen. Choose "Publish" to put it on the website.')
+        say('\nThe new finder is better on frames it has never seen.')
     else:
-        say('\nThe new finder is NOT better than the current one. Do not publish it; review more frames (especially ones\n'
-            'where the green boxes were wrong) and train again.')
+        say('\nThe new finder is NOT better than the current one, so it is not published. Review more frames (especially\n'
+            'ones where the green boxes were wrong) and train again.')
+    return {'tag': tag, 'file': out, 'old': old, 'new': new, 'frames': len(gold)}
 
 
 def do_publish(cfg):
@@ -1303,6 +1309,12 @@ def do_publish(cfg):
     if new[2] <= old[2]:
         if input('It measured no better than the current finder. Type YES to publish it anyway: ').strip() != 'YES':
             return
+    send_finder(cfg, site, info)
+
+
+def send_finder(cfg, site, info):
+    """Put a trained finder on the website, in parts. → True when it is in use."""
+    old, new = info['old'], info['new']
     with open(info['file'], 'rb') as f:
         data = f.read()
     part = 640 * 1024
@@ -1312,11 +1324,111 @@ def do_publish(cfg):
         r = site.post({'model': {'tag': info['tag'], 'i': i, 'n': n, 'note': note, 'b64': base64.b64encode(data[i * part:(i + 1) * part]).decode('ascii')}})
         if not (r and r.get('ok')):
             say('Stopped at part %d of %d: %s. Nothing changed on the website.' % (i + 1, n, (r or {}).get('error')))
-            return
+            return False
         say('  sent part %d of %d' % (i + 1, n))
     shutil.copyfile(info['file'], os.path.join(DIRS['models'], 'trained_current.onnx'))
     say('Published. The website\'s tracker fetches it the next time it starts and uses it from the start after that;\n'
         'its status line then says "your trained finder".')
+    return True
+
+def unpublish(cfg):
+    site = Site(cfg)
+    if not need_key(cfg, site):
+        return
+    r = site.post({'model': {'clear': True}})
+    if r and r.get('ok'):
+        try:
+            os.remove(os.path.join(DIRS['models'], 'trained_current.onnx'))
+        except OSError:
+            pass
+        say('Removed. The website and this app are back on the built-in finder.')
+    else:
+        say('The website did not accept that:', (r or {}).get('error'))
+
+
+# ── what the window's buttons run ───────────────────────────────────────────
+# Each is one whole job with nothing to answer along the way.
+def track_all(cfg, loop=True):
+    """Everything the website asked for; then keep an eye out for more."""
+    quiet = False
+    while True:
+        try:
+            site = Site(cfg)
+            events = site.get('?jobs=1').get('events') or []
+            if events:
+                quiet = False
+                n = do_jobs(cfg)
+                if not n:
+                    events = []                       # nothing could be done with what is there: wait, do not spin
+            if not events and not quiet:
+                say('\nNothing to track right now. To give it work, on the website: Jumper, open an event,\n'
+                    'Robot tracker box, "Send this event to the app".')
+                if loop:
+                    say('Waiting for the website to send work. It starts by itself.')
+                quiet = True
+        except Exception as e:
+            say('Could not reach the website (%s). Trying again in a minute.' % str(e)[:120])
+        if not loop:
+            return
+        time.sleep(60)
+
+def add_source(cfg, src):
+    """A file, a link to a recording, or a link to a stream that is live now: learn from it."""
+    src = str(src or '').strip().strip('"')
+    if not src:
+        say('Paste a link or a file path first.')
+        return
+    ensure_models(Site(cfg))
+    if os.path.exists(src):
+        return harvest_video(src, 'file' + hashlib.md5(src.encode()).hexdigest()[:6])
+    if '://' not in src and not video_id(src):
+        say('That is neither a file on this computer nor a link.')
+        return
+    try:
+        import yt_dlp
+    except ImportError:
+        say('The downloader is not installed. Close this and run VEX_Trainer.bat again.')
+        return
+    url = src if '://' in src else 'https://www.youtube.com/watch?v=' + src
+    try:
+        with yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True, 'format': 'b[height<=720]/b'}) as y:
+            info = y.extract_info(url, download=False)
+    except Exception as e:
+        say('Could not open that link:', str(e)[:300])
+        return
+    vid = video_id(src) or str(info.get('id') or 'link')[:20]
+    if info.get('is_live'):
+        say('That stream is live. Watching it as it plays; press Stop when you have had enough.')
+        stream = info.get('url') or (info.get('formats') or [{}])[-1].get('url')
+        if not stream:
+            say('Could not find a playable address for that stream.')
+            return
+        return harvest_video(stream, re.sub(r'[^A-Za-z0-9_-]', '', vid) or 'live', live=True, every_sec=3.0, limit=100000)
+    path = find_video(cfg, vid)
+    if not path:
+        say('Downloading it…')
+        path = download(url, os.path.join(DIRS['videos'], re.sub(r'[^A-Za-z0-9_-]', '', vid) or 'video'))
+    if path:
+        harvest_video(path, re.sub(r'[^A-Za-z0-9_-]', '', vid) or 'video')
+        if not cfg.get('keep_videos') and path.startswith(DIRS['videos']):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
+def train_auto(cfg):
+    """Train, measure, and publish only if the new finder is better."""
+    info = do_train(cfg)
+    if not info:
+        return
+    if info['new'][2] <= info['old'][2]:
+        return
+    site = Site(cfg)
+    if not need_key(cfg, site):
+        say('It is better, but without the admin key it cannot be published.')
+        return
+    say('\nPublishing it to the website…')
+    send_finder(cfg, site, info)
 
 
 # ── menu ────────────────────────────────────────────────────────────────────
@@ -1338,7 +1450,376 @@ def do_settings(cfg):
         save_config(cfg)
         say('Downloaded videos will be', 'kept.' if cfg['keep_videos'] else 'deleted after tracking.')
 
-def main():
+# ── the window ──────────────────────────────────────────────────────────────
+# One page, served to this computer only, opened as its own window. Three
+# buttons — Track, Review, Train — and a box to paste a link or a file into.
+# Each button starts this same program again with a flag, as a separate
+# process: a job can then be stopped cleanly, and a crash in one cannot take
+# the window down with it. What the job prints is what the window shows.
+UI_HTML = r"""<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VEX Trainer</title>
+<style>
+ :root{--bg:#101318;--card:#181c24;--line:#272d3a;--text:#e9ecf1;--dim:#98a2b3;--blue:#3b82f6;--green:#22c55e;--amber:#f5b83d;--red:#ef4444}
+ *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 "Segoe UI",system-ui,sans-serif}
+ header{display:flex;align-items:center;gap:14px;padding:14px 22px;border-bottom:1px solid var(--line)}
+ header h1{font-size:19px;margin:0;font-weight:650;letter-spacing:.2px} header .site{color:var(--dim);font-size:13px}
+ header .sp{flex:1} .pill{font-size:13px;padding:4px 10px;border-radius:99px;background:#1f2633;color:var(--dim)} .pill.ok{color:var(--green)} .pill.bad{color:var(--amber)}
+ button{font:inherit;color:#fff;background:var(--blue);border:0;border-radius:9px;padding:10px 18px;cursor:pointer;font-weight:600}
+ button:disabled{opacity:.45;cursor:default} button.ghost{background:#252b38;font-weight:500} button.stop{background:var(--red)} button.link{background:none;color:var(--dim);padding:4px 6px;font-weight:400;text-decoration:underline}
+ main{max-width:1080px;margin:0 auto;padding:22px}
+ .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:16px} @media(max-width:820px){.cards{grid-template-columns:1fr}}
+ .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:10px}
+ .card h2{margin:0;font-size:17px} .card p{margin:0;color:var(--dim);font-size:14px;flex:1} .card .n{font-size:13px;color:var(--text)}
+ .card button{width:100%;padding:13px;font-size:16px}
+ .add{display:flex;gap:10px;margin-top:16px} .add input{flex:1}
+ input{font:inherit;background:#0c0f14;border:1px solid var(--line);color:var(--text);border-radius:9px;padding:10px 12px;min-width:0}
+ .panel{margin-top:16px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+ .now{display:flex;gap:12px;align-items:center} .now b{flex:1;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ .bar{height:6px;background:#0c0f14;border-radius:9px;margin:12px 0 10px;overflow:hidden} .bar i{display:block;height:100%;width:0;background:var(--blue);transition:width .4s}
+ pre{margin:0;max-height:270px;overflow:auto;font:12.5px/1.55 ui-monospace,Consolas,monospace;color:#b7c0cf;white-space:pre-wrap;word-break:break-word}
+ .hint{color:var(--dim);font-size:13px;margin-top:10px}
+ #key{display:none;margin-bottom:16px;border-color:#4a3d1a;background:#1d1a12} #key .row{display:flex;gap:10px;margin-top:10px} #key input{flex:1}
+ #rev{display:none} #rev .top{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px} #rev .top .sp{flex:1}
+ #rev canvas{max-width:100%;max-height:calc(100vh - 210px);background:#000;border-radius:10px;cursor:crosshair;display:block;margin:0 auto}
+ kbd{background:#252b38;border-radius:5px;padding:1px 7px;font:12.5px ui-monospace,Consolas,monospace;margin-right:3px}
+ .keys{color:var(--dim);font-size:13px}
+ dialog{background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:14px;padding:20px;min-width:340px} dialog::backdrop{background:#000a}
+ dialog label{display:block;margin:12px 0 4px;color:var(--dim);font-size:13px} dialog .row{display:flex;gap:10px;justify-content:flex-end;margin-top:18px}
+</style>
+<header><h1>VEX Trainer</h1><span class="site" id="site"></span><span class="sp"></span>
+ <span class="pill" id="keyPill">…</span><button class="ghost" onclick="openSettings()">Settings</button></header>
+<main id="home">
+ <div class="panel" id="key"><b>Enter the admin key once</b><div class="hint" style="margin-top:4px">The same key that is saved in the website's Settings. It is kept on this computer and sent only to your website.</div>
+  <div class="row"><input id="keyIn" type="password" placeholder="Admin key" autocomplete="off"><button onclick="saveKey()">Save</button></div><div class="hint" id="keyMsg"></div></div>
+ <div class="cards">
+  <div class="card"><h2>1 · Track</h2><p>Watches every match the website asked for and sends the results back. Then keeps checking for more by itself.</p>
+   <div class="n" id="trackN">&nbsp;</div><button id="bTrack" onclick="start('track')">Start tracking</button></div>
+  <div class="card"><h2>2 · Review</h2><p>Fix the finder's boxes on the frames it was least sure of. This is what teaches it. Five minutes at a time is fine.</p>
+   <div class="n" id="revN">&nbsp;</div><button id="bRev" onclick="openReview()">Review frames</button></div>
+  <div class="card"><h2>3 · Train</h2><p>Trains a new robot finder on your graphics card, tests it against the current one, and publishes it to the website only if it is better.</p>
+   <div class="n" id="trainN">&nbsp;</div><button id="bTrain" onclick="start('train')">Train</button></div>
+ </div>
+ <div class="add"><input id="src" placeholder="Optional: paste a stream link (recorded or live) or a video file's path to learn from it" autocomplete="off"><button class="ghost" id="bAdd" onclick="start('add')">Learn from this</button></div>
+ <div class="panel"><div class="now"><b id="now">Ready.</b><button class="stop" id="bStop" style="display:none" onclick="stopJob()">Stop</button></div>
+  <div class="bar"><i id="bar"></i></div><pre id="log"></pre></div>
+ <div class="hint">To give it work: on the website open the Jumper, open an event, and in the Robot tracker box press <b>Send this event to the app</b>. Leave this window open; closing it stops everything.</div>
+</main>
+<main id="rev">
+ <div class="top"><button class="ghost" onclick="closeReview()">← Back</button><b id="revLeft"></b><span class="sp"></span>
+  <span class="keys"><kbd>click a box</kbd>remove <kbd>drag</kbd>add a robot <kbd>Enter</kbd>save, next <kbd>S</kbd>not a field view <kbd>Z</kbd>undo <kbd>B</kbd>back one</span>
+  <button class="ghost" onclick="saveFrame(true)">Skip</button><button onclick="saveFrame(false)">Save, next</button></div>
+ <canvas id="c"></canvas><div class="hint" id="revMsg">Green boxes are what the finder thinks are robots. Box every robot you can see, even partly hidden ones, and nothing else.</div>
+</main>
+<dialog id="dlg"><b>Settings</b>
+ <label>Matches watched at once (4 to 8 suits an 8-core processor)</label><input id="sWorkers" type="number" min="1" max="16" style="width:100%">
+ <label><input id="sKeep" type="checkbox" style="width:auto"> Keep downloaded videos after tracking</label>
+ <label>Admin key</label><button class="ghost" onclick="forgetKey()">Change the admin key</button>
+ <label>Trained finder</label><button class="ghost" onclick="dlg.close();start('unpublish')">Take my finder off the website</button>
+ <div class="row"><button class="ghost" onclick="dlg.close()">Cancel</button><button onclick="saveSettings()">Save</button></div></dialog>
+<script>
+const T=new URLSearchParams(location.search).get('t')||'',$=id=>document.getElementById(id),dlg=$('dlg');
+const api=async(path,body)=>{const r=await fetch(path,{method:body?'POST':'GET',headers:{'X-Token':T,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});return r.json()};
+let st=null,inReview=false;
+async function poll(){try{st=await api('/api/state');paint()}catch(e){$('now').textContent='The program behind this window has stopped. Close this and run VEX_Trainer.bat again.'}}
+function paint(){
+ $('site').textContent=st.site.replace(/^https?:\/\//,'');
+ $('keyPill').textContent=st.key?'Admin key saved':'No admin key';$('keyPill').className='pill '+(st.key?'ok':'bad');
+ $('key').style.display=st.key?'none':'block';
+ $('revN').textContent=st.waiting+' waiting · '+st.done+' reviewed';
+ $('bRev').disabled=!st.waiting;
+ $('trackN').textContent=st.task==='track'?'Running. It starts by itself when this window opens.':' ';
+ const need=Math.max(0,150-st.gold);
+ $('trainN').textContent=need?('Review '+need+' more frames first'):(st.last?('Last: new '+st.last.new+' vs current '+st.last.old+(st.last.better?' · published':' · not published')):(st.gold+' reviewed frames ready'));
+ for(const b of ['bTrack','bTrain','bAdd'])$(b).disabled=st.busy||(b==='bTrain'&&need>0)||(b==='bTrack'&&!st.key);
+ $('bStop').style.display=st.busy?'':'none';
+ const names={track:'Tracking',train:'Training',add:'Learning from a video',unpublish:'Removing the finder'};
+ const last=(st.log.filter(l=>l.trim()).pop()||'').trim();
+ $('now').textContent=st.busy?(names[st.task]||'Working')+' · '+last:(last||'Ready.');
+ const m=last.match(/(\d+)\s*\/\s*(\d+)/);$('bar').style.width=st.busy&&m&&+m[2]?Math.min(100,100*m[1]/m[2])+'%':(st.busy?'8%':'0');
+ const log=$('log'),atEnd=log.scrollTop+log.clientHeight>=log.scrollHeight-30;log.textContent=st.log.join('\n');if(atEnd)log.scrollTop=log.scrollHeight;
+}
+async function start(task){const r=await api('/api/start',{task,src:$('src').value});if(r.error)alert(r.error);if(task==='add'&&!r.error)$('src').value='';poll()}
+async function stopJob(){await api('/api/stop',{});poll()}
+async function saveKey(){$('keyMsg').textContent='Checking…';const r=await api('/api/key',{key:$('keyIn').value});$('keyMsg').textContent=r.ok?'':(r.error||'Not accepted.');poll()}
+async function forgetKey(){await api('/api/key',{key:''});dlg.close();poll()}
+function openSettings(){$('sWorkers').value=st.workers;$('sKeep').checked=st.keep;dlg.showModal()}
+async function saveSettings(){await api('/api/settings',{workers:+$('sWorkers').value,keep:$('sKeep').checked});dlg.close();poll()}
+// review
+const c=$('c'),x=c.getContext('2d');let cur=null,img=new Image(),boxes=[],hist=[],drag=null,back=[];
+function openReview(){inReview=true;$('home').style.display='none';$('rev').style.display='block';nextFrame()}
+function closeReview(){inReview=false;$('rev').style.display='none';$('home').style.display='block';poll()}
+async function nextFrame(id){cur=await api('/api/next'+(id?'?id='+id:''));if(!cur.id){closeReview();return}
+ $('revLeft').textContent=cur.left+' to review · '+cur.done+' done';boxes=cur.boxes.map(b=>b.slice(0,4));hist=[];
+ img=new Image();img.onload=()=>{c.width=cur.w;c.height=cur.h;draw()};img.src='/img/'+cur.id+'.jpg?t='+T}
+function draw(){x.drawImage(img,0,0);x.lineWidth=Math.max(2,c.width/450);for(const b of boxes){x.strokeStyle='#39ff88';x.strokeRect(b[0],b[1],b[2],b[3])}
+ if(drag&&drag.w){x.strokeStyle='#ffd23f';x.strokeRect(drag.x,drag.y,drag.w,drag.h)}}
+function pos(e){const r=c.getBoundingClientRect();return[(e.clientX-r.left)*c.width/r.width,(e.clientY-r.top)*c.height/r.height]}
+c.onmousedown=e=>{const[px,py]=pos(e);drag={x0:px,y0:py,x:px,y:py,w:0,h:0}};
+c.onmousemove=e=>{if(!drag)return;const[px,py]=pos(e);drag.x=Math.min(px,drag.x0);drag.y=Math.min(py,drag.y0);drag.w=Math.abs(px-drag.x0);drag.h=Math.abs(py-drag.y0);draw()};
+window.onmouseup=()=>{if(!drag)return;const d=drag;drag=null;hist.push(boxes.map(b=>b.slice()));
+ if(d.w>8&&d.h>8)boxes.push([d.x,d.y,d.w,d.h]);
+ else{let k=-1,a=1e12;boxes.forEach((b,i)=>{if(d.x0>=b[0]&&d.x0<=b[0]+b[2]&&d.y0>=b[1]&&d.y0<=b[1]+b[3]&&b[2]*b[3]<a){a=b[2]*b[3];k=i}});if(k>=0)boxes.splice(k,1);else hist.pop()}draw()};
+async function saveFrame(skip){if(!cur||!cur.id)return;back.push(cur.id);await api('/api/save',{id:cur.id,skip,boxes});nextFrame()}
+window.onkeydown=e=>{if(!inReview||dlg.open)return;if(e.key==='Enter'||e.key===' '){e.preventDefault();saveFrame(false)}else if(/^s$/i.test(e.key))saveFrame(true);
+ else if(/^z$/i.test(e.key)){if(hist.length){boxes=hist.pop();draw()}}else if(/^b$/i.test(e.key)){if(back.length)nextFrame(back.pop())}else if(e.key==='Escape')closeReview()};
+poll();setInterval(()=>{if(!inReview)poll()},1000);
+</script></html>"""
+
+
+class Job:
+    """The one thing running now, as a separate process, and what it has printed."""
+    def __init__(self):
+        self.proc, self.task, self.log, self.lock = None, '', [], threading.Lock()
+
+    def busy(self):
+        return self.proc is not None and self.proc.poll() is None
+
+    def add(self, text):
+        with self.lock:
+            for line in text.replace('\r\n', '\n').split('\n'):
+                if '\r' in line:                         # a progress bar redrawing itself: keep its last state
+                    line = [p for p in line.split('\r') if p.strip()][-1:] or ['']
+                    line = line[0]
+                    if self.log and self.log[-1].startswith('\x00'):
+                        self.log[-1] = '\x00' + line
+                        continue
+                    self.log.append('\x00' + line)
+                    continue
+                self.log.append(line)
+            del self.log[:-400]
+
+    def lines(self):
+        with self.lock:
+            return [l.lstrip('\x00') for l in self.log[-200:]]
+
+    def start(self, task, args):
+        if self.busy():
+            return False
+        env = dict(os.environ, PYTHONUNBUFFERED='1', PYTHONIOENCODING='utf-8')
+        flags = getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0)
+        self.task = task
+        self.add('\n── %s ──' % time.strftime('%H:%M'))
+        self.proc = subprocess.Popen([sys.executable, os.path.abspath(__file__)] + args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                     stdin=subprocess.DEVNULL, cwd=HERE, env=env, creationflags=flags)
+        def pump(proc):
+            while True:
+                chunk = proc.stdout.read1(4096) if hasattr(proc.stdout, 'read1') else proc.stdout.read(4096)
+                if not chunk:
+                    break
+                self.add(chunk.decode('utf-8', 'replace'))
+            proc.wait()
+            if proc.returncode not in (0, None) and self.proc is proc and not getattr(proc, 'stopped', False):
+                self.add('It stopped unexpectedly. The lines above say why.')
+        threading.Thread(target=pump, args=(self.proc,), daemon=True).start()
+        return True
+
+    def stop(self):
+        proc = self.proc
+        if not proc or proc.poll() is not None:
+            return
+        proc.stopped = True
+        try:
+            if os.name == 'nt':                          # and the processes it started
+                subprocess.call(['taskkill', '/PID', str(proc.pid), '/T', '/F'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            else:
+                proc.kill()
+        except Exception:
+            pass
+        self.add('Stopped. Everything already saved is kept.')
+
+
+def serve_ui(cfg, port=8765, open_window=True):
+    import secrets
+    token = secrets.token_urlsafe(18)
+    job = Job()
+    queue_cache = {'at': 0, 'queue': [], 'done': 0, 'gold': 0}
+
+    def counts(force=False):
+        if force or time.time() - queue_cache['at'] > 5:
+            q, done = review_queue()
+            queue_cache.update(at=time.time(), queue=q, done=done, gold=len(reviewed()) if done else 0)
+        return queue_cache
+
+    def last_train():
+        try:
+            with open(os.path.join(DIRS['models'], 'trained_latest.json')) as f:
+                i = json.load(f)
+            return {'new': '%.1f' % (i['new'][2] * 100), 'old': '%.1f' % (i['old'][2] * 100), 'better': i['new'][2] > i['old'][2]}
+        except Exception:
+            return None
+
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+        def _send(self, code, body, ctype='application/json'):
+            body = body if isinstance(body, bytes) else (body if isinstance(body, str) else json.dumps(body)).encode('utf-8')
+            self.send_response(code)
+            self.send_header('Content-Type', ctype)
+            self.send_header('Content-Length', str(len(body)))
+            self.send_header('Cache-Control', 'no-store')
+            self.send_header('X-Content-Type-Options', 'nosniff')
+            self.end_headers()
+            self.wfile.write(body)
+        def _allowed(self, u):
+            # Only this window: the address must be this computer's, and every
+            # request must carry the token the window was opened with. Another
+            # website open in a browser can reach neither.
+            host = (self.headers.get('Host') or '').split(':')[0]
+            if host not in ('127.0.0.1', 'localhost'):
+                return False
+            given = self.headers.get('X-Token') or urllib.parse.parse_qs(u.query).get('t', [''])[0]
+            return secrets.compare_digest(given, token)
+        def do_GET(self):
+            u = urllib.parse.urlparse(self.path)
+            if not self._allowed(u):
+                return self._send(403, {'error': 'not allowed'})
+            if u.path == '/':
+                return self._send(200, UI_HTML, 'text/html; charset=utf-8')
+            if u.path.startswith('/img/'):
+                name = os.path.basename(u.path)
+                if not re.fullmatch(r'[A-Za-z0-9_-]+\.jpg', name):
+                    return self._send(404, {})
+                try:
+                    with open(os.path.join(FRAMES, name), 'rb') as f:
+                        return self._send(200, f.read(), 'image/jpeg')
+                except OSError:
+                    return self._send(404, {})
+            if u.path == '/api/state':
+                c = counts()
+                return self._send(200, {'version': VERSION, 'site': cfg['site'], 'key': bool(cfg.get('key')), 'busy': job.busy(), 'task': job.task if job.busy() else '',
+                                        'log': job.lines(), 'waiting': len(c['queue']), 'done': c['done'], 'gold': c['gold'], 'workers': cfg.get('workers', 4),
+                                        'keep': bool(cfg.get('keep_videos')), 'last': last_train()})
+            if u.path == '/api/next':
+                c = counts()
+                want = urllib.parse.parse_qs(u.query).get('id', [None])[0]
+                if want and re.fullmatch(r'[A-Za-z0-9_-]+', want) and os.path.exists(os.path.join(PROPS, want + '.json')):
+                    name = want
+                else:
+                    name = c['queue'][0] if c['queue'] else None
+                if not name:
+                    return self._send(200, {'id': None, 'done': c['done']})
+                with open(os.path.join(PROPS, name + '.json')) as f:
+                    p = json.load(f)
+                boxes = [b for b in p['boxes'] if b[4] >= 0.35]
+                lab = os.path.join(LABELS, name + '.json')
+                if os.path.exists(lab):                  # going back: show what was saved
+                    with open(lab) as f:
+                        boxes = json.load(f).get('boxes', boxes)
+                return self._send(200, {'id': name, 'w': p['w'], 'h': p['h'], 'boxes': boxes, 'left': len(c['queue']), 'done': c['done']})
+            self._send(404, {})
+        def do_POST(self):
+            u = urllib.parse.urlparse(self.path)
+            if not self._allowed(u):
+                return self._send(403, {'error': 'not allowed'})
+            try:
+                body = json.loads(self.rfile.read(int(self.headers.get('Content-Length', 0))).decode('utf-8') or '{}')
+            except Exception:
+                return self._send(400, {'error': 'bad request'})
+            if u.path == '/api/save':
+                name = str(body.get('id', ''))
+                if not re.fullmatch(r'[A-Za-z0-9_-]+', name):
+                    return self._send(400, {'error': 'bad id'})
+                boxes = [[float(v) for v in b[:4]] for b in body.get('boxes', []) if len(b) >= 4][:60]
+                os.makedirs(LABELS, exist_ok=True)
+                with open(os.path.join(LABELS, name + '.json'), 'w') as f:
+                    json.dump({'skip': bool(body.get('skip')), 'boxes': boxes}, f)
+                c = counts()
+                if name in c['queue']:
+                    c['queue'].remove(name)
+                    c['done'] += 1
+                    c['gold'] += 0 if body.get('skip') else 1
+                return self._send(200, {'ok': True})
+            if u.path == '/api/key':
+                key = str(body.get('key', '')).strip()
+                if not key:
+                    cfg['key'] = ''
+                    save_config(cfg)
+                    return self._send(200, {'ok': True})
+                site = Site(cfg)
+                site.key = key
+                r = site.post({'check': True}, tries=1)
+                if not (r and r.get('ok')):
+                    return self._send(200, {'ok': False, 'error': 'The website did not accept that key.' if (r or {}).get('status') == 403 else 'Could not check it: ' + str((r or {}).get('error'))})
+                cfg['key'] = key
+                save_config(cfg)
+                if not job.busy():                       # the key was the only thing missing: start
+                    job.start('track', ['--track'])
+                return self._send(200, {'ok': True})
+            if u.path == '/api/settings':
+                try:
+                    cfg['workers'] = max(1, min(16, int(body.get('workers', cfg.get('workers', 4)))))
+                except (TypeError, ValueError):
+                    pass
+                cfg['keep_videos'] = bool(body.get('keep'))
+                save_config(cfg)
+                return self._send(200, {'ok': True})
+            if u.path == '/api/stop':
+                job.stop()
+                return self._send(200, {'ok': True})
+            if u.path == '/api/start':
+                task = body.get('task')
+                if job.busy():
+                    return self._send(200, {'error': 'Something is already running. Press Stop first.'})
+                if task == 'track':
+                    args = ['--track']
+                elif task == 'train':
+                    args = ['--train']
+                elif task == 'unpublish':
+                    args = ['--unpublish']
+                elif task == 'add':
+                    src = str(body.get('src', '')).strip()
+                    if not src:
+                        return self._send(200, {'error': 'Paste a link or a file path into the box first.'})
+                    args = ['--add', src]
+                else:
+                    return self._send(400, {'error': 'unknown task'})
+                job.start(task, args)
+                return self._send(200, {'ok': True})
+            self._send(404, {})
+
+    srv = None
+    for p in range(port, port + 10):
+        try:
+            srv = ThreadingHTTPServer(('127.0.0.1', p), H)
+            break
+        except OSError:
+            continue
+    if not srv:
+        say('Could not open the window: ports %d-%d on this computer are all in use.' % (port, port + 9))
+        return None
+    url = 'http://127.0.0.1:%d/?t=%s' % (srv.server_address[1], token)
+    srv.url, srv.job, srv.token = url, job, token
+    if not open_window:
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        return srv
+    # Nothing to press: with the key saved, tracking starts with the window.
+    if cfg.get('key'):
+        job.start('track', ['--track'])
+    say('The window is opening. Leave THIS black window open too: closing it stops the program.')
+    opened = False
+    if os.name == 'nt':                                  # its own window, without tabs or an address bar
+        try:
+            subprocess.Popen('start "" msedge --app="%s" --window-size=1180,860' % url, shell=True)
+            opened = True
+        except Exception:
+            pass
+    if not opened:
+        try:
+            import webbrowser
+            webbrowser.open(url)
+        except Exception:
+            pass
+    say('If no window appeared, open this address in your browser:\n  ' + url)
+    try:
+        srv.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        job.stop()
+    return None
+
+
+def menu():
     cfg = load_config()
     say('VEX Trainer %s — works with %s' % (VERSION, cfg['site']))
     for d in DIRS.values():
@@ -1375,6 +1856,45 @@ def main():
             say('\nThat went wrong:', e)
             import traceback
             traceback.print_exc()
+
+
+def main():
+    """No flags: the window. A flag: one job, the way the window's buttons run it."""
+    global INTERACTIVE
+    args = sys.argv[1:]
+    if args and args[0] == '--menu':
+        return menu()
+    cfg = load_config()
+    for d in DIRS.values():
+        os.makedirs(d, exist_ok=True)
+    if not args:
+        say('VEX Trainer %s — works with %s' % (VERSION, cfg['site']))
+        try:
+            ensure_models(Site(cfg))
+        except Exception as e:
+            say('Could not get the models from the website:', e)
+            return
+        return serve_ui(cfg)
+    INTERACTIVE = False
+    try:
+        ensure_models(Site(cfg))
+        if args[0] == '--track':
+            track_all(cfg, loop='--once' not in args)
+        elif args[0] == '--add' and len(args) > 1:
+            add_source(cfg, args[1])
+        elif args[0] == '--train':
+            train_auto(cfg)
+        elif args[0] == '--unpublish':
+            unpublish(cfg)
+        else:
+            say('Unknown option:', args[0])
+    except KeyboardInterrupt:
+        pass
+    except Exception as e:
+        say('That went wrong:', e)
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
 
 
 if __name__ == '__main__':

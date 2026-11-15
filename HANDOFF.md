@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v110**. Everything green: 77 test files. (The `v19` in §8's
+Current release: **v111**. Everything green: 77 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -2678,6 +2678,20 @@ the website. Owner's machine: RTX 5070 Ti, 9800X3D, Windows.
 - **Never run by me:** DirectML, yt-dlp, torch/ultralytics training, the .bat.
 
 **v110:** the Desktop app row (`#vtAppRow`) is always rendered on a computer — also in a team's view and in browsers that cannot capture a tab — and without the admin key it says so with a link to Settings, instead of being absent.
+
+**v111 — the app has a window.** Asked for as: "simpler … an actual ui … 2-4
+actual main buttons and automate most of it". `vex_trainer.py` with no flags
+runs `serve_ui`: one page (`UI_HTML`) on `127.0.0.1:8765+`, opened as an Edge
+app window. Three cards: Track · Review · Train, one box to paste a link or a
+file path, a status line with a log. Each button starts the same file again
+with a flag (`--track`, `--add SRC`, `--train`, `--unpublish`) as a separate
+process (`Job`), so Stop is a kill and a crash cannot take the window down.
+Automated: tracking starts with the window once the key is saved and then
+polls for work every minute; one box takes a file, a recorded link or a live
+link (`add_source` works out which); Train measures and publishes only if the
+new finder is better (`train_auto`). Every request needs the per-run token in
+the URL and a local Host header. `--menu` is the old console menu.
+`desktop/dev/ui.py` + `ui.cjs` drive the window in Chromium (22 checks).
 
 ## 33. Feature ideas
 
