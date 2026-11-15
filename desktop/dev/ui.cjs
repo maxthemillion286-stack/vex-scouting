@@ -16,7 +16,7 @@ ok('it asks for the admin key first', await pg.locator('#key').isVisible());
 ok('tracking is not offered without the key', await pg.locator('#bTrack').isDisabled());
 await pg.fill('#keyIn', 'nope'); await pg.click('#key button'); await pg.waitForTimeout(1200);
 ok('a wrong key is refused, with a reason', /did not accept/.test(await pg.textContent('#keyMsg')));
-await pg.fill('#keyIn', 'correct-horse'); await pg.click('#key button'); await pg.waitForTimeout(1800);
+await pg.fill('#keyIn', 'correct-horse'); await pg.press('#keyIn', 'Enter'); await pg.waitForTimeout(1800);   // Enter, not the button
 ok('the right key is saved and the box goes away', !(await pg.locator('#key').isVisible()) && /saved/.test(await pg.textContent('#keyPill')));
 ok('the key is in config.json for the jobs to use', JSON.parse(fs.readFileSync('run/config.json', 'utf8')).key === 'correct-horse');
 ok('frames waiting are counted', /4 waiting/.test(await pg.textContent('#revN')), await pg.textContent('#revN'));

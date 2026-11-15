@@ -219,7 +219,7 @@ ok('a name with nothing to trim produces no retry',
 // L4 for the bare-query retry this file is about; L5 when rwDayKey moved from
 // the reader's timezone to the venue's, which changes which day a broadcast is
 // matched to and therefore makes every cached answer older than it suspect.
-ok('the lookup version was bumped', /const RW_STREAM_LOGIC = 'L5';/.test(src),
+ok('the lookup version was bumped', /const RW_STREAM_LOGIC = 'L[5-9]';/.test(src),
   'the proxy caches a miss; shipping a matching change without bumping it is invisible');
 
 console.log(`\nt86: ${pass} passed, ${fail} failed`);

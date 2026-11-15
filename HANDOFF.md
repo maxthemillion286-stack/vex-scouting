@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v111**. Everything green: 77 test files. (The `v19` in §8's
+Current release: **v112**. Everything green: 78 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -410,6 +410,7 @@ proxy is at `api/proxy.js`.
 | t114 | **v106** — the stream's clock sets the periods; live tracking; late scores — §32b |
 | t115 | **v107** — plate attention across all robots; per-stream learning (clock place, scenery, threshold) — §32c |
 | t116 | **v109** — desktop app: jobs, import, published finder — §32d |
+| t117 | **v112** — stream finding reads YouTube's search page before the paid search |
 | sanity | CSS braces balance, inline JS parses, tabs present |
 | tool_sanity | Same for anchor-tool.html |
 
@@ -2692,6 +2693,20 @@ link (`add_source` works out which); Train measures and publishes only if the
 new finder is better (`train_auto`). Every request needs the per-run token in
 the URL and a local Host header. `--menu` is the old console menu.
 `desktop/dev/ui.py` + `ui.cjs` drive the window in Chromium (22 checks).
+
+**v112.** (1) Enter saves the admin key, on the website's Settings and in the
+app's window; both only saved on the button. The app's key box always says
+what happened. (2) Stream finding: `runQuery` in `api/proxy.js` now reads
+`youtube.com/results` first (`ytPageSearch`, `parseYtResults`: free) and judges
+those titles with the unchanged rules (`judge`); the 100-unit `search.list` is
+made only when the page gives no accepted stream. Reason: 10,000 units a day
+is ~100 name searches, and the tracker's history walk spends that in minutes,
+after which every event fails until the reset. `RW_STREAM_LOGIC` is `L6` so
+cached misses are asked again. **Not verified against the real page** (YouTube
+is unreachable from the sandbox): if the page's markup differs from
+`"videoRenderer":{"videoId":…"title":{"runs":[{"text":…` or Vercel's address
+is shown a consent page, it reads as no results and the old path runs.
+`?debug=1` → the jumper body's streams carry no `how` yet; add it if needed.
 
 ## 33. Feature ideas
 
