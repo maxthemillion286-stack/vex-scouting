@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.6'
+VERSION = '2.7'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -888,6 +888,80 @@ def ensure_downloader():
             say('  could not get it (%s); downloading the slower way.' % str(e)[:100])
     return bool(shutil.which('deno'))
 
+def fetch_parallel(url, dest, headers=None, total=0, conns=24, piece=8 * 1024 * 1024, report=None):
+    """One file over many connections at once, each asking for its own range.
+
+    Reported, with a gigabit line: "downloading: 13% of 6232 MB at 11.6 MB/s".
+    YouTube gives each connection about that much and no more, however fast
+    the line is. The file it serves is an ordinary one that can be asked for
+    in ranges, so it is asked for in 8 MB pieces over 24 connections at once
+    and each piece is written where it belongs. → True when the whole file is
+    there; False (and nothing left behind) if any piece could not be had.
+    """
+    import queue
+    headers = dict(headers or {})
+    headers.setdefault('User-Agent', 'Mozilla/5.0')
+    if not total:
+        try:
+            req = urllib.request.Request(url, headers=dict(headers, Range='bytes=0-0'))
+            with urllib.request.urlopen(req, timeout=30) as r:
+                total = int((r.headers.get('Content-Range') or '/0').split('/')[-1] or 0)
+        except Exception:
+            total = 0
+    if total <= 0:
+        return False
+    part = dest + '.part'
+    with open(part, 'wb') as f:
+        f.truncate(total)
+    todo = queue.Queue()
+    for a in range(0, total, piece):
+        todo.put((a, min(total, a + piece) - 1))
+    state = {'done': 0, 'failed': False, 't0': time.time(), 'said': 0.0}
+    lock = threading.Lock()
+
+    def work():
+        with open(part, 'r+b') as f:
+            while not state['failed']:
+                try:
+                    a, b = todo.get_nowait()
+                except queue.Empty:
+                    return
+                for attempt in range(5):
+                    try:
+                        req = urllib.request.Request(url, headers=dict(headers, Range='bytes=%d-%d' % (a, b)))
+                        with urllib.request.urlopen(req, timeout=60) as r:
+                            data = r.read()
+                        if len(data) != b - a + 1:
+                            raise IOError('short piece')
+                        with lock:
+                            f.seek(a)
+                            f.write(data)
+                            state['done'] += len(data)
+                            now = time.time()
+                            if report and now - state['said'] > 5:
+                                state['said'] = now
+                                report(state['done'], total, state['done'] / max(0.1, now - state['t0']))
+                        break
+                    except Exception:
+                        if attempt == 4:
+                            state['failed'] = True
+                        else:
+                            time.sleep(1 + attempt)
+
+    threads = [threading.Thread(target=work, daemon=True) for _ in range(max(1, min(conns, (total + piece - 1) // piece)))]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    if state['failed'] or state['done'] != total:
+        try:
+            os.remove(part)
+        except OSError:
+            pass
+        return False
+    os.replace(part, dest)
+    return True
+
 def download(vid_or_url, dest_stem):
     """Fetch a stream's recording as a file: 720p, 30 frames a second at most.
     Robots and plates are as readable as at 60, and the file is half the size."""
@@ -912,6 +986,22 @@ def download(vid_or_url, dest_stem):
             'concurrent_fragment_downloads': 16, 'http_chunk_size': 10 * 1024 * 1024, 'retries': 5, 'fragment_retries': 5}
     try:
         with yt_dlp.YoutubeDL(opts) as y:
+            # Many connections at once when the stream is one plain file (see
+            # fetch_parallel). Anything else — a stream served in fragments,
+            # a refusal part-way — goes the ordinary way below.
+            try:
+                info = y.extract_info(url, download=False)
+                if info.get('url') and str(info.get('protocol', '')).startswith('http') and 'dash' not in str(info.get('protocol', '')) and not info.get('fragments'):
+                    dest = y.prepare_filename(info)
+                    t0 = time.time()
+                    ok = fetch_parallel(info['url'], dest, info.get('http_headers'), int(info.get('filesize') or 0),
+                                        report=lambda done, total, speed: say('  downloading: %d%% of %.0f MB at %.1f MB/s' % (100 * done / total, total / 1e6, speed / 1e6)))
+                    if ok:
+                        say('  downloaded %.0f MB in %.0f s.' % (os.path.getsize(dest) / 1e6, time.time() - t0))
+                        return dest
+                    say('  the fast way was refused; downloading the ordinary way.')
+            except Exception:
+                pass
             info = y.extract_info(url, download=True)
             return y.prepare_filename(info)
     except Exception as e:

@@ -123,6 +123,9 @@ const f = n => win.eval(n);
   ok('Enter saves the key in the app', /id="keyIn"[^>]*onkeydown="if\(event\.key==='Enter'\)saveKey\(\)"/.test(app));
   ok('the app says what happened to the key, also when nothing answers', /Checking with the website/.test(app) && /did not answer/.test(app) && /Type the admin key first/.test(app));
   ok('Enter saves the key on the website', /id="vtPassInput"[^>]*onkeydown="if\(event\.key==='Enter'\)\{event\.preventDefault\(\);vtPassSave\(\);\}"/.test(idx));
+  // v118: many connections
+  ok('a plain file is fetched over many connections at once', /def fetch_parallel\(url, dest, headers=None, total=0, conns=24, piece=8 \* 1024 \* 1024/.test(app) && /Range='bytes=%d-%d' % \(a, b\)/.test(app));
+  ok('a refusal falls back to the ordinary download', /the fast way was refused; downloading the ordinary way/.test(app) && /info = y\.extract_info\(url, download=True\)/.test(app));
   // v117: downloads
   ok('the downloader gets what YouTube needs now, by itself', /def ensure_downloader/.test(app) && /yt-dlp\[default\]/.test(app) && /deno-x86_64-pc-windows-msvc\.zip/.test(app));
   ok('a stream is fetched in many pieces at once, at 30 frames a second', /'concurrent_fragment_downloads': 16, 'http_chunk_size': 10 \* 1024 \* 1024/.test(app) && /\[fps<=30\]/.test(app));
