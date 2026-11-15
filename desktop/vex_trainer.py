@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.4'
+VERSION = '2.5'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -952,6 +952,21 @@ def do_jobs(cfg):
     return totals['ok']
 
 
+def key_problem(r, cfg):
+    """Why the website turned a key down, said so it can be acted on."""
+    r = r or {}
+    why, status = str(r.get('error') or ''), r.get('status')
+    if status == 403 and 'no passcode is set' in why:
+        return ('The website has no admin key of its own yet, so no key can match. In Vercel: Settings, Environment Variables, '
+                'add TRACKER_PASSCODE (8 or more characters) for Production, then redeploy the site.')
+    if status == 403:
+        return 'That does not match the key saved in Vercel (TRACKER_PASSCODE). Capitals matter.'
+    if status == 404:
+        return 'The website at %s has no tracker on it (it answered 404). Is that the right address?' % cfg.get('site')
+    if status:
+        return 'The website answered %s: %s' % (status, why[:120])
+    return 'Could not reach the website (%s). Check the internet connection.' % why[:120]
+
 def need_key(cfg, site):
     if cfg.get('key'):
         return True
@@ -966,7 +981,7 @@ def need_key(cfg, site):
     site.key = key
     r = site.post({'check': True}, tries=1)
     if not (r and r.get('ok')):
-        say('The website did not accept that key (%s).' % (r or {}).get('error'))
+        say(key_problem(r, cfg))
         return False
     cfg['key'] = key
     save_config(cfg)
@@ -1939,7 +1954,7 @@ def serve_ui(cfg, port=8765, open_window=True):
                 site.key = key
                 r = site.post({'check': True}, tries=1)
                 if not (r and r.get('ok')):
-                    return self._send(200, {'ok': False, 'error': 'The website did not accept that key.' if (r or {}).get('status') == 403 else 'Could not check it: ' + str((r or {}).get('error'))})
+                    return self._send(200, {'ok': False, 'error': key_problem(r, cfg)})
                 cfg['key'] = key
                 save_config(cfg)
                 if not job.busy():                       # the key was the only thing missing: start

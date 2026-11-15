@@ -220,6 +220,21 @@ console.log('\n· settings, and the top tabs');
   ok('the passcode is only ever sent to this site\'s own endpoint', (idx.match(/vtPass\(\)/g) || []).length <= 20 && (idx.match(/passcode: /g) || []).every((_, i, all) => true) && !/passcode: [^\n]*fetch\(['"`]https?:/.test(idx) && /fetch\('\/api\/tracker'/.test(idx));
   ok('no errors', errors.length === 0, errors.join('\n'));
 }
+// v116: a right key that "doesn't work" — say which of two things it is.
+{
+  const mod = await import('../api/tracker.js');
+  const call = async (env, body) => { for (const k of ['TRACKER_PASSCODE', 'KV_REST_API_URL', 'KV_REST_API_TOKEN']) delete process.env[k]; Object.assign(process.env, env); let code = 0, out = null; const res = { setHeader() {}, status(c) { code = c; return this; }, json(j) { out = j; return this; } }; await mod.default({ method: 'POST', query: {}, body }, res); return { code, out }; };
+  const none = await call({}, { passcode: 'correct-horse', check: true });
+  ok('with no key on the server, it says so', none.code === 403 && /no passcode is set on the server/.test(none.out.error));
+  const wrong = await call({ TRACKER_PASSCODE: 'correct-horse' }, { passcode: 'Correct-Horse', check: true });
+  ok('a key in the wrong capitals is a wrong key', wrong.code === 403 && wrong.out.error === 'wrong passcode');
+  ok('a key saved in Vercel with a space or line break after it still matches', (await call({ TRACKER_PASSCODE: 'correct-horse \n' }, { passcode: 'correct-horse', check: true })).code === 200);
+  ok('and one typed with a space after it', (await call({ TRACKER_PASSCODE: 'correct-horse' }, { passcode: ' correct-horse ', check: true })).code === 200);
+  ok('a blank key never matches', (await call({ TRACKER_PASSCODE: '        ' }, { passcode: '        ', check: true })).code === 403);
+  ok('the page tells the two apart', /The website has no admin key of its own yet/.test(idx) && /That does not match the key saved in Vercel/.test(idx));
+  const app = fs.readFileSync('../desktop/vex_trainer.py', 'utf8');
+  ok('so does the app', /def key_problem/.test(app) && /no passcode is set/.test(app) && /it answered 404/.test(app));
+}
 win.close();
 console.log(`\nt112: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

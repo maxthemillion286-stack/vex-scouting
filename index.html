@@ -3676,7 +3676,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v115';
+const APP_BUILD = 'v116';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -8360,7 +8360,14 @@ async function vtPassSave() {
   let r = null;
   try { r = await vtApi('POST', '', { passcode: v, check: true }); } catch (e) {}
   if (!r) return vtSettingsRefresh('Could not check the admin key: no connection.');
-  if (!r.ok) return vtSettingsRefresh(r.status === 403 ? 'That admin key was not accepted.' : 'The admin key could not be checked.');
+  // Say WHICH of the two it is. "Not accepted" for both sent the owner round
+  // in circles with the right key: the server had none to compare it with.
+  if (!r.ok) {
+    const why = String((r.body && r.body.error) || '');
+    if (r.status === 403 && /no passcode is set/.test(why)) return vtSettingsRefresh('The website has no admin key of its own yet, so no key can match. In Vercel: Settings, Environment Variables, add TRACKER_PASSCODE (8 or more characters) for Production, then redeploy the site. A variable added without a redeploy is not in use.');
+    if (r.status === 403) return vtSettingsRefresh('That does not match the key saved in Vercel (TRACKER_PASSCODE). Capitals matter, and it is whatever was typed there when it was set up.');
+    return vtSettingsRefresh(`The admin key could not be checked (the website answered ${r.status}${why ? ': ' + why.slice(0, 80) : ''}).`);
+  }
   lsSet(VT_PASS_KEY, v);
   input.value = '';
   vtSettingsRefresh('Admin key accepted and saved.');
