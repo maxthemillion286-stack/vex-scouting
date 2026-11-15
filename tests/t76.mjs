@@ -28,7 +28,7 @@ const ok = (n, c, e) => { c ? (pass++, console.log('  ok   ' + n)) : (fail++, co
 const px = fs.readFileSync('../api/proxy.js', 'utf8');
 const idx = fs.readFileSync('../index.html', 'utf8');
 const src = idx.match(/<script(?![^>]*src=)[^>]*>([\s\S]*?)<\/script>/)[1];
-const route = px.slice(px.indexOf("path.startsWith('boxcast:')"), px.indexOf("path.startsWith('siblings:')"));
+const route = px.slice(px.indexOf("path.startsWith('boxcast:')"), px.indexOf("path.startsWith('channel:')"));
 
 console.log('t76 — BoxCast broadcasts, and a legible day assignment');
 

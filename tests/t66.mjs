@@ -40,7 +40,7 @@ ok('rwAutoFindStream was found', fn.length > 200 && fn.length < 14000, `length $
 ok('the proxy call is not an else-branch of the description check',
   !/\}\s*else if \(e0\.sku\)/.test(fn), 'still `else if (e0.sku)`');
 ok('the proxy is consulted on its own condition',
-  /if \(e0\.sku && needPool\)/.test(fn));
+  /if \(e0\.sku && needPool( && !viaChannel)?\)/.test(fn));
 ok('the description link is still read first (it is free)',
   fn.indexOf('rwFindWebcasts') < fn.indexOf('needPool'));
 

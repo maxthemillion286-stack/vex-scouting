@@ -18,7 +18,7 @@ export const config = { maxDuration: 60 };
 // Bumped whenever the streams lookup changes. Surfaced in `diag` and in every
 // streams response so the debug page can prove WHICH proxy is actually live —
 // a stale cached reply is otherwise indistinguishable from a fresh failure.
-const PROXY_BUILD = 'v113';
+const PROXY_BUILD = 'v114';
 // A failed stream lookup is expensive (page race + a YouTube search), and the
 // answer rarely changes within a session. Cache the miss too, or every revisit
 // pays the full cost again.
@@ -1720,6 +1720,30 @@ async function handleRequest(req, res) {
     })).sort((a, b) => Date.parse(a.actualStartTime || 0) - Date.parse(b.actualStartTime || 0));
     res.setHeader('Cache-Control', 'public, s-maxage=3600, stale-while-revalidate=3600');
     return res.status(200).json({ ok: out.length > 0, build: PROXY_BUILD, tried, broadcasts: out });
+  } else if (path.startsWith('channel:')) {
+    // ── A channel already known to broadcast from this venue ─────────────
+    // The page remembers which channel streamed an event; the same organiser's
+    // next event is almost always on it. Listing that channel inside the
+    // event's dates costs 2-3 units and involves no guessing from titles.
+    const ytKey = process.env.YOUTUBE_API_KEY;
+    const channelId = path.slice(8);
+    const startISO = typeof req.query.start === 'string' ? req.query.start : '';
+    const endISO = typeof req.query.end === 'string' ? req.query.end : '';
+    const evName = typeof req.query.name === 'string' ? req.query.name : '';
+    if (!ytKey) return res.status(200).json({ ok: false, reason: 'no-key', streams: [] });
+    if (!/^UC[A-Za-z0-9_-]{22}$/.test(channelId)) return res.status(400).json({ ok: false, reason: 'bad-id', streams: [] });
+    if (!startISO) return res.status(200).json({ ok: false, reason: 'no-dates', streams: [] });
+    try {
+      const vids = await resolveChannel('https://www.youtube.com/channel/' + channelId, startISO, endISO, ytKey, evName);
+      const out = { ok: vids.length > 0, build: PROXY_BUILD, channelId, streams: vids.map(v => ({ ...v, channelId, source: 'yt-channel' })), reason: vids.length ? undefined : 'channel-no-videos' };
+      const eventOver = Date.parse(endISO || startISO) < Date.now() - 36 * 3600e3;
+      const ttl = out.ok ? STREAM_TTL_MS : (eventOver ? NEG_TTL_PAST_MS : NEG_TTL_MS);
+      const edge = Math.floor(ttl / 1000);
+      res.setHeader('Cache-Control', `public, s-maxage=${edge}, stale-while-revalidate=${edge}`);
+      return res.status(200).json(out);
+    } catch (err) {
+      return res.status(200).json({ ok: false, reason: 'lookup-failed', streams: [] });
+    }
   } else if (path.startsWith('siblings:')) {
     // ── The other days of a multi-day event ──────────────────────────────
     //

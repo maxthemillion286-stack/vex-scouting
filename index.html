@@ -2573,6 +2573,24 @@
   .home-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
   .home-card .t-climb { background: var(--card2); margin: 12px 0 0; }
   @media (max-width: 899px) { .home-grid { grid-template-columns: 1fr; } }
+  .vt-over { display: none; position: fixed; inset: 0; z-index: 2147483000; background: var(--bg); overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  .vt-over-top { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 16px; background: var(--bg); border-bottom: 1px solid var(--border); font-family: var(--body); }
+  .vt-over-body { max-width: 980px; margin: 0 auto; padding: 14px 16px 60px; font-family: var(--body); }
+  .vt-brief { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin: 0 0 10px; font-size: 14px; line-height: 1.5; color: var(--text); }
+  .vt-brief-me { border-color: var(--accent-bright); }
+  .vt-brief-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin-bottom: 4px; color: var(--text-dim); font-size: 13px; }
+  .vt-brief-num { font-size: 17px; font-weight: 700; padding: 0; }
+  .vt-brief em { font-style: normal; color: var(--text-dim); display: inline-block; min-width: 92px; }
+  .vt-clip-player { aspect-ratio: 16 / 9; width: 100%; background: #000; border-radius: 10px; overflow: hidden; margin: 10px 0; }
+  .vt-clip-player iframe { width: 100%; height: 100%; display: block; }
+  .vt-clip { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; padding: 4px 8px; border-radius: 8px; font-size: 14px; color: var(--text-dim); }
+  .vt-clip.on { background: rgba(127,127,127,0.16); }
+  .vt-clip a { color: var(--text-dim); font-size: 13px; }
+  .vt-rev-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 10px; font-size: 14px; color: var(--text-dim); }
+  .vt-rev-bar span { flex: 1 1 140px; }
+  .vt-rev-bar .btn, .vt-over-top .btn { width: auto; flex: 0 0 auto; padding: 8px 12px; min-height: 40px; margin: 0; }
+  .vt-over-top strong { font-size: 17px; }
+  .vt-rev-canvas { width: 100%; height: auto; display: block; background: #000; border-radius: 10px; touch-action: none; margin-bottom: 10px; }
   .rw-playall { display: flex; align-items: center; gap: 12px; margin: 0 0 10px; font-family: var(--body); font-size: 14px; color: var(--text-dim); }
   .rw-playall .rw-nudge-btn { min-height: 40px; padding: 0 16px; font-family: var(--body); font-size: 14px; letter-spacing: 0; border-radius: var(--r-md); }
 
@@ -3028,6 +3046,8 @@
       </div>
       <div class="set-state" id="vtSetState"></div>
       <button class="set-link" onclick="vtPassForget()">Remove the admin key from this device</button>
+      <p class="set-p" style="margin-top:14px"><strong>Teach the robot finder.</strong> The desktop app sends the frames it was least sure of here, so they can be corrected on any device, a phone included. What you correct goes back to the app for training.</p>
+      <button class="btn btn-secondary" onclick="vtReviewOpen()">Review frames</button>
     </div>
     <div class="set-group">
       <h3 class="set-h">Color theme</h3>
@@ -3652,7 +3672,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v113';
+const APP_BUILD = 'v114';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -4966,7 +4986,26 @@ async function rwAutoFindStream(eventId) {
     // Single-day events with a description link still cost nothing: the search
     // only runs when one video demonstrably can't be enough.
     const needPool = dayCount > 1 || !webcastRaw;
-    if (e0.sku && needPool) {
+    // A channel already known to broadcast from this venue is asked first: it
+    // costs almost nothing and involves no guessing from titles.
+    let viaChannel = false;
+    if (needPool && e0.start) {
+      try {
+        const ch = await rwKnownChannel(e0);
+        if (ch) {
+          const r = await fetch(`${BASE}?path=${encodeURIComponent('channel:' + ch)}&start=${encodeURIComponent(e0.start)}` + (e0.end ? `&end=${encodeURIComponent(e0.end)}` : '') +
+            (e0.name ? `&name=${encodeURIComponent(e0.name)}` : '') + `&b=${encodeURIComponent(RW_STREAM_LOGIC)}`);
+          const j = r.ok ? await r.json() : null;
+          const list = ((j && j.streams) || []).filter(x => /youtube|youtu\.be/i.test(x.url) && !(rwParseSource(x.url) || {}).kind);
+          if (list.length) {
+            rwStreamPool = list; rwStreamReason = null; viaChannel = true;
+            webcastRaw = list[0].url; webcast = rwParseVideoId(list[0].url); ctxWebcastSource = 'yt-search';
+            vsDebug.jumper = { sku: e0.sku, start: e0.start, end: e0.end, http: r.status, body: j, via: 'known channel' };
+          }
+        }
+      } catch (e) {}
+    }
+    if (e0.sku && needPool && !viaChannel) {
       try {
         // _t defeats every cache in the chain (service worker, browser, CDN).
         // A stale auto-find answer is worse than none: it makes a fixed proxy
@@ -5012,6 +5051,7 @@ async function rwAutoFindStream(eventId) {
             ? (list.length ? (j.reason || null) : null)
             : (j.reason || 'no-links-on-page');
           const best = list.find(x => /youtube|youtu\.be/i.test(x.url)) || list[0];
+          if (best && best.channelId) rwRememberChannel(e0, best.channelId);
           if (best) {
             webcastRaw = best.url;
             webcast = rwParseVideoId(best.url);
@@ -7946,6 +7986,7 @@ function sim_learnNote(R) {
   } else if (c) {
     parts.push(`<strong>Not yet checked:</strong> the app tests its win chances against played matches once there are ${SIM_CAL_MIN} to test on; there ${c.n === 1 ? 'is' : 'are'} ${c.n} so far.`);
   }
+  if (R.trackUsed) parts.push(`<strong>Video included:</strong> ${R.trackUsed} teams' ratings lean a little on what the robot tracker measured in their matches (pace, autonomous distance, stops), counted as ${SIM_TRACK_K} match. What that is worth here was fitted on the ${R.trackFitOn} teams with both a rating and tracked matches; had it not predicted this event, it would have been left out.`);
   if (R.seasonOnly) parts.push(`<strong>Season form only:</strong> nothing has been played here yet, so these chances come from each team's record at its other events this season.`);
   else if (R.seasonUsed) parts.push(`<strong>Season included:</strong> ${R.seasonUsed} teams' ratings blend in their record at other events this season, counted as ${SIM_SEASON_K} matches. What a season record is worth here was fitted on the ${R.seasonFitOn} teams with enough matches at this event.`);
   return parts.length ? `<div class="sim-caveat">${parts.join(' ')}</div>` : '';
@@ -9339,7 +9380,10 @@ async function vtRender(note) {
   const panel = document.getElementById('vtPanel');
   if (!panel || vtRun) return;
   const ctx = window._rwCtx;
-  if (vsIsPhone() || !ctx || !ctx.eventId) { panel.innerHTML = ''; return; }
+  if (!ctx || !ctx.eventId) { panel.innerHTML = ''; return; }
+  const briefRow = `<div class="rw-hint"><strong>Briefing.</strong> Every team at this event on one page: its autonomous, the strategy it runs and how fast it scores, from the matches the tracker has watched.</div>
+    <div class="rw-playall"><button class="btn btn-primary" onclick="vtBriefingOpen()">Open the briefing</button></div>`;
+  if (vsIsPhone()) { panel.innerHTML = `<div class="rw-block vt-block"><div class="detail-block-label">Scouting from video</div>${briefRow}</div>`; return; }
   const queue = vtQueueFrom(ctx);
   const ev = String(ctx.eventId);
   // The desktop app's row. Always shown on a computer, so it can be found:
@@ -9355,7 +9399,7 @@ async function vtRender(note) {
   if (!vtSupported()) {
     panel.innerHTML = `<div class="rw-block vt-block"><div class="detail-block-label">Robot tracker</div>
       <div class="rw-hint">Tracking in this page captures the tab, which needs Chrome or Edge on a computer. The desktop app does not need that.</div>
-      ${appRow}</div>`;
+      ${briefRow}${appRow}</div>`;
     return;
   }
   const local = await vtLocalIndex(ev);
@@ -9387,6 +9431,7 @@ async function vtRender(note) {
     ${history}
     ${ctx.team ? '' : `<div class="rw-hint"><strong>Live.</strong> While the event is being played, follow its stream and track each match as it happens. It reads the match name off the stream to know which match is on, so it needs no schedule times.</div>
     <div class="rw-playall"><button class="btn btn-secondary" onclick="vtStart('live')">Track live</button></div>`}
+    ${briefRow}
     ${appRow}
     <div class="rw-hint"><strong>Field positions.</strong> For toggle, role and route details the tracker needs the field's four corners in this stream. Open a match in the player above (▶), pause on a view of the whole field, then:</div>
     <div class="rw-playall"><button class="btn btn-secondary" onclick="vtMarkField()">Mark the field</button></div>
@@ -9654,7 +9699,9 @@ function vtPhases(bins, wide, clock) {
 // One match → its summary.
 function vtSummarise(rec, quad, learn) {
   const F = vtFrames(rec, quad, learn);
-  const base = { sv: VT_SUM_V, fq: vtQuadMark(quad), name: rec.name, round: rec.round, num: rec.num, red: rec.red, blue: rec.blue, rs: rec.rs, bs: rec.bs };
+  // vid and of (where the match is in which video) are what a clip is cut from.
+  const base = { sv: VT_SUM_V, fq: vtQuadMark(quad), name: rec.name, round: rec.round, num: rec.num, red: rec.red, blue: rec.blue, rs: rec.rs, bs: rec.bs,
+    vid: /^[A-Za-z0-9_-]{6,20}$/.test(String(rec.vid || '')) ? String(rec.vid) : '', of: Math.round(rec.off || 0) };
   if (!F.ok) return { ...base, ok: 0 };
   const slotted = vtSlots(F.frames), track = vtBin(slotted), ph = vtPhases(track, !!rec.wide, rec.tm);
   const span = F.frames.length > 1 ? F.frames[F.frames.length - 1].t - F.frames[0].t : 0;
@@ -9808,7 +9855,7 @@ async function vtBackfill(ev, force) {
   }
   for (const id of done) {
     const have = all[ev + ':' + id], quad = await field(idx[id].vid);
-    if (have && have.sv === VT_SUM_V && (have.fq || 0) === vtQuadMark(quad)) continue;
+    if (have && have.sv === VT_SUM_V && (have.fq || 0) === vtQuadMark(quad) && have.vid !== undefined) continue;   // one made before clips has no video: made again
     const rec = await idbGet(`vt:m:${ev}:${id}`);
     if (!rec) continue;
     const sum = vtSummarise(rec, quad, await vtLearnGet(idx[id].vid));
@@ -10048,6 +10095,8 @@ async function vtReportFill(number) {
   const sums = await vtTeamSums(num);
   if (host.dataset.team !== num) return;          // another team was opened meanwhile
   host.innerHTML = sums.size ? vtReportHtml(num, vtReport(num, sums)) : (vsIsPhone() ? '' : vtReportHtml(num, { n: 0, lines: null }));
+  const clips = vtClips(num, sums);
+  if (clips.length) host.insertAdjacentHTML('beforeend', `<div class="rw-playall" style="margin-top:10px"><button class="btn btn-secondary" onclick="vtClipsOpen('${teamAttr(num)}')">Watch its autonomous runs (${clips.length})</button></div>`);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -10361,6 +10410,378 @@ function vtMarkField() {
     setTimeout(() => lay.remove(), 1800);
     vtBackfill(String(ctx.eventId), true).then(() => vtRender('Field marked for this stream. Reports from it now use real field positions.')).catch(() => {});
   };
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// v114 — briefing, clips, review anywhere, organiser channels, tracking in
+// the win chances
+// ═══════════════════════════════════════════════════════════════
+
+// ── Several teams' tracked matches at once ─────────────────────────────────
+const vtManyMemo = new Map();
+async function vtTeamSumsMany(numbers) {
+  const nums = [...new Set((numbers || []).map(n => String(n || '').toUpperCase().replace(/[^A-Z0-9]/g, '')))].filter(Boolean).sort();
+  const key = nums.join(','), hit = vtManyMemo.get(key);
+  if (hit && Date.now() - hit.at < 300000) return hit.out;
+  const out = new Map(nums.map(n => [n, new Map()]));
+  const local = await vtSumsLocal();
+  for (const k of Object.keys(local)) { const s = local[k]; if (!s || s.sv !== VT_SUM_V || !s.ok) continue; for (const n of (s.red || []).concat(s.blue || [])) if (out.has(n)) out.get(n).set(k, s); }
+  const chunks = [];
+  for (let i = 0; i < nums.length; i += 12) chunks.push(nums.slice(i, i + 12));
+  await sim_pool(chunks, async c => {
+    try {
+      const r = await vtApi('GET', '?teams=' + c.join(','));
+      if (!r.ok || !r.body.teams) return;
+      for (const n of c) { const sums = r.body.teams[n] || {}; for (const k of Object.keys(sums)) { const s = sums[k]; if (s && s.sv === VT_SUM_V && s.ok && !out.get(n).has(k)) out.get(n).set(k, s); } }
+    } catch (e) {}
+  });
+  vtManyMemo.set(key, { at: Date.now(), out });
+  return out;
+}
+
+// ── A team in three lines ──────────────────────────────────────────────────
+// Asked for as: "tell you autons of a team, brief strategy they run, and
+// scoring speed". In Override's terms. The game as teams play it now (from
+// the owner): one robot holds a toggle while its partner stacks yellow pins
+// in the quadrant that toggle owns, then they swap; some robots play on the
+// other side to slow the opponents' stacking; some go round the field taking
+// toggles. Yellow pin halves are 10 each, alliance halves 5, so the yellow
+// in a quadrant, and therefore the toggle in front of it, is where a match
+// is decided.
+function vtBrief(number, sums) {
+  const rows = vtTeamRows(number, sums), total = rows.mine.length;
+  const B = { n: total, auto: '', strat: '', speed: '', own: false, field: 0 };
+  if (total < 2) return B;
+  const isOwn = rows.own.length >= 2 && rows.own.length >= 0.6 * total;
+  B.own = isOwn;
+  const mine = isOwn ? rows.own : rows.mine;
+  const col = (list, k) => list.map(r => r[k]).filter(v => v !== null && v !== undefined), avg = (list, k) => vtAvg(col(list, k));
+  const sum = (list, k) => list.reduce((a, r) => a + (r[k] || 0), 0);
+  const field = (isOwn ? rows.own : rows.pair).filter(r => r.th !== undefined && r.th !== null);
+  B.field = field.length;
+  const who = isOwn ? '' : 'Its alliances: ';
+  // Autonomous: the routes, where the field is known; else how far it goes.
+  if (field.length >= 2) {
+    const by = new Map();
+    for (const r of field) { const k = String(r.art || 0); by.set(k, (by.get(k) || 0) + 1); }
+    const routes = [...by.entries()].sort((a, b) => b[1] - a[1]).slice(0, 2).map(([code, n]) => {
+      const steps = code.split('').map(d => VT_ZONE_WORDS[d]).filter(Boolean);
+      return (steps.length > 1 ? steps[0] + ' → ' + steps.slice(1).join(' → ') : steps.length ? 'stays in ' + steps[0] : 'not in view') + ` (${n} of ${field.length})`;
+    });
+    B.auto = routes.join('; ') + (by.size > 2 ? `; ${by.size - 2} more seen` : '') + '.';
+  } else {
+    const am = col(mine, 'am'), moved = am.filter(v => v >= 1).length, reach = avg(mine, 'ar');
+    if (am.length) B.auto = who + `moved in ${moved} of ${am.length}` + (reach === null ? '.' : reach > 0.55 ? ', usually crossing the middle.' : reach > 0.3 ? ', usually going toward the middle.' : ', staying near its own side.');
+  }
+  // Strategy.
+  const bits = [];
+  if (field.length >= 2) {
+    const guard = (avg(field, 'th') || 0) + (avg(field, 'ts') || 0) + (avg(field, 'to') || 0), work = (avg(field, 'qh') || 0) + (avg(field, 'qs') || 0) + (avg(field, 'qo') || 0);
+    const away = (avg(field, 'qo') || 0) + (avg(field, 'to') || 0), sw = avg(rows.mine, 'sw');
+    const tog = [['th', 'its own toggle'], ['ts', 'a side toggle'], ['to', "the opponents' toggle"]].map(([k, w]) => [avg(field, k) || 0, w]).sort((a, b) => b[0] - a[0])[0][1];
+    const quad = [['qh', 'its own quadrant'], ['qs', 'the side quadrants'], ['qo', "the opponents' quadrant"]].map(([k, w]) => [avg(field, k) || 0, w]).sort((a, b) => b[0] - a[0])[0][1];
+    if (guard >= 0.35 && work < 0.3) bits.push(`Toggle defender: holds ${tog} (${vtPct(guard)} of the match) while its partner stacks`);
+    else if (work >= 0.45 && guard < 0.2) bits.push(`Stacker: works the pins in ${quad} (${vtPct(work)} of the match)`);
+    else if (sw !== null && sw >= 1) bits.push(`Swaps with its partner, guarding then stacking (${sw.toFixed(1)} swaps a match)`);
+    else bits.push(`Does both: ${vtPct(guard)} at a toggle, ${vtPct(work)} stacking`);
+    if (away > 0.3) bits.push("plays on the opponents' side to slow their scoring");
+    if ((avg(field, 'td') || 0) >= 3) bits.push('goes round the field taking toggles');
+    const rn = sum(field, 'rn'), rl = sum(field, 'rl');
+    if (rn >= 3 && rl / rn >= 0.6) bits.push('leaves its toggle as soon as its partner finishes');
+    const ca = sum(field, 'ca'), cw = sum(field, 'cw');
+    if (ca >= 3) bits.push(`takes a defended toggle ${cw} times in ${ca}`);
+    if (sum(field, 'eg') / field.length >= 0.7) bits.push('in midfield for the last ten seconds');
+  } else {
+    const opp = avg(mine, 'opp'), prs = avg(mine, 'prs');
+    if (opp !== null) bits.push(who + (opp > 0.5 ? "plays mostly in the opponents' half" : opp < 0.25 ? 'stays in its own half' : 'plays both halves'));
+    if (prs !== null && prs > 0.15) bits.push('sits on an opponent: defence');
+    const es = col(mine, 'es');
+    if (es.length >= 2 && es.filter(v => v >= 0.5).length / es.length >= 0.7) bits.push('parks at the end');
+  }
+  B.strat = bits.length ? bits.join('; ') + '.' : '';
+  // Scoring speed: points for each ten seconds spent stacking, where known;
+  // else what its alliances score.
+  const per = rows.mine.filter(r => r.wk > 0 && r.pts !== null && r.pts !== undefined).map(r => r.pts / (r.wk / 10));
+  const pts = col(rows.mine, 'pts');
+  if (per.length >= 2) B.speed = `${vtAvg(per).toFixed(1)} points per 10 s of stacking (its alliances; ${Math.round(vtAvg(pts))} a match).`;
+  else if (pts.length >= 2) B.speed = `Its alliances score ${Math.round(vtAvg(pts))} a match.`;
+  const act = avg(mine, 'act');
+  if (act !== null && B.speed) B.speed += ` Covers ${(act * 100).toFixed(1)}% of the field a second.`;
+  return B;
+}
+
+// ── The briefing: every team at the event ──────────────────────────────────
+function vtOverlay(id, title, body) {
+  let el = document.getElementById(id);
+  if (!el) { el = document.createElement('div'); el.id = id; el.className = 'vt-over'; document.body.appendChild(el); }
+  el.innerHTML = `<div class="vt-over-top"><strong>${esc(title)}</strong><button class="btn btn-secondary" onclick="vtOverlayClose('${teamAttr(id)}')">Close</button></div><div class="vt-over-body">${body}</div>`;
+  el.style.display = 'block';
+  document.documentElement.style.overflow = 'hidden';
+  return el;
+}
+function vtOverlayBody(id) { const el = document.getElementById(id); return el && el.style.display !== 'none' ? el.querySelector('.vt-over-body') : null; }
+function vtOverlayClose(id) {
+  const el = document.getElementById(id);
+  if (el) { el.style.display = 'none'; el.innerHTML = ''; }
+  document.documentElement.style.overflow = '';
+  if (id === 'vtClipsOver') vtClipState = null;
+}
+async function vtBriefingOpen() {
+  const ctx = window._rwCtx;
+  if (!ctx || !ctx.eventId) return;
+  const evName = (ctx.events && ctx.events[0] && ctx.events[0].name) || 'this event';
+  vtOverlay('vtBriefOver', 'Briefing', '<div class="rw-hint">Gathering what the tracker has seen of every team here…</div>');
+  let teams = [];
+  try { teams = (await apiGet(`/events/${ctx.eventId}/teams`)).map(t => String(t.number || '').toUpperCase()).filter(Boolean); } catch (e) {}
+  if (!teams.length) teams = [...new Set((ctx.matches || []).flatMap(m => (m.redNums || []).concat(m.blueNums || [])).map(n => String(n).toUpperCase()))];
+  const body = vtOverlayBody('vtBriefOver');
+  if (!body) return;
+  if (!teams.length) { body.innerHTML = '<div class="rw-hint">The team list for this event is not published yet.</div>'; return; }
+  const many = await vtTeamSumsMany(teams);
+  if (!vtOverlayBody('vtBriefOver')) return;       // closed meanwhile
+  const mine = vsMyTeam() || '';
+  const briefs = teams.map(n => ({ num: n, B: vtBrief(n, many.get(n) || new Map()), clips: vtClips(n, many.get(n) || new Map()).length }));
+  const natural = (a, b) => a.num.localeCompare(b.num, undefined, { numeric: true });
+  const seen = briefs.filter(b => b.B.n >= 2).sort(natural), unseen = briefs.filter(b => b.B.n < 2).sort(natural);
+  const needField = seen.filter(b => !b.B.field).length;
+  const row = b => `<div class="vt-brief${b.num === String(mine).toUpperCase() ? ' vt-brief-me' : ''}">
+      <div class="vt-brief-h"><button class="set-link vt-brief-num" onclick="vtOverlayClose('vtBriefOver');scoutTeam('${teamAttr(b.num)}')">${esc(b.num)}</button><span>${b.B.n} matches watched${b.B.own ? '' : ' · robot not told apart from its partners yet'}</span>
+        ${b.clips ? `<button class="set-link" onclick="vtClipsOpen('${teamAttr(b.num)}')">▶ autonomous runs (${b.clips})</button>` : ''}</div>
+      ${b.B.auto ? `<div><em>Autonomous</em> ${esc(b.B.auto)}</div>` : ''}
+      ${b.B.strat ? `<div><em>Strategy</em> ${esc(b.B.strat)}</div>` : ''}
+      ${b.B.speed ? `<div><em>Scoring</em> ${esc(b.B.speed)}</div>` : ''}</div>`;
+  body.innerHTML = `<div class="rw-hint"><strong>${esc(evName)}.</strong> ${seen.length} of ${teams.length} teams have matches the tracker has watched. Positions are worked out from video and can be wrong; a line about "its alliances" means the robot could not be told from its partners.${needField ? ` For ${needField} teams the field has not been marked on their streams, so roles and routes are left out: open one of their matches in the Jumper on a computer and press Mark the field.` : ''}</div>
+    ${seen.map(row).join('') || '<div class="rw-hint">Nothing watched yet. On a computer: Jumper, this event, Robot tracker, and track the teams\' earlier matches (the desktop app is fastest).</div>'}
+    ${unseen.length ? `<div class="rw-hint" style="margin-top:14px"><strong>Not watched yet (${unseen.length}):</strong> ${unseen.map(b => esc(b.num)).join(', ')}</div>` : ''}`;
+}
+
+// ── Clips: a team's autonomous runs, one after another ─────────────────────
+// A summary knows which video a match is in and when its autonomous began, so
+// "show me all of this team's autonomous runs" is a list of places to jump to.
+function vtClips(number, sums) {
+  const num = String(number || '').toUpperCase(), out = [];
+  for (const [key, s] of sums) {
+    if (!s || !s.ok || !s.vid || !Number.isFinite(s.of) || !Number.isFinite(s.st)) continue;
+    if (!(s.red || []).includes(num) && !(s.blue || []).includes(num)) continue;
+    out.push({ key, vid: s.vid, t: Math.max(0, Math.round(s.of + s.st - 3)), name: s.name || 'Match', side: (s.red || []).includes(num) ? 'red' : 'blue', clock: !!s.ck });
+  }
+  return out.sort((a, b) => a.key.localeCompare(b.key, undefined, { numeric: true }));
+}
+const VT_CLIP_SEC = 22;                 // three seconds of lead, fifteen of autonomous, a little after
+let vtClipState = null;
+async function vtClipsOpen(number) {
+  const num = String(number || '').toUpperCase();
+  vtOverlay('vtClipsOver', `${num}: autonomous runs`, '<div class="rw-hint">Finding its matches…</div>');
+  const clips = vtClips(num, await vtTeamSums(num));
+  const body = vtOverlayBody('vtClipsOver');
+  if (!body) return;
+  if (!clips.length) { body.innerHTML = '<div class="rw-hint">No tracked match of this team has a video position yet.</div>'; return; }
+  body.innerHTML = `<div class="rw-hint">${clips.length} runs, played one after another. ${esc(num)} is on the alliance named beside each. The start is taken from ${clips.some(c => c.clock) ? 'the match clock where it was read, otherwise from' : ''} when the robots first move, so a clip can begin a few seconds early or late.</div>
+    <div class="vt-clip-player"><div id="vtClipPlayer"></div></div>
+    <div class="vt-clip-list">${clips.map((c, i) => `<div class="vt-clip" id="vtClip${i}"><button class="set-link" onclick="vtClipPlay(${Number(i)})">▶ ${esc(c.name)}</button><span>${c.side} alliance</span><a href="https://www.youtube.com/watch?v=${teamAttr(c.vid)}&amp;t=${Number(c.t)}s" target="_blank" rel="noopener">open on YouTube</a></div>`).join('')}</div>`;
+  vtClipState = { clips, i: -1, player: null, timer: null };
+  rwLoadYT();
+  const st = vtClipState;
+  for (let k = 0; k < 100 && !(window.YT && window.YT.Player); k++) await new Promise(r => setTimeout(r, 100));
+  if (vtClipState !== st || !(window.YT && window.YT.Player) || !document.getElementById('vtClipPlayer')) return;
+  st.player = new window.YT.Player('vtClipPlayer', { width: '100%', height: '100%', videoId: clips[0].vid,
+    playerVars: { start: clips[0].t, playsinline: 1, rel: 0, modestbranding: 1 },
+    events: { onReady: () => vtClipPlay(0) } });
+  // The player is asked where it is; a clip ends when it has run its length.
+  st.timer = setInterval(() => {
+    if (vtClipState !== st) return clearInterval(st.timer);
+    const c = st.clips[st.i];
+    let now = 0; try { now = st.player.getCurrentTime(); } catch (e) { return; }
+    if (c && now >= c.t + VT_CLIP_SEC) { if (st.i + 1 < st.clips.length) vtClipPlay(st.i + 1); else { try { st.player.pauseVideo(); } catch (e) {} } }
+  }, 500);
+}
+function vtClipPlay(i) {
+  const st = vtClipState;
+  if (!st || !st.player || !st.clips[i]) return;
+  st.i = i;
+  const c = st.clips[i];
+  try { st.player.loadVideoById({ videoId: c.vid, startSeconds: c.t }); } catch (e) {}
+  st.clips.forEach((_, k) => { const el = document.getElementById('vtClip' + k); if (el) el.classList.toggle('on', k === i); });
+}
+
+// ── Review anywhere ────────────────────────────────────────────────────────
+// The desktop app sends the frames its finder was least sure of to the shared
+// storage. Here they are corrected, on a phone as well as a computer, and the
+// corrections go back for the app to train on. Tap a box to remove it; drag to
+// draw one round a robot the finder missed.
+let vtRev = null;
+async function vtReviewOpen() {
+  if (!vtPass()) { vtSettingsRefresh('Save the admin key first: corrections are saved with it.'); return; }
+  vtOverlay('vtRevOver', 'Review frames', '<div class="rw-hint">Looking for frames…</div>');
+  let ids = [];
+  try { const r = await vtApi('GET', '?frames=1'); ids = (r.ok && r.body.ids) || []; } catch (e) {}
+  const body = vtOverlayBody('vtRevOver');
+  if (!body) return;
+  if (!ids.length) { body.innerHTML = '<div class="rw-hint">No frames are waiting. The desktop app sends more each time it finishes tracking.</div>'; return; }
+  body.innerHTML = `<div class="vt-rev-bar"><span id="vtRevLeft"></span><button class="btn btn-secondary" onclick="vtRevUndo()">Undo</button><button class="btn btn-secondary" onclick="vtRevSave(true)">Not a field view</button><button class="btn btn-primary" onclick="vtRevSave(false)">Save, next</button></div>
+    <canvas id="vtRevCanvas" class="vt-rev-canvas"></canvas>
+    <div class="rw-hint">Green boxes are what the finder thinks are robots. Tap a wrong one to remove it. Drag to draw a box round a robot it missed. Box every robot you can see, even partly hidden ones, and nothing else.</div>`;
+  vtRev = { ids, cur: null, boxes: [], hist: [], drag: null, img: null, done: 0 };
+  const c = document.getElementById('vtRevCanvas');
+  const pos = e => { const r = c.getBoundingClientRect(); return [(e.clientX - r.left) * c.width / r.width, (e.clientY - r.top) * c.height / r.height]; };
+  c.addEventListener('pointerdown', e => { if (!vtRev || !vtRev.cur) return; e.preventDefault(); c.setPointerCapture(e.pointerId); const [x, y] = pos(e); vtRev.drag = { x0: x, y0: y, x, y, w: 0, h: 0 }; });
+  c.addEventListener('pointermove', e => { const d = vtRev && vtRev.drag; if (!d) return; const [x, y] = pos(e); d.x = Math.min(x, d.x0); d.y = Math.min(y, d.y0); d.w = Math.abs(x - d.x0); d.h = Math.abs(y - d.y0); vtRevDraw(); });
+  c.addEventListener('pointerup', () => { if (vtRev && vtRev.drag) { const d = vtRev.drag; vtRev.drag = null; vtRevEdit(d, c.width); } });
+  c.addEventListener('pointercancel', () => { if (vtRev) { vtRev.drag = null; vtRevDraw(); } });
+  vtRevNext();
+}
+// One gesture on a frame: a drag adds a box, a tap removes the smallest box under it.
+function vtRevEdit(d, width) {
+  const R = vtRev, min = Math.max(8, width / 80);
+  R.hist.push(R.boxes.map(b => b.slice()));
+  if (d.w > min && d.h > min) R.boxes.push([d.x, d.y, d.w, d.h]);
+  else {
+    let k = -1, a = Infinity;
+    R.boxes.forEach((b, i) => { if (d.x0 >= b[0] && d.x0 <= b[0] + b[2] && d.y0 >= b[1] && d.y0 <= b[1] + b[3] && b[2] * b[3] < a) { a = b[2] * b[3]; k = i; } });
+    if (k >= 0) R.boxes.splice(k, 1); else R.hist.pop();
+  }
+  vtRevDraw();
+}
+function vtRevUndo() { if (vtRev && vtRev.hist.length) { vtRev.boxes = vtRev.hist.pop(); vtRevDraw(); } }
+function vtRevDraw() {
+  const R = vtRev, c = document.getElementById('vtRevCanvas');
+  if (!R || !c || !R.img) return;
+  const x = c.getContext('2d');
+  x.drawImage(R.img, 0, 0, c.width, c.height);
+  x.lineWidth = Math.max(2, c.width / 320);
+  x.strokeStyle = '#39ff88';
+  for (const b of R.boxes) x.strokeRect(b[0], b[1], b[2], b[3]);
+  if (R.drag && R.drag.w) { x.strokeStyle = '#ffd23f'; x.strokeRect(R.drag.x, R.drag.y, R.drag.w, R.drag.h); }
+}
+async function vtRevNext() {
+  const R = vtRev, left = document.getElementById('vtRevLeft');
+  if (!R) return;
+  R.cur = null;
+  while (R.ids.length) {
+    const id = R.ids[0];
+    let f = null;
+    try { const r = await vtApi('GET', '?frame=' + encodeURIComponent(id)); f = r.ok ? r.body.frame : null; } catch (e) {}
+    if (vtRev !== R) return;
+    if (!f) { R.ids.shift(); continue; }          // reviewed on another device meanwhile
+    R.cur = f; R.hist = [];
+    // Boxes are in the full frame's pixels; the picture sent is smaller.
+    R.boxes = (f.boxes || []).filter(b => b[4] >= 0.35).map(b => b.slice(0, 4));
+    const img = new Image();
+    img.onload = () => { if (vtRev !== R) return; R.img = img; const c = document.getElementById('vtRevCanvas'); if (c) { c.width = f.w; c.height = f.h; vtRevDraw(); } };
+    img.src = 'data:image/jpeg;base64,' + f.b64;
+    if (left) left.textContent = `${R.ids.length} to review · ${R.done} done now`;
+    return;
+  }
+  const body = vtOverlayBody('vtRevOver');
+  if (body) body.innerHTML = `<div class="rw-hint">All done: ${R.done} frames corrected. The desktop app picks them up the next time it starts or trains.</div>`;
+}
+async function vtRevSave(skip) {
+  const R = vtRev;
+  if (!R || !R.cur || R.busy) return;
+  R.busy = true;
+  const id = R.cur.id, boxes = R.boxes.map(b => b.map(v => Math.round(v * 10) / 10));
+  let ok = false;
+  try { ok = (await vtApi('POST', '', { passcode: vtPass(), label: { id, skip: !!skip, boxes } })).ok; } catch (e) {}
+  R.busy = false;
+  if (!ok) { const left = document.getElementById('vtRevLeft'); if (left) left.textContent = 'That did not save (no connection, or the admin key was not accepted). Try again.'; return; }
+  R.ids.shift(); R.done++;
+  vtRevNext();
+}
+
+// ── Which channel broadcasts from a venue ──────────────────────────────────
+// The organiser who streamed one event at a venue streams the next one there
+// on the same channel. Once a stream has been found for a venue, its channel
+// is remembered (on this device, and for everyone when the admin key is
+// saved) and asked first the next time.
+const RW_CHAN_KEY = 'vex_rw_chan';
+function rwVenueKey(e0) {
+  const loc = (e0 && e0.location) || {}, n = v => String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const venue = n(loc.venue), city = n(loc.city);
+  return venue.length >= 4 ? (venue + '|' + city).slice(0, 60) : '';
+}
+function rwChanLocal() { try { return JSON.parse(lsGet(RW_CHAN_KEY) || '{}') || {}; } catch (e) { return {}; } }
+async function rwKnownChannel(e0) {
+  const key = rwVenueKey(e0);
+  if (!key) return null;
+  const local = rwChanLocal()[key];
+  if (/^UC[A-Za-z0-9_-]{22}$/.test(String(local || ''))) return local;
+  try {
+    const r = await Promise.race([vtApi('GET', '?chan=' + encodeURIComponent(key)), new Promise(res => setTimeout(() => res(null), 2000))]);
+    const id = r && r.ok && r.body && r.body.id;
+    return /^UC[A-Za-z0-9_-]{22}$/.test(String(id || '')) ? id : null;
+  } catch (e) { return null; }
+}
+function rwRememberChannel(e0, id) {
+  const key = rwVenueKey(e0);
+  if (!key || !/^UC[A-Za-z0-9_-]{22}$/.test(String(id || ''))) return;
+  const all = rwChanLocal();
+  if (all[key] === id) return;
+  all[key] = id;
+  const keys = Object.keys(all);
+  if (keys.length > 200) delete all[keys[0]];
+  lsSet(RW_CHAN_KEY, JSON.stringify(all));
+  const pass = typeof vtPass === 'function' ? vtPass() : '';
+  if (pass) vtApi('POST', '', { passcode: pass, chan: { key, id } }).catch(() => {});
+}
+
+// ── What the tracker saw, in a team's rating ───────────────────────────────
+// A rating built from scores knows nothing about HOW a team plays. The tracker
+// does: how much ground a robot covers, how far its autonomous goes, how long
+// it sits dead. Used exactly as the season record is (sim_applySeason): a
+// straight line is fitted across the teams here that have both a rating and
+// tracked matches; if it does not slope upward — if video does not predict
+// this event — nothing is changed. Where it does, each tracked team's rating
+// is pulled toward the line, counted as one match. Small on purpose: a
+// position guessed from video is weaker evidence than a score.
+const SIM_TRACK_K = 1;
+function sim_trackScore(rowsByNum) {
+  // One number per team: pace and autonomous distance up, long stops down,
+  // each measured against the other teams here and capped.
+  const raw = new Map();
+  for (const [num, rows] of rowsByNum) {
+    if (rows.length < 3) continue;
+    const a = k => vtAvg(rows.map(r => r[k]).filter(v => v !== null && v !== undefined));
+    const act = a('act'), ap = a('ap'), stp = a('stp');
+    if (act === null || ap === null || stp === null) continue;
+    raw.set(num, [act, ap, -stp]);
+  }
+  const out = new Map();
+  if (raw.size < 4) return out;
+  const zs = [0, 1, 2].map(k => { const v = [...raw.values()].map(r => r[k]), m = v.reduce((s, x) => s + x, 0) / v.length, sd = Math.sqrt(v.reduce((s, x) => s + (x - m) * (x - m), 0) / v.length) || 1; return x => Math.max(-2, Math.min(2, (x - m) / sd)); });
+  for (const [num, r] of raw) out.set(num, (zs[0](r[0]) + zs[1](r[1]) + zs[2](r[2])) / 3);
+  return out;
+}
+async function sim_trackIndex(numById, capMs) {
+  const out = new Map(), nums = Object.values(numById || {}).map(n => String(n).toUpperCase());
+  if (nums.length < 8) return out;
+  const many = await Promise.race([vtTeamSumsMany(nums), new Promise(r => setTimeout(() => r(null), capMs || 1500))]);
+  if (!many) return out;
+  const rows = new Map();
+  for (const n of nums) { const s = many.get(n.replace(/[^A-Z0-9]/g, '')); if (s && s.size >= 3) { const R = vtTeamRows(n, s); rows.set(n, R.own.length >= 3 ? R.own : R.mine); } }
+  const score = sim_trackScore(rows);
+  for (const [id, num] of Object.entries(numById)) { const v = score.get(String(num).toUpperCase()); if (v !== undefined) out.set(String(id), v); }
+  return out;
+}
+function sim_applyTracking(ratings, matchCount, index) {
+  const res = { used: 0, fitOn: 0, slope: null };
+  if (!index || index.size < 8) return res;
+  const fit = [];
+  for (const [id, x] of index) if ((matchCount.get(id) || 0) >= 3 && ratings.has(id)) fit.push([x, ratings.get(id)]);
+  if (fit.length < 8) return res;
+  const mx = fit.reduce((s, p) => s + p[0], 0) / fit.length, my = fit.reduce((s, p) => s + p[1], 0) / fit.length;
+  let sxy = 0, sxx = 0;
+  for (const [x, y] of fit) { sxy += (x - mx) * (y - my); sxx += (x - mx) * (x - mx); }
+  const b = sxx > 0 ? sxy / sxx : 0, a = my - b * mx;
+  if (!(b > 0)) return res;                       // video does not predict this event: leave it out
+  res.fitOn = fit.length; res.slope = b;
+  for (const [id, x] of index) {
+    if (!ratings.has(id)) continue;               // no score-based rating to lean from
+    const n = matchCount.get(id) || 0, cur = ratings.get(id);
+    ratings.set(id, (n * cur + SIM_TRACK_K * (a + b * x)) / (n + SIM_TRACK_K));
+    res.used++;
+  }
+  return res;
 }
 
 // ── STATUS BADGE ──────────────────────────────
@@ -16435,9 +16856,12 @@ async function sim_buildRatingsFromEventUncached(event, setStatus) {
     season = sim_applySeason(ratings, matchCount, records);
     if (season.seasonOnly && !(globalStd > 0)) globalStd = 12;
   } catch (e) {}
+  // What the tracker has seen of each team, where it predicts this event (v114).
+  let tracking = { used: 0, fitOn: 0 };
+  try { tracking = sim_applyTracking(ratings, matchCount, await sim_trackIndex(numById, 1500)); } catch (e) {}
   const idByNum = {};
   for (const [id, num] of Object.entries(numById)) idByNum[num.toUpperCase()] = id;
-  return { event, ratings, stdByTeam, globalStd, matchCount, matches: allMatches, numById, idByNum,
+  return { event, ratings, stdByTeam, globalStd, matchCount, matches: allMatches, numById, idByNum, trackUsed: tracking.used, trackFitOn: tracking.fitOn,
     apRate: ap.rate, apAdj: ap.adj, apUsed: ap.used,
     cal, prior: season.prior, seasonUsed: season.used, seasonFitOn: season.fitOn, seasonOnly: season.seasonOnly };
 }
