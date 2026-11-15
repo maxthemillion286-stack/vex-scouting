@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v116**. Everything green: 80 test files. (The `v19` in §8's
+Current release: **v117**. Everything green: 80 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -2815,6 +2815,17 @@ added without a redeploy). They now say which (`vtPassSave`; the app's
 stored and the given key, so a trailing space or line break in Vercel no longer
 makes a key unmatchable. The owner pasted the key into the chat while
 reporting this; he was told to change it.
+
+**v117 — app downloads.** Reported slow on a gigabit line. The launcher
+installed bare `yt-dlp`; since late 2025 YouTube support needs `yt-dlp[default]`
+(the yt-dlp-ejs component) and a JavaScript runtime (Deno by default), without
+which yt-dlp runs on a deprecated path with fewer formats
+(github.com/yt-dlp/yt-dlp/issues/15012). `ensure_downloader` pip-installs the
+former and fetches `deno.exe` into `tools/` (added to PATH) from Deno's GitHub
+release. Also: 16 concurrent fragments, 10 MB range requests, 720p ≤30 fps
+avc1 preferred (half the bytes of 60 fps), speed printed every 5 s. Not run:
+no YouTube from the sandbox. If it is still slow, the printed MB/s is the
+number to ask for.
 
 ## 33. Feature ideas
 

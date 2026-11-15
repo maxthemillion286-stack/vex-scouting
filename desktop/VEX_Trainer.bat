@@ -32,12 +32,12 @@ set VPY=venv\Scripts\python.exe
 if not exist venv\ready2.txt (
   echo Installing what it needs, a few minutes the first time...
   %VPY% -m pip install -q --upgrade pip
-  %VPY% -m pip install -q numpy opencv-python onnxruntime-directml yt-dlp
+  %VPY% -m pip install -q numpy opencv-python onnxruntime-directml "yt-dlp[default]"
   if errorlevel 1 ( echo Something did not install. Check the internet connection and try again. & pause & exit /b 1 )
   echo ok> venv\ready2.txt
 ) else (
   rem The downloader has to keep up with YouTube.
-  %VPY% -m pip install -q --upgrade yt-dlp >nul 2>nul
+  %VPY% -m pip install -q --upgrade "yt-dlp[default]" >nul 2>nul
 )
 
 echo Getting the newest version of the program...
