@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v112**. Everything green: 78 test files. (The `v19` in §8's
+Current release: **v113**. Everything green: 78 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -2707,6 +2707,19 @@ is unreachable from the sandbox): if the page's markup differs from
 `"videoRenderer":{"videoId":…"title":{"runs":[{"text":…` or Vercel's address
 is shown a consent page, it reads as no results and the old path runs.
 `?debug=1` → the jumper body's streams carry no `how` yet; add it if needed.
+
+**v113 — the app, faster.** Profiled one match (`desktop/dev/prof.py`): with
+detection aside, 12 of 17 s was the plate/clock reader on the processor. Now:
+the reader runs on the graphics card when it accepts the model (one real read
+at each width, else processor); `attend` stops re-reading a robot with three
+confirmed reads (a glance every 3 s) and backs off to once a second on a plate
+that has not shown in 12 tries; each worker's sessions and OpenCV get
+`cores // workers` threads instead of all of them. Reads per match 1053 → 768
+on the made-up video (plates there never read, so the real saving is larger).
+The website's `vtAttend` still reads every look: it is bound by playback, not
+by reading. Ideas not done: hardware video decode
+(`CAP_PROP_HW_ACCELERATION`), stripping comments from index.html at build
+(925 KB / 265 KB gzipped; needs a build step and tests against the built file).
 
 ## 33. Feature ideas
 
