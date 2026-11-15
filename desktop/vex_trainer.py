@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.2'
+VERSION = '2.3'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -52,12 +52,16 @@ def jround(v):
     return int(math.floor(v + 0.5))
 
 def load_config():
-    cfg = {'site': DEFAULT_SITE, 'key': '', 'workers': 4, 'keep_videos': False, 'files': {}}
+    cfg = {'site': DEFAULT_SITE, 'key': '', 'workers': 4, 'keep_videos': False, 'files': {}, 'hw_decode': True}
     try:
         with open(CONFIG, encoding='utf-8') as f:
             cfg.update(json.load(f))
     except Exception:
         pass
+    # Until the owner picks a number, use what the processor can carry: one
+    # match for every two threads, eight at most (an 8-core/16-thread chip: 8).
+    if not cfg.get('workers_chosen'):
+        cfg['workers'] = max(2, min(8, (os.cpu_count() or 8) // 2))
     return cfg
 
 def save_config(cfg):
@@ -566,10 +570,33 @@ def hardness(boxes):
 # ── one match ───────────────────────────────────────────────────────────────
 class Video:
     """A video file, read forwards from wherever it is pointed."""
-    def __init__(self, path):
+    def __init__(self, path, hw=True):
         import cv2
         self.cv2 = cv2
-        self.cap = cv2.VideoCapture(path)
+        self.cap, self.hw = None, False
+        # Decoding on the graphics card, when OpenCV and the card will do it:
+        # reading the video is most of what is left once the finder is fast.
+        # Trusted only after it has really produced a picture, and again after
+        # a jump, because a decoder that opens and then returns nothing (or
+        # cannot seek) is worse than a slow one.
+        if hw and hasattr(cv2, 'CAP_PROP_HW_ACCELERATION'):
+            try:
+                cap = cv2.VideoCapture(path, cv2.CAP_FFMPEG, [cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY])
+                good = cap.isOpened() and cap.read()[0]
+                if good:
+                    cap.set(cv2.CAP_PROP_POS_MSEC, 5000)
+                    ok, fr = cap.read()
+                    at = cap.get(cv2.CAP_PROP_POS_MSEC)
+                    good = bool(ok) and fr is not None and fr.size > 0 and 3000 <= at <= 9000
+                if good:
+                    self.cap = cap
+                    self.hw = bool(cap.get(cv2.CAP_PROP_HW_ACCELERATION))
+                else:
+                    cap.release()
+            except Exception:
+                self.cap = None
+        if self.cap is None:
+            self.cap = cv2.VideoCapture(path)
         if not self.cap.isOpened():
             raise RuntimeError('That video could not be opened: ' + path)
         self.fps = self.cap.get(cv2.CAP_PROP_FPS) or 30
@@ -748,7 +775,7 @@ def work_chunk(args):
     site = Site(cfg)
     if _EYES is None:
         _EYES = Eyes(quiet=True, threads=max(1, (os.cpu_count() or 8) // max(1, int(cfg.get('workers', 4)))))
-    video = Video(path)
+    video = Video(path, hw=bool(cfg.get('hw_decode', True)))
     out, shift, learn = [], 0, {}
     try:
         for job in jobs:
@@ -764,7 +791,7 @@ def work_chunk(args):
                 if not saved:
                     why = 'the website refused it: ' + str((r or {}).get('error'))
             plates = sum(1 for fr in (rec['f'] if rec else []) for i in range(fr[1]) if fr[2 + 10 * i + 9])
-            out.append({'id': job['id'], 'name': job.get('name'), 'ok': bool(saved), 'why': why, 'sec': time.time() - t0,
+            out.append({'id': job['id'], 'name': job.get('name'), 'ok': bool(saved), 'why': why, 'sec': time.time() - t0, 'hw': video.hw,
                         'looks': len(rec['f']) if rec else 0, 'plates': plates, 'clock': len(rec['tm']) // 2 if rec else 0})
     finally:
         video.close()
@@ -865,6 +892,7 @@ def do_jobs(cfg):
                     totals['plates'] += res['plates']
                     totals['clock'] += res['clock']
                     totals['looks'] += res['looks']
+                    totals['hw'] = totals.get('hw') or res.get('hw')
                     say('  %3d/%d  %-22s %s' % (done, len(pairs), str(res['name'])[:22],
                         ('saved · %d looks · %d plates · clock %d · %.0fs' % (res['looks'], res['plates'], res['clock'], res['sec'])) if res['ok'] else 'not saved: ' + res['why']))
         if not cfg.get('keep_videos') and path.startswith(DIRS['videos']):
@@ -873,7 +901,7 @@ def do_jobs(cfg):
             except OSError:
                 pass
     mins = (time.time() - t_all) / 60
-    say('\nDone in %.1f minutes: %d matches saved to the website, %d not. %d plates read, the clock read %d times.' % (mins, totals['ok'], totals['no'], totals['plates'], totals['clock']))
+    say('\nDone in %.1f minutes: %d matches saved to the website, %d not. %d plates read, the clock read %d times.%s' % (mins, totals['ok'], totals['no'], totals['plates'], totals['clock'], ' Video was decoded on the graphics card.' if totals.get('hw') else ''))
     say('Now open the Robot tracker box on the website (any event). It brings these in and builds the reports by itself.')
     say('Frames were kept for training as it went: review them when you have a few minutes.')
     return totals['ok']
@@ -1382,6 +1410,89 @@ def unpublish(cfg):
         say('The website did not accept that:', (r or {}).get('error'))
 
 
+# ── review anywhere ─────────────────────────────────────────────────────────
+# The frames worth a person's look are sent to the website, shrunk, so they
+# can be corrected on a phone. The corrections come back here before training.
+UPLOADED = os.path.join(HERE, 'data', 'uploaded.json')
+
+def push_review(cfg, limit=120):
+    """Send the hardest unreviewed frames to the website. → how many went."""
+    import cv2
+    site = Site(cfg)
+    if not cfg.get('key'):
+        return 0
+    try:
+        with open(UPLOADED) as f:
+            sent = set(json.load(f))
+    except Exception:
+        sent = set()
+    waiting = set(site.get('?frames=1').get('ids') or [])
+    queue, _ = review_queue()
+    room = max(0, limit - len(waiting))
+    n = 0
+    for name in queue:
+        if n >= room:
+            break
+        if name in sent or name in waiting:
+            continue
+        frame = cv2.imread(os.path.join(FRAMES, name + '.jpg'))
+        if frame is None:
+            continue
+        try:
+            with open(os.path.join(PROPS, name + '.json')) as f:
+                p = json.load(f)
+        except Exception:
+            continue
+        h, w = frame.shape[:2]
+        k = min(1.0, 960 / w)
+        small = cv2.resize(frame, (int(w * k), int(h * k)), interpolation=cv2.INTER_AREA) if k < 1 else frame
+        ok, buf = cv2.imencode('.jpg', small, [cv2.IMWRITE_JPEG_QUALITY, 72])
+        if not ok:
+            continue
+        r = site.post({'frame': {'id': name, 'w': int(p['w']), 'h': int(p['h']), 'boxes': [[float(v) for v in b[:5]] for b in p['boxes'][:60]],
+                                 'b64': base64.b64encode(buf.tobytes()).decode('ascii')}}, tries=1)
+        if r and r.get('ok'):
+            sent.add(name)
+            n += 1
+        elif (r or {}).get('error') == 'full' or (r or {}).get('status') == 403:
+            break
+    os.makedirs(os.path.dirname(UPLOADED), exist_ok=True)
+    with open(UPLOADED, 'w') as f:
+        json.dump(sorted(sent)[-5000:], f)
+    return n
+
+def pull_labels(cfg):
+    """Bring back what was corrected on the website. → how many came."""
+    site = Site(cfg)
+    if not cfg.get('key'):
+        return 0
+    labels = site.get('?labels=1').get('labels') or {}
+    got = []
+    os.makedirs(LABELS, exist_ok=True)
+    for name, lab in labels.items():
+        if not re.fullmatch(r'[A-Za-z0-9_-]{4,60}', str(name)) or not isinstance(lab, dict):
+            continue
+        got.append(name)
+        if not os.path.exists(os.path.join(PROPS, name + '.json')):
+            continue                                  # a frame this computer does not have
+        boxes = [[float(v) for v in b[:4]] for b in (lab.get('boxes') or []) if isinstance(b, list) and len(b) >= 4][:60]
+        with open(os.path.join(LABELS, name + '.json'), 'w') as f:
+            json.dump({'skip': bool(lab.get('skip')), 'boxes': boxes}, f)
+    for i in range(0, len(got), 300):
+        site.post({'labelsdone': got[i:i + 300]}, tries=1)
+    return len(got)
+
+def sync_review(cfg, quiet=False):
+    try:
+        came = pull_labels(cfg)
+        went = push_review(cfg)
+        if (came or went) and not quiet:
+            say('Review: %d corrected frames came back from the website, %d new frames sent there for review.' % (came, went))
+    except Exception as e:
+        if not quiet:
+            say('Could not sync the review frames with the website (%s).' % str(e)[:120])
+
+
 # ── what the window's buttons run ───────────────────────────────────────────
 # Each is one whole job with nothing to answer along the way.
 def track_all(cfg, loop=True):
@@ -1394,6 +1505,7 @@ def track_all(cfg, loop=True):
             if events:
                 quiet = False
                 n = do_jobs(cfg)
+                sync_review(cfg)
                 if not n:
                     events = []                       # nothing could be done with what is there: wait, do not spin
             if not events and not quiet:
@@ -1454,6 +1566,7 @@ def add_source(cfg, src):
 
 def train_auto(cfg):
     """Train, measure, and publish only if the new finder is better."""
+    sync_review(cfg)                                  # corrections made on a phone count too
     info = do_train(cfg)
     if not info:
         return
@@ -1478,6 +1591,7 @@ def do_settings(cfg):
     elif pick == '2':
         try:
             cfg['workers'] = max(1, min(16, int(input('How many (1-16; 4 to 8 suits an 8-core processor): '))))
+            cfg['workers_chosen'] = True
             save_config(cfg)
         except ValueError:
             pass
@@ -1787,7 +1901,9 @@ def serve_ui(cfg, port=8765, open_window=True):
                 return self._send(200, {'ok': True})
             if u.path == '/api/settings':
                 try:
-                    cfg['workers'] = max(1, min(16, int(body.get('workers', cfg.get('workers', 4)))))
+                    w = max(1, min(16, int(body.get('workers', cfg.get('workers', 4)))))
+                    if w != cfg.get('workers'):
+                        cfg['workers'], cfg['workers_chosen'] = w, True
                 except (TypeError, ValueError):
                     pass
                 cfg['keep_videos'] = bool(body.get('keep'))
@@ -1834,6 +1950,7 @@ def serve_ui(cfg, port=8765, open_window=True):
         return srv
     # Nothing to press: with the key saved, tracking starts with the window.
     if cfg.get('key'):
+        threading.Thread(target=lambda: (sync_review(cfg, quiet=True), counts(True)), daemon=True).start()
         job.start('track', ['--track'])
     say('The window is opening. Leave THIS black window open too: closing it stops the program.')
     opened = False

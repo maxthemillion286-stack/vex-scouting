@@ -19,6 +19,10 @@
 //   POST { passcode, jobs: { ev, list } | { ev, done } }
 //   GET  ?model=1 | ?model=TAG&part=i → { model } | { b64 }   a finder trained in the app
 //   POST { passcode, model: { tag, i, n, b64 } | { clear } }
+//   GET  ?teams=A,B,C            → { teams }          several teams' summaries (≤12)
+//   GET  ?chan=KEY               → { id }             the channel that broadcasts from a venue
+//   GET  ?frames=1 | ?frame=ID | ?labels=1             frames waiting for review, one frame, finished labels
+//   POST { passcode, chan | frame | label | labelsdone }
 //   GET  ?learn=VID              → { learn }          what was learned about a stream
 //   POST { passcode, learn }     → { ok }             save it
 //   GET  ?cal=EV                 → { cal }            the event's stream links, by day
@@ -111,6 +115,7 @@ export function validSum(s) {
   }
   for (const k of Object.keys(s)) {
     if (['name', 'red', 'blue'].includes(k)) continue;
+    if (k === 'vid') { if (typeof s.vid !== 'string' || !/^[A-Za-z0-9_-]{0,20}$/.test(s.vid)) return 'bad video'; continue; }
     if (['R', 'B', 'Ra', 'Rb', 'Ba', 'Bb'].includes(k)) {
       const o = s[k];
       if (!o || typeof o !== 'object' || Array.isArray(o) || Object.keys(o).length > 110) return 'bad side';
@@ -180,6 +185,18 @@ export function validJob(j) {
 }
 const MODEL_PART_B64 = 900 * 1024, MODEL_MAX_PARTS = 80;
 const modelTag = v => typeof v === 'string' && /^[a-z0-9]{4,16}$/.test(v) ? v : null;
+// A frame for review: a picture, where the finder thinks the robots are.
+const FRAME_ID = /^[A-Za-z0-9_-]{4,60}$/, MAX_FRAMES_WAITING = 300, MAX_FRAME_B64 = 520 * 1024;
+const boxesOk = (b, n) => Array.isArray(b) && b.length <= 60 && b.every(x => Array.isArray(x) && x.length === n && x.every(v => typeof v === 'number' && Number.isFinite(v) && v > -10000 && v < 100000));
+export function validFrame(f) {
+  if (!f || typeof f !== 'object' || !FRAME_ID.test(String(f.id || ''))) return 'bad frame';
+  if (!Number.isInteger(f.w) || !Number.isInteger(f.h) || f.w < 64 || f.h < 64 || f.w > 8000 || f.h > 8000) return 'bad size';
+  if (!boxesOk(f.boxes, 5)) return 'bad boxes';
+  if (typeof f.b64 !== 'string' || f.b64.length < 100 || f.b64.length > MAX_FRAME_B64 || !/^[A-Za-z0-9+/]+=*$/.test(f.b64)) return 'bad picture';
+  if (!f.b64.startsWith('/9j/')) return 'not a jpeg';
+  return null;
+}
+const CHAN_KEY = /^[a-z0-9|]{4,60}$/, CHAN_ID = /^UC[A-Za-z0-9_-]{22}$/;
 const teamKey = v => /^[A-Z0-9]{1,10}$/.test(String(v || '').toUpperCase()) ? String(v).toUpperCase() : null;
 
 export default async function handler(req, res) {
@@ -199,6 +216,45 @@ export default async function handler(req, res) {
         let field = null;
         try { field = raw ? JSON.parse(raw) : null; } catch (e) {}
         return res.status(200).json({ db: true, field });
+      }
+      if (q.teams !== undefined) {
+        // Several teams' summaries in one go (a briefing asks for a whole event).
+        const list = String(q.teams).split(',').map(teamKey).filter(Boolean).slice(0, 12);
+        if (!list.length) return res.status(400).json({ error: 'teams must be team numbers' });
+        if (!hasDb) return res.status(200).json({ db: false, teams: {} });
+        const got = await redis(E, list.map(n => ['HGETALL', `vt:team:${n}`]));
+        const teams = {};
+        list.forEach((n, i) => { const flat = got[i], sums = {}; for (let k = 0; Array.isArray(flat) && k + 1 < flat.length; k += 2) { try { sums[String(flat[k])] = JSON.parse(flat[k + 1]); } catch (e) {} } teams[n] = sums; });
+        return res.status(200).json({ db: true, teams });
+      }
+      if (q.chan !== undefined) {
+        // Which YouTube channel broadcasts from this venue.
+        const key = String(q.chan);
+        if (!CHAN_KEY.test(key)) return res.status(400).json({ error: 'bad key' });
+        if (!hasDb) return res.status(200).json({ db: false, id: null });
+        const [id] = await redis(E, [['HGET', 'vt:chan', key]]);
+        return res.status(200).json({ db: true, id: CHAN_ID.test(String(id || '')) ? id : null });
+      }
+      if (q.frames !== undefined) {
+        if (!hasDb) return res.status(200).json({ db: false, ids: [] });
+        const [ids] = await redis(E, [['SMEMBERS', 'vt:frames']]);
+        return res.status(200).json({ db: true, ids: (ids || []).filter(v => FRAME_ID.test(String(v))) });
+      }
+      if (q.frame !== undefined) {
+        const id = String(q.frame);
+        if (!FRAME_ID.test(id)) return res.status(400).json({ error: 'bad frame' });
+        if (!hasDb) return res.status(404).json({ error: 'no frame' });
+        const [raw] = await redis(E, [['GET', `vt:frame:${id}`]]);
+        let f = null; try { f = raw ? JSON.parse(raw) : null; } catch (e) {}
+        if (!f || validFrame(f)) return res.status(404).json({ error: 'no frame' });
+        return res.status(200).json({ frame: f });
+      }
+      if (q.labels !== undefined) {
+        if (!hasDb) return res.status(200).json({ db: false, labels: {} });
+        const [flat] = await redis(E, [['HGETALL', 'vt:labels']]);
+        const labels = {};
+        for (let k = 0; Array.isArray(flat) && k + 1 < flat.length; k += 2) { try { labels[String(flat[k])] = JSON.parse(flat[k + 1]); } catch (e) {} }
+        return res.status(200).json({ db: true, labels });
       }
       if (q.jobs !== undefined) {
         if (!hasDb) return res.status(200).json({ db: false, events: [], list: [] });
@@ -291,6 +347,34 @@ export default async function handler(req, res) {
         if (!f || typeof f !== 'object' || !/^[A-Za-z0-9_-]{6,20}$/.test(String(f.vid || '')) || !Array.isArray(f.q) || f.q.length !== 8 ||
             !f.q.every(v => typeof v === 'number' && Number.isFinite(v) && v >= -0.5 && v <= 1.5)) return res.status(400).json({ error: 'bad field' });
         await redis(E, [['SET', `vt:field:${f.vid}`, JSON.stringify({ q: f.q, by: 'click', at: Date.now() })]]);
+        return res.status(200).json({ ok: true });
+      }
+      if (body.chan !== undefined) {
+        const c = body.chan;
+        if (!c || !CHAN_KEY.test(String(c.key || '')) || !CHAN_ID.test(String(c.id || ''))) return res.status(400).json({ error: 'bad channel' });
+        await redis(E, [['HSET', 'vt:chan', c.key, c.id]]);
+        return res.status(200).json({ ok: true });
+      }
+      if (body.frame !== undefined) {
+        const bad = validFrame(body.frame);
+        if (bad) return res.status(400).json({ error: bad });
+        const [n] = await redis(E, [['SCARD', 'vt:frames']]);
+        if (Number(n) >= MAX_FRAMES_WAITING) return res.status(409).json({ error: 'full' });
+        const f = body.frame;
+        await redis(E, [['SET', `vt:frame:${f.id}`, JSON.stringify({ id: f.id, w: f.w, h: f.h, boxes: f.boxes, b64: f.b64 })], ['SADD', 'vt:frames', f.id]]);
+        return res.status(200).json({ ok: true });
+      }
+      if (body.label !== undefined) {
+        // A reviewed frame: its boxes are kept for the app, its picture is let go.
+        const l = body.label;
+        if (!l || !FRAME_ID.test(String(l.id || '')) || !boxesOk(l.boxes, 4)) return res.status(400).json({ error: 'bad label' });
+        await redis(E, [['HSET', 'vt:labels', l.id, JSON.stringify({ skip: !!l.skip, boxes: l.boxes })], ['SREM', 'vt:frames', l.id], ['DEL', `vt:frame:${l.id}`]]);
+        return res.status(200).json({ ok: true });
+      }
+      if (body.labelsdone !== undefined) {
+        const ids = Array.isArray(body.labelsdone) ? body.labelsdone.filter(v => FRAME_ID.test(String(v))).slice(0, 400) : [];
+        if (!ids.length) return res.status(400).json({ error: 'nothing to clear' });
+        await redis(E, [['HDEL', 'vt:labels', ...ids]]);
         return res.status(200).json({ ok: true });
       }
       if (body.jobs !== undefined) {

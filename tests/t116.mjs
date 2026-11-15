@@ -134,7 +134,7 @@ const f = n => win.eval(n);
   ok('the window is served to this computer only', /ThreadingHTTPServer\(\('127\.0\.0\.1', p\), H\)/.test(app));
   ok('every request needs the window\'s own token', /secrets\.compare_digest\(given, token\)/.test(app) && /if not self\._allowed\(u\):\s+return self\._send\(403/.test(app));
   ok('a request under another host name is refused', /if host not in \('127\.0\.0\.1', 'localhost'\):\s+return False/.test(app));
-  ok('tracking starts with the window once the key is saved', /if cfg\.get\('key'\):\s+job\.start\('track', \['--track'\]\)/.test(app));
+  ok('tracking starts with the window once the key is saved', /if cfg\.get\('key'\):\s+(threading\.Thread\([^\n]+\n\s+)?job\.start\('track', \['--track'\]\)/.test(app));
   ok('a new finder is published only if it measured better', /if info\['new'\]\[2\] <= info\['old'\]\[2\]:\s+return/.test(app));
   ok('a button can only start one of four known jobs', /return self\._send\(400, \{'error': 'unknown task'\}\)/.test(app));
 }

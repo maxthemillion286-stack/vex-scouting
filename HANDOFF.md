@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v113**. Everything green: 78 test files. (The `v19` in §8's
+Current release: **v114**. Everything green: 79 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -411,6 +411,7 @@ proxy is at `api/proxy.js`.
 | t115 | **v107** — plate attention across all robots; per-stream learning (clock place, scenery, threshold) — §32c |
 | t116 | **v109** — desktop app: jobs, import, published finder — §32d |
 | t117 | **v112** — stream finding reads YouTube's search page before the paid search |
+| t118 | **v114** — briefing, clips, review anywhere, organiser channels, tracking in win chances — §32e |
 | sanity | CSS braces balance, inline JS parses, tabs present |
 | tool_sanity | Same for anchor-tool.html |
 
@@ -2720,6 +2721,46 @@ The website's `vtAttend` still reads every look: it is bound by playback, not
 by reading. Ideas not done: hardware video decode
 (`CAP_PROP_HW_ACCELERATION`), stripping comments from index.html at build
 (925 KB / 265 KB gzipped; needs a build step and tests against the built file).
+
+## 32e. v114 — briefing, clips, review anywhere, channels, video in the chances
+
+Asked for as: "add 1, 3, 5, 7, for 9 let it tell you autons of a team, brief
+strategy they run, and scoring speed (study the game override …). 10, 11".
+
+- **Briefing** (`vtBriefingOpen`, `vtBrief`). Tracker box → "Open the
+  briefing" (the box now renders on a phone too, with only this). Every team
+  at the event (`/events/{id}/teams`) in three lines: autonomous (routes where
+  the field is marked, else moved/reach), strategy in Override's terms
+  (Toggle defender / Stacker / Swaps / Does both, plus pressure, roaming,
+  leaves-when-partner-finishes, defended-toggle record, endgame), scoring
+  (points per 10 s of stacking where `wk` exists, else alliance average).
+  Needs ≥2 tracked matches. `vtTeamSumsMany` → `GET ?teams=` (12 per call).
+  Roles need **Mark the field**; the page says for how many teams it is missing.
+- **Clips** (`vtClips`, `vtClipsOpen`). Summaries now carry `vid` and `of`
+  (video id, match offset); a clip is `of + st − 3` for 22 s. One YT player
+  steps through them. `VT_SUM_V` NOT bumped (a bump hides every shared summary
+  until an admin device re-makes it): `vtBackfill` re-makes local ones lacking
+  `vid`; `validSum` allows `vid`.
+- **Review anywhere** (`vtReviewOpen`, Settings → Admin key). The app's
+  `push_review` sends its ≤120 hardest unreviewed frames (960 px, q72, ~12–90
+  KB) as `frame`; the page corrects with pointer events (`vtRevEdit`) and posts
+  `label`, which deletes the picture; the app's `pull_labels` writes them into
+  `data/labels` and posts `labelsdone`. Server cap 300 waiting frames.
+  `sync_review` runs when the window opens, after each tracking pass, before
+  training. Pictures are public to read (stream screenshots); writes need the key.
+- **Organiser channels** (`rwVenueKey` = venue|city, `rwKnownChannel`,
+  `rwRememberChannel`; localStorage `vex_rw_chan` + shared `vt:chan`). A found
+  stream's `channelId` is remembered; next event at that venue asks the
+  proxy's new `channel:UC…` path (`resolveChannel`, 2–3 units) before any search.
+- **Video in the win chances** (`sim_trackScore`, `sim_trackIndex`,
+  `sim_applyTracking`, `SIM_TRACK_K = 1`). Same shape as `sim_applySeason`:
+  z-scores of pace, autonomous distance and (−) longest stop, averaged; a line
+  fitted against ratings across ≥8 teams with both; applied only if the slope
+  is positive; counted as one match. `sim_learnNote` says when it is in.
+- **App**: workers default to `min(8, threads/2)` until the owner picks;
+  `Video` tries `CAP_PROP_HW_ACCELERATION` and keeps it only after a real
+  frame and a seek that lands; `hw_decode: false` in config.json turns it off.
+- Unverified on real data, all of it. Rendered at phone width in Chromium.
 
 ## 33. Feature ideas
 
