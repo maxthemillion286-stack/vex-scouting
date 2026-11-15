@@ -15,6 +15,8 @@
 //   GET  ?team=66449A            → { sums }           every tracked match of a team, summarised
 //   POST { passcode, check }     → { ok }             is this passcode right
 //   POST { passcode, ev, id, rec } → { ok }           save one match
+//   GET  ?cal=EV                 → { cal }            the event's stream links, by day
+//   POST { passcode, cal: { ev, days } } → { ok }     save stream links
 //
 // Environment:
 //   KV_REST_API_URL / KV_REST_API_TOKEN            (set by the Upstash integration)
@@ -80,7 +82,9 @@ export function validRec(rec) {
     if (!Array.isArray(fr) || fr.length > 2 + per * 40 || !fr.every(v => Number.isInteger(v) && v > -100000 && v < 100000)) return 'bad frame';
     if (fr.length < 2 || fr.length !== 2 + per * fr[1]) return 'bad frame length';
   }
-  const allowed = ['v', 'name', 'round', 'num', 'red', 'blue', 'rs', 'bs', 'vid', 'off', 'rate', 'w', 'h', 'model', 'at', 'f', 'wide'];
+  const allowed = ['v', 'name', 'round', 'num', 'red', 'blue', 'rs', 'bs', 'vid', 'off', 'rate', 'w', 'h', 'model', 'at', 'f', 'wide', 'tm'];
+  // The stream's clock as it was read: [tenths of a second, seconds on the clock, …].
+  if (rec.tm != null && !(Array.isArray(rec.tm) && rec.tm.length <= 400 && rec.tm.length % 2 === 0 && rec.tm.every(v => Number.isInteger(v) && v > -100000 && v < 100000))) return 'bad clock';
   for (const k of Object.keys(rec)) if (!allowed.includes(k)) return 'unknown field ' + k.slice(0, 20);
   for (const k of ['round', 'num', 'rs', 'bs', 'at', 'wide']) if (rec[k] != null && !num(rec[k])) return 'bad ' + k;
   if (rec.model != null && !str(rec.model, 20)) return 'bad model';
@@ -111,6 +115,35 @@ export function validSum(s) {
   }
   return null;
 }
+// One event's stream links, a day at a time: which video, and where one match
+// is in it. Text is limited to what a video id or a match name can contain.
+export function validCalDay(day, c) {
+  if (!/^[0-9-]{8,10}$/.test(String(day)) || !c || typeof c !== 'object' || Array.isArray(c)) return 'bad day';
+  const num = v => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) < 1e14;
+  const id = v => typeof v === 'string' && /^[A-Za-z0-9_-]{4,20}$/.test(v);
+  const allowed = ['videoId', 'platform', 'day', 'anchors', 'durationSec', 'hash', 'segments'];
+  for (const k of Object.keys(c)) if (!allowed.includes(k)) return 'unknown field';
+  if (!id(c.videoId) || !['youtube', 'vimeo'].includes(c.platform) || c.day !== day) return 'bad video';
+  if (c.durationSec != null && !num(c.durationSec)) return 'bad length';
+  if (c.hash != null && !(typeof c.hash === 'string' && /^[A-Za-z0-9]{1,20}$/.test(c.hash))) return 'bad hash';
+  if (!Array.isArray(c.anchors) || !c.anchors.length || c.anchors.length > 8) return 'bad anchors';
+  for (const a of c.anchors) {
+    if (!a || typeof a !== 'object' || Object.keys(a).length !== 4) return 'bad anchor';
+    if (typeof a.matchId !== 'string' || !/^[A-Za-z0-9_-]{1,20}$/.test(a.matchId)) return 'bad anchor';
+    if (typeof a.name !== 'string' || a.name.length > 60 || !/^[A-Za-z0-9 #.,()\/_-]*$/.test(a.name)) return 'bad anchor';
+    if (!num(a.matchMs) || !num(a.videoSec)) return 'bad anchor';
+  }
+  if (c.segments != null) {
+    if (!Array.isArray(c.segments) || c.segments.length > 12) return 'bad segments';
+    for (const g of c.segments) {
+      if (!g || typeof g !== 'object') return 'bad segment';
+      for (const k of Object.keys(g)) if (!['videoId', 'platform', 'startMs', 'endMs', 'durationSec'].includes(k)) return 'bad segment';
+      if (!id(g.videoId) || !['youtube', 'vimeo'].includes(g.platform) || !num(g.startMs)) return 'bad segment';
+      if ((g.endMs != null && !num(g.endMs)) || (g.durationSec != null && !num(g.durationSec))) return 'bad segment';
+    }
+  }
+  return null;
+}
 const teamKey = v => /^[A-Z0-9]{1,10}$/.test(String(v || '').toUpperCase()) ? String(v).toUpperCase() : null;
 
 export default async function handler(req, res) {
@@ -130,6 +163,15 @@ export default async function handler(req, res) {
         let field = null;
         try { field = raw ? JSON.parse(raw) : null; } catch (e) {}
         return res.status(200).json({ db: true, field });
+      }
+      if (q.cal !== undefined) {
+        const ev = digits(q.cal);
+        if (!ev) return res.status(400).json({ error: 'cal must be an event number' });
+        if (!hasDb) return res.status(200).json({ db: false, cal: {} });
+        const [flat] = await redis(E, [['HGETALL', `vt:cal:${ev}`]]);
+        const cal = {};
+        for (let i = 0; Array.isArray(flat) && i + 1 < flat.length; i += 2) { try { const c = JSON.parse(flat[i + 1]); if (!validCalDay(String(flat[i]), c)) cal[String(flat[i])] = c; } catch (e) {} }
+        return res.status(200).json({ db: true, cal });
       }
       if (q.team !== undefined) {
         const team = teamKey(q.team);
@@ -174,6 +216,20 @@ export default async function handler(req, res) {
         if (!f || typeof f !== 'object' || !/^[A-Za-z0-9_-]{6,20}$/.test(String(f.vid || '')) || !Array.isArray(f.q) || f.q.length !== 8 ||
             !f.q.every(v => typeof v === 'number' && Number.isFinite(v) && v >= -0.5 && v <= 1.5)) return res.status(400).json({ error: 'bad field' });
         await redis(E, [['SET', `vt:field:${f.vid}`, JSON.stringify({ q: f.q, by: 'click', at: Date.now() })]]);
+        return res.status(200).json({ ok: true });
+      }
+      if (body.cal !== undefined) {
+        const c = body.cal, cev = c && digits(c.ev);
+        if (!cev || !c.days || typeof c.days !== 'object' || Array.isArray(c.days)) return res.status(400).json({ error: 'bad cal' });
+        const days = Object.keys(c.days);
+        if (!days.length || days.length > 8) return res.status(400).json({ error: 'bad cal' });
+        const set = [];
+        for (const d of days) {
+          const bad = validCalDay(d, c.days[d]);
+          if (bad) return res.status(400).json({ error: bad });
+          set.push(['HSET', `vt:cal:${cev}`, d, JSON.stringify(c.days[d])]);
+        }
+        await redis(E, set);
         return res.status(200).json({ ok: true });
       }
       const ev = digits(body.ev), id = digits(body.id);
