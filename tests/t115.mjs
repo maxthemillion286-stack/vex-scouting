@@ -131,10 +131,55 @@ const mkRec = (extra, robots = 4, n = 300) => {
   const text = await line(['abcdefghijk']);
   ok('and said plainly', /12 matches/.test(text) && /clock/.test(text) && /ignores 1 thing/.test(text) && /adjusted/.test(text), text);
   ok('the tracker box shows it', /id="vtLearned"/.test(idx));
-  ok('each kept match is learned from before it is summarised', /L = vtLearnFrom\(rec, await vtLearnGet\(m\.vid\)\); await vtLearnSave\(\);/.test(idx));
+  ok('each kept match is learned from before it is summarised', /L = vtLearnFrom\(rec, await vtLearnGet\(m\.vid\)\); await vtLearnSave\(m\.vid\);/.test(idx));
   ok('the status says how many plates were tried', /plates read of \$\{run\.plateTries/.test(idx));
 }
 
-ok('release is v107', /const APP_BUILD = 'v107'/.test(idx));
+// ── v108: a dead robot is not scenery; learning is shared ──
+{
+  const LF = f('vtLearnFrom'), known = f('vtStillKnown');
+  const fresh = () => ({ n: 0, conf: 0.45, still: [], clock: null, hi: 0, lo: 0 });
+  const robotLook = [9, 1, 0, 0, 5, 2, 0, 0, 7, 3, 1, 0], signLook = [0, 0, 9, 9, 0, 0, 9, 0, 0, 0, 0, 9];
+  const moving = t => [0, 1, 2, 3].map(r => [100 + r * 120 + 60 * Math.sin(t * 0.7 + r), 80 + 50 * Math.cos(t * 0.5 + r) + r * 30, 50, 50, 0.9, r < 2 ? 1 : 2, robotLook, 0]);
+  const rec = (still, n = 300) => ({ v: 2, vid: 'abcdefghijk', w: 640, h: 360, red: ['66449A', '1A'], blue: ['2B', '3C'],
+    f: Array.from({ length: n }, (_, i) => pack(i * 0.5, moving(i * 0.5).concat([typeof still === 'function' ? still(i) : still]), 640)) });
+  let L = fresh();
+  for (let i = 0; i < 4; i++) LF(rec([560, 20, 40, 40, 0.7, 1, robotLook, 0]), L);
+  ok('a dead robot that looks like the others is never scenery', L.still.length === 0, JSON.stringify(L.still));
+  L = fresh();
+  for (let i = 0; i < 4; i++) LF(rec([560, 20, 40, 40, 0.7, 1, signLook, 0]), L);
+  ok('a still thing that looks nothing like a robot is', known(L).length === 1);
+  LF(rec(i => [560, 20, 40, 40, 0.7, 1, signLook, i === 50 ? 2 : 0]), L);
+  ok('one plate read there and it is a robot again', L.still.length === 0, JSON.stringify(L.still));
+  L = fresh();
+  for (let i = 0; i < 4; i++) LF(rec(k => [560, 20, 40, 40, 0.7, 1, signLook, k % 40 === 0 ? 1 : 0]), L);
+  ok('a still robot with a readable plate is never scenery, whatever it looks like', L.still.length === 0);
+  // Shared.
+  const mod = await import('../api/tracker.js');
+  const C = f('vtLearnClean');
+  const clean = JSON.parse(JSON.stringify(C({ n: 7, conf: 0.47, clock: [0.4, 0.02, 0.1, 0.05], still: [{ x: 0.91234, y: 0.1, m: 4, a: 5, hit: 1 }], hi: 1, lo: 0, clockMiss: 3 })));
+  ok('what the page sends, the server accepts', mod.validLearn({ vid: 'abcdefghijk', ...clean }) === null, String(mod.validLearn({ vid: 'abcdefghijk', ...clean })));
+  ok('only numbers travel', Object.keys(clean).sort().join() === 'clock,conf,n,still' && Object.keys(clean.still[0]).sort().join() === 'a,m,x,y');
+  ok('text is refused', mod.validLearn({ vid: 'abcdefghijk', ...clean, clock: ['<b>', 0, 0, 0] }) === 'bad clock' && mod.validLearn({ vid: 'abcdefghijk', ...clean, note: 'x' }) === 'unknown field');
+  ok('a wild threshold is refused', mod.validLearn({ vid: 'abcdefghijk', ...clean, conf: 0.01 }) === 'bad numbers');
+  const store = {}, realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, o) => { const cmds = JSON.parse(o.body); return { ok: true, json: async () => cmds.map(c => { if (c[0] === 'SET') { store[c[1]] = c[2]; return { result: 'OK' }; } if (c[0] === 'GET') return { result: store[c[1]] || null }; return { result: null }; }) }; };
+  process.env.KV_REST_API_URL = 'https://db.example'; process.env.KV_REST_API_TOKEN = 't'; process.env.TRACKER_PASSCODE = 'correct-horse';
+  const call = async (method, query, body) => { let code = 0, out = null; const res = { setHeader() {}, status(c) { code = c; return this; }, json(j) { out = j; return this; } }; await mod.default({ method, query, body }, res); return { code, out }; };
+  ok('without the admin key nothing is saved', (await call('POST', {}, { passcode: 'nope-nope', learn: { vid: 'abcdefghijk', ...clean } })).code === 403 && !Object.keys(store).length);
+  ok('with it, it is', (await call('POST', {}, { passcode: 'correct-horse', learn: { vid: 'abcdefghijk', ...clean } })).code === 200);
+  const got = await call('GET', { learn: 'abcdefghijk' });
+  ok('any device can read it', got.code === 200 && got.out.learn.n === 7 && got.out.learn.conf === 0.47);
+  globalThis.fetch = realFetch;
+  // A device that knows less takes the shared copy.
+  win.eval(`vtLearnMem = {}; for (const k in vtLearnAsked) delete vtLearnAsked[k]; vtApi = async (m, q) => ({ ok: true, body: { learn: { vid: 'abcdefghijk', n: 7, conf: 0.47, clock: [0.4, 0.02, 0.1, 0.05], still: [] } } });`);
+  const mine = await f('vtLearnGet')('abcdefghijk');
+  ok('a device that knows less takes what is shared', mine.n === 7 && mine.conf === 0.47 && mine.clock.length === 4, JSON.stringify(mine));
+  win.eval(`vtLearnMem = { abcdefghijk: { n: 20, conf: 0.43, still: [], clock: null } }; for (const k in vtLearnAsked) delete vtLearnAsked[k];`);
+  ok('one that knows more keeps its own', (await f('vtLearnGet')('abcdefghijk')).n === 20);
+  ok('each kept match sends what was learned', /await vtLearnSave\(m\.vid\);/.test(idx) && /passcode: pass, learn: \{ vid: String\(vid\)/.test(idx));
+}
+
+ok('release is v107 or later', /const APP_BUILD = 'v1(0[7-9]|[1-9]\d)'/.test(idx));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -3652,7 +3652,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v107';
+const APP_BUILD = 'v108';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -8924,19 +8924,40 @@ async function vtPlates(run, slot, video, sx, sy, boxes, t, w, four) {
 //   · how sure the finder has to be. Four robots are on the field: a stream
 //     where it keeps finding more gets a stricter finder, fewer a looser one,
 //     a small step at a time and within limits.
-const VT_LEARN_KEY = 'vt:learn', VT_CONF_MIN = 0.38, VT_CONF_MAX = 0.55;
+const VT_LEARN_KEY = 'vt:learn', VT_CONF_MIN = 0.38, VT_CONF_MAX = 0.55, VT_ROBOT_LOOK = 0.35;
 let vtLearnMem = null;
 async function vtLearnAll() { if (!vtLearnMem) vtLearnMem = (await idbGet(VT_LEARN_KEY)) || {}; return vtLearnMem; }
+// Shared: with the admin key saved, what is learned about a stream is saved
+// for every device, and a device that knows less about a stream takes what
+// the shared copy knows. Asked: "why is the learning limited to only my
+// computer?" — it should not have been.
+const vtLearnAsked = {};
+function vtLearnClean(L) {
+  const r3 = v => Math.round(v * 1000) / 1000;
+  return { n: Math.min(100000, Math.round(L.n || 0)), conf: Math.max(VT_CONF_MIN, Math.min(VT_CONF_MAX, Math.round((L.conf || VT_CONF) * 100) / 100)),
+    clock: Array.isArray(L.clock) && L.clock.length === 4 && L.clock.every(Number.isFinite) ? L.clock.map(r3) : null,
+    still: (L.still || []).filter(s => s && [s.x, s.y, s.m, s.a].every(Number.isFinite)).slice(0, 12).map(s => ({ x: r3(s.x), y: r3(s.y), m: Math.round(s.m), a: Math.round(s.a) })) };
+}
 async function vtLearnGet(vid) {
   const all = await vtLearnAll();
   if (!vid) return { n: 0, conf: VT_CONF, still: [], clock: null, hi: 0, lo: 0 };
   if (!all[vid]) all[vid] = { n: 0, conf: VT_CONF, still: [], clock: null, hi: 0, lo: 0, at: Date.now() };
+  if (!vtLearnAsked[vid] && /^[A-Za-z0-9_-]{6,20}$/.test(String(vid))) {
+    vtLearnAsked[vid] = 1;
+    try {
+      const r = await Promise.race([vtApi('GET', '?learn=' + encodeURIComponent(vid)), new Promise(res => setTimeout(() => res(null), 2500))]);
+      const S = r && r.ok && r.body && r.body.learn;
+      if (S && Number.isFinite(S.n) && S.n > (all[vid].n || 0)) Object.assign(all[vid], vtLearnClean(S), { hi: 0, lo: 0, at: Date.now() });
+    } catch (e) {}
+  }
   return all[vid];
 }
-async function vtLearnSave() {
+async function vtLearnSave(vid) {
   const all = await vtLearnAll(), keys = Object.keys(all);
   if (keys.length > 60) for (const k of keys.sort((a, b) => (all[a].at || 0) - (all[b].at || 0)).slice(0, keys.length - 60)) delete all[k];
   await idbSet(VT_LEARN_KEY, all);
+  const pass = vtPass();
+  if (pass && vid && all[vid] && /^[A-Za-z0-9_-]{6,20}$/.test(String(vid))) { try { await vtApi('POST', '', { passcode: pass, learn: { vid: String(vid), ...vtLearnClean(all[vid]) } }); } catch (e) {} }
 }
 const vtStillKnown = L => ((L && L.still) || []).filter(s => s.m >= 3 && s.m / s.a >= 0.6);
 const vtOnStill = (known, x, y) => known.some(s => Math.abs(s.x - x) < 0.035 && Math.abs(s.y - y) < 0.05);
@@ -8945,23 +8966,41 @@ function vtLearnFrom(rec, L) {
   const N = vtStride(rec), H = rec.h || 360, F = rec.f || [];
   if (F.length < 60) return L;
   L.n = (L.n || 0) + 1; L.at = Date.now();
-  // Scenery: a spot that had a box in four looks out of five.
+  // Scenery: a spot that had a box in four looks out of five — unless what
+  // stood there is a robot. A dead robot stands still all match too, and it
+  // is told from a sign or a person the way anyone would: it wears a plate
+  // that can be read, or it looks like the robots that are moving. Asked for
+  // as: "a dead robot shouldnt be counted as scenery if they have license
+  // plates and look like other robots seen or remotely close".
   const cells = new Map();
   let withBox = 0;
   for (const fr of F) {
     if (!fr[1]) continue;
     withBox++;
     const seen = new Set();
-    for (let i = 0; i < fr[1]; i++) { const o = 2 + N * i; seen.add(Math.round((fr[o] + fr[o + 2] / 2) / VT_SIZE * 24) + ':' + Math.round((fr[o + 1] + fr[o + 3] / 2) / H * 14)); }
-    for (const k of seen) cells.set(k, (cells.get(k) || 0) + 1);
+    for (let i = 0; i < fr[1]; i++) {
+      const o = 2 + N * i, k = Math.round((fr[o] + fr[o + 2] / 2) / VT_SIZE * 24) + ':' + Math.round((fr[o + 1] + fr[o + 3] / 2) / H * 14);
+      let c = cells.get(k); if (!c) cells.set(k, c = { n: 0, plates: 0, g: new Array(12).fill(0), gn: 0 });
+      if (!seen.has(k)) { seen.add(k); c.n++; }
+      if (N === 10) { if (fr[o + 9]) c.plates++; const g = vtSigUnpack(fr[o + 6], fr[o + 7], fr[o + 8]); if (g) { for (let q = 0; q < 12; q++) c.g[q] += g[q]; c.gn++; } }
+    }
   }
+  const isStill = c => withBox >= 60 && c.n >= 0.8 * withBox;
+  // What a robot looks like in this match: everything that moved.
+  const robot = new Array(12).fill(0); let rn = 0;
+  for (const c of cells.values()) if (!isStill(c) && c.gn) { for (let q = 0; q < 12; q++) robot[q] += c.g[q]; rn += c.gn; }
+  const robotLook = rn >= 30 ? robot.map(v => v / rn) : null;
   const here = [];                                    // what stood still in THIS match
   L.still = L.still || [];
   for (const sp of L.still) sp.a++;
   for (const [k, c] of cells) {
-    if (withBox < 60 || c < 0.8 * withBox) continue;
+    if (!isStill(c)) continue;
     const [cx, cy] = k.split(':').map(Number), x = cx / 24, y = cy / 14;
-    const old = L.still.find(sp => Math.abs(sp.x - x) < 0.05 && Math.abs(sp.y - y) < 0.08);
+    const near = sp => Math.abs(sp.x - x) < 0.05 && Math.abs(sp.y - y) < 0.08;
+    // A plate was read here: a robot, whatever was thought before.
+    if (c.plates) { L.still = L.still.filter(sp => !near(sp)); continue; }
+    if (robotLook && c.gn >= 10 && vtSigDist(c.g.map(v => v / c.gn), robotLook) < VT_ROBOT_LOOK) continue;
+    const old = L.still.find(near);
     if (old) { if (!old.hit) { old.m++; old.hit = 1; } } else L.still.push({ x, y, m: 1, a: 1, hit: 1 });
     here.push({ x, y });
   }
@@ -9039,7 +9078,7 @@ async function vtKeep(run, m, rec) {
   run.saved++;
   let sum = null;
   let L = null;
-  try { L = vtLearnFrom(rec, await vtLearnGet(m.vid)); await vtLearnSave(); } catch (e) {}
+  try { L = vtLearnFrom(rec, await vtLearnGet(m.vid)); await vtLearnSave(m.vid); } catch (e) {}
   try { sum = vtSummarise(rec, await vtFieldGet(m.vid), L); await vtSumSave(m.ev, m.id, sum); } catch (e) {}
   run.shared = await vtSharedSave(m.ev, m.id, rec, sum);
   return sum;
