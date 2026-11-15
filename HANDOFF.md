@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v107**. Everything green: 76 test files. (The `v19` in §8's
+Current release: **v108**. Everything green: 76 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -2620,6 +2620,16 @@ better at tracking as you track matches".
 - `vtLearnLine` / `#vtLearned` says what it has learned; `vtKnownTeams` counts
   robots with a plate read twice in some match.
 - **Unverified on real footage**, like the rest of the tracker.
+
+### v108 — learning is shared; a dead robot is not scenery
+
+- `vtLearnSave(vid)` posts `{ passcode, learn: { vid, n, conf, clock, still } }`
+  (`validLearn`, key `vt:learn:{vid}`); `vtLearnGet` asks `?learn=VID` once a
+  session per video and adopts the shared copy when it has seen more matches.
+  Last writer wins; with one tracking computer that is enough.
+- `vtLearnFrom`: a still spot is not scenery if any plate was read on it (and
+  an existing spot there is deleted), or if its look is within
+  `VT_ROBOT_LOOK` (0.35) of the look of everything that moved in the match.
 
 ## 33. Feature ideas
 

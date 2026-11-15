@@ -15,6 +15,8 @@
 //   GET  ?team=66449A            → { sums }           every tracked match of a team, summarised
 //   POST { passcode, check }     → { ok }             is this passcode right
 //   POST { passcode, ev, id, rec } → { ok }           save one match
+//   GET  ?learn=VID              → { learn }          what was learned about a stream
+//   POST { passcode, learn }     → { ok }             save it
 //   GET  ?cal=EV                 → { cal }            the event's stream links, by day
 //   POST { passcode, cal: { ev, days } } → { ok }     save stream links
 //
@@ -144,6 +146,21 @@ export function validCalDay(day, c) {
   }
   return null;
 }
+// What has been learned about one stream video: numbers only.
+export function validLearn(L) {
+  if (!L || typeof L !== 'object' || Array.isArray(L)) return 'bad learn';
+  const num = v => typeof v === 'number' && Number.isFinite(v);
+  for (const k of Object.keys(L)) if (!['vid', 'n', 'conf', 'clock', 'still'].includes(k)) return 'unknown field';
+  if (typeof L.vid !== 'string' || !/^[A-Za-z0-9_-]{6,20}$/.test(L.vid)) return 'bad video';
+  if (!Number.isInteger(L.n) || L.n < 0 || L.n > 100000 || !num(L.conf) || L.conf < 0.3 || L.conf > 0.6) return 'bad numbers';
+  if (L.clock !== null && !(Array.isArray(L.clock) && L.clock.length === 4 && L.clock.every(v => num(v) && v >= -0.1 && v <= 1.1))) return 'bad clock';
+  if (!Array.isArray(L.still) || L.still.length > 12) return 'bad still';
+  for (const s of L.still) {
+    if (!s || typeof s !== 'object' || Object.keys(s).length !== 4) return 'bad still';
+    if (![s.x, s.y].every(v => num(v) && v >= -0.1 && v <= 1.1) || ![s.m, s.a].every(v => Number.isInteger(v) && v >= 0 && v <= 100000)) return 'bad still';
+  }
+  return null;
+}
 const teamKey = v => /^[A-Z0-9]{1,10}$/.test(String(v || '').toUpperCase()) ? String(v).toUpperCase() : null;
 
 export default async function handler(req, res) {
@@ -163,6 +180,16 @@ export default async function handler(req, res) {
         let field = null;
         try { field = raw ? JSON.parse(raw) : null; } catch (e) {}
         return res.status(200).json({ db: true, field });
+      }
+      if (q.learn !== undefined) {
+        const vid = String(q.learn);
+        if (!/^[A-Za-z0-9_-]{6,20}$/.test(vid)) return res.status(400).json({ error: 'learn must be a video id' });
+        if (!hasDb) return res.status(200).json({ db: false, learn: null });
+        const [raw] = await redis(E, [['GET', `vt:learn:${vid}`]]);
+        let learn = null;
+        try { learn = raw ? JSON.parse(raw) : null; } catch (e) {}
+        if (learn && validLearn(learn)) learn = null;
+        return res.status(200).json({ db: true, learn });
       }
       if (q.cal !== undefined) {
         const ev = digits(q.cal);
@@ -216,6 +243,12 @@ export default async function handler(req, res) {
         if (!f || typeof f !== 'object' || !/^[A-Za-z0-9_-]{6,20}$/.test(String(f.vid || '')) || !Array.isArray(f.q) || f.q.length !== 8 ||
             !f.q.every(v => typeof v === 'number' && Number.isFinite(v) && v >= -0.5 && v <= 1.5)) return res.status(400).json({ error: 'bad field' });
         await redis(E, [['SET', `vt:field:${f.vid}`, JSON.stringify({ q: f.q, by: 'click', at: Date.now() })]]);
+        return res.status(200).json({ ok: true });
+      }
+      if (body.learn !== undefined) {
+        const bad = validLearn(body.learn);
+        if (bad) return res.status(400).json({ error: bad });
+        await redis(E, [['SET', `vt:learn:${body.learn.vid}`, JSON.stringify(body.learn)]]);
         return res.status(200).json({ ok: true });
       }
       if (body.cal !== undefined) {
