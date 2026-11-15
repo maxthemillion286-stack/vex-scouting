@@ -3652,7 +3652,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v106';
+const APP_BUILD = 'v107';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -8367,11 +8367,11 @@ function vtFinder() {
     get backend() { return backend; },
     // square: ImageData of the model's 640×640 picture. Its pixels are lent to
     // the worker and come back, so nothing that size is copied.
-    async detect(square, lb, w0, h0) {
+    async detect(square, lb, w0, h0, conf) {
       const id = ++seq;
       const d = await new Promise((resolve, reject) => { waiting.set(id, { resolve, reject }); w.postMessage({ id, rgba: square.data.buffer }, [square.data.buffer]); });
       const rgba = new Uint8ClampedArray(d.rgba);
-      const boxes = vtNMS(vtDecode(new Float32Array(d.out), d.n, lb, w0, h0, VT_CONF), VT_IOU);
+      const boxes = vtNMS(vtDecode(new Float32Array(d.out), d.n, lb, w0, h0, conf || VT_CONF), VT_IOU);
       for (const b of boxes) {
         const sq = [b[0] * lb.s + lb.px, b[1] * lb.s + lb.py, b[2] * lb.s, b[3] * lb.s];
         b[5] = vtColorOf(rgba, VT_SIZE, VT_SIZE, sq);
@@ -8664,7 +8664,7 @@ function vtMeter(run) {
   const clk = run.clocks ? ` · clock read ${run.clocks} times` : '';
   const sync = clk + ((run.confirmed || run.resynced) ? ` · match name read: ${run.confirmed || 0} right, ${run.resynced || 0} moved to the right place` : '');
   const gave = sync + (run.gaveUp ? ` · ${run.gaveUp} skipped early (no robots: a break or the wrong spot)` : '');
-  const speed = gave + (run.rate ? ` · ${run.rate.toFixed(1)} looks a second on the ${run.backend || 'processor'}` : '') + (run.plates ? ` · ${run.plates} plates read` : '');
+  const speed = gave + (run.rate ? ` · ${run.rate.toFixed(1)} looks a second on the ${run.backend || 'processor'}` : '') + (run.plates ? ` · ${run.plates} plates read of ${run.plateTries || run.plates} tried` : '');
   const evs = run.mode === 'history' && (run.withVideo || run.noVideo) ? ` · earlier events with video: ${run.withVideo}, without: ${run.noVideo}` : '';
   if (sub) sub.textContent = `${run.saved} tracked and saved${evs}${speed}${spent ? ' · running ' + vtElapsed(spent) : ''}${leftMs ? ' · roughly ' + vtElapsed(leftMs) + ' left' : ''}. It stops by itself when everything is watched; press Stop tracking to stop sooner. What is already tracked is kept.`;
   document.title = `${Math.round(frac * 100)}% tracking · ${VT_TITLE}`;
@@ -8695,6 +8695,8 @@ async function vtWatch(run, slot, m) {
   const seen = document.getElementById('vtSeen'), sc = seen && seen.getContext('2d');
   const stage = document.getElementById('vtPlayers'), tile = document.getElementById('vtTile' + slot.i);
   let looks = 0, robotLooks = 0, holding = false, checked = 0, resyncs = 0, clockAt = -1e9;
+  const L = await vtLearnGet(m.vid);
+  slot.att = [];
   // Which match does the stream say this is?
   const probe = async () => {
     for (let i = 0; i < 30; i++) { let st = -1; try { st = player.getPlayerState(); } catch (e) {} if (st === 1) break; await vtSleep(200); }
@@ -8731,7 +8733,7 @@ async function vtWatch(run, slot, m) {
     }
     // From just before the name appears. The match itself starts some time
     // after that, so the window is long, and the summary finds the real start.
-    m.off = rec.off = Math.max(0, first - 15); rec.wide = 1; rec.f = []; rec.tm = [];
+    m.off = rec.off = Math.max(0, first - 15); rec.wide = 1; rec.f = []; rec.tm = []; slot.att = [];
     start = m.off; end = start + VT_WINDOW_WIDE; robotLooks = 0; lastT = -1; apiT = -1;
     wallLimit = Date.now() + (VT_WINDOW_WIDE / VT_RATE + 90) * 1000;
     await seek(start);
@@ -8782,17 +8784,18 @@ async function vtWatch(run, slot, m) {
         const lb = vtLetterbox(w, h);
         sq.fillStyle = 'rgb(114,114,114)'; sq.fillRect(0, 0, VT_SIZE, VT_SIZE);
         sq.drawImage(video, sx, sy, w, h, lb.px, lb.py, lb.nw, lb.nh);
-        const boxes = await slot.finder.detect(sq.getImageData(0, 0, VT_SIZE, VT_SIZE), lb, w, h);
+        const boxes = await slot.finder.detect(sq.getImageData(0, 0, VT_SIZE, VT_SIZE), lb, w, h, L.conf);
         rec.h = Math.round(h * VT_SIZE / w);
-        if ((looks++ & 1) === 0) await vtPlateLook(run, slot, video, sx, sy, boxes, [m.red[0], m.red[1], m.blue[0], m.blue[1]]);
+        looks++;
+        await vtPlates(run, slot, video, sx, sy, boxes, est, w, [m.red[0], m.red[1], m.blue[0], m.blue[1]]);
         rec.f.push(vtPackFrame(est - m.off, boxes, w));
         run.looks = (run.looks || 0) + 1;
         if (boxes.some(b => b[5])) robotLooks++;
         // The match clock, every five seconds of video: it says exactly when
         // autonomous and driver control began, which movement can only guess.
-        if (est >= clockAt + 5 && rec.tm.length < 160) {
+        if (est >= clockAt + (L.clock ? 1 : 5) && rec.tm.length < 320) {
           clockAt = est;
-          try { const texts = await vtScan(slot, video, stage, tile); const c = texts.map(x => vtTimerText(x.text)).find(v => v !== null); if (c !== undefined) { rec.tm.push(Math.round((est - m.off) * 10), c); run.clocks = (run.clocks || 0) + 1; } } catch (e) {}
+          try { const c = await vtClockRead(run, slot, video, stage, tile, L); if (c !== null) { rec.tm.push(Math.round((est - m.off) * 10), c); run.clocks = (run.clocks || 0) + 1; } } catch (e) {}
         }
         // Is this the match it came for? Checked a few seconds in, and once
         // more a little later if no name could be read the first time.
@@ -8857,9 +8860,8 @@ async function vtWatch(run, slot, m) {
 // own size (letters need every pixel there is) and read. Either colour's plate
 // is looked for: the box's colour may itself be wrong (blue-anodised metal on
 // a red robot), and the plate is how that gets found out.
-async function vtPlateLook(run, slot, video, sx, sy, boxes, four) {
-  const big = boxes.filter(b => b[5]).sort((a, b) => b[2] * b[3] - a[2] * a[3])[0];
-  if (!big || big[2] < 40) return;
+async function vtPlateLook(run, slot, video, sx, sy, big, four) {
+  if (!big || big[2] < 40) return false;
   try {
     if (!slot.plateCx) {
       slot.plateCv = document.createElement('canvas'); slot.plateCx = slot.plateCv.getContext('2d', { willReadFrequently: true });
@@ -8871,15 +8873,142 @@ async function vtPlateLook(run, slot, video, sx, sy, boxes, four) {
     const px = slot.plateCx.getImageData(0, 0, cw, ch).data;
     const pr = vtPlateBox(px, cw, ch, 1), pbl = vtPlateBox(px, cw, ch, 2);
     const pb = pr && pbl ? (pr.w * pr.h >= pbl.w * pbl.h ? pr : pbl) : (pr || pbl);
-    if (!pb) return;
+    if (!pb) return false;
     const used = Math.min(160, Math.max(8, Math.round(pb.w * 48 / pb.h)));
     slot.stripCx.fillStyle = '#000'; slot.stripCx.fillRect(0, 0, 160, 48);
     slot.stripCx.drawImage(slot.plateCv, pb.x, pb.y, pb.w, pb.h, 0, 0, used, 48);
     const got = await slot.finder.read(slot.stripCx.getImageData(0, 0, 160, 48), used);
-    if (got.conf < 0.5) return;
+    if (got.conf < 0.5) return false;
     big[7] = vtWhoFromText(got.text, four);
-    if (big[7]) { run.plates = (run.plates || 0) + 1; if (slot.now) slot.now.plate = four[big[7] - 1]; big[5] = big[7] <= 2 ? 1 : 2; }
+    if (big[7]) { run.plates = (run.plates || 0) + 1; if (slot.now) slot.now.plate = four[big[7] - 1]; big[5] = big[7] <= 2 ? 1 : 2; return true; }
   } catch (e) {}
+  return false;
+}
+// ── Watching the way a person does (v107) ──────────────────────────────────
+// A person follows each robot with their eyes and glances at its plate
+// whenever it turns towards them — and looks hardest at the robot they have
+// not placed yet. This is that: every box is followed from look to look, and
+// each look the plates of up to `n` robots are read, the least-known first.
+// It used to be the biggest robot only, every other look, so a robot at the
+// far side of the field could go a whole match without its plate being tried.
+function vtAttend(att, boxes, t, w, n) {
+  const used = new Set(), pairs = [];
+  for (const b of boxes) {
+    if (!b[5] || !vtRobotLike(b)) continue;
+    const x = (b[0] + b[2] / 2) / w, y = (b[1] + b[3] / 2) / w;
+    let best = null, bd = 0.12;
+    for (const tr of att) { if (used.has(tr)) continue; const d = Math.hypot(tr.x - x, tr.y - y); if (d < bd) { bd = d; best = tr; } }
+    if (!best) { best = { hits: 0, tries: 0 }; att.push(best); }
+    used.add(best); best.x = x; best.y = y; best.t = t;
+    pairs.push({ b, tr: best });
+  }
+  for (let i = att.length - 1; i >= 0; i--) if (t - att[i].t > 4 || t < att[i].t - 1) att.splice(i, 1);
+  return pairs.filter(p => p.b[2] >= 40)
+    .sort((p, q) => (p.tr.hits - q.tr.hits) || (p.tr.tries - q.tr.tries) || (q.b[2] * q.b[3] - p.b[2] * p.b[3])).slice(0, n);
+}
+async function vtPlates(run, slot, video, sx, sy, boxes, t, w, four) {
+  if (!slot.att) slot.att = [];
+  for (const p of vtAttend(slot.att, boxes, t, w, run.backend === 'processor' ? 1 : 2)) {
+    p.tr.tries++; run.plateTries = (run.plateTries || 0) + 1;
+    if (await vtPlateLook(run, slot, video, sx, sy, p.b, four)) p.tr.hits++;
+  }
+}
+// ── What watching teaches it (v107) ────────────────────────────────────────
+// Kept per stream video, on this device, and used on every later match of
+// that stream:
+//   · where the clock is on screen, so it is read every second instead of
+//     being searched for every five;
+//   · things the finder boxes that are not robots: a box in the same spot for
+//     most of a match, in three matches, is part of the scenery. It is left
+//     out when a match is summarised (the recording itself keeps everything);
+//   · how sure the finder has to be. Four robots are on the field: a stream
+//     where it keeps finding more gets a stricter finder, fewer a looser one,
+//     a small step at a time and within limits.
+const VT_LEARN_KEY = 'vt:learn', VT_CONF_MIN = 0.38, VT_CONF_MAX = 0.55;
+let vtLearnMem = null;
+async function vtLearnAll() { if (!vtLearnMem) vtLearnMem = (await idbGet(VT_LEARN_KEY)) || {}; return vtLearnMem; }
+async function vtLearnGet(vid) {
+  const all = await vtLearnAll();
+  if (!vid) return { n: 0, conf: VT_CONF, still: [], clock: null, hi: 0, lo: 0 };
+  if (!all[vid]) all[vid] = { n: 0, conf: VT_CONF, still: [], clock: null, hi: 0, lo: 0, at: Date.now() };
+  return all[vid];
+}
+async function vtLearnSave() {
+  const all = await vtLearnAll(), keys = Object.keys(all);
+  if (keys.length > 60) for (const k of keys.sort((a, b) => (all[a].at || 0) - (all[b].at || 0)).slice(0, keys.length - 60)) delete all[k];
+  await idbSet(VT_LEARN_KEY, all);
+}
+const vtStillKnown = L => ((L && L.still) || []).filter(s => s.m >= 3 && s.m / s.a >= 0.6);
+const vtOnStill = (known, x, y) => known.some(s => Math.abs(s.x - x) < 0.035 && Math.abs(s.y - y) < 0.05);
+// One kept recording → what it adds to what is known about its stream.
+function vtLearnFrom(rec, L) {
+  const N = vtStride(rec), H = rec.h || 360, F = rec.f || [];
+  if (F.length < 60) return L;
+  L.n = (L.n || 0) + 1; L.at = Date.now();
+  // Scenery: a spot that had a box in four looks out of five.
+  const cells = new Map();
+  let withBox = 0;
+  for (const fr of F) {
+    if (!fr[1]) continue;
+    withBox++;
+    const seen = new Set();
+    for (let i = 0; i < fr[1]; i++) { const o = 2 + N * i; seen.add(Math.round((fr[o] + fr[o + 2] / 2) / VT_SIZE * 24) + ':' + Math.round((fr[o + 1] + fr[o + 3] / 2) / H * 14)); }
+    for (const k of seen) cells.set(k, (cells.get(k) || 0) + 1);
+  }
+  const here = [];                                    // what stood still in THIS match
+  L.still = L.still || [];
+  for (const sp of L.still) sp.a++;
+  for (const [k, c] of cells) {
+    if (withBox < 60 || c < 0.8 * withBox) continue;
+    const [cx, cy] = k.split(':').map(Number), x = cx / 24, y = cy / 14;
+    const old = L.still.find(sp => Math.abs(sp.x - x) < 0.05 && Math.abs(sp.y - y) < 0.08);
+    if (old) { if (!old.hit) { old.m++; old.hit = 1; } } else L.still.push({ x, y, m: 1, a: 1, hit: 1 });
+    here.push({ x, y });
+  }
+  for (const sp of L.still) delete sp.hit;
+  L.still = L.still.filter(sp => !(sp.a >= 6 && sp.m / sp.a < 0.3)).sort((a, b) => b.m - a.m).slice(0, 12);
+  // How many robots a look finds, in the middle of the match, scenery aside.
+  const known = vtStillKnown(L).concat(here), counts = [];
+  for (const fr of F.slice(Math.floor(F.length * 0.2), Math.ceil(F.length * 0.8))) {
+    let c = 0;
+    for (let i = 0; i < fr[1]; i++) { const o = 2 + N * i; if (fr[o + 5] && !vtOnStill(known, (fr[o] + fr[o + 2] / 2) / VT_SIZE, (fr[o + 1] + fr[o + 3] / 2) / H)) c++; }
+    counts.push(c);
+  }
+  counts.sort((a, b) => a - b);
+  const p75 = counts.length ? counts[Math.floor(counts.length * 0.75)] : 4;
+  if (p75 > 4) L.hi = (L.hi || 0) + 1; else if (p75 < 4) L.lo = (L.lo || 0) + 1;
+  if (L.n % 3 === 0) {
+    const c = L.conf || VT_CONF;
+    if ((L.hi || 0) >= 2) L.conf = Math.min(VT_CONF_MAX, Math.round((c + 0.02) * 100) / 100);
+    else if ((L.lo || 0) >= 2) L.conf = Math.max(VT_CONF_MIN, Math.round((c - 0.02) * 100) / 100);
+    L.hi = L.lo = 0;
+  }
+  return L;
+}
+// How many robots it can name on sight: a plate read at least twice in a match.
+async function vtKnownTeams() {
+  const all = await vtSumsLocal(), teams = new Set();
+  for (const s of Object.values(all)) {
+    if (!s || !s.ok) continue;
+    for (const [side, list] of [['R', s.red || []], ['B', s.blue || []]]) for (const sl of ['a', 'b']) {
+      const r = s[side + sl]; if (!r) continue;
+      if ((r.wa || 0) >= 2 && (r.wa || 0) > (r.wb || 0) && list[0]) teams.add(list[0]);
+      if ((r.wb || 0) >= 2 && (r.wb || 0) > (r.wa || 0) && list[1]) teams.add(list[1]);
+    }
+  }
+  return teams.size;
+}
+async function vtLearnLine(vids) {
+  const all = await vtLearnAll(), parts = [];
+  let n = 0, clock = 0, still = 0, tuned = 0;
+  for (const v of vids) { const L = all[v]; if (!L) continue; n += L.n || 0; if (L.clock) clock++; still += vtStillKnown(L).length; if (L.conf && L.conf !== VT_CONF) tuned++; }
+  const teams = await vtKnownTeams();
+  if (teams) parts.push(`knows ${teams} robot${teams === 1 ? '' : 's'} by plate`);
+  if (n) parts.push(`${n} match${n === 1 ? '' : 'es'} of this event's video learned from`);
+  if (clock) parts.push('knows where the clock is on screen');
+  if (still) parts.push(`ignores ${still} thing${still === 1 ? '' : 's'} that never move`);
+  if (tuned) parts.push('has adjusted how sure the finder must be');
+  return parts.length ? 'So far it ' + parts.join(' · ') + '.' : '';
 }
 // A match tracked live was saved before it had a score. Once the score is
 // posted, it is added and the match summarised again, so "when it loses" has
@@ -8895,7 +9024,7 @@ async function vtScoreFill(ev, ctx) {
     if (!rec) continue;
     rec.rs = m.redScore; rec.bs = m.blueScore;
     await vtLocalSave(ev, id, rec, 'done');
-    const sum = vtSummarise(rec, await vtFieldGet(rec.vid));
+    const sum = vtSummarise(rec, await vtFieldGet(rec.vid), await vtLearnGet(rec.vid));
     await vtSumSave(ev, id, sum); await vtSharedSave(ev, id, rec, sum);
     changed++;
   }
@@ -8909,7 +9038,9 @@ async function vtKeep(run, m, rec) {
   await vtLocalSave(m.ev, m.id, rec, 'done');
   run.saved++;
   let sum = null;
-  try { sum = vtSummarise(rec, await vtFieldGet(m.vid)); await vtSumSave(m.ev, m.id, sum); } catch (e) {}
+  let L = null;
+  try { L = vtLearnFrom(rec, await vtLearnGet(m.vid)); await vtLearnSave(); } catch (e) {}
+  try { sum = vtSummarise(rec, await vtFieldGet(m.vid), L); await vtSumSave(m.ev, m.id, sum); } catch (e) {}
   run.shared = await vtSharedSave(m.ev, m.id, rec, sum);
   return sum;
 }
@@ -8932,11 +9063,13 @@ async function vtLiveLoop(run, slot, ctx, ev) {
   try { player.mute(); player.setPlaybackRate(1); } catch (e) {}
   run.mode = 'live'; run.t0 = Date.now(); run.total = 0;
   const clean = v => String(v).toUpperCase().replace(/[^A-Z0-9]/g, '');
-  let cur = null, busy = false, lastScan = 0, lastLook = 0;
+  let cur = null, busy = false, lastScan = 0, lastLook = 0, lastClock = 0;
+  const L = await vtLearnGet(vid);
   const begin = (label, now) => {
     const m = byNum.get(label.num);
     if (!m) return null;                                   // not on the schedule this page loaded
     run.total++;
+    slot.att = [];
     return { m: { id: String(m.id), ev, vid, name: m.name, round: 2, num: m.num }, t0: now, last: now,
       rec: { v: 2, name: String(m.name || '').slice(0, 60), round: 2, num: m.num, red: (m.redNums || []).map(clean), blue: (m.blueNums || []).map(clean),
         rs: null, bs: null, vid, off: Math.round(now), rate: 1, w: VT_SIZE, h: 0, model: VT_MODEL, at: Date.now(), f: [], tm: [], wide: 1 } };
@@ -8956,16 +9089,21 @@ async function vtLiveLoop(run, slot, ctx, ev) {
         const w = T.width / S.width * video.videoWidth, h = T.height / S.height * video.videoHeight, lb = vtLetterbox(w, h);
         slot.sq.fillStyle = 'rgb(114,114,114)'; slot.sq.fillRect(0, 0, VT_SIZE, VT_SIZE);
         slot.sq.drawImage(video, sx, sy, w, h, lb.px, lb.py, lb.nw, lb.nh);
-        const boxes = await slot.finder.detect(slot.sq.getImageData(0, 0, VT_SIZE, VT_SIZE), lb, w, h);
+        const boxes = await slot.finder.detect(slot.sq.getImageData(0, 0, VT_SIZE, VT_SIZE), lb, w, h, L.conf);
         run.looks = (run.looks || 0) + 1; run.view = { sx, sy, w, h, boxes };
-        if (cur && (run.looks & 1) === 0) await vtPlateLook(run, slot, video, sx, sy, boxes, [cur.rec.red[0], cur.rec.red[1], cur.rec.blue[0], cur.rec.blue[1]]);
+        if (cur) await vtPlates(run, slot, video, sx, sy, boxes, now, w, [cur.rec.red[0], cur.rec.red[1], cur.rec.blue[0], cur.rec.blue[1]]);
         if (cur) { cur.rec.h = Math.round(h * VT_SIZE / w); cur.rec.f.push(vtPackFrame(now - cur.rec.off, boxes, w)); }
         if (Date.now() - lastScan > 4000) {
           lastScan = Date.now();
-          const texts = await vtScan(slot, video, stage, tile), label = vtLabelOf(texts), clock = texts.map(x => vtTimerText(x.text)).find(v => v !== null);
-          if (cur && clock !== undefined && cur.rec.tm.length < 160) cur.rec.tm.push(Math.round((now - cur.rec.off) * 10), clock);
+          const texts = await vtScan(slot, video, stage, tile), label = vtLabelOf(texts), hit = texts.find(x => vtTimerText(x.text) !== null);
+          if (hit && !L.clock) L.clock = hit.box.map(v => Math.round(v * 1000) / 1000);
           if (label && label.round === 2 && (!cur || Number(cur.m.num) !== label.num)) { await finish(); cur = begin(label, now); }
           else if (cur && label && label.round === 2) cur.last = now;
+        }
+        if (cur && L.clock && Date.now() - lastClock > 1000 && cur.rec.tm.length < 320) {
+          lastClock = Date.now();
+          const c = await vtClockAt(slot, video, stage, tile, L.clock);
+          if (c !== null) { cur.rec.tm.push(Math.round((now - cur.rec.off) * 10), c); run.clocks = (run.clocks || 0) + 1; }
         }
         if (cur && now - cur.t0 > VT_WINDOW_WIDE) await finish();
         slot.now = { name: cur ? cur.m.name : 'waiting for a match name on the stream', boxes: boxes.length, note: '' };
@@ -8999,9 +9137,37 @@ async function vtScan(slot, video, stage, tile) {
     slot.lineCx.fillStyle = '#000'; slot.lineCx.fillRect(0, 0, 320, 48);
     slot.lineCx.drawImage(video, sx + b[0] / k, sy + b[1] / k, bw, bh, 0, 0, used, 48);
     const got = await slot.finder.read(slot.lineCx.getImageData(0, 0, 320, 48), used, 320);
-    if (got.conf >= 0.5 && got.text) out.push(got);
+    if (got.conf >= 0.5 && got.text) out.push({ text: got.text, conf: got.conf, box: [b[0] / k / w, b[1] / k / h, bw / w, bh / h] });
   }
   return out;
+}
+// The clock, read straight from where it was last found: one read, no search.
+async function vtClockAt(slot, video, stage, tile, box) {
+  if (!video.videoWidth || !stage || !tile || !slot.lineCx || !box) return null;
+  const S = stage.getBoundingClientRect(), T = tile.getBoundingClientRect();
+  const sx = (T.left - S.left) / S.width * video.videoWidth, sy = (T.top - S.top) / S.height * video.videoHeight;
+  const w = T.width / S.width * video.videoWidth, h = T.height / S.height * video.videoHeight;
+  const bw = box[2] * w, bh = box[3] * h;
+  if (bh < 6) return null;
+  const used = Math.min(320, Math.max(8, Math.round(bw * 48 / bh)));
+  slot.lineCx.fillStyle = '#000'; slot.lineCx.fillRect(0, 0, 320, 48);
+  slot.lineCx.drawImage(video, sx + box[0] * w, sy + box[1] * h, bw, bh, 0, 0, used, 48);
+  const got = await slot.finder.read(slot.lineCx.getImageData(0, 0, 320, 48), used, 320);
+  return got.conf >= 0.5 ? vtTimerText(got.text) : null;
+}
+// The clock for this look: from its known place if there is one, else found.
+// A place that stops giving a clock eight times running is forgotten.
+async function vtClockRead(run, slot, video, stage, tile, L) {
+  if (L.clock) {
+    const c = await vtClockAt(slot, video, stage, tile, L.clock);
+    if (c !== null) { L.clockMiss = 0; return c; }
+    if ((L.clockMiss = (L.clockMiss || 0) + 1) >= 8) { L.clock = null; L.clockMiss = 0; }
+    return null;
+  }
+  const hit = (await vtScan(slot, video, stage, tile)).find(x => vtTimerText(x.text) !== null);
+  if (!hit) return null;
+  L.clock = hit.box.map(v => Math.round(v * 1000) / 1000);
+  return vtTimerText(hit.text);
 }
 // The match name among what was read: a qualification match if there is one.
 function vtLabelOf(texts) {
@@ -9052,6 +9218,8 @@ async function vtRender(note) {
   }
   const local = await vtLocalIndex(ev);
   if (vtRun || window._rwCtx !== ctx) return;       // things moved on while that was read
+  const learned = await vtLearnLine([...new Set(Object.values(ctx.cal || {}).map(c => c && c.videoId).filter(Boolean).map(String))]).catch(() => '');
+  if (vtRun || window._rwCtx !== ctx) return;
   vtScoreFill(ev, ctx).catch(() => {}).then(() => vtBackfill(ev)).catch(() => {});   // scores for live-tracked matches, then summaries
   const P = vtParallel();
   const doneHere = queue.filter(m => vtDone(local[m.id])).length;
@@ -9068,6 +9236,7 @@ async function vtRender(note) {
   panel.innerHTML = `<div class="rw-block vt-block">
     <div class="detail-block-label">Robot tracker</div>
     ${note ? `<div class="vt-note">${esc(note)}</div>` : ''}
+    ${learned ? `<div class="rw-hint" id="vtLearned"><strong>It learns as it watches.</strong> ${esc(learned)}</div>` : ''}
     ${hasHere ? `<div class="rw-hint">Watches ${who}, ${P} at a time at ${VT_RATE}×, and records where every robot is. ${doneHere ? `${doneHere} already tracked on this device. ` : ''}${older ? `${older} tracked before robots could be told apart will be watched once more. ` : ''}${left
       ? `About ${span} for the rest.` : 'Nothing is left to watch here.'}</div>
     ${left ? `<div class="rw-playall"><button class="btn btn-primary" onclick="vtStart('here')">Track this event's matches</button></div>` : ''}`
@@ -9133,12 +9302,14 @@ const VT_SUMS_KEY = 'vt:sums';
 
 // Boxes → frames of points in field units (0..1 across the area robots used).
 // A robot's position is the middle of the bottom edge of its box: its wheels.
-function vtFrames(rec, quad) {
-  const H = rec.h || 360, raw = [], N = vtStride(rec);
+function vtFrames(rec, quad, learn) {
+  const H = rec.h || 360, raw = [], N = vtStride(rec), scenery = vtStillKnown(learn);
   for (const fr of rec.f || []) {
     const pts = [];
     for (let i = 0; i < fr[1]; i++) {
       const o = 2 + N * i;
+      // Learned scenery: something boxed in the same spot match after match.
+      if (scenery.length && vtOnStill(scenery, (fr[o] + fr[o + 2] / 2) / VT_SIZE, (fr[o + 1] + fr[o + 3] / 2) / H)) continue;
       pts.push({ x: (fr[o] + fr[o + 2] / 2) / VT_SIZE, y: (fr[o + 1] + fr[o + 3]) / H, c: fr[o + 5],
         g: N === 10 ? vtSigUnpack(fr[o + 6], fr[o + 7], fr[o + 8]) : null, who: N === 10 ? fr[o + 9] : 0 });
     }
@@ -9337,8 +9508,8 @@ function vtPhases(bins, wide, clock) {
   return { start, driver, end: Math.min(bins[bins.length - 1].t, driver + 105), clock: !!byClock };
 }
 // One match → its summary.
-function vtSummarise(rec, quad) {
-  const F = vtFrames(rec, quad);
+function vtSummarise(rec, quad, learn) {
+  const F = vtFrames(rec, quad, learn);
   const base = { sv: VT_SUM_V, fq: vtQuadMark(quad), name: rec.name, round: rec.round, num: rec.num, red: rec.red, blue: rec.blue, rs: rec.rs, bs: rec.bs };
   if (!F.ok) return { ...base, ok: 0 };
   const slotted = vtSlots(F.frames), track = vtBin(slotted), ph = vtPhases(track, !!rec.wide, rec.tm);
@@ -9496,7 +9667,7 @@ async function vtBackfill(ev, force) {
     if (have && have.sv === VT_SUM_V && (have.fq || 0) === vtQuadMark(quad)) continue;
     const rec = await idbGet(`vt:m:${ev}:${id}`);
     if (!rec) continue;
-    const sum = vtSummarise(rec, quad);
+    const sum = vtSummarise(rec, quad, await vtLearnGet(idx[id].vid));
     all[ev + ':' + id] = sum; made++;
     const pass = vtPass();
     if (pass) { try { await vtApi('POST', '', { passcode: pass, ev: String(ev), id: String(id), sum }); } catch (e) {} }

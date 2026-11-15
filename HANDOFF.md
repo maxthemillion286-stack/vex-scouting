@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v106**. Everything green: 75 test files. (The `v19` in §8's
+Current release: **v107**. Everything green: 76 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -408,6 +408,7 @@ proxy is at `api/proxy.js`.
 | t112 | **v91** — robot tracker stage 1: finder maths, queue, shared storage and passcode — §29 |
 | t113 | **v99/v101** — robot report: summaries, team report, storage, browser Back; telling robots apart by plate and look — §30, §31 |
 | t114 | **v106** — the stream's clock sets the periods; live tracking; late scores — §32b |
+| t115 | **v107** — plate attention across all robots; per-stream learning (clock place, scenery, threshold) — §32c |
 | sanity | CSS braces balance, inline JS parses, tabs present |
 | tool_sanity | Same for anchor-tool.html |
 
@@ -2590,6 +2591,35 @@ some teams go round all the toggles — and asked for the report in those terms.
 - **"Admin key"** is the on-screen name of what was the tracker passcode. The
   environment variable is still `TRACKER_PASSCODE` and the localStorage key
   still `vex_tracker_pass`; nobody has to re-enter anything.
+
+## 32c. v107 — watching like a person, and learning
+
+Asked for as: "think of how a person tracks a robot and knows, try to do the
+same, look at the license plates as much as possible … have it actually get
+better at tracking as you track matches".
+
+- **Attention** (`vtAttend`, `vtPlates`): every coloured, robot-shaped box is
+  followed look to look (nearest within 0.12 of the width). Each look the
+  plates of up to 2 robots (1 on the processor) are read, ordered by fewest
+  confirmed reads, then fewest tries, then size. Before: the biggest robot
+  only, every other look. Only real reads are stamped as `who`; nothing is
+  propagated into the recording, so one misread cannot multiply.
+- **Learning**, per stream video, in idb `vt:learn` (this device only):
+  `{ n, conf, still[], clock, hi, lo }`.
+  - `clock`: where the clock was found (fractions of the picture). Known →
+    `vtClockAt` reads that spot once a second; eight misses running forget it.
+  - `still`: a 24×14 cell with a box in ≥80% of looks is a candidate; the same
+    spot in ≥3 matches and ≥60% of matches since is scenery
+    (`vtStillKnown`). `vtFrames(rec, quad, learn)` leaves those boxes out; the
+    recording keeps them. Risk: a dead robot on the same spot in three
+    matches would be learned as scenery.
+  - `conf`: 75th percentile of coloured boxes per look, middle 60% of the
+    match, scenery aside. Above 4 in two of three matches → +0.02, below →
+    −0.02, within `VT_CONF_MIN..MAX` (0.38–0.55). Multi-camera streams will
+    drift to the floor; that is the reason there is one.
+- `vtLearnLine` / `#vtLearned` says what it has learned; `vtKnownTeams` counts
+  robots with a plate read twice in some match.
+- **Unverified on real footage**, like the rest of the tracker.
 
 ## 33. Feature ideas
 
