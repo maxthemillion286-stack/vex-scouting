@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v117**. Everything green: 80 test files. (The `v19` in §8's
+Current release: **v118**. Everything green: 80 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -2826,6 +2826,16 @@ release. Also: 16 concurrent fragments, 10 MB range requests, 720p ≤30 fps
 avc1 preferred (half the bytes of 60 fps), speed printed every 5 s. Not run:
 no YouTube from the sandbox. If it is still slow, the printed MB/s is the
 number to ask for.
+
+**v118 — parallel download.** Owner's screenshot: "13% of 6232 MB at 11.6
+MB/s" on a gigabit line. That is YouTube's per-connection rate; yt-dlp's
+`concurrent_fragment_downloads` only helps fragmented formats and this was one
+plain file. `fetch_parallel` asks for it in 8 MB ranges over 24 connections
+and writes each where it belongs; `download` uses it when the chosen format is
+a plain http(s) file and falls back to yt-dlp on any failure.
+`desktop/dev/par.py` checks it against a local range server (identical file,
+20 at once, nothing left behind on a refusal). Not run against YouTube; if it
+answers 403 to parallel ranges the fallback is the old speed.
 
 ## 33. Feature ideas
 
