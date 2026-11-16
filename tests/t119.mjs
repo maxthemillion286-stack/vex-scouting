@@ -114,6 +114,22 @@ const sum = win.eval('vtSummarise(__rec119, __quad119, null)');
   ok('the app uses the same tests and limits', /def pin_blobs/.test(app) && /\(r >= 140\) & \(g >= 105\) & \(b < 0\.55 \* np\.minimum\(r, g\)\)/.test(app) && /PIN_W, PIN_MAX_INTS, PIN_MAX_BLOBS = 960, 36000, 60/.test(app));
   ok('the app\'s window keeps its details folded away', /<details class="more"><summary>Details<\/summary><pre id="log">/.test(app) && /<details class="more"><summary>More: learn from another video<\/summary>/.test(app));
 }
+// ── v125: a look taken mid-cut or mid-fade is passed over ──
+{
+  const C = f('vtCut'), lb = { px: 0, py: 140, nw: 640, nh: 360 };
+  const pic = (base, robotX) => { const px = new Uint8Array(640 * 640 * 4); for (let y = 140; y < 500; y++) for (let x = 0; x < 640; x++) { const o = 4 * (y * 640 + x), v = base(x, y); px[o] = px[o + 1] = px[o + 2] = (x >= robotX && x < robotX + 70 && y >= 300 && y < 370) ? 90 : v; } return px; };
+  const A = (x, y) => 60 + ((x >> 5) + (y >> 5)) % 2 * 120, B = (x, y) => 200 - ((x >> 6) + (y >> 4)) % 2 * 150;
+  const mix = (a, b, k) => { const o = new Uint8Array(a.length); for (let i = 0; i < a.length; i++) o[i] = a[i] * (1 - k) + b[i] * k; return o; };
+  const run = frames => { const slot = {}; return frames.map((px, i) => C(slot, px, lb, i / 6) ? 'X' : '.').join(''); };
+  const steady = run(Array.from({ length: 30 }, (_, i) => pic(A, 100 + i * 12)));
+  ok('one scene with a robot crossing is never passed over', !/X/.test(steady), steady);
+  const cut = run(Array.from({ length: 40 }, (_, i) => pic(i < 18 ? A : B, 100 + i * 5)));
+  ok('a hard cut is passed over, for about a second', cut[18] === 'X' && !/X/.test(cut.slice(0, 18)) && !/X/.test(cut.slice(-8)), cut);
+  const fade = run(Array.from({ length: 60 }, (_, i) => { const t = i / 6; return t < 3 ? pic(A, 200) : t < 4 ? mix(pic(A, 200), pic(B, 200), t - 3) : pic(B, 200); }));
+  ok('a one-second fade between two fields is passed over too', (fade.slice(18, 32).match(/X/g) || []).length >= 6 && !/X/.test(fade.slice(0, 18)) && !/X/.test(fade.slice(-12)), fade);
+  ok('the page skips the look, and frees itself to take the next', /if \(vtCut\(slot, square\.data, lb, est\)\) \{ run\.cuts = \(run\.cuts \|\| 0\) \+ 1; busy = false; return; \}/.test(idx));
+  ok('the app does the same, and never keeps such a frame for review', /if cuts\.changing\(frame, t\):/.test(app) && /if cuts\.changing\(frame, seen \* every_sec\):/.test(app));
+}
 ok('release is v115 or later', /const APP_BUILD = 'v1(1[5-9]|[2-9]\d)'/.test(idx));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

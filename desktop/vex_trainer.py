@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.11'
+VERSION = '2.12'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -540,6 +540,38 @@ class Eyes:
         return timer_text(got[0]) if got and got[1] >= 0.5 else None
 
 
+class CutWatch:
+    """Is the picture in the middle of changing to something else?
+
+    The owner sent a frame from a broadcast fading from one field to another:
+    two scenes on top of each other, robots from both, a crowd over the field.
+    A look taken then is of nothing real. Between two looks of the same scene
+    only the robots change, a small part of the picture; across a cut or
+    through a fade the whole picture changes. So: the picture shrunk to 64×36
+    grey, compared with the last look and one a second back; a mean change above CUT means the scene
+    is changing, and looks are passed over for a second after it.
+    """
+    CUT, HOLD = 20.0, 1.0
+
+    def __init__(self):
+        self.past, self.until, self.cuts = [], -1e9, 0
+
+    def changing(self, frame, t):
+        import cv2, numpy as np
+        small = cv2.cvtColor(cv2.resize(frame, (64, 36), interpolation=cv2.INTER_AREA), cv2.COLOR_BGR2GRAY).astype(np.int16)
+        # Against the last look (a cut) and against one about a second back
+        # (a fade changes too little from one look to the next to notice).
+        self.past = [(pt, p) for pt, p in self.past if 0 <= t - pt <= 1.2]
+        if self.past:
+            last, old = self.past[-1][1], self.past[0][1]
+            if max(float(np.abs(small - last).mean()), float(np.abs(small - old).mean())) > self.CUT:
+                if t > self.until:
+                    self.cuts += 1
+                self.until = t + self.HOLD
+        self.past.append((t, small))
+        return t <= self.until
+
+
 def attend(att, boxes, t, w, n):
     """Follow every robot from look to look; pick the n whose plates are least known."""
     used, pairs = set(), []
@@ -719,12 +751,15 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
             return None, 'past the end of the video', 0
         video.seek(start)
         att, robot_looks, clock_at, checked, kept, next_keep, misses, pin_at = [], 0, -1e9, False, 0, start + 6, 0, -1e9
+        cuts = CutWatch()
         redo = None
         while True:
             t, frame = video.read_at_step(step)
             if frame is None or t >= end:
                 break
             h, w = frame.shape[:2]
+            if cuts.changing(frame, t):                 # mid-cut or mid-fade: not a picture of anything
+                continue
             every = eyes.detect(frame, PROPOSE)
             boxes = [b for b in every if b[4] >= learn.get('conf', CONF) and robot_like(b)]
             rec['h'] = jround(h * SIZE / w)
@@ -1191,6 +1226,7 @@ def harvest_video(path, tag, live=False, every_sec=2.0, limit=3000):
         fps = 30
     step = max(1, int(round(fps * every_sec)))
     seen = kept = 0
+    cuts = CutWatch()
     say('Reading it. Press Ctrl+C to stop; what is kept so far stays.' if live else 'Reading it…')
     try:
         while kept < limit:
@@ -1205,6 +1241,8 @@ def harvest_video(path, tag, live=False, every_sec=2.0, limit=3000):
             if not ok:
                 break
             seen += 1
+            if cuts.changing(frame, seen * every_sec):  # never keep a frame from the middle of a fade
+                continue
             every = eyes.detect(frame, PROPOSE)
             coloured = [b for b in every if b[5]]
             if len(coloured) >= 2:                    # a view of the field, not a crowd or a slate
