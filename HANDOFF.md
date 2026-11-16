@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v122**. Everything green: 81 test files. (The `v19` in §8's
+Current release: **v123**. Everything green: 81 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -2890,6 +2890,8 @@ cells say "not counted yet" and a note says why. `vtBrief`'s strategy line
 leads with the pin habit. **"Cups" is not built: the owner used the word and
 it is not something this code knows about in Override — asked what he means.**
 Stop, pinned, distance and speed are still in the full report below.
+
+**v123:** the app showed "1285 to review · 8 done" and the owner took that as the job. It never was: training needs 150 reviewed, and the queue is hardest-first. The window and the review screen now count toward the next goal (150, then 300, then steps of 150) and say when it is enough; the website's review says the same. Nothing about what is kept or trained changed.
 
 ## 33. Feature ideas
 

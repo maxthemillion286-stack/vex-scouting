@@ -123,6 +123,10 @@ const f = n => win.eval(n);
   ok('Enter saves the key in the app', /id="keyIn"[^>]*onkeydown="if\(event\.key==='Enter'\)saveKey\(\)"/.test(app));
   ok('the app says what happened to the key, also when nothing answers', /Checking with the website/.test(app) && /did not answer/.test(app) && /Type the admin key first/.test(app));
   ok('Enter saves the key on the website', /id="vtPassInput"[^>]*onkeydown="if\(event\.key==='Enter'\)\{event\.preventDefault\(\);vtPassSave\(\);\}"/.test(idx));
+  // v123: the review counts toward a goal, not the whole pile
+  ok('the window counts toward 150, not every frame kept', /st\.gold\+' of '\+goal\+' done'/.test(app) && /\(150-st\.gold\)\+' more and it can train'/.test(app) && !/st\.waiting\+' waiting/.test(app));
+  ok('the review screen says how many to go, and when to stop', /to go until it can train/.test(app) && /enough to train; stop whenever you like/.test(app) && !/cur\.left\+' to review/.test(app));
+  ok('the website says the same', /do as many as you like, 150 in all is enough to train/.test(idx));
   // v119: nothing waits that does not have to
   ok('the next video downloads while this one is tracked', /ahead = \(nxt, threading\.Thread\(target=fetch, args=\(nxt,\), daemon=True\)\)/.test(app));
   ok('the app\'s recordings come in six at a time', /sim_pool\(batch, async id =>/.test(idx) && /\}, 6\);\n        for \(let k = 0; k < batch\.length; k\+\+\)/.test(idx));

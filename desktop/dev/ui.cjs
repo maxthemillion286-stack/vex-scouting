@@ -16,11 +16,11 @@ ok('three main buttons', await pg.locator('.card button').count() === 3);
 ok('it asks for the admin key first', await pg.locator('#key').isVisible());
 ok('tracking is not offered without the key', await pg.locator('#bTrack').isDisabled());
 await pg.fill('#keyIn', 'nope'); await pg.click('#key button'); await pg.waitForTimeout(1200);
-ok('a wrong key is refused, with a reason', /did not accept/.test(await pg.textContent('#keyMsg')));
+ok('a wrong key is refused, with a reason', /does not match the key saved in Vercel/.test(await pg.textContent('#keyMsg')));
 await pg.fill('#keyIn', 'correct-horse'); await pg.press('#keyIn', 'Enter'); await pg.waitForTimeout(1800);   // Enter, not the button
 ok('the right key is saved and the box goes away', !(await pg.locator('#key').isVisible()) && /saved/.test(await pg.textContent('#keyPill')));
 ok('the key is in config.json for the jobs to use', JSON.parse(fs.readFileSync('run/config.json', 'utf8')).key === 'correct-horse');
-ok('frames waiting are counted', /4 waiting/.test(await pg.textContent('#revN')), await pg.textContent('#revN'));
+ok('frames waiting are counted', /0 of 150 done/.test(await pg.textContent('#revN')), await pg.textContent('#revN'));
 ok('training waits for enough reviewed frames', await pg.locator('#bTrain').isDisabled() && /Review \d+ more/.test(await pg.textContent('#trainN')));
 await pg.screenshot({ path: 'ui-home.png' });
 // track: a real process, which finds no work and says so
@@ -37,21 +37,21 @@ await pg.fill('#src', 'C:\\nothing\\here.mp4'); await pg.click('#bAdd'); await p
 ok('a bad path is answered plainly', /neither a file on this computer nor a link/.test(await pg.textContent('#log')), (await pg.textContent('#log')).slice(-200));
 // review
 await pg.click('#bRev'); await pg.waitForTimeout(1200);
-ok('Review opens on a frame', await pg.locator('#rev').isVisible() && /4 to review/.test(await pg.textContent('#revLeft')));
+ok('Review opens on a frame', await pg.locator('#rev').isVisible() && /0 of 150 done · 150 to go/.test(await pg.textContent('#revLeft')));
 const box = await pg.locator('#c').boundingBox();
 await pg.mouse.move(box.x + 60, box.y + 300); await pg.mouse.down(); await pg.mouse.move(box.x + 160, box.y + 380); await pg.mouse.up();
 await pg.screenshot({ path: 'ui-review.png' });
 const before = fs.readdirSync('run/data/labels').length;
 await pg.keyboard.press('Enter'); await pg.waitForTimeout(800);
 const files = fs.readdirSync('run/data/labels');
-ok('Enter saves the frame and moves on', files.length === before + 1 && /3 to review/.test(await pg.textContent('#revLeft')));
+ok('Enter saves the frame and moves on', files.length === before + 1 && /1 of 150 done · 149 to go/.test(await pg.textContent('#revLeft')));
 const newest = files.map(f => ({ f, t: fs.statSync('run/data/labels/' + f).mtimeMs })).sort((a, b) => b.t - a.t)[0].f;
 const lab = JSON.parse(fs.readFileSync('run/data/labels/' + newest, 'utf8'));
 ok('the drawn box is in what was saved', lab.boxes.some(b => Math.abs(b[2] - 100 * (1280 / box.width)) < 6), JSON.stringify(lab.boxes.slice(-1)));
 await pg.keyboard.press('s'); await pg.waitForTimeout(600);
-ok('S skips a frame', /2 to review/.test(await pg.textContent('#revLeft')));
+ok('S skips a frame', /1 of 150 done/.test(await pg.textContent('#revLeft')));
 await pg.keyboard.press('Escape'); await pg.waitForTimeout(1500);
-ok('back on the main page the counts follow', /2 waiting/.test(await pg.textContent('#revN')), await pg.textContent('#revN'));
+ok('back on the main page the counts follow', /1 of 150 done · 149 more/.test(await pg.textContent('#revN')), await pg.textContent('#revN'));
 await pg.click('header button'); await pg.waitForTimeout(300);
 await pg.fill('#sWorkers', '8'); await pg.click('dialog .row button:last-child'); await pg.waitForTimeout(600);
 ok('settings are saved', JSON.parse(fs.readFileSync('run/config.json', 'utf8')).workers === 8);
