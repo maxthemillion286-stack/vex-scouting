@@ -130,6 +130,35 @@ const sum = win.eval('vtSummarise(__rec119, __quad119, null)');
   ok('the page skips the look, and frees itself to take the next', /if \(vtCut\(slot, square\.data, lb, est\)\) \{ run\.cuts = \(run\.cuts \|\| 0\) \+ 1; busy = false; return; \}/.test(idx));
   ok('the app does the same, and never keeps such a frame for review', /if cuts\.changing\(frame, t\):/.test(app) && /if cuts\.changing\(frame, seen \* every_sec\):/.test(app));
 }
+// ── v130: the toggles, and each alliance's own score ──
+{
+  ok('the app\'s recording carries toggle readings', Array.isArray(fx.rec.tg) && fx.rec.tg.length >= 9 * 60 && fx.rec.tg.length % 9 === 0);
+  const own = [sum.tw % 3, Math.floor(sum.tw / 3) % 3, Math.floor(sum.tw / 9) % 3, Math.floor(sum.tw / 27) % 3];
+  ok('each toggle is read: red\'s wall and one side red, the other two blue', own.join() === '1,2,1,2', own.join());
+  ok('yellow goes to whoever holds the quadrant\'s toggle, not to who stacked it', sum.er > 0 && sum.eb > 40 && Math.abs(sum.er + sum.eb - (5 * (sum.pr + sum.pb) + 10 * sum.py)) < 12, JSON.stringify([sum.er, sum.eb, sum.py, sum.pr]));
+  const P = f('vtTogglePoints')(fx.quad, 16 / 9);
+  ok('the points looked at sit above the middle of each wall', P.length === 4 && P.every(w => w.length === 120) && P[0].every(p => Math.abs(p[0] - 0.5) < 0.06 && p[1] < fx.quad[1]), JSON.stringify(P[0].slice(0, 2)));
+  const R = f('vtToggleRead');
+  const rows = (...v) => { const a = []; for (let i = 0; i < 6; i++) a.push(1200 + i * 20, ...v); return { tg: a }; };
+  ok('a wall that is mostly red is red; mostly blue, blue', R(rows(60, 0, 0, 70, 5, 5, 0, 0), 0, { end: 123 }).join() === '0,2,1,0', R(rows(60, 0, 0, 70, 5, 5, 0, 0), 0, { end: 123 }).join());
+  ok('a wall with both colours in it is not guessed', R(rows(30, 25, 0, 0, 0, 0, 0, 0), 0, { end: 123 })[2] === 0);
+  ok('a few stray points are not a colour', R(rows(5, 0, 0, 6, 0, 0, 0, 0), 0, { end: 123 }).join() === '0,0,0,0');
+  ok('no readings, no answer', R({ tg: [] }, 0, { end: 123 }) === null);
+  const mod = await import('../api/tracker.js');
+  ok('the server accepts toggle readings', mod.validRec(fx.rec) === null && mod.validRec({ ...fx.rec, tg: [1, 2, 3] }) === 'bad toggles' && mod.validRec({ ...fx.rec, tg: ['<b>', 0, 0, 0, 0, 0, 0, 0, 0] }) === 'bad toggles');
+  ok('and the summary with estimated scores', mod.validSum(JSON.parse(JSON.stringify(sum))) === null);
+  // The per-alliance check.
+  const C = f('vtPinCheck'), T = f('vtPinCheckText');
+  const mk = (i, good) => { const pr = 6 + i, pb = 4 + i, yr = 8 + i, yb = 5; const s = { ok: 1, pk: 70, pr, pb, py: yr + yb, er: 5 * pr + 10 * (good ? yr : yb), eb: 5 * pb + 10 * (good ? yb : yr), mr: 1, mb: 0, Ra: { eg: 1 }, Rb: {}, Ba: {}, Bb: {} }; s.rs = 5 * pr + 10 * yr + 8 + 6; s.bs = 5 * pb + 10 * yb + 6; return s; };
+  const right = C([0, 1, 2, 3, 4].map(i => mk(i, true))), wrong = C([0, 1, 2, 3, 4].map(i => mk(i, false)));
+  ok('when the toggles are read right, each alliance\'s score comes out close', right.side !== null && right.side < 0.05, String(right.side));
+  ok('when they are read wrong, the check shows it', wrong.side > 0.15, String(wrong.side));
+  ok('and it is said', /With the toggles read \(5 matches\), each alliance's own score comes out within \d+%/.test(T(right)), T(right));
+  ok('a toggle is never counted as a pin', /Not a toggle: a red or blue bar at the middle of a wall/.test(idx));
+  ok('the page looks for toggles where the field\'s corners put them', /slot\.quad = await vtFieldGet\(m\.vid\)/.test(idx) && /P\.tg = slot\.quad && slot\.quad\.q \? vtToggleLook\(data, W, H, slot\.quad\.q\) : null/.test(idx));
+  ok('the app asks the website for the corners and does the same', /site\.get\('\?field=' \+ job\['vid'\]\)/.test(app) && /def toggle_look\(frame, q\)/.test(app));
+  ok('Mark the field offers the tracker\'s own outline to keep', /id="vtMarkKeep">It is right: keep it</.test(idx) && /await vtFieldSet\(String\(cal\.videoId\), guess\.q, 'click'\)/.test(idx));
+}
 ok('release is v115 or later', /const APP_BUILD = 'v1(1[5-9]|[2-9]\d)'/.test(idx));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

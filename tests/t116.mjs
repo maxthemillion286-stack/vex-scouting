@@ -130,6 +130,11 @@ const f = n => win.eval(n);
   ok('and says plainly when it has finished, and on how much', /TRAINING FINISHED after %d rounds: learned from %d frames you reviewed and %d the finder was already sure of/.test(app));
   ok('the Train card keeps that after the log has scrolled away', /Finished and published/.test(app) && /Trained on '\+L\.frames\+' frames you reviewed'/.test(app) && /more reviewed since then/.test(app));
   ok('published is recorded only once it really was', /saved\['published'\] = True/.test(app) && /'published': False\}, f\)/.test(app));
+  // v130: only the minutes with matches in them
+  ok('the app reads a stream\'s segment index and fetches only the stretches it needs', /def parse_index\(head\)/.test(app) && /def needed_ranges\(index, windows, total\)/.test(app) && /only the parts with matches in them/.test(app));
+  ok('a part-fetched file is a proper shorter video, and the reader knows which stretches it holds', /def strip_index\(head, anchor\)/.test(app) && /self\.spans = \[\[float\(a\), float\(b\)\] for a, b in json\.load\(f\)\['spans'\]\]/.test(app));
+  ok('it is not reused for matches it does not hold', /if not windows or not all\(any\(g0 <= w0 and g1 >= w1 for g0, g1 in got\) for w0, w1 in windows\):/.test(app));
+  ok('when most of the stream is needed anyway, the whole file is fetched', /if rs and need < 0\.8 \* total_bytes:/.test(app));
   // v123: the review counts toward a goal, not the whole pile
   ok('the window counts toward 150, not every frame kept', /st\.gold\+' of '\+goal\+' done'/.test(app) && /\(150-st\.gold\)\+' more and it can train'/.test(app) && !/st\.waiting\+' waiting/.test(app));
   ok('the review screen says how many to go, and when to stop', /to go until it can train/.test(app) && /enough to train; stop whenever you like/.test(app) && !/cur\.left\+' to review/.test(app));
