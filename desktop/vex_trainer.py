@@ -1298,7 +1298,7 @@ REVIEW_HTML = r"""<!doctype html><meta charset="utf-8"><title>Review frames</tit
 <div id="wrap"><canvas id="c"></canvas></div>
 <script>
 const c=document.getElementById('c'),x=c.getContext('2d');let cur=null,img=new Image(),boxes=[],hist=[],drag=null,back=[];
-async function next(id){const r=await fetch('/api/next'+(id?'?id='+id:''));cur=await r.json();document.getElementById('left').textContent=cur.id?cur.left+' to review · '+cur.done+' done':'';
+async function next(id){const r=await fetch('/api/next'+(id?'?id='+id:''));cur=await r.json();document.getElementById('left').textContent=cur.id?cur.done+' done · 150 in all is enough to train':'';
  if(!cur.id){document.getElementById('wrap').innerHTML='<p style="padding:30px;font-size:18px">Nothing left to review. You can close this tab; in the app, choose Train.</p>';return;}
  boxes=cur.boxes.map(b=>b.slice(0,4));hist=[];img=new Image();img.onload=()=>{c.width=cur.w;c.height=cur.h;draw()};img.src='/img/'+cur.id+'.jpg';}
 function draw(){x.drawImage(img,0,0);x.lineWidth=Math.max(2,c.width/500);boxes.forEach(b=>{x.strokeStyle='#39ff88';x.strokeRect(b[0],b[1],b[2],b[3])});
