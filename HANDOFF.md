@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v125**. Everything green: 81 test files. (The `v19` in §8's
+Current release: **v126**. Everything green: 81 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -2927,6 +2927,28 @@ faces in it):
   mark per VIDEO, but each field has its own camera. Matches on the second
   field are placed with the first field's corners. Needs a mark per camera
   view and a way to tell which view a look is of. Not built.
+
+**v126 — what the manual says about cups** (vexrobotics.com/override-manual,
+read 2026-11-16; the owner asked for "cups" to be counted and said only "they
+score with a lift mechanism"):
+- **Cup:** ~80 mm across, 164.5 mm tall, two halves, one transparent and one
+  opaque. 56 on the field (20 match loads). **Pin:** 63 (4 red/blue, 20
+  red/yellow, 20 blue/yellow, 19 yellow/yellow).
+- A pin is Placed when nested in a goal or in a cup that is itself placed;
+  stacks go goal → pin → cup → pin … which is what the lifts are for. One pin
+  half per cup half.
+- **A pin half scores only while fully visible**; a half inside a cup's opaque
+  half does not. The pin counter counts what it can see, so it agrees with
+  this by construction.
+- Yellow halves score for the alliance whose colour the quadrant's toggle
+  shows at the end; in midfield, for the alliance with more robots there.
+- 9 goals: 4 alliance-coloured (82.5 mm tall; the other alliance may not touch
+  them), 4 neutral in the quadrants (146.5 mm), 1 centre (222.7 mm). Each
+  quadrant has two goals and one toggle. Robots hold at most one pin and one
+  cup.
+- Nothing read says a cup is worth points by itself. Cups have no colour to
+  find them by (clear and grey), so counting them needs the trained finder:
+  a second label in review. Not built; offered.
 
 ## 33. Feature ideas
 
