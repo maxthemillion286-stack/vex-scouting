@@ -14,7 +14,7 @@ const ok = (name, cond, detail) => {
   if (cond) { pass++; console.log('  ok   ' + name); }
   else { fail++; console.log('  FAIL ' + name + (detail ? '\n         ' + detail : '')); }
 };
-const idx = fs.readFileSync('../index.html', 'utf8');
+const idx = fs.readFileSync('../src/index.html', 'utf8');
 const css = idx.slice(idx.indexOf('<style>'), idx.indexOf('</style>'));
 const day = d => { const x = new Date(Date.now() + d * 86400000); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}T08:00:00`; };
 

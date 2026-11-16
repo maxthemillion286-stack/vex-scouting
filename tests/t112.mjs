@@ -10,7 +10,7 @@ const ok = (name, cond, detail) => {
   if (cond) { pass++; console.log('  ok   ' + name); }
   else { fail++; console.log('  FAIL ' + name + (detail ? '\n         ' + detail : '')); }
 };
-const idx = fs.readFileSync('../index.html', 'utf8');
+const idx = fs.readFileSync('../src/index.html', 'utf8');
 const sw = fs.readFileSync('../sw.js', 'utf8');
 console.log('t112 — v91: robot tracker, stage 1');
 

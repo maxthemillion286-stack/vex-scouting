@@ -16,7 +16,7 @@ import fs from 'fs';
 import { boot, settle } from './harness.mjs';
 let pass = 0, fail = 0;
 const ok = (name, cond, detail) => { if (cond) { pass++; console.log('  ok   ' + name); } else { fail++; console.log('  FAIL ' + name + (detail ? '\n         ' + detail : '')); } };
-const idx = fs.readFileSync('../index.html', 'utf8'), app = fs.readFileSync('../desktop/vex_trainer.py', 'utf8');
+const idx = fs.readFileSync('../src/index.html', 'utf8'), app = fs.readFileSync('../desktop/vex_trainer.py', 'utf8');
 console.log('t119 — v115: pins');
 const { win } = await boot();
 await settle(win);
@@ -82,9 +82,9 @@ const sum = win.eval('vtSummarise(__rec119, __quad119, null)');
 // ── said plainly ──
 {
   const L = f('vtPinLine');
-  const line = L([{ ys: 12, qh: 0.5, qs: 0, qo: 0 }, { ys: 10, qh: 0.5, qs: 0, qo: 0 }, { ys: 14, qh: 0.5, qs: 0, qo: 0 }], [{ ys: 4 }, { ys: 6 }], true);
+  const line = L([{ ys: 12, qh: 0.5, qs: 0, qo: 0, cy: 3 }, { ys: 10, qh: 0.5, qs: 0, qo: 0, cy: 5 }, { ys: 14, qh: 0.5, qs: 0, qo: 0 }], [{ ys: 4 }, { ys: 6 }], true);
   ok('a team\'s pins are an average with what it is worth', /about 12\.0 yellow halves a match \(worth 120 when its alliance holds that toggle\)/.test(line.text), line.text);
-  ok('and a pace', /one every 4 s of stacking/.test(line.text), line.text);
+  ok('and a pace, timed', /a pin every 4 s while it is stacking \(timed/.test(line.text), line.text);
   ok('against the robots it faced', /the robots it faced: 5\.0/.test(line.text));
   ok('one match is not enough to say', L([{ ys: 12 }], [], true) === null);
   ok('matches without pins counted say nothing', L([{ act: 1 }, { act: 2 }], [], true) === null);

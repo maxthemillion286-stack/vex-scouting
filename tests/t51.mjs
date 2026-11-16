@@ -5,7 +5,7 @@ import { JSDOM } from 'jsdom';
 let pass=0, fail=0;
 const ok=(n,c,e)=>{c?(pass++,console.log('  ok   '+n)):(fail++,console.log('  FAIL '+n+(e?'\n         '+e:'')));};
 
-const idx = fs.readFileSync(process.argv[2]||'../index.html','utf8');
+const idx = fs.readFileSync(process.argv[2]||'../src/index.html','utf8');
 console.log('t51 — publishing stays out of the public app');
 
 // ── nothing in the shipped page offers to publish ────────────────────────

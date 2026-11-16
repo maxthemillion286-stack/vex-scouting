@@ -19,7 +19,7 @@ const ok = (name, cond, extra) => {
   else { fail++; console.log('  FAIL ' + name + (extra ? '\n         ' + extra : '')); }
 };
 
-const html = fs.readFileSync(process.argv[2] || '../index.html', 'utf8');
+const html = fs.readFileSync(process.argv[2] || '../src/index.html', 'utf8');
 const dom = new JSDOM(html, { runScripts: 'outside-only', pretendToBeVisual: true });
 const { document, getComputedStyle } = dom.window;
 

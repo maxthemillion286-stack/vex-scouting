@@ -8,3 +8,6 @@ node_modules/
 HANDOFF.md
 CLAUDE_CODE_PROMPT.md
 package.json
+src/
+tools/
+desktop/dev/

@@ -9,7 +9,7 @@ const ok = (name, cond, detail) => {
   if (cond) { pass++; console.log('  ok   ' + name); }
   else { fail++; console.log('  FAIL ' + name + (detail ? '\n         ' + detail : '')); }
 };
-const idx = fs.readFileSync('../index.html', 'utf8');
+const idx = fs.readFileSync('../src/index.html', 'utf8');
 console.log('t113 — v99: robot report');
 
 // A match as the tracker stores it. Each robot is a function of time → [x, y]
@@ -217,7 +217,7 @@ console.log('\n· which robot is which');
     const s2 = win.vtSummarise(rec2);
     ok('a plate read overrules the colour entirely', s2.Ra.sec + s2.Rb.sec > 150 && (s2.Ra.wa >= 2 || s2.Rb.wa >= 2), JSON.stringify([s2.Ra.sec, s2.Rb.sec, s2.Ra.wa, s2.Rb.wa]));
     ok('a read names any of the four teams in the match', win.vtWhoFromText('12345B', ['66449A', '1234X', '12345B', '777Z']) === 3 && win.vtWhoFromText('66449A', ['66449A', '1234X', '12345B', '777Z']) === 1 && win.vtWhoFromText('zzzz', ['66449A', '1234X', '12345B', '777Z']) === 0);
-    ok('and a read corrects the box\'s colour as it is recorded', /big\[5\] = big\[7\] <= 2 \? 1 : 2;/.test(idx));
+    ok('and a read corrects the box\'s colour as it is recorded', /big\[5\] = who <= 2 \? 1 : 2;/.test(idx));
   }
   ok('a plate is matched against the two teams it could be', win.vtWhoFromText('66449A', ['66449A', '1234X']) === 1 && win.vtWhoFromText('1234X', ['66449A', '1234X']) === 2);
   ok('lookalike characters are forgiven', win.vtWhoFromText('G6449A', ['66449A', '1234X']) === 1 && win.vtWhoFromText('88388', ['8838B', '2468X']) === 1);

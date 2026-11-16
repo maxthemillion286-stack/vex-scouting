@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.17'
+VERSION = '2.18'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -395,6 +395,81 @@ def plate_box(img, col):
         return None
     return x0, y0, w, h
 
+def plate_tilts(img, col):
+    """Plates that are not level. A camera above a corner of the field sees
+    most plates at a slant, and the reader only reads level writing (the
+    first real frame the owner sent: four robots, no plate read; straightened,
+    one read). Each solid patch of the plate's colour, with the way it lies:
+    → up to two of [cx, cy, angle, length, height], biggest first."""
+    import numpy as np, cv2
+    px = img.astype(np.float64)
+    r, g, b = px[..., 0], px[..., 1], px[..., 2]
+    mx, mn = px.max(2), px.min(2)
+    strong = (mx >= 90) & ((mx - mn) >= 0.45 * mx)
+    hit = strong & ((r == mx) & (g < 0.55 * r) & (b < 0.6 * r) if col == 1 else (b == mx) & (r < 0.55 * b))
+    n, lab = cv2.connectedComponents(hit.astype(np.uint8), connectivity=8)
+    out = []
+    for k in range(1, n):
+        ys, xs = np.nonzero(lab == k)
+        cnt = len(xs)
+        if cnt < 120:
+            continue
+        ax, ay = float(xs.mean()), float(ys.mean())
+        dx, dy = xs - ax, ys - ay
+        # The way it lies: the turn at which a box round it is smallest. (Seen
+        # from the side a plate is a slanted parallelogram; its long edges, and
+        # the writing, run along that box.) Every 3 degrees.
+        best = None
+        for step in range(60):
+            ang = step * math.pi / 60
+            c, sn = math.cos(ang), math.sin(ang)
+            u, v = dx * c + dy * sn, dy * c - dx * sn
+            u0, u1, v0, v1 = float(u.min()), float(u.max()), float(v.min()), float(v.max())
+            area = (u1 - u0 + 1) * (v1 - v0 + 1)
+            if best is None or area < best[0] - 1e-9:
+                best = (area, ang, u0, u1, v0, v1)
+        _, ang, u0, u1, v0, v1 = best
+        L, Hh = u1 - u0 + 1, v1 - v0 + 1
+        mu, mv = (u0 + u1) / 2, (v0 + v1) / 2
+        c, sn = math.cos(ang), math.sin(ang)
+        cx, cy = ax + mu * c - mv * sn, ay + mu * sn + mv * c
+        if L < Hh:                       # the long side is the other one
+            L, Hh, ang = Hh, L, ang + math.pi / 2
+        # A plate: longer than tall, big enough to hold letters, mostly filled.
+        if Hh < 9 or L < 1.3 * Hh or L > 7 * Hh or cnt < 0.4 * L * Hh:
+            continue
+        out.append((cnt, [cx, cy, ang, L, Hh]))
+    out.sort(key=lambda t: -t[0])
+    return [t[1] for t in out[:2]]
+
+# How much of the plate's surroundings to take, along it. Measured on the real
+# frame at three sizes: a little extra length and none in height read best
+# ("8449A" at 0.8 for 66449A, where 1.1 × 1.15 read "A49").
+PLATE_PADS = (1.3, 1.15)
+def plate_strip(img, tilt, flip, pad=1.3):
+    """The plate turned level: a 48-high strip for the reader, and how much of
+    its 160 columns the plate fills. `flip` reads it the other way up."""
+    import numpy as np
+    cx, cy, ang, L, Hh = tilt
+    Lp, Hp = L * pad, Hh
+    used = min(160, max(8, jround(Lp * 48 / Hp)))
+    c, sn = math.cos(ang), math.sin(ang)
+    u = ((np.arange(used) + 0.5) / used * Lp - Lp / 2)[None, :]
+    v = ((np.arange(48) + 0.5) / 48 * Hp - Hp / 2)[:, None]
+    if flip:
+        u, v = -u, -v
+    H, W = img.shape[:2]
+    x = np.clip(cx + u * c - v * sn, 0, W - 1)
+    y = np.clip(cy + u * sn + v * c, 0, H - 1)
+    x0, y0 = np.floor(x).astype(int), np.floor(y).astype(int)
+    x1, y1 = np.minimum(x0 + 1, W - 1), np.minimum(y0 + 1, H - 1)
+    fx, fy = (x - x0)[..., None], (y - y0)[..., None]
+    f = img.astype(np.float64)
+    val = (f[y0, x0] * (1 - fx) + f[y0, x1] * fx) * (1 - fy) + (f[y1, x0] * (1 - fx) + f[y1, x1] * fx) * fy
+    strip = np.zeros((48, 160, 3), np.uint8)
+    strip[:, :used] = np.floor(val + 0.5).astype(np.uint8)
+    return strip, used
+
 def edit(a, b):
     def same(x, y):
         return 0 if x == y else 0.5 if any(x in g and y in g for g in LOOKALIKE) else 1
@@ -552,13 +627,30 @@ class Eyes:
         crop = cv2.resize(crop, (cw, ch), interpolation=cv2.INTER_LINEAR)[:, :, ::-1]
         pr, pb = plate_box(crop, 1), plate_box(crop, 2)
         p = (pr if pr[2] * pr[3] >= pb[2] * pb[3] else pb) if pr and pb else (pr or pb)
-        if not p:
-            return 0
-        used = min(160, max(8, jround(p[2] * 48 / p[3])))
-        strip = np.zeros((48, 160, 3), np.uint8)
-        strip[:, :used] = cv2.resize(np.ascontiguousarray(crop[p[1]:p[1] + p[3], p[0]:p[0] + p[2]]), (used, 48), interpolation=cv2.INTER_LINEAR)
-        text, conf = self.read(strip, used)
-        return who_from_text(text, four) if conf >= 0.5 else 0
+        if p:
+            used = min(160, max(8, jround(p[2] * 48 / p[3])))
+            strip = np.zeros((48, 160, 3), np.uint8)
+            strip[:, :used] = cv2.resize(np.ascontiguousarray(crop[p[1]:p[1] + p[3], p[0]:p[0] + p[2]]), (used, 48), interpolation=cv2.INTER_LINEAR)
+            text, conf = self.read(strip, used)
+            who = who_from_text(text, four) if conf >= 0.5 else 0
+            if who:
+                return who
+        # Not level, or not read: each patch of plate colour straightened and
+        # read both ways up. The patch's colour says which alliance, so the
+        # writing only has to tell that alliance's two teams apart.
+        tw = min(400, max(1, int(round(box[2]))))
+        crop = np.ascontiguousarray(cv2.resize(frame[max(0, y):y + h, max(0, x):x + w], (tw, max(8, int(round(box[3] * tw / box[2])))), interpolation=cv2.INTER_LINEAR)[:, :, ::-1])
+        for col in ((int(box[5]),) if len(box) > 5 and box[5] in (1, 2) else (1, 2)):
+            pair = list(four[(col - 1) * 2:(col - 1) * 2 + 2])
+            for tilt in plate_tilts(crop, col):
+                for flip in (0, 1):
+                    for pad in PLATE_PADS:
+                        strip, used = plate_strip(crop, tilt, flip, pad)
+                        text, conf = self.read(strip, used)
+                        who = who_from_text(text, pair) if conf >= 0.5 else 0
+                        if who:
+                            return who + (col - 1) * 2
+        return 0
 
     def scan(self, frame):
         """Every line of writing in the picture, read. → [{text, conf, box}]"""

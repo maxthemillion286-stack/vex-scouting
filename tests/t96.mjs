@@ -21,7 +21,7 @@ import { boot, settle } from './harness.mjs';
 let pass = 0, fail = 0;
 const ok = (n, c, e) => { c ? (pass++, console.log('  ok   ' + n)) : (fail++, console.log('  FAIL ' + n + (e ? '\n         ' + e : ''))); };
 
-const idx = fs.readFileSync('../index.html', 'utf8');
+const idx = fs.readFileSync('../src/index.html', 'utf8');
 const src = idx.match(/<script(?![^>]*src=)[^>]*>([\s\S]*?)<\/script>/)[1];
 const css = idx.slice(0, idx.indexOf('</style>'));
 
@@ -105,9 +105,9 @@ console.log('\n· the schedule is not a stack of white cards');
   await settle(win);
   const sheet = [...win.document.querySelectorAll('style')].map(s => s.textContent).join('\n');
   ok('the page really carries the fixed rule',
-    /\.match-row\.upcoming \{[^}]*border-bottom-style: dashed/.test(sheet));
+    /\.match-row\.upcoming\s*\{[^}]*border-bottom-style:\s*dashed/.test(sheet));
   ok('and no longer the four-sided one',
-    !/\.match-row\.upcoming \{[^}]*[^-]border-style:/.test(sheet));
+    !/\.match-row\.upcoming\s*\{[^}]*[^-]border-style:/.test(sheet));
   stop();
 }
 

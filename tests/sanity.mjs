@@ -1,6 +1,6 @@
 import fs from 'fs';
 import { JSDOM } from 'jsdom';
-const html = fs.readFileSync('../index.html','utf8');
+const html = fs.readFileSync('../src/index.html','utf8');
 let fail = 0;
 // 1. CSS braces balance
 const css = [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(m=>m[1]).join('\n');

@@ -13,7 +13,7 @@ import fs from 'fs';
 import { boot, settle } from './harness.mjs';
 let pass = 0, fail = 0;
 const ok = (name, cond, detail) => { if (cond) { pass++; console.log('  ok   ' + name); } else { fail++; console.log('  FAIL ' + name + (detail ? '\n         ' + detail : '')); } };
-const idx = fs.readFileSync('../index.html', 'utf8'), app = fs.readFileSync('../desktop/vex_trainer.py', 'utf8'), api = fs.readFileSync('../api/tracker.js', 'utf8');
+const idx = fs.readFileSync('../src/index.html', 'utf8'), app = fs.readFileSync('../desktop/vex_trainer.py', 'utf8'), api = fs.readFileSync('../api/tracker.js', 'utf8');
 console.log('t121 — v131');
 const { win } = await boot();
 await settle(win);
@@ -95,12 +95,12 @@ const game = (where) => {
   ok('shown as four bars with their shares', (html.match(/vr-time-row/g) || []).length === 4 && /At its alliance’s goals<\/span>.*30%/.test(html) && /Sitting at its own toggle<\/span>.*10%/.test(html), html.slice(0, 300));
   ok('toggle fights sit under strategy now', /Role and strategy/.test(html) && /defended toggle/.test(html));
   const old = f('vtGameLines')(rows.map(r => { const o = { ...r }; delete o.ga; delete o.gn; return o; }), [], true, {});
-  ok('matches read before this keep the coarse map and say goal time is coming', old.heat.length === 25 && old.time.own === null && /Goal time appears once/.test(f('vtReportRole')(old)));
+  ok('matches read before this keep the coarse map and say goal time is coming', old.heat.length === 25 && old.time.own === null && /Goal time appears in a moment/.test(f('vtReportRole')(old)));
   const svg = f('vtFieldSvg')(G.heat, null);
-  ok('the map is blurred colour on a drawn field: goals, toggles, a scale', /feGaussianBlur/.test(svg) && (svg.match(/<circle/g) || []).length === 9 && /little/.test(svg) && /a lot/.test(svg) && (svg.match(/var\(--vr-toggle\)/g) || []).length === 4);
+  ok('the map is blurred colour on a drawn field: goals, toggles, a scale', /feGaussianBlur/.test(svg) && (svg.match(/<circle/g) || []).length === 9 && /usual/.test(svg) && /a lot/.test(svg) && (svg.match(/var\(--vr-toggle\)/g) || []).length === 4);
   const full = idx.slice(idx.indexOf('function vtReportHtml('), idx.indexOf('function vtReportHtml(') + 5000);
   ok('no separate Toggles section, no route section, no "How to use this"', !/sec\('Toggles'/.test(full) && !/Autonomous routines/.test(full) && !/How to use this/.test(full));
-  ok('summaries from before are made again by themselves', /have\.Ra\.ga === undefined\)\) continue;/.test(idx));
+  ok('summaries from before are made again by themselves', /&& !vtStale\(have\)\) continue;/.test(idx));
 }
 // ── the app: a bar that measures, and a countdown ──
 {

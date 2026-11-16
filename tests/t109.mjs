@@ -7,7 +7,7 @@ const ok = (name, cond, detail) => {
   if (cond) { pass++; console.log('  ok   ' + name); }
   else { fail++; console.log('  FAIL ' + name + (detail ? '\n         ' + detail : '')); }
 };
-const idx = fs.readFileSync('../index.html', 'utf8');
+const idx = fs.readFileSync('../src/index.html', 'utf8');
 console.log('t109 — v86: instant and ahead');
 
 console.log('\n· what you saw last time');

@@ -5,7 +5,9 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v131**. Everything green: 82 test files. (The `v19` in §8's
+Current release: **v132**. Everything green: 83 test files.
+
+**Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -2970,6 +2972,36 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v132 — slanted plates, a timed pace, old matches re-read anywhere, heat contrast, no comments in the served page**
+- **First clean real frame** (Excalibur 2026, a corner camera, kept as
+  `tests/fixtures/plate_tilt.json`): detector found all 4 robots; clock and
+  scoreboard text read; **no plate read** — plates are ~55×35 px and slanted.
+  `vtPlateTilts`/`vtPlateStrip` (app: `plate_tilts`/`plate_strip`) find each
+  solid patch of plate colour, fit the smallest box round it (every 3°),
+  resample it level (bilinear, both ways up, pads `1.3` and `1.15` along it,
+  none in height) and read it; the patch's colour narrows the answer to that
+  alliance's two teams. On the frame: 66449A read ("8449A", 0.8) at full, ¾
+  and ½ size; the other three robots' plates were not legible. Website and
+  app agree to the pixel (`desktop/dev/plates.mjs`). One robot's colour was
+  still read as none (blue plate, top-left) — not fixed.
+- Identity already also used: the partner by elimination and the look that
+  recurs across a team's matches (`vtIdentify`). Nothing new there.
+- `vtPinCycle`: seconds a pin, timed between set-downs (median), stored as
+  `cy`. The divided figures (time ÷ pins, `105 / pins`, "points per 10 s of
+  stacking") are gone.
+- `rv: VT_REMAKE` on every summary; `vtStale`. `vtSumsRefresh` re-reads stale
+  summaries on ANY device from the shared recordings when a report opens
+  (4 at a time, 40 a visit, saved locally, shared with the admin key).
+  Bump `VT_REMAKE` whenever `vtSummarise` measures something new.
+- Heat map: colour only above the average square; flat → nothing.
+- `tools/build.mjs` (esbuild: whitespace only, names kept): 978 KB → 626 KB,
+  296 → 179 KB gzipped. The harness boots the built page, so the whole suite
+  runs against what is served (`VS_SRC=1` boots the source).
+- Owner confirmed: the driver-station side is the wall with the alliance's two
+  loaders (red: left wall), as assumed. LLM idea dropped unless free; a local
+  open model on their card would be free but was not built.
+- App 2.18. Tests: t122.
 
 **v131 — the report says what was asked for; the app's bar is real** (asked:
 "i also dont want to know their autonomous route just the amount of pins. and

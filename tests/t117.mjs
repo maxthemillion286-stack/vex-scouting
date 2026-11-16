@@ -65,6 +65,6 @@ const apiHit = [{ id: { videoId: 'ccccccccccc' }, snippet: { title: 'Excalibur R
   ok('nothing anywhere is still nothing', f.out.length === 0);
 }
 ok('the page is asked with a time limit', /youtube\.com\/results\?search_query=[\s\S]{0,400}AbortSignal\.timeout\(6000\)/.test(px));
-ok('old cached misses are asked again', /const RW_STREAM_LOGIC = 'L6';/.test(fs.readFileSync('../index.html', 'utf8')));
+ok('old cached misses are asked again', /const RW_STREAM_LOGIC = 'L6';/.test(fs.readFileSync('../src/index.html', 'utf8')));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

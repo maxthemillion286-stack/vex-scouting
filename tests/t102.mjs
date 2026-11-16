@@ -31,7 +31,7 @@ const { boot, settle, FIXTURES } = await import('./harness.mjs');
 let pass = 0, fail = 0;
 const ok = (n, c, e) => { c ? (pass++, console.log('  ok   ' + n)) : (fail++, console.log('  FAIL ' + n + (e ? '\n         ' + e : ''))); };
 
-const idx = fs.readFileSync('../index.html', 'utf8');
+const idx = fs.readFileSync('../src/index.html', 'utf8');
 const src = idx.match(/<script(?![^>]*src=)[^>]*>([\s\S]*?)<\/script>/)[1];
 const proxy = fs.readFileSync('../api/proxy.js', 'utf8');
 // Whole-line comments removed, so the prose explaining the bug is not mistaken

@@ -4,7 +4,7 @@ import fs from 'fs';
 import { boot, settle } from './harness.mjs';
 let pass = 0, fail = 0;
 const ok = (name, cond, detail) => { if (cond) { pass++; console.log('  ok   ' + name); } else { fail++; console.log('  FAIL ' + name + (detail ? '\n         ' + detail : '')); } };
-const idx = fs.readFileSync('../index.html', 'utf8'), app = fs.readFileSync('../desktop/vex_trainer.py', 'utf8'), px = fs.readFileSync('../api/proxy.js', 'utf8');
+const idx = fs.readFileSync('../src/index.html', 'utf8'), app = fs.readFileSync('../desktop/vex_trainer.py', 'utf8'), px = fs.readFileSync('../api/proxy.js', 'utf8');
 console.log('t118 — v114');
 const mod = await import('../api/tracker.js');
 
@@ -78,7 +78,7 @@ const mkSums = (num, n, field, extra = {}) => { const m = new Map(); for (let i 
   const a = B('66449A', mkSums('66449A', 5, true));
   ok('the autonomous is no longer a route (v131: counts, or how often it moved)', !/→/.test(a.auto) && /5 of 5/.test(a.auto), a.auto);
   ok('a robot that sits on a toggle is called a toggle defender', /^Toggle defender: holds its own toggle/.test(a.strat), a.strat);
-  ok('scoring speed is points per ten seconds of stacking', /points per 10 s of stacking/.test(a.speed), a.speed);
+  ok('scoring is what its alliances score, not a division by time (v132)', !/of stacking \(/.test(a.speed) && /a match/.test(a.speed), a.speed);
   const st = B('66449A', mkSums('66449A', 5, true, { th: 0.02, qh: 0.6 }));
   ok('one that works a quadrant is called a stacker', /^Stacker: works the pins in its own quadrant/.test(st.strat), st.strat);
   const pr = B('66449A', mkSums('66449A', 5, true, { th: 0.1, to: 0.2, qo: 0.25, qh: 0.1 }));
