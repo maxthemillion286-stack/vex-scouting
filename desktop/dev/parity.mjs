@@ -1,5 +1,5 @@
 import fs from 'fs';
-const src = fs.readFileSync('/home/claude/vex-scouting/index.html', 'utf8');
+const src = fs.readFileSync('/home/claude/vex-scouting/src/index.html', 'utf8');
 const grab = n => { const i = src.indexOf('\nfunction ' + n + '('); let d = 0, j = src.indexOf('{', i); for (let k = j; ; k++) { if (src[k] === '{') d++; else if (src[k] === '}') { d--; if (!d) return src.slice(i, k + 1); } } };
 const code = ['vtColorOf', 'vtSigOf', 'vtPlateBox', 'vtPackFrame', 'vtEdit', 'vtNearTeam', 'vtWhoFromText', 'vtMatchLabel', 'vtTimerText'].map(grab).join('\n') +
   "\nconst VT_SIZE=640; const VT_LOOKALIKE = ['0ODQ', '1IL', '8B', '5S', '2Z', '6G']; const vtSigPack = g => g ? [0, 4, 8].map(o => g[o] | g[o + 1] << 4 | g[o + 2] << 8 | g[o + 3] << 12) : [0, 0, 0];\nreturn {vtColorOf, vtSigOf, vtPlateBox, vtPackFrame, vtEdit, vtWhoFromText, vtMatchLabel, vtTimerText};";

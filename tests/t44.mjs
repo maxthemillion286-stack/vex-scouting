@@ -7,7 +7,7 @@ import fs from 'fs'; import { JSDOM } from 'jsdom';
 let pass=0, fail=0;
 const ok=(n,c,e)=>{c?(pass++,console.log('  ok   '+n)):(fail++,console.log('  FAIL '+n+(e?'\n         '+e:'')));};
 
-const html = fs.readFileSync(process.argv[2] || '../index.html','utf8');
+const html = fs.readFileSync(process.argv[2] || '../src/index.html','utf8');
 const dom = new JSDOM(html, { runScripts:'outside-only' });
 const { document } = dom.window;
 

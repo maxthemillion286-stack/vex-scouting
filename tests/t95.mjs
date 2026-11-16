@@ -17,7 +17,7 @@ import { boot, settle } from './harness.mjs';
 let pass = 0, fail = 0;
 const ok = (n, c, e) => { c ? (pass++, console.log('  ok   ' + n)) : (fail++, console.log('  FAIL ' + n + (e ? '\n         ' + e : ''))); };
 
-const idx = fs.readFileSync('../index.html', 'utf8');
+const idx = fs.readFileSync('../src/index.html', 'utf8');
 const sw = fs.readFileSync('../sw.js', 'utf8');
 const priv = fs.readFileSync('../privacy.html', 'utf8');
 const terms = fs.readFileSync('../terms.html', 'utf8');

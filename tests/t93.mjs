@@ -14,7 +14,7 @@ import fs from 'fs';
 import { boot, settle, html } from './harness.mjs';
 let pass = 0, fail = 0;
 const ok = (n, c, e) => { c ? (pass++, console.log('  ok   ' + n)) : (fail++, console.log('  FAIL ' + n + (e ? '\n         ' + e : ''))); };
-const idx = fs.readFileSync('../index.html', 'utf8');
+const idx = fs.readFileSync('../src/index.html', 'utf8');
 const src = idx.match(/<script(?![^>]*src=)[^>]*>([\s\S]*?)<\/script>/)[1];
 const css = idx.slice(0, idx.indexOf('</style>'));
 

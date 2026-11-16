@@ -8,7 +8,7 @@ import fs from 'fs';
 import { boot, settle } from './harness.mjs';
 let pass = 0, fail = 0;
 const ok = (name, cond, detail) => { if (cond) { pass++; console.log('  ok   ' + name); } else { fail++; console.log('  FAIL ' + name + (detail ? '\n         ' + detail : '')); } };
-const idx = fs.readFileSync('../index.html', 'utf8'), app = fs.readFileSync('../desktop/vex_trainer.py', 'utf8');
+const idx = fs.readFileSync('../src/index.html', 'utf8'), app = fs.readFileSync('../desktop/vex_trainer.py', 'utf8');
 console.log('t120 — v120');
 const { win } = await boot();
 await settle(win);
@@ -93,7 +93,7 @@ const long = 'This sentence is the point. ' + 'And this is the further explanati
   ok('points: 10 a yellow half, 5 an alliance half', Math.abs(P.points - ((30 * 10 + 6 * 5) / 3)) < 1e-9, String(P.points));
   ok('pins set down in autonomous', Math.abs(P.auto - 1) < 1e-9);
   ok('time to five pins is averaged over the matches that got there', P.t5 === 60);
-  ok('and a general pace comes with it', Math.round(P.perPin) === Math.round(105 / P.pins));
+  ok('no pace without timed set-downs (v132: it is measured, not divided)', P.perPin === null && C([{ ys: 4, cy: 10 }, { ys: 4, cy: 14 }], 1).perPin === 12);
   const pair = C([{ ys: 6, as: 0, ya: 0 }, { ys: 4, as: 2, ya: 2 }, { ys: 2, as: 0, ya: 0 }, { ys: 0, as: 0, ya: 0 }], 2);
   ok('when the row is the alliance, both robots make one match', pair.pins === 3.5, String(pair.pins));
   ok('no pins counted: nothing claimed', C([{ act: 1 }, { act: 2 }], 1) === null);
@@ -107,7 +107,7 @@ const long = 'This sentence is the point. ' + 'And this is the further explanati
   ok('nothing was set down in autonomous in that match', top.ya === 0 && low.ya === 0, JSON.stringify([top.ya, low.ya]));
   const mod = await import('../api/tracker.js');
   ok('the server accepts the timed summary', mod.validSum(JSON.parse(JSON.stringify(sum))) === null);
-  ok('summaries with pins counted but not timed are made again', /!\(have\.pk && have\.Ra && have\.Ra\.ya === undefined\)/.test(idx));
+  ok('summaries with pins counted but not timed are made again', /!vtStale\(have\)\) continue;/.test(idx));
   // The table, with pins.
   const robot = (o = {}) => ({ sec: 100, am: 1, ap: 0.32, ar: 0.6, act: 0.036, opp: 0.3, prs: 0.05, prd: 0.08, stp: 24, es: 0.2, ea: 0.3, apt: 0.3, vis: 0.9, wa: 3, wb: 0, ...o });
   const sums = new Map();

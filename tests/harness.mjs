@@ -327,7 +327,9 @@ function matchesFor(divId, evId) {
 
 // Boot the real page. Returns the window plus everything that went wrong.
 export async function boot(opts = {}) {
-  const html = fs.readFileSync('../index.html', 'utf8');
+  // The page as it is SERVED (built by tools/build.mjs), so every test that
+  // boots it runs the packed copy; VS_SRC=1 boots the source instead.
+  const html = fs.readFileSync(process.env.VS_SRC ? '../src/index.html' : '../index.html', 'utf8');
   const router = opts.router || makeRouter(opts);
   const errors = [];
 

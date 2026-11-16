@@ -12,7 +12,7 @@ import fs from 'fs'; import { JSDOM } from 'jsdom';
 let pass=0, fail=0;
 const ok=(n,c,e)=>{c?(pass++,console.log('  ok   '+n)):(fail++,console.log('  FAIL '+n+(e?'\n         '+e:'')));};
 
-const { document } = new JSDOM(fs.readFileSync(process.argv[2]||'../index.html','utf8')).window;
+const { document } = new JSDOM(fs.readFileSync(process.argv[2]||'../src/index.html','utf8')).window;
 console.log('t45 — skills row fits on one line');
 
 const row = document.querySelector('#tab-skills .controls-row');
@@ -35,7 +35,7 @@ ok('LOAD RANKINGS is the last item in the row',
    row.lastElementChild.tagName === 'BUTTON' && /LOAD RANKINGS/.test(row.lastElementChild.textContent));
 
 // Ellipsis is what makes the narrower widths acceptable
-const css = [...fs.readFileSync(process.argv[2]||'../index.html','utf8').matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(m=>m[1]).join('');
+const css = [...fs.readFileSync(process.argv[2]||'../src/index.html','utf8').matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(m=>m[1]).join('');
 ok('.cs-value truncates with an ellipsis', /\.cs-value\s*{[^}]*text-overflow:\s*ellipsis/.test(css));
 
 console.log(`\nt45: ${pass} passed, ${fail} failed`);

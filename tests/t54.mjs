@@ -23,7 +23,7 @@ await handler({ query: { path: 'diag' } }, r3);
 ok('diag reports the same build', r3.body.build === r1.body.build, r3.body.build + ' vs ' + r1.body.build);
 
 // ── the client must not let a cache answer for it ────────────────────────
-const idx = fs.readFileSync('../index.html','utf8');
+const idx = fs.readFileSync('../src/index.html','utf8');
 // The buster is now DEBUG-ONLY: busting on every lookup defeated CDN caching,
 // which was the single largest source of wasted YouTube quota.
 ok('the streams lookup is cache-busted only when debugging',

@@ -35,7 +35,7 @@ ok('it includes a few stack frames', /at: String\(\(err && err\.stack\)/.test(pr
 ok('the reporter cannot itself throw', /try \{ return res\.status\(500\)\.json\(detail\); \} catch \(e\) \{ return; \}/.test(prx));
 
 // The client must surface it rather than showing "API error 500"
-const idx = fs.readFileSync('../index.html','utf8');
+const idx = fs.readFileSync('../src/index.html','utf8');
 const src = idx.match(/<script(?![^>]*src=)[^>]*>([\s\S]*?)<\/script>/)[1];
 ok('the client reads the error body', /await res\.clone\(\)\.json\(\)/.test(src));
 ok('the message is attached to the thrown error', /throw new Error\(`API error \$\{res\.status\}\$\{why\}`\)/.test(src));
