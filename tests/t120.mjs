@@ -75,7 +75,7 @@ const long = 'This sentence is the point. ' + 'And this is the further explanati
   ok('a row that is the alliance says so in words, not an asterisk', /alliance/.test(rows[0].cells[1].textContent) && !/\*/.test(host.querySelector('.vt-coach-table').textContent));
   ok('the introduction is one short line', host.querySelector('.rw-hint').textContent.length < 80);
   const why = host.querySelector('details.vs-why');
-  ok('what the columns mean is behind an arrow, in plain words', why && !why.open && /What these mean/.test(why.querySelector('summary').textContent) && why.querySelectorAll('p').length === 7 && /10 for each yellow half and 5 for each half of your own colour/.test(why.textContent) && /a half hidden inside a cup does not score/.test(why.textContent));
+  ok('what the columns mean is behind an arrow, in plain words', why && !why.open && /What these mean/.test(why.querySelector('summary').textContent) && why.querySelectorAll('p').length === 8 && /10 for each yellow half and 5 for each half of your own colour/.test(why.textContent) && /a half hidden inside a cup does not score/.test(why.textContent));
   ok('on a phone each event is a card, so nothing scrolls sideways', /@media \(max-width: 600px\) \{\s+\.vt-coach-table, \.vt-coach-table tbody, \.vt-coach-table tr \{ display: block; width: 100%; \}/.test(idx) && /\.vt-coach-table thead \{ display: none; \}/.test(idx));
   ok('and every number carries its own label there', [...rows[0].cells].slice(1).map(c => c.getAttribute('data-label')).join('|') === 'Matches|Autonomous|Goes for|Pins a match|Points from pins|5 pins stacked in' && /td\[data-label\]::before \{ content: attr\(data-label\);/.test(idx));
   ok('the columns have room', /\.vt-coach-table th, \.vt-coach-table td \{ padding: 8px 14px 8px 0;/.test(idx));
@@ -117,7 +117,7 @@ const long = 'This sentence is the point. ' + 'And this is the further explanati
   win.eval(`vtTeamSums = async () => __sums120b; vsEventRecord = async () => [{ name: 'Cypress Showdown', start: '2026-11-07T08:00:00-06:00' }];`);
   await f('vtCoachFill')('66449A');
   const cells = [...doc.querySelectorAll('#vtCoach .vt-coach-table tbody tr')][0].cells;
-  ok('pins a match are shown', cells[4].textContent === '7.0', cells[4].textContent);
+  ok('pins a match are shown, with whether they were checked', /^7\.0not checked yet$/.test(cells[4].textContent), cells[4].textContent);
   ok('points from pins are shown', cells[5].textContent === '130', cells[5].textContent);
   ok('time to five pins is shown', cells[6].textContent === '48 s', cells[6].textContent);
   ok('which pins it goes for is shown', /^Mostly yellow pins \(86% of what it scores\)$/.test(cells[3].textContent), cells[3].textContent);
@@ -129,6 +129,34 @@ const long = 'This sentence is the point. ' + 'And this is the further explanati
   ok('the briefing\'s strategy line leads with it', /^Mostly yellow pins/.test(Bf.strat) && Bf.style === 'yellow', Bf.strat);
   ok('autonomous says what it set down', /Sets down about 1\.0 pins in it/.test(cells[2].textContent), cells[2].textContent);
   ok('the note about missing pins is gone', !doc.getElementById('vtCoachWhy'));
+}
+// ── v129: the official score checks the pin counts ──
+{
+  const C = f('vtPinCheck'), T = f('vtPinCheckText');
+  // Truth: red+blue halves r, yellow y, two robots in midfield. The tracker
+  // counts everything 25% high. Official = 5r + 10y + 12 + 16.
+  const mk = (r, y, over, noise = 0) => ({ ok: 1, pk: 70, rs: 0, bs: 0, pr: r * over * (1 + noise), pb: 0, py: y * over * (1 + noise), Ra: { eg: 1 }, Rb: { eg: 1 }, Ba: {}, Bb: {}, _t: 5 * r + 10 * y + 12 + 16 });
+  const set = (over, noises) => noises.map((nz, i) => { const s = mk(6 + i, 10 + 2 * i, over, nz); s.rs = Math.round(s._t * 0.6); s.bs = s._t - s.rs; return s; });
+  const c = C(set(1.25, [0, 0.02, -0.02, 0.04, -0.04, 0]));
+  ok('counts that run a quarter high are found to', c.ok && c.n === 6 && Math.abs(c.k - 0.8) < 0.02, JSON.stringify(c));
+  ok('and how far a typical match is off is measured', c.err >= 0 && c.err < 0.05, String(c.err));
+  ok('said in words', /Checked against 6 official scores: counts ran 2[45]% high and are corrected; a typical match is within \d+%\./.test(T(c)), T(c));
+  const exact = C(set(1, [0, 0, 0, 0]));
+  ok('counts that match are said to match', exact.ok && Math.abs(exact.k - 1) < 0.01 && /counts matched/.test(T(exact)), T(exact));
+  const low = C(set(0.7, [0, 0, 0, 0, 0]));
+  ok('counts that run low are raised', low.k > 1.35 && low.k < 1.5 && /low and are corrected/.test(T(low)), T(low));
+  const few = C(set(1.25, [0, 0, 0]));
+  ok('three matches are not enough to correct anything', !few.ok && few.k === 1 && /3 of the 4 matches needed/.test(T(few)));
+  ok('matches without a score or without pins are not used', C([{ ok: 1, pk: 70, rs: null, bs: null, pr: 5, pb: 5, py: 10 }, { ok: 1, rs: 50, bs: 40 }]).n === 0 && /Not yet checked/.test(T(C([]))));
+  ok('a wild ratio cannot multiply the counts without limit', C(set(0.2, [0, 0, 0, 0])).k === 2.5 && C(set(9, [0, 0, 0, 0])).k === 0.4);
+  // Applied where pins are shown.
+  const P = f('vtCoachPins'), rows = [{ ys: 10, as: 0, ya: 0 }, { ys: 10, as: 0, ya: 0 }];
+  ok('the table\'s pins are corrected by it', P(rows, 1, { ok: true, k: 0.8 }).pins === 4 && P(rows, 1, { ok: false, k: 0.8 }).pins === 5 && P(rows, 1).pins === 5);
+  const L = f('vtPinLine')([{ ys: 10 }, { ys: 10 }], null, true, c);
+  ok('the briefing\'s pin line is corrected and says it was checked', /about 8\.0 yellow halves/.test(L.text) && /Checked against 6 official scores/.test(L.text), L.text);
+  ok('unchecked numbers say so', /Not yet checked against official scores/.test(f('vtPinLine')([{ ys: 10 }, { ys: 10 }], null, true, few).text));
+  ok('the table shows whether each event was checked', /checked: ±\$\{vtPct\(chk\.err\)\}/.test(idx) && /not checked yet/.test(idx));
+  ok('the tracker box reports the check over everything on the device', /vtPinCheck\(Object\.values\(await vtSumsLocal\(\)\)\)/.test(idx));
 }
 // ── the app: a ceiling on download speed ──
 {
