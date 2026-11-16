@@ -3704,7 +3704,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v123';
+const APP_BUILD = 'v124';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -10771,7 +10771,7 @@ async function vtReviewOpen() {
   if (!ids.length) { body.innerHTML = '<div class="rw-hint">No frames are waiting. The desktop app sends more each time it finishes tracking.</div>'; return; }
   body.innerHTML = `<div class="vt-rev-bar"><span id="vtRevLeft"></span><button class="btn btn-secondary" onclick="vtRevUndo()">Undo</button><button class="btn btn-secondary" onclick="vtRevSave(true)">Not a field view</button><button class="btn btn-primary" onclick="vtRevSave(false)">Save, next</button></div>
     <canvas id="vtRevCanvas" class="vt-rev-canvas"></canvas>
-    <div class="rw-hint">Green boxes are what the finder thinks are robots. Tap a wrong one to remove it. Drag to draw a box round a robot it missed. Box every robot you can see, even partly hidden ones, and nothing else.</div>`;
+    <div class="rw-hint">Green boxes are what the finder thinks are robots. Tap a wrong one to remove it. Drag to draw a box round a robot it missed. Box every robot you can see, even partly hidden ones, and nothing else. <strong>Two robots touching get one box each:</strong> if one box covers both, tap it away and draw two, split at the gap between their drivebases.</div>`;
   vtRev = { ids, cur: null, boxes: [], hist: [], drag: null, img: null, done: 0 };
   const c = document.getElementById('vtRevCanvas');
   const pos = e => { const r = c.getBoundingClientRect(); return [(e.clientX - r.left) * c.width / r.width, (e.clientY - r.top) * c.height / r.height]; };
