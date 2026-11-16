@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.13'
+VERSION = '2.14'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -1645,6 +1645,18 @@ def do_train(cfg):
     tag = 'u' + time.strftime('%y%m%d%H%M')
     runs = os.path.join(DIRS['build'], 'runs')
     model = YOLO('yolov8n.pt')                        # the same size as the website's finder, so it stays fast in a browser
+    # A line each round, so the window's bar moves and "is it still going?"
+    # has an answer. (Asked: "how do i know if it finished training?")
+    total_rounds = int(cfg.get('epochs', 80))
+    rounds = {'n': 0}
+    def each_round(trainer):
+        rounds['n'] = int(getattr(trainer, 'epoch', rounds['n'])) + 1
+        say('  training: round %d/%d' % (rounds['n'], total_rounds))
+    try:
+        model.add_callback('on_fit_epoch_end', each_round)
+    except Exception:
+        pass
+    say('Training started. It stops early by itself if it stops getting better.')
     model.train(data=os.path.join(root, 'data.yaml'), epochs=int(cfg.get('epochs', 80)), imgsz=SIZE, batch=int(cfg.get('batch', 32)), device=device,
                 workers=4, patience=20, project=runs, name=tag, exist_ok=True, single_cls=True, verbose=False, plots=False)
     best = os.path.join(runs, tag, 'weights', 'best.pt')
@@ -1664,9 +1676,12 @@ def do_train(cfg):
     say('  current finder          %5.1f%%                %5.1f%%          %5.1f' % (old[0] * 100, old[1] * 100, old[2] * 100))
     say('  new finder              %5.1f%%                %5.1f%%          %5.1f' % (new[0] * 100, new[1] * 100, new[2] * 100))
     with open(os.path.join(DIRS['models'], 'trained_latest.json'), 'w') as f:
-        json.dump({'tag': tag, 'file': out, 'old': old, 'new': new, 'frames': len(gold)}, f)
+        json.dump({'tag': tag, 'file': out, 'old': old, 'new': new, 'frames': len(gold), 'train': counts['train'], 'auto': counts['pseudo'],
+                   'test': counts['val'], 'rounds': rounds['n'], 'when': time.strftime('%b %d, %H:%M'), 'published': False}, f)
+    say('\nTRAINING FINISHED after %d rounds: learned from %d frames you reviewed and %d the finder was already sure of;'
+        ' tested on %d it never saw.' % (rounds['n'], counts['train'], counts['pseudo'], counts['val']))
     if new[2] > old[2]:
-        say('\nThe new finder is better on frames it has never seen.')
+        say('The new finder is better on frames it has never seen.')
     else:
         say('\nThe new finder is NOT better than the current one, so it is not published. Review more frames (especially\n'
             'ones where the green boxes were wrong) and train again.')
@@ -1908,7 +1923,17 @@ def train_auto(cfg):
         say('It is better, but without the admin key it cannot be published.')
         return
     say('\nPublishing it to the website…')
-    send_finder(cfg, site, info)
+    if send_finder(cfg, site, info):
+        try:
+            path = os.path.join(DIRS['models'], 'trained_latest.json')
+            with open(path) as f:
+                saved = json.load(f)
+            saved['published'] = True
+            with open(path, 'w') as f:
+                json.dump(saved, f)
+        except Exception:
+            pass
+        say('ALL DONE. The website now uses the finder you trained.')
 
 
 # ── menu ────────────────────────────────────────────────────────────────────
@@ -1950,7 +1975,7 @@ UI_HTML = r"""<!doctype html><html lang="en"><meta charset="utf-8"><meta name="v
  main{max-width:1080px;margin:0 auto;padding:22px}
  .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:16px} @media(max-width:820px){.cards{grid-template-columns:1fr}}
  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:10px}
- .card h2{margin:0;font-size:17px} .card p{margin:0;color:var(--dim);font-size:14px;flex:1} .card .n{font-size:13px;color:var(--text)}
+ .card h2{margin:0;font-size:17px} .card p{margin:0;color:var(--dim);font-size:14px;flex:1} .card .n{font-size:13px;color:var(--text);line-height:1.5} .card .n b{color:var(--green)}
  .card button{width:100%;padding:13px;font-size:16px}
  .add{display:flex;gap:10px;margin-top:16px} .add input{flex:1}
  select{font:inherit;background:#0c0f14;border:1px solid var(--line);color:var(--text);border-radius:9px;padding:10px 12px}
@@ -2014,7 +2039,10 @@ function paint(){
  $('bRev').disabled=!st.waiting;
  $('trackN').textContent=st.task==='track'?'Running':' ';
  const need=Math.max(0,150-st.gold);
- $('trainN').textContent=need?('Review '+need+' more frames first'):(st.last?('Last: new '+st.last.new+' vs current '+st.last.old+(st.last.better?' · published':' · not published')):(st.gold+' reviewed frames ready'));
+ const L=st.last,since=L?Math.max(0,st.gold-L.frames):0;
+ $('trainN').innerHTML=st.task==='train'?'Training now. The bar below shows how far along.':need?('Review '+need+' more frames first'):!L?(st.gold+' reviewed frames ready'):
+  ('<b>'+(L.published?'Finished and published':'Finished, not published (it was no better)')+'</b>'+(L.when?' · '+L.when:'')+'<br>Trained on '+L.frames+' frames you reviewed'+(L.auto?' + '+L.auto+' it was sure of':'')+(L.rounds?', '+L.rounds+' rounds':'')+
+   '<br>Score: new '+L.new+' vs old '+L.old+(since?'<br>'+since+' more reviewed since then':''));
  for(const b of ['bTrack','bTrain','bAdd'])$(b).disabled=st.busy||(b==='bTrain'&&need>0)||(b==='bTrack'&&!st.key);
  $('bStop').style.display=st.busy?'':'none';
  const names={track:'Tracking',train:'Training',add:'Learning from a video',unpublish:'Removing the finder'};
@@ -2133,7 +2161,9 @@ def serve_ui(cfg, port=8765, open_window=True):
         try:
             with open(os.path.join(DIRS['models'], 'trained_latest.json')) as f:
                 i = json.load(f)
-            return {'new': '%.1f' % (i['new'][2] * 100), 'old': '%.1f' % (i['old'][2] * 100), 'better': i['new'][2] > i['old'][2]}
+            return {'new': '%.1f' % (i['new'][2] * 100), 'old': '%.1f' % (i['old'][2] * 100), 'better': i['new'][2] > i['old'][2],
+                    'frames': i.get('frames', 0), 'auto': i.get('auto', 0), 'test': i.get('test', 0), 'rounds': i.get('rounds', 0),
+                    'when': i.get('when', ''), 'published': bool(i.get('published', i['new'][2] > i['old'][2]))}
         except Exception:
             return None
 

@@ -125,6 +125,11 @@ const f = n => win.eval(n);
   ok('Enter saves the key on the website', /id="vtPassInput"[^>]*onkeydown="if\(event\.key==='Enter'\)\{event\.preventDefault\(\);vtPassSave\(\);\}"/.test(idx));
   ok('both review screens say what to do with two robots under one box', /split at the gap between their drivebases/.test(app) && /split at the gap between their drivebases/.test(idx));
   ok('frames alike go to the back of the review, and videos take turns', /def same_layout\(a, b, tol=0\.06\)/.test(app) && /return front \+ alike, len\(done\)/.test(app));
+  // v128: knowing it finished, and what it learned from
+  ok('training says each round as it goes, so the bar moves', /say\('  training: round %d\/%d' % \(rounds\['n'\], total_rounds\)\)/.test(app) && /add_callback\('on_fit_epoch_end', each_round\)/.test(app));
+  ok('and says plainly when it has finished, and on how much', /TRAINING FINISHED after %d rounds: learned from %d frames you reviewed and %d the finder was already sure of/.test(app));
+  ok('the Train card keeps that after the log has scrolled away', /Finished and published/.test(app) && /Trained on '\+L\.frames\+' frames you reviewed'/.test(app) && /more reviewed since then/.test(app));
+  ok('published is recorded only once it really was', /saved\['published'\] = True/.test(app) && /'published': False\}, f\)/.test(app));
   // v123: the review counts toward a goal, not the whole pile
   ok('the window counts toward 150, not every frame kept', /st\.gold\+' of '\+goal\+' done'/.test(app) && /\(150-st\.gold\)\+' more and it can train'/.test(app) && !/st\.waiting\+' waiting/.test(app));
   ok('the review screen says how many to go, and when to stop', /to go until it can train/.test(app) && /enough to train; stop whenever you like/.test(app) && !/cur\.left\+' to review/.test(app));
