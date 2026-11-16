@@ -2590,7 +2590,17 @@
   .vt-coach-table th { color: var(--text-dim); font-weight: 600; font-size: 12.5px; border-bottom: 1px solid var(--border); }
   .vt-coach-table td { border-bottom: 1px solid var(--border); color: var(--text); }
   .vt-coach-table td.vt-coach-ev { white-space: normal; min-width: 180px; font-weight: 600; }
-  @media (max-width: 600px) { .vt-coach-table td.vt-coach-ev { min-width: 120px; } .vt-coach-table th, .vt-coach-table td { padding-right: 10px; font-size: 13px; } }
+  /* On a phone six columns do not fit and the table had to be dragged sideways
+     (reported). There each event is a card instead: its name, then its five
+     numbers in a grid, each under its own label. Nothing scrolls sideways. */
+  @media (max-width: 600px) {
+    .vt-coach-table, .vt-coach-table tbody, .vt-coach-table tr { display: block; width: 100%; }
+    .vt-coach-table thead { display: none; }
+    .vt-coach-table tr { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+    .vt-coach-table td { border: 0; padding: 0; white-space: normal; font-size: 16px; min-width: 0; }
+    .vt-coach-table td.vt-coach-ev { grid-column: 1 / -1; min-width: 0; font-size: 15px; }
+    .vt-coach-table td[data-label]::before { content: attr(data-label); display: block; font-size: 11.5px; font-weight: 400; color: var(--text-dim); margin-bottom: 1px; }
+  }
   .vt-coach-table td span { display: block; font-size: 12px; font-weight: 400; color: var(--text-dim); }
   .vt-over { display: none; position: fixed; inset: 0; z-index: 2147483000; background: var(--bg); overflow-y: auto; -webkit-overflow-scrolling: touch; }
   .vt-over-top { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 16px; background: var(--bg); border-bottom: 1px solid var(--border); font-family: var(--body); }
@@ -3691,7 +3701,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v120';
+const APP_BUILD = 'v121';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -10163,8 +10173,8 @@ async function vtCoachFill(number) {
     const cell = (v, f) => v === null ? '—' : f(v);
     const e = info.get(ev), name = (e && e.name) || 'Event ' + ev;
     const when = e && e.start ? evDate(e.start, { month: 'short', day: 'numeric' }) : '';
-    return `<tr><td class="vt-coach-ev">${esc(name)}${when ? `<span>${esc(when)}</span>` : ''}</td><td>${mine.length}${own ? '' : '<span>alliance</span>'}</td>
-      <td>${cell(a('stp'), v => Math.round(v) + ' s')}</td><td>${cell(a('prd'), vtPct)}</td><td>${cell(a('ap'), vtPct)}</td><td>${cell(a('act'), v => (v * 100).toFixed(1) + '%')}</td></tr>`;
+    return `<tr><td class="vt-coach-ev">${esc(name)}${when ? `<span>${esc(when)}</span>` : ''}</td><td data-label="Matches">${mine.length}${own ? '' : '<span>alliance</span>'}</td>
+      <td data-label="Longest stop">${cell(a('stp'), v => Math.round(v) + ' s')}</td><td data-label="Pinned at home">${cell(a('prd'), vtPct)}</td><td data-label="Auto distance">${cell(a('ap'), vtPct)}</td><td data-label="Speed">${cell(a('act'), v => (v * 100).toFixed(1) + '%')}</td></tr>`;
   }).join('');
   host.innerHTML = `<div class="detail-block"><div class="detail-block-label">Your robot, as the tracker sees it</div>
     <div class="rw-hint">What a team scouting ${esc(num)} would see, event by event.</div>
