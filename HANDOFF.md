@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v128**. Everything green: 81 test files. (The `v19` in §8's
+Current release: **v129**. Everything green: 81 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -2953,6 +2953,23 @@ score with a lift mechanism"):
 **v127 — review variety.** Reported: "i keep getting the same frames if not a little different". The queue was hardness only, and hard frames come in runs from one moment of one match. `review_queue` now sends a frame to the back if its robots stand where they did (`same_layout`, within 6% of the picture, same count, same video) in a frame already reviewed or ahead of it, and the front of the queue takes turns between videos. Frames sent to the website for phone review follow the same order. Nothing is deleted.
 
 **v128 — knowing training finished.** Asked: "how do i know if it finished training? have something that tells me amount of info it has been trained off of". `do_train` prints `training: round N/M` each epoch (ultralytics `on_fit_epoch_end` callback; the window's bar reads N/M), then `TRAINING FINISHED after N rounds: learned from A frames you reviewed and B the finder was already sure of; tested on C`. `trained_latest.json` keeps frames/auto/test/rounds/when/published, and the Train card shows it permanently, plus how many frames have been reviewed since. Owner's first real numbers: 392 reviewed; downloads at 110 MB/s (2.9 GB in 29 s), so `fetch_parallel` works against YouTube. The ultralytics callback is untested (no torch here); it is wrapped so a failure only loses the progress lines.
+
+**v129 — the official score checks the pin counts.** Asked: "for old matches
+try to match the score up with the officially released score to see if youre
+right". `vtPinCheck(sums)`: per tracked match with `pk` and both scores,
+`(rs + bs − 12 − 8 × robots with eg)` against `5 × (pr + pb) + 10 × py`; the
+median ratio `k` (clamped 0.4–2.5) corrects every displayed pin number
+(`vtCoachPins`, `vtPinLine`), and the median distance from it is the "±" shown.
+Needs 4 matches. Shown per event in the My team table ("checked: ±15%" / "not
+checked yet"), in the briefing/report pin line, and over everything on the
+device in the tracker box. Limits, stated in the code: it checks the two
+alliances together, not each (toggle ownership is unknown), and unowned yellow
+looks like over-counting and is absorbed by `k`. Point values (10/5/12/8) are
+from the owner and an earlier reading of the manual; the manual page fetched
+on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
+so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
+Matches tracked before v115 have no pins and cannot be checked without being
+tracked again.
 
 ## 33. Feature ideas
 

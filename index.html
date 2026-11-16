@@ -3704,7 +3704,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v128';
+const APP_BUILD = 'v129';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -9140,6 +9140,7 @@ async function vtLearnLine(vids) {
   for (const v of vids) { const L = all[v]; if (!L) continue; n += L.n || 0; if (L.clock) clock++; still += vtStillKnown(L).length; if (L.conf && L.conf !== VT_CONF) tuned++; }
   const teams = await vtKnownTeams();
   if (teams) parts.push(`knows ${teams} robot${teams === 1 ? '' : 's'} by plate`);
+  try { const c = vtPinCheck(Object.values(await vtSumsLocal())); if (c.n) parts.push('pin counts: ' + vtPinCheckText(c).replace(/\.$/, '').replace(/^./, ch => ch.toLowerCase())); } catch (e) {}
   if (n) parts.push(`${n} match${n === 1 ? '' : 'es'} of this event's video learned from`);
   if (clock) parts.push('knows where the clock is on screen');
   if (still) parts.push(`ignores ${still} thing${still === 1 ? '' : 's'} that never move`);
@@ -10129,7 +10130,7 @@ function vtReport(number, sums) {
   const game = vtGameLines(isOwn ? rows.own : rows.pair, isOwn ? rows.ownOthers : rows.pairOthers, isOwn,
     { swaps: swaps.length >= 3 ? vtAvg(swaps) : null, rate: perTen(rows.mine), otherRate: perTen(rows.others) });
   // Pins (v115): what it set down, against what the robots it faced did.
-  const pinLine = vtPinLine(isOwn ? rows.own : rows.pair, isOwn ? rows.ownOthers : rows.pairOthers, isOwn);
+  const pinLine = vtPinLine(isOwn ? rows.own : rows.pair, isOwn ? rows.ownOthers : rows.pairOthers, isOwn, vtPinCheck(sums));
   const pinGood = [], pinWeak = [];
   if (pinLine && pinLine.other !== null && pinLine.n >= 3) {
     if (pinLine.avg > pinLine.other * 1.25 && pinLine.avg - pinLine.other >= 1) pinGood.push('Stacks more yellow than the robots it faces. ' + pinLine.text);
@@ -10203,7 +10204,8 @@ async function vtCoachFill(number) {
   const rowsHtml = order.map(ev => {
     const m = byEvent.get(ev), r = vtTeamRows(num, m), own = r.own.length >= 3;
     if (!own) anyAlliance = true;
-    const P = vtCoachPins(own ? r.own : r.pair, own ? 1 : 2);
+    const chk = vtPinCheck(m);
+    const P = vtCoachPins(own ? r.own : r.pair, own ? 1 : 2, chk);
     if (P) anyPins = true;
     const B = vtBrief(num, m);
     const e = info.get(ev), name = (e && e.name) || 'Event ' + ev;
@@ -10213,7 +10215,7 @@ async function vtCoachFill(number) {
     return `<tr><td class="vt-coach-ev">${esc(name)}${when ? `<span>${esc(when)}</span>` : ''}</td><td data-label="Matches">${(own ? r.own : r.mine).length}${own ? '' : '<span>alliance</span>'}</td>
       <td data-label="Autonomous" class="vt-coach-wide">${esc(auto)}</td>
       <td data-label="Goes for" class="vt-coach-mid">${P ? (P.style ? esc(P.style.text) : 'too few pins to say') : none}</td>
-      <td data-label="Pins a match">${P ? P.pins.toFixed(1) : none}</td><td data-label="Points from pins">${P ? Math.round(P.points) : none}</td>
+      <td data-label="Pins a match">${P ? P.pins.toFixed(1) + `<span>${chk.ok ? `checked: ±${vtPct(chk.err)}` : 'not checked yet'}</span>` : none}</td><td data-label="Points from pins">${P ? Math.round(P.points) : none}</td>
       <td data-label="5 pins stacked in">${P ? (P.t5 !== null ? Math.round(P.t5) + ' s' : `not reached${P.perPin ? `<span>a pin every ${Math.round(P.perPin)} s</span>` : ''}`) : none}</td></tr>`;
   }).join('');
   host.innerHTML = `<div class="detail-block"><div class="detail-block-label">Your robot, as the tracker sees it</div>
@@ -10226,10 +10228,49 @@ async function vtCoachFill(number) {
       <p><strong>Pins a match:</strong> pins your robot moved and set down, counted from the video. Two halves make a pin. Only halves that can be seen are counted, which is also the rule: a half hidden inside a cup does not score. Cups themselves are not counted.</p>
       <p><strong>Points from pins:</strong> 10 for each yellow half and 5 for each half of your own colour. Yellow only scores for the alliance holding that toggle, so this is the most those pins could be worth.</p>
       <p><strong>5 pins stacked in:</strong> how far into driver control your fifth pin was down. If you did not reach five, it shows how often a pin goes down instead.</p>
+      <p><strong>checked:</strong> the pin counts were compared with the official scores of those matches and corrected to fit; ± is how far a typical match was off. "Not checked yet" means fewer than four scored matches had pins counted.</p>
       <p>These are estimates read off a stream, not a referee's count.</p>
       ${anyAlliance ? '<p><strong>alliance:</strong> the tracker could not tell your robot from your partner\'s at that event, so the row is both robots together.</p>' : ''}
     </div></details>
   </div>` + vtReportHtml(num, repAll);
+}
+// ── Are the pin counts right? The official score says. (v129) ──────────────
+// Asked: "for old matches try to match the score up with the officially
+// released score to see if youre right". A match's two official scores add
+// up to (almost) everything on the field: 5 for each red or blue half, 10 for
+// each yellow half some toggle owns, the autonomous bonus, and 8 for each
+// robot in midfield at the end. The tracker has its own count of the halves.
+// So for every tracked match with pins counted and a score posted:
+//     official total − bonus − midfield   against   5×(red+blue) + 10×yellow
+// The middle ratio over the matches is how far the counts run high or low
+// (a drawn test ran a third high), and the counts shown are corrected by it.
+// How far a typical match sits from that middle is how much to trust them.
+// It cannot check one alliance's share, only the two together: who owned each
+// toggle is not known. Yellow nobody owned makes the counts look high, which
+// the correction then absorbs. Four matches are needed before any of it is used.
+const VT_PTS_YELLOW = 10, VT_PTS_OWN = 5, VT_PTS_AUTO = 12, VT_PTS_MID = 8;
+function vtPinCheck(sums) {
+  const ratios = [];
+  for (const s of (sums && sums.values ? sums.values() : sums || [])) {
+    if (!s || !s.ok || !s.pk || !Number.isFinite(s.rs) || !Number.isFinite(s.bs)) continue;
+    const counted = VT_PTS_OWN * ((s.pr || 0) + (s.pb || 0)) + VT_PTS_YELLOW * (s.py || 0);
+    const mid = [s.Ra, s.Rb, s.Ba, s.Bb].filter(r => r && r.eg).length;
+    const official = s.rs + s.bs - VT_PTS_AUTO - VT_PTS_MID * mid;
+    if (counted < 15 || official < 15) continue;             // too little on either side to compare
+    ratios.push(official / counted);
+  }
+  const n = ratios.length;
+  if (n < 4) return { ok: false, n, k: 1, err: null };
+  ratios.sort((a, b) => a - b);
+  const mid = a => a.length % 2 ? a[(a.length - 1) / 2] : (a[a.length / 2 - 1] + a[a.length / 2]) / 2;
+  const k = mid(ratios), err = mid(ratios.map(r => Math.abs(r / k - 1)).sort((a, b) => a - b));
+  return { ok: true, n, raw: k, k: Math.max(0.4, Math.min(2.5, k)), err };
+}
+// In words: "checked against 12 official scores: counts ran 24% high and are corrected; a typical match is within 15%".
+function vtPinCheckText(c) {
+  if (!c || !c.ok) return c && c.n ? `Not yet checked against official scores (${c.n} of the 4 matches needed).` : 'Not yet checked against official scores.';
+  const off = 1 / c.raw - 1, how = Math.abs(off) < 0.05 ? 'counts matched' : `counts ran ${vtPct(Math.abs(off))} ${off > 0 ? 'high' : 'low'} and are corrected`;
+  return `Checked against ${c.n} official scores: ${how}; a typical match is within ${vtPct(c.err)}.`;
 }
 // Which pins it goes for. Asked: "the repeated strategy they like to do, like
 // they mostly only score alliance pins or they mostly only score yellows".
@@ -10246,10 +10287,11 @@ function vtPinStyle(yellow, own) {
 // A team's pins at one event, from its robots' rows. `per` is how many robot
 // rows make one match (1 for its own robot, 2 when the row is the alliance).
 // → { pins, points, auto, t5, perPin } per match, or null if none were counted.
-function vtCoachPins(rows, per) {
+function vtCoachPins(rows, per, check) {
   const got = rows.filter(r => r.ys !== undefined && r.ys !== null);
   if (got.length < per) return null;
-  const matches = got.length / per, sum = k => got.reduce((a, r) => a + (r[k] || 0), 0);
+  const fix = check && check.ok ? check.k : 1;           // corrected by the official scores, where they could be checked
+  const matches = got.length / per, sum = k => fix * got.reduce((a, r) => a + (r[k] || 0), 0);
   const halves = (sum('ys') + sum('as')) / matches, pins = halves / 2;
   const t5 = got.map(r => r.t5).filter(v => v !== undefined && v !== null);
   return { pins, points: (sum('ys') * 10 + sum('as') * 5) / matches, auto: sum('ya') / 2 / matches, style: vtPinStyle(sum('ys'), sum('as')),
@@ -10681,7 +10723,7 @@ function vtBrief(number, sums) {
   if (per.length >= 2) B.speed = `${vtAvg(per).toFixed(1)} points per 10 s of stacking (its alliances; ${Math.round(vtAvg(pts))} a match).`;
   else if (pts.length >= 2) B.speed = `Its alliances score ${Math.round(vtAvg(pts))} a match.`;
   // Pins counted off the video say it better than a score divided by time.
-  const pin = vtPinLine(isOwn ? rows.own : rows.pair, null, isOwn);
+  const pin = vtPinLine(isOwn ? rows.own : rows.pair, null, isOwn, vtPinCheck(sums));
   if (pin) B.speed = pin.text + (B.speed ? ' ' + B.speed : '');
   B.pins = pin ? pin.avg : null;
   return B;
@@ -11155,16 +11197,17 @@ function vtPinCount(rec, quad, turnK, track, ph) {
 }
 
 // A team's pins, from its tracked matches: yellow halves set down per match.
-function vtPinLine(mine, others, isOwn) {
+function vtPinLine(mine, others, isOwn, check) {
   const got = list => list.map(r => r.ys).filter(v => v !== null && v !== undefined);
   const a = got(mine), o = got(others || []);
   if (a.length < 2) return null;
-  const avg = vtAvg(a), other = o.length >= 2 ? vtAvg(o) : null;
+  const fix = check && check.ok ? check.k : 1;
+  const avg = vtAvg(a) * fix, other = o.length >= 2 ? vtAvg(o) * fix : null;
   const stackSec = vtAvg(mine.filter(r => r.ys !== undefined && r.qh !== undefined).map(r => ((r.qh || 0) + (r.qs || 0) + (r.qo || 0)) * 105));
   const pace = stackSec && avg > 0.5 ? stackSec / avg : null;
   const t5s = mine.map(r => r.t5).filter(v => v !== undefined && v !== null), t5 = t5s.length >= 2 ? vtAvg(t5s) : null;
   return { avg, other, pace, n: a.length,
-    text: `${isOwn ? 'Sets down' : 'A robot on its alliance sets down'} about ${avg.toFixed(1)} yellow halves a match (worth ${Math.round(avg * 10)} when its alliance holds that toggle)${pace ? `, one every ${Math.round(pace)} s of stacking` : ''}${t5 !== null ? `; five pins down ${Math.round(t5)} s into driver control` : ''}${other !== null ? `; the robots it faced: ${other.toFixed(1)}` : ''}.` };
+    text: `${isOwn ? 'Sets down' : 'A robot on its alliance sets down'} about ${avg.toFixed(1)} yellow halves a match (worth ${Math.round(avg * 10)} when its alliance holds that toggle)${pace ? `, one every ${Math.round(pace)} s of stacking` : ''}${t5 !== null ? `; five pins down ${Math.round(t5)} s into driver control` : ''}${other !== null ? `; the robots it faced: ${other.toFixed(1)}` : ''}. ${vtPinCheckText(check)}` };
 }
 
 
