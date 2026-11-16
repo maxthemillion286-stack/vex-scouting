@@ -123,6 +123,7 @@ const f = n => win.eval(n);
   ok('Enter saves the key in the app', /id="keyIn"[^>]*onkeydown="if\(event\.key==='Enter'\)saveKey\(\)"/.test(app));
   ok('the app says what happened to the key, also when nothing answers', /Checking with the website/.test(app) && /did not answer/.test(app) && /Type the admin key first/.test(app));
   ok('Enter saves the key on the website', /id="vtPassInput"[^>]*onkeydown="if\(event\.key==='Enter'\)\{event\.preventDefault\(\);vtPassSave\(\);\}"/.test(idx));
+  ok('both review screens say what to do with two robots under one box', /split at the gap between their drivebases/.test(app) && /split at the gap between their drivebases/.test(idx));
   // v123: the review counts toward a goal, not the whole pile
   ok('the window counts toward 150, not every frame kept', /st\.gold\+' of '\+goal\+' done'/.test(app) && /\(150-st\.gold\)\+' more and it can train'/.test(app) && !/st\.waiting\+' waiting/.test(app));
   ok('the review screen says how many to go, and when to stop', /to go until it can train/.test(app) && /enough to train; stop whenever you like/.test(app) && !/cur\.left\+' to review/.test(app));

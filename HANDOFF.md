@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v123**. Everything green: 81 test files. (The `v19` in §8's
+Current release: **v124**. Everything green: 81 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -2892,6 +2892,16 @@ it is not something this code knows about in Override — asked what he means.**
 Stop, pinned, distance and speed are still in the full report below.
 
 **v123:** the app showed "1285 to review · 8 done" and the owner took that as the job. It never was: training needs 150 reviewed, and the queue is hardest-first. The window and the review screen now count toward the next goal (150, then 300, then steps of 150) and say when it is enough; the website's review says the same. Nothing about what is kept or trained changed.
+
+**v124.** The owner sent a frame of two robots side by side under what the
+finder took for one, with: "the gap in between robot drivebases … that's how
+you can tell separate robots apart". Both review screens now say so (one box
+each, split at the gap). An automatic split was looked at and NOT built: on
+his picture the plate finder returns nothing (robots there are full of red
+parts, the plates are small), so there is no reliable second signal to split
+on. The fix is the labels: frames boxed as two teach the finder to give two.
+Also seen in that frame, for the pin counter: pins have dark bases, and red
+robots carry a lot of red besides the plate.
 
 ## 33. Feature ideas
 
