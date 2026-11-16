@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v120**. Everything green: 81 test files. (The `v19` in §8's
+Current release: **v121**. Everything green: 81 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -2870,6 +2870,8 @@ newest first; "alliance" instead of an asterisk; column meanings in
 config.json). Reported: the download hurt ping in games. `fetch_parallel`
 paces reads against the ceiling and opens fewer connections; yt-dlp fallback
 gets `ratelimit`. Applies from the next download.
+
+**v121:** on a phone (≤600 px) the My team table is cards, not a table: the header row is hidden, each row is a 3-column grid, each cell shows its `data-label` above its number. Reported: it had to be scrolled sideways.
 
 ## 33. Feature ideas
 

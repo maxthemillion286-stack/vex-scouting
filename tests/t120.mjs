@@ -73,6 +73,8 @@ const long = 'This sentence is the point. ' + 'And this is the further explanati
   ok('the introduction is one short line', host.querySelector('.rw-hint').textContent.length < 80);
   const why = host.querySelector('details.vs-why');
   ok('what the columns mean is behind an arrow, in plain words', why && !why.open && /What these mean/.test(why.querySelector('summary').textContent) && why.querySelectorAll('p').length === 5);
+  ok('on a phone each event is a card, so nothing scrolls sideways', /@media \(max-width: 600px\) \{\s+\.vt-coach-table, \.vt-coach-table tbody, \.vt-coach-table tr \{ display: block; width: 100%; \}/.test(idx) && /\.vt-coach-table thead \{ display: none; \}/.test(idx));
+  ok('and every number carries its own label there', [...rows[0].cells].slice(1).map(c => c.getAttribute('data-label')).join('|') === 'Matches|Longest stop|Pinned at home|Auto distance|Speed' && /td\[data-label\]::before \{ content: attr\(data-label\);/.test(idx));
   ok('the columns have room', /\.vt-coach-table th, \.vt-coach-table td \{ padding: 8px 14px 8px 0;/.test(idx));
   // An event that cannot be looked up still shows.
   win.eval(`vsEventRecord = async () => { throw new Error('offline'); };`);
