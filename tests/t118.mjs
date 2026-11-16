@@ -76,7 +76,7 @@ const mkSums = (num, n, field, extra = {}) => { const m = new Map(); for (let i 
 {
   const B = f('vtBrief');
   const a = B('66449A', mkSums('66449A', 5, true));
-  ok('with the field marked: the autonomous route is named', /→/.test(a.auto) && /5 of 5/.test(a.auto), a.auto);
+  ok('the autonomous is no longer a route (v131: counts, or how often it moved)', !/→/.test(a.auto) && /5 of 5/.test(a.auto), a.auto);
   ok('a robot that sits on a toggle is called a toggle defender', /^Toggle defender: holds its own toggle/.test(a.strat), a.strat);
   ok('scoring speed is points per ten seconds of stacking', /points per 10 s of stacking/.test(a.speed), a.speed);
   const st = B('66449A', mkSums('66449A', 5, true, { th: 0.02, qh: 0.6 }));

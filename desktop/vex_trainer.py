@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.16'
+VERSION = '2.17'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -46,6 +46,19 @@ LOOKALIKE = ['0ODQ', '1IL', '8B', '5S', '2Z', '6G']
 # ── small things ────────────────────────────────────────────────────────────
 def say(*a):
     print(*a, flush=True)
+
+_PROG = {'hold': False}
+def progress(stage='', done=0, total=0, wait=0, minor=False):
+    """How far along, for the window's bar and its countdown. A line only the
+    window reads (it is started with VEX_UI set); the console never sees it.
+    `minor` is something going on behind the main work (the next video coming
+    down while this one is tracked) and must not take the bar over."""
+    if not os.environ.get('VEX_UI') or (minor and _PROG['hold']):
+        return
+    try:
+        print('@@P ' + json.dumps({'s': stage, 'd': done, 't': total, 'w': wait}), flush=True)
+    except Exception:
+        pass
 
 def jround(v):
     """JavaScript's Math.round: halves go up."""
@@ -1241,6 +1254,8 @@ def download(vid_or_url, dest_stem, windows=None):
             total = d.get('total_bytes') or d.get('total_bytes_estimate') or 0
             done, speed = d.get('downloaded_bytes') or 0, d.get('speed') or 0
             say('  downloading: %s%.0f MB at %.1f MB/s' % (('%d%% of ' % (100 * done / total)) if total else '', (total or done) / 1e6, speed / 1e6))
+            if total:
+                progress('Downloading the video', done, total, minor=True)
     opts = {'format': 'bv*[height<=720][fps<=30][vcodec^=avc1]/bv*[height<=720][fps<=30]/bv*[height<=720]/b[height<=720]/b',
             'outtmpl': dest_stem + '.%(ext)s', 'quiet': True, 'no_warnings': True, 'noprogress': True, 'progress_hooks': [hook],
             # Many pieces at once, and asked for in 10 MB ranges: a single plain
@@ -1276,7 +1291,7 @@ def download(vid_or_url, dest_stem, windows=None):
                         except Exception:
                             ranges, head = None, None
                     ok = fetch_parallel(info['url'], dest, info.get('http_headers'), total_bytes, max_mbps=limit, ranges=ranges, head=head,
-                                        report=lambda done, total, speed: say('  downloading: %d%% of %.0f MB at %.1f MB/s' % (100 * done / total, total / 1e6, speed / 1e6)))
+                                        report=lambda done, total, speed: (say('  downloading: %d%% of %.0f MB at %.1f MB/s' % (100 * done / total, total / 1e6, speed / 1e6)), progress('Downloading the video', done, total, minor=True)))
                     if ok:
                         say('  downloaded in %.0f s.' % (time.time() - t0))
                         if ranges:                        # remember which stretches of time this file holds
@@ -1346,6 +1361,7 @@ def do_jobs(cfg):
             say('  could not get %s: %s' % (vid, str(e)[:120]))
             fetched[vid] = None
     ahead = None
+    done_all = 0
     for n, (vid, pairs) in enumerate(order, 1):
         say('\nVideo %d of %d (%s): %d matches' % (n, len(order), vid, len(pairs)))
         if ahead and ahead[0] == vid:
@@ -1364,6 +1380,8 @@ def do_jobs(cfg):
         if not path or not os.path.exists(path):
             say('  no video, skipped. If you have the file, choose "Use a video file I already have" and point it at this stream.')
             totals['no'] += len(pairs)
+            done_all += len(pairs)
+            progress('Tracking matches', done_all, left)
             continue
         by_ev = {}
         for ev, j in pairs:
@@ -1376,6 +1394,8 @@ def do_jobs(cfg):
             for i in range(0, len(jobs), size):
                 chunks.append((cfg, ev, path, jobs[i:i + size], sp))
         done = 0
+        _PROG['hold'] = True
+        progress('Tracking matches', done_all, left)
         with ProcessPoolExecutor(max_workers=min(workers, len(chunks))) as pool:
             for fut in as_completed([pool.submit(work_chunk, c) for c in chunks]):
                 try:
@@ -1385,6 +1405,8 @@ def do_jobs(cfg):
                     continue
                 for res in results:
                     done += 1
+                    done_all += 1
+                    progress('Tracking matches', done_all, left)
                     totals['ok' if res['ok'] else 'no'] += 1
                     totals['plates'] += res['plates']
                     totals['clock'] += res['clock']
@@ -1392,6 +1414,7 @@ def do_jobs(cfg):
                     totals['hw'] = totals.get('hw') or res.get('hw')
                     say('  %3d/%d  %-22s %s' % (done, len(pairs), str(res['name'])[:22],
                         ('saved · %d looks · %d plates · %d pin sightings · clock %d · %.0fs' % (res['looks'], res['plates'], res.get('pins', 0), res['clock'], res['sec'])) if res['ok'] else 'not saved: ' + res['why']))
+        _PROG['hold'] = False
         if not cfg.get('keep_videos') and path.startswith(DIRS['videos']):
             for junk in (path, path + '.have.json'):
                 try:
@@ -1456,6 +1479,7 @@ def harvest_video(path, tag, live=False, every_sec=2.0, limit=3000):
         fps = 30
     step = max(1, int(round(fps * every_sec)))
     seen = kept = 0
+    looks = 0 if live else int((cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0) / step)
     cuts = CutWatch()
     say('Reading it. Press Ctrl+C to stop; what is kept so far stays.' if live else 'Reading it…')
     try:
@@ -1471,6 +1495,8 @@ def harvest_video(path, tag, live=False, every_sec=2.0, limit=3000):
             if not ok:
                 break
             seen += 1
+            if looks and seen % 10 == 0:
+                progress('Reading the video', min(seen, looks), looks)
             if cuts.changing(frame, seen * every_sec):  # never keep a frame from the middle of a fade
                 continue
             every = eyes.detect(frame, PROPOSE)
@@ -1882,6 +1908,7 @@ def do_train(cfg):
     def each_round(trainer):
         rounds['n'] = int(getattr(trainer, 'epoch', rounds['n'])) + 1
         say('  training: round %d/%d' % (rounds['n'], total_rounds))
+        progress('Training', rounds['n'], total_rounds)
     try:
         model.add_callback('on_fit_epoch_end', each_round)
     except Exception:
@@ -1965,6 +1992,7 @@ def send_finder(cfg, site, info):
             say('Stopped at part %d of %d: %s. Nothing changed on the website.' % (i + 1, n, (r or {}).get('error')))
             return False
         say('  sent part %d of %d' % (i + 1, n))
+        progress('Publishing the finder', i + 1, n)
     shutil.copyfile(info['file'], os.path.join(DIRS['models'], 'trained_current.onnx'))
     say('Published. The website\'s tracker fetches it the next time it starts and uses it from the start after that;\n'
         'its status line then says "your trained finder".')
@@ -2093,6 +2121,7 @@ def track_all(cfg, loop=True):
             say('Could not reach the website (%s). Trying again in a minute.' % str(e)[:120])
         if not loop:
             return
+        progress('Waiting for the website to send work', wait=60)
         time.sleep(60)
 
 def add_source(cfg, src):
@@ -2212,7 +2241,7 @@ UI_HTML = r"""<!doctype html><html lang="en"><meta charset="utf-8"><meta name="v
  input{font:inherit;background:#0c0f14;border:1px solid var(--line);color:var(--text);border-radius:9px;padding:10px 12px;min-width:0}
  .panel{margin-top:16px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
  .now{display:flex;gap:12px;align-items:center} .now b{flex:1;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
- .bar{height:6px;background:#0c0f14;border-radius:9px;margin:12px 0 10px;overflow:hidden} .bar i{display:block;height:100%;width:0;background:var(--blue);transition:width .4s}
+ .bar{height:6px;background:#0c0f14;border-radius:9px;margin:12px 0 10px;overflow:hidden} .bar i{display:block;height:100%;width:0;background:var(--blue);transition:width .4s} .bar.idle{display:none} .bar.busy i{width:30%!important;animation:slide 1.4s ease-in-out infinite;transition:none} @keyframes slide{0%{margin-left:-30%}100%{margin-left:100%}} @media (prefers-reduced-motion:reduce){.bar.busy i{animation:none;margin-left:35%}} #eta{display:flex;justify-content:space-between;color:var(--dim,#9aa4b2);font-size:13px;margin:-4px 0 8px;font-variant-numeric:tabular-nums} #eta:empty{display:none}
  pre{margin:0;max-height:270px;overflow:auto;font:12.5px/1.55 ui-monospace,Consolas,monospace;color:#b7c0cf;white-space:pre-wrap;word-break:break-word}
  .hint{color:var(--dim);font-size:13px;margin-top:10px}
  details.more{margin-top:14px} details.more>summary{cursor:pointer;color:var(--dim);font-size:13px} details.more .add{margin-top:10px} .panel details.more{margin-top:4px}
@@ -2239,7 +2268,7 @@ UI_HTML = r"""<!doctype html><html lang="en"><meta charset="utf-8"><meta name="v
  </div>
  <details class="more"><summary>More: learn from another video</summary><div class="add"><input id="src" placeholder="Optional: paste a stream link (recorded or live) or a video file's path to learn from it" autocomplete="off" onkeydown="if(event.key==='Enter'&&!$('bAdd').disabled)start('add')"><button class="ghost" id="bAdd" onclick="start('add')">Learn from this</button></div></details>
  <div class="panel"><div class="now"><b id="now">Ready.</b><button class="stop" id="bStop" style="display:none" onclick="stopJob()">Stop</button></div>
-  <div class="bar"><i id="bar"></i></div><details class="more"><summary>Details</summary><pre id="log"></pre></details></div>
+  <div class="bar idle" id="barBox"><i id="bar"></i></div><div id="eta"></div><details class="more"><summary>Details</summary><pre id="log"></pre></details></div>
  <div class="hint">To give it work: on the website, Jumper → open an event → <b>Send this event to the app</b>.</div>
 </main>
 <main id="rev">
@@ -2277,10 +2306,19 @@ function paint(){
  $('bStop').style.display=st.busy?'':'none';
  const names={track:'Tracking',train:'Training',add:'Learning from a video',unpublish:'Removing the finder'};
  const last=(st.log.filter(l=>l.trim()).pop()||'').trim();
- $('now').textContent=st.busy?(names[st.task]||'Working')+' · '+last:(last||'Ready.');
- const m=last.match(/(\d+)\s*\/\s*(\d+)/);$('bar').style.width=st.busy&&m&&+m[2]?Math.min(100,100*m[1]/m[2])+'%':(st.busy?'8%':'0');
+ const P=st.busy?st.progress:null,box=$('barBox'),eta=$('eta');
+ // A real bar: how much is done, and how long is left at the pace so far.
+ // Nothing to measure yet → a moving stripe; waiting for work → no bar at all.
+ if(P&&P.total){const pct=Math.min(100,100*P.done/P.total),mb=/Downloading/.test(P.stage);
+  box.className='bar';$('bar').style.width=pct+'%';
+  $('now').textContent=P.stage;
+  eta.innerHTML='<span>'+(mb?Math.round(P.done/1e6)+' of '+Math.round(P.total/1e6)+' MB':Math.round(P.done)+' of '+Math.round(P.total))+' · '+Math.floor(pct)+'%</span><span>'+left(P.left)+'</span>';}
+ else if(P&&P.stage){box.className='bar idle';$('now').textContent=P.stage;eta.innerHTML='<span>Nothing to do right now</span><span>checks again in '+P.wait+' s</span>';}
+ else{box.className=st.busy?'bar busy':'bar idle';$('bar').style.width='0';eta.innerHTML='';
+  $('now').textContent=st.busy?(names[st.task]||'Working')+' · '+last:(last||'Ready.');}
  const log=$('log'),atEnd=log.scrollTop+log.clientHeight>=log.scrollHeight-30;log.textContent=st.log.join('\n');if(atEnd)log.scrollTop=log.scrollHeight;
 }
+function left(s){if(s===null||s===undefined)return 'working out the time left…';if(s<=0)return 'finishing';if(s<60)return 'under a minute left';const m=Math.round(s/60);return 'about '+(m<90?m+' min':Math.floor(m/60)+' h '+(m%60)+' min')+' left'}
 async function start(task){const r=await api('/api/start',{task,src:$('src').value});if(r.error)alert(r.error);if(task==='add'&&!r.error)$('src').value='';poll()}
 async function stopJob(){await api('/api/stop',{});poll()}
 async function saveKey(){const v=$('keyIn').value.trim();if(!v){$('keyMsg').textContent='Type the admin key first.';return}
@@ -2317,13 +2355,22 @@ class Job:
     """The one thing running now, as a separate process, and what it has printed."""
     def __init__(self):
         self.proc, self.task, self.log, self.lock = None, '', [], threading.Lock()
+        self.tail, self.prog, self.seen = '', None, {}
 
     def busy(self):
         return self.proc is not None and self.proc.poll() is None
 
     def add(self, text):
         with self.lock:
-            for line in text.replace('\r\n', '\n').split('\n'):
+            text = self.tail + text.replace('\r\n', '\n')
+            cut = text.rfind('\n') + 1                  # half a progress line waits for its other half
+            self.tail = text[cut:] if text[cut:].startswith('@') else ''
+            if self.tail:
+                text = text[:cut]
+            for line in text.split('\n'):
+                if line.startswith('@@P '):
+                    self.note(line[4:])
+                    continue
                 if '\r' in line:                         # a progress bar redrawing itself: keep its last state
                     line = [p for p in line.split('\r') if p.strip()][-1:] or ['']
                     line = line[0]
@@ -2335,6 +2382,36 @@ class Job:
                 self.log.append(line)
             del self.log[:-400]
 
+    def note(self, body):
+        """One progress line. The time left comes from how fast this stage has
+        gone since it was first heard of, waits between videos included."""
+        try:
+            d = json.loads(body)
+            stage, done, total, wait = str(d.get('s') or ''), float(d.get('d') or 0), float(d.get('t') or 0), float(d.get('w') or 0)
+        except Exception:
+            return
+        now = time.time()
+        if wait or total <= 0:
+            self.prog = {'s': stage, 'wait_until': now + wait} if stage else None
+            return
+        first = self.seen.setdefault((stage, total), (now, done))
+        left = None
+        if done >= total:
+            left = 0
+        elif done > first[1] and now - first[0] >= 2:
+            left = (total - done) * (now - first[0]) / (done - first[1])
+        self.prog = {'s': stage, 'd': done, 't': total, 'ends': None if left is None else now + left}
+
+    def progress(self):
+        """→ what the window shows: stage, share done, seconds left (None while it cannot say yet)."""
+        p = self.prog if self.busy() else None
+        if not p:
+            return None
+        now = time.time()
+        if 'wait_until' in p:
+            return {'stage': p['s'], 'wait': max(0, int(round(p['wait_until'] - now)))}
+        return {'stage': p['s'], 'done': p['d'], 'total': p['t'], 'left': None if p['ends'] is None else max(0, int(round(p['ends'] - now)))}
+
     def lines(self):
         with self.lock:
             return [l.lstrip('\x00') for l in self.log[-200:]]
@@ -2342,7 +2419,8 @@ class Job:
     def start(self, task, args):
         if self.busy():
             return False
-        env = dict(os.environ, PYTHONUNBUFFERED='1', PYTHONIOENCODING='utf-8')
+        env = dict(os.environ, PYTHONUNBUFFERED='1', PYTHONIOENCODING='utf-8', VEX_UI='1')
+        self.prog, self.seen, self.tail = None, {}, ''
         flags = getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0)
         self.task = task
         self.add('\n── %s ──' % time.strftime('%H:%M'))
@@ -2436,7 +2514,7 @@ def serve_ui(cfg, port=8765, open_window=True):
             if u.path == '/api/state':
                 c = counts()
                 return self._send(200, {'version': VERSION, 'site': cfg['site'], 'key': bool(cfg.get('key')), 'busy': job.busy(), 'task': job.task if job.busy() else '',
-                                        'log': job.lines(), 'waiting': len(c['queue']), 'done': c['done'], 'gold': c['gold'], 'workers': cfg.get('workers', 4),
+                                        'log': job.lines(), 'progress': job.progress(), 'waiting': len(c['queue']), 'done': c['done'], 'gold': c['gold'], 'workers': cfg.get('workers', 4),
                                         'keep': bool(cfg.get('keep_videos')), 'speed': cfg.get('max_mbps', 0), 'last': last_train()})
             if u.path == '/api/next':
                 c = counts()

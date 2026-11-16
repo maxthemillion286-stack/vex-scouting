@@ -125,7 +125,7 @@ export function validSum(s) {
     if (k === 'vid') { if (typeof s.vid !== 'string' || !/^[A-Za-z0-9_-]{0,20}$/.test(s.vid)) return 'bad video'; continue; }
     if (['R', 'B', 'Ra', 'Rb', 'Ba', 'Bb'].includes(k)) {
       const o = s[k];
-      if (!o || typeof o !== 'object' || Array.isArray(o) || Object.keys(o).length > 110) return 'bad side';
+      if (!o || typeof o !== 'object' || Array.isArray(o) || Object.keys(o).length > 200) return 'bad side';
       for (const f of Object.keys(o)) if (!/^[a-z][a-z0-9]{1,3}$/.test(f) || !num(o[f])) return 'bad measure';
       continue;
     }

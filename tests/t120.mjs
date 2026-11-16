@@ -69,7 +69,7 @@ const long = 'This sentence is the point. ' + 'And this is the further explanati
   ok('newest first, with its date', /Nov/.test(rows[0].cells[0].textContent) && /Oct/.test(rows[1].cells[0].textContent));
   ok('an event name cannot inject markup', !host.querySelector('.vt-coach-table b'));
   ok('the columns are the ones asked for', [...host.querySelectorAll('.vt-coach-table th')].map(h => h.textContent).join('|') === 'Event|Matches|Autonomous|Goes for|Pins a match|Points from pins|5 pins stacked in');
-  ok('autonomous is said in words', /moved in \d of \d/.test(rows[0].cells[2].textContent), rows[0].cells[2].textContent);
+  ok('autonomous is counts or says it has none yet (v131)', /not counted yet|pin/.test(rows[0].cells[2].textContent), rows[0].cells[2].textContent);
   ok('with no pins counted, it says so rather than showing a zero', /not counted yet/.test(rows[0].cells[4].textContent) && /not counted yet/.test(rows[0].cells[6].textContent));
   ok('and says what is needed for them', /Mark the field/.test(host.querySelector('#vtCoachWhy').textContent));
   ok('a row that is the alliance says so in words, not an asterisk', /alliance/.test(rows[0].cells[1].textContent) && !/\*/.test(host.querySelector('.vt-coach-table').textContent));
@@ -127,7 +127,7 @@ const long = 'This sentence is the point. ' + 'And this is the further explanati
   ok('a couple of pins is too few to call a habit', St(2, 1) === null && St(0, 0) === null);
   const Bf = f('vtBrief')('66449A', sums);
   ok('the briefing\'s strategy line leads with it', /^Mostly yellow pins/.test(Bf.strat) && Bf.style === 'yellow', Bf.strat);
-  ok('autonomous says what it set down', /Sets down about 1\.0 pins in it/.test(cells[2].textContent), cells[2].textContent);
+  ok('autonomous says what it set down', /^1\.0 pin/.test(cells[2].textContent), cells[2].textContent);
   ok('the note about missing pins is gone', !doc.getElementById('vtCoachWhy'));
 }
 // ── v129: the official score checks the pin counts ──
