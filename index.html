@@ -3704,7 +3704,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v124';
+const APP_BUILD = 'v125';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -8872,7 +8872,10 @@ async function vtWatch(run, slot, m) {
         const lb = vtLetterbox(w, h);
         sq.fillStyle = 'rgb(114,114,114)'; sq.fillRect(0, 0, VT_SIZE, VT_SIZE);
         sq.drawImage(video, sx, sy, w, h, lb.px, lb.py, lb.nw, lb.nh);
-        const boxes = await slot.finder.detect(sq.getImageData(0, 0, VT_SIZE, VT_SIZE), lb, w, h, L.conf);
+        const square = sq.getImageData(0, 0, VT_SIZE, VT_SIZE);
+        // Mid-cut or mid-fade between two fields: not a picture of anything.
+        if (vtCut(slot, square.data, lb, est)) { run.cuts = (run.cuts || 0) + 1; busy = false; return; }
+        const boxes = await slot.finder.detect(square, lb, w, h, L.conf);
         rec.h = Math.round(h * VT_SIZE / w);
         looks++;
         await vtPlates(run, slot, video, sx, sy, boxes, est, w, [m.red[0], m.red[1], m.blue[0], m.blue[1]]);
@@ -9254,6 +9257,29 @@ async function vtAppImport(quiet) {
   } catch (e) { say('Could not reach the shared storage.'); }
   finally { vtImportBusy = false; }
   return got;
+}
+// Is the picture changing to something else? The owner sent a frame from a
+// broadcast fading from one field to the next: two scenes on top of each
+// other. Between two looks at one scene only the robots change; across a cut
+// or through a fade everything does. A 32×18 grey grid of the picture is
+// compared with the last look and one a second back; a mean change above 20 (of 255) is a change of
+// scene, and looks are passed over for a second after it.
+const VT_CUT = 20, VT_CUT_HOLD = 1;
+function vtCut(slot, px, lb, t) {
+  const g = new Int16Array(32 * 18);
+  for (let j = 0; j < 18; j++) for (let i = 0; i < 32; i++) {
+    const x = Math.min(VT_SIZE - 1, lb.px + Math.floor((i + 0.5) * lb.nw / 32)), y = Math.min(VT_SIZE - 1, lb.py + Math.floor((j + 0.5) * lb.nh / 18)), o = 4 * (y * VT_SIZE + x);
+    g[j * 32 + i] = (px[o] * 299 + px[o + 1] * 587 + px[o + 2] * 114) / 1000;
+  }
+  // Against the last look (a cut) and against one about a second back (a
+  // fade changes too little from one look to the next to notice).
+  const past = (slot.cutPast || []).filter(p => t - p.t >= 0 && t - p.t <= 1.2);
+  if (!past.length && slot.cutPast && slot.cutPast.length) slot.cutUntil = -1e9;      // the player jumped: an old hold no longer applies
+  const far = (a, b) => { let d = 0; for (let k = 0; k < a.length; k++) d += Math.abs(a[k] - b[k]); return d / a.length; };
+  if (past.length && Math.max(far(g, past[past.length - 1].g), far(g, past[0].g)) > VT_CUT) slot.cutUntil = t + VT_CUT_HOLD;
+  past.push({ t, g });
+  slot.cutPast = past;
+  return t <= (slot.cutUntil === undefined ? -1e9 : slot.cutUntil);
 }
 // A finished recording: kept if it shows a match (robots of both alliances),
 // summarised, and saved here and to the shared storage. → its summary, or null.

@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v124**. Everything green: 81 test files. (The `v19` in §8's
+Current release: **v125**. Everything green: 81 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -2902,6 +2902,31 @@ parts, the plates are small), so there is no reliable second signal to split
 on. The fix is the labels: frames boxed as two teach the finder to give two.
 Also seen in that frame, for the pin counter: pins have dark bases, and red
 robots carry a lot of red besides the plate.
+
+**v125 — first real frame, and scene changes.** The owner sent a review frame
+taken mid-fade between two fields (two scenes overlaid) and said it might
+confuse the tracker. Looks are now passed over while the scene is changing:
+`CutWatch` (app) and `vtCut` (page) compare a small grey copy of the picture
+with the last look and one ~1 s back; mean change >20/255 holds for 1 s. A
+moving robot does not trip it; a hard cut and a 1 s fade both do (tested with
+his frame as one of the scenes). The app also never keeps such a frame for
+review. Frames already in his queue from before: press S.
+**What his frame showed, the first real footage seen** (not committed: it has
+faces in it):
+- The robot finder found all four robots (0.73, 0.65, 0.52, 0.33 — the far one
+  below the 0.45 line). Only ONE of the four got a colour; the other three were
+  "cannot tell". The frame is a blend, which washes colour out, so this may
+  not hold on a clean frame — but if it does, `vtColorOf`'s thresholds are too
+  strict for real plates and identity suffers. Ask for a clean frame.
+- The pin finder marked 60 patches (26 yellow, 14 red, 20 blue): pin tops on
+  the field, plus shirts and screens outside it (dropped by the field test).
+  Sizes pass the limits. Real pins sit on black posts, and there are clear
+  cups and large red/blue cone-shaped pieces on the field that this code
+  knows nothing about — likely the "cups" he asked about.
+- **Open problem:** a broadcast that switches between fields has one field
+  mark per VIDEO, but each field has its own camera. Matches on the second
+  field are placed with the first field's corners. Needs a mark per camera
+  view and a way to tell which view a look is of. Not built.
 
 ## 33. Feature ideas
 
