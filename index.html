@@ -2598,9 +2598,12 @@
     .vt-coach-table thead { display: none; }
     .vt-coach-table tr { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }
     .vt-coach-table td { border: 0; padding: 0; white-space: normal; font-size: 16px; min-width: 0; }
-    .vt-coach-table td.vt-coach-ev { grid-column: 1 / -1; min-width: 0; font-size: 15px; }
+    .vt-coach-table td.vt-coach-ev, .vt-coach-table td.vt-coach-wide, .vt-coach-table td.vt-coach-mid { grid-column: 1 / -1; max-width: none; min-width: 0; font-size: 15px; }
     .vt-coach-table td[data-label]::before { content: attr(data-label); display: block; font-size: 11.5px; font-weight: 400; color: var(--text-dim); margin-bottom: 1px; }
   }
+  .vt-coach-table td.vt-coach-wide { white-space: normal; min-width: 220px; max-width: 420px; line-height: 1.4; }
+  .vt-coach-table td.vt-coach-mid { white-space: normal; min-width: 150px; max-width: 230px; line-height: 1.4; }
+  .vt-coach-table td i { font-style: normal; color: var(--text-dim); font-size: 13px; }
   .vt-coach-table td span { display: block; font-size: 12px; font-weight: 400; color: var(--text-dim); }
   .vt-over { display: none; position: fixed; inset: 0; z-index: 2147483000; background: var(--bg); overflow-y: auto; -webkit-overflow-scrolling: touch; }
   .vt-over-top { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 16px; background: var(--bg); border-bottom: 1px solid var(--border); font-family: var(--body); }
@@ -3701,7 +3704,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v121';
+const APP_BUILD = 'v122';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -9874,7 +9877,7 @@ function vtSummarise(rec, quad, learn) {
       const P = vtPinCount(rec, quad, turnK, track, ph);
       if (P) {
         const r1 = v => Math.round(v * 10) / 10;
-        [[Ra, 1, 0], [Rb, 1, 1], [Ba, 2, 0], [Bb, 2, 1]].forEach(([row, c, i]) => { row.ys = r1(P.robots[c][i].ys); row.as = r1(P.robots[c][i].as); });
+        [[Ra, 1, 0], [Rb, 1, 1], [Ba, 2, 0], [Bb, 2, 1]].forEach(([row, c, i]) => { const q = P.robots[c][i]; row.ys = r1(q.ys); row.as = r1(q.as); row.ya = r1(q.ya); if (q.t5 !== null) row.t5 = q.t5; });
         pins = { py: r1(P.py), pr: r1(P.pr), pb: r1(P.pb), pk: P.pk };
       }
     } catch (e) {}
@@ -9923,7 +9926,7 @@ async function vtBackfill(ev, force) {
   }
   for (const id of done) {
     const have = all[ev + ':' + id], quad = await field(idx[id].vid);
-    if (have && have.sv === VT_SUM_V && (have.fq || 0) === vtQuadMark(quad) && have.vid !== undefined) continue;   // one made before clips has no video: made again
+    if (have && have.sv === VT_SUM_V && (have.fq || 0) === vtQuadMark(quad) && have.vid !== undefined && !(have.pk && have.Ra && have.Ra.ya === undefined)) continue;   // made again: one from before clips (no video), or with pins counted but not timed
     const rec = await idbGet(`vt:m:${ev}:${id}`);
     if (!rec) continue;
     const sum = vtSummarise(rec, quad, await vtLearnGet(idx[id].vid));
@@ -10165,28 +10168,66 @@ async function vtCoachFill(number) {
   if (!document.getElementById('vtCoach') || vsMyTeam() !== num) return;
   const info = new Map(evs);
   const order = [...byEvent.keys()].sort((a, b) => String((info.get(b) || {}).start || '').localeCompare(String((info.get(a) || {}).start || '')) || Number(b) - Number(a));
-  let anyAlliance = false;
+  // What the table says (v122). The first version listed longest stop, time
+  // pinned, autonomous distance and speed, and was told plainly: "these
+  // metrics are basically all useless, i want to know what their autonomous
+  // does, how many points/pins … it scores, and how long it takes them to
+  // stack 5 pins (or just general scoring speed)". So: those four things.
+  let anyAlliance = false, anyPins = false;
   const rowsHtml = order.map(ev => {
-    const m = byEvent.get(ev), r = vtTeamRows(num, m), own = r.own.length >= 3, mine = own ? r.own : r.mine;
+    const m = byEvent.get(ev), r = vtTeamRows(num, m), own = r.own.length >= 3;
     if (!own) anyAlliance = true;
-    const a = k => vtAvg(mine.map(x => x[k]).filter(v => v !== null && v !== undefined));
-    const cell = (v, f) => v === null ? '—' : f(v);
+    const P = vtCoachPins(own ? r.own : r.pair, own ? 1 : 2);
+    if (P) anyPins = true;
+    const B = vtBrief(num, m);
     const e = info.get(ev), name = (e && e.name) || 'Event ' + ev;
     const when = e && e.start ? evDate(e.start, { month: 'short', day: 'numeric' }) : '';
-    return `<tr><td class="vt-coach-ev">${esc(name)}${when ? `<span>${esc(when)}</span>` : ''}</td><td data-label="Matches">${mine.length}${own ? '' : '<span>alliance</span>'}</td>
-      <td data-label="Longest stop">${cell(a('stp'), v => Math.round(v) + ' s')}</td><td data-label="Pinned at home">${cell(a('prd'), vtPct)}</td><td data-label="Auto distance">${cell(a('ap'), vtPct)}</td><td data-label="Speed">${cell(a('act'), v => (v * 100).toFixed(1) + '%')}</td></tr>`;
+    const auto = (B.auto || 'Not enough of it was in view.') + (P && P.auto >= 0.5 ? ` Sets down about ${P.auto.toFixed(1)} pins in it.` : '');
+    const none = '<i>not counted yet</i>';
+    return `<tr><td class="vt-coach-ev">${esc(name)}${when ? `<span>${esc(when)}</span>` : ''}</td><td data-label="Matches">${(own ? r.own : r.mine).length}${own ? '' : '<span>alliance</span>'}</td>
+      <td data-label="Autonomous" class="vt-coach-wide">${esc(auto)}</td>
+      <td data-label="Goes for" class="vt-coach-mid">${P ? (P.style ? esc(P.style.text) : 'too few pins to say') : none}</td>
+      <td data-label="Pins a match">${P ? P.pins.toFixed(1) : none}</td><td data-label="Points from pins">${P ? Math.round(P.points) : none}</td>
+      <td data-label="5 pins stacked in">${P ? (P.t5 !== null ? Math.round(P.t5) + ' s' : `not reached${P.perPin ? `<span>a pin every ${Math.round(P.perPin)} s</span>` : ''}`) : none}</td></tr>`;
   }).join('');
   host.innerHTML = `<div class="detail-block"><div class="detail-block-label">Your robot, as the tracker sees it</div>
     <div class="rw-hint">What a team scouting ${esc(num)} would see, event by event.</div>
-    <div class="cmp-wrap"><table class="cmp-table vt-coach-table"><thead><tr><th>Event</th><th>Matches</th><th>Longest stop</th><th>Pinned at home</th><th>Auto distance</th><th>Speed</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>
+    <div class="cmp-wrap"><table class="cmp-table vt-coach-table"><thead><tr><th>Event</th><th>Matches</th><th>Autonomous</th><th>Goes for</th><th>Pins a match</th><th>Points from pins</th><th>5 pins stacked in</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>
+    ${anyPins ? '' : `<div class="vt-note" id="vtCoachWhy">Pins are not counted for these matches yet. Counting needs two things: the match tracked since pin counting was added, and <strong>Mark the field</strong> done once on its stream (Jumper, open a match, Robot tracker box).</div>`}
     <details class="vs-why"><summary>What these mean</summary><div>
-      <p><strong>Longest stop:</strong> the longest your robot sat still in a match. Lower is better.</p>
-      <p><strong>Pinned at home:</strong> how much of the match an opponent was right on top of you on your own side.</p>
-      <p><strong>Auto distance:</strong> how far across the field your autonomous travels.</p>
-      <p><strong>Speed:</strong> how much of the field you cover each second while driving.</p>
+      <p><strong>Autonomous:</strong> where your robot goes in the first 15 seconds, and how often it runs that route.</p>
+      <p><strong>Goes for:</strong> whether the pins your robot sets down are mostly yellow, mostly your own colour, or both.</p>
+      <p><strong>Pins a match:</strong> pins your robot moved and set down, counted from the video. Two halves make a pin.</p>
+      <p><strong>Points from pins:</strong> 10 for each yellow half and 5 for each half of your own colour. Yellow only scores for the alliance holding that toggle, so this is the most those pins could be worth.</p>
+      <p><strong>5 pins stacked in:</strong> how far into driver control your fifth pin was down. If you did not reach five, it shows how often a pin goes down instead.</p>
+      <p>These are estimates read off a stream, not a referee's count.</p>
       ${anyAlliance ? '<p><strong>alliance:</strong> the tracker could not tell your robot from your partner\'s at that event, so the row is both robots together.</p>' : ''}
     </div></details>
   </div>` + vtReportHtml(num, repAll);
+}
+// Which pins it goes for. Asked: "the repeated strategy they like to do, like
+// they mostly only score alliance pins or they mostly only score yellows".
+// From the halves it set down, over all the matches given: seven in ten of
+// one kind is "mostly". Needs four halves to say anything.
+function vtPinStyle(yellow, own) {
+  const all = yellow + own;
+  if (!(all >= 4)) return null;
+  const y = yellow / all;
+  if (y >= 0.7) return { kind: 'yellow', share: y, text: `Mostly yellow pins (${vtPct(y)} of what it scores)` };
+  if (y <= 0.3) return { kind: 'own', share: 1 - y, text: `Mostly its own colour's pins (${vtPct(1 - y)} of what it scores)` };
+  return { kind: 'both', share: y, text: `Both: ${vtPct(y)} yellow, ${vtPct(1 - y)} its own colour` };
+}
+// A team's pins at one event, from its robots' rows. `per` is how many robot
+// rows make one match (1 for its own robot, 2 when the row is the alliance).
+// → { pins, points, auto, t5, perPin } per match, or null if none were counted.
+function vtCoachPins(rows, per) {
+  const got = rows.filter(r => r.ys !== undefined && r.ys !== null);
+  if (got.length < per) return null;
+  const matches = got.length / per, sum = k => got.reduce((a, r) => a + (r[k] || 0), 0);
+  const halves = (sum('ys') + sum('as')) / matches, pins = halves / 2;
+  const t5 = got.map(r => r.t5).filter(v => v !== undefined && v !== null);
+  return { pins, points: (sum('ys') * 10 + sum('as') * 5) / matches, auto: sum('ya') / 2 / matches, style: vtPinStyle(sum('ys'), sum('as')),
+    t5: t5.length ? vtAvg(t5) : null, perPin: pins >= 0.5 ? 105 / pins : null };
 }
 async function vtReportFill(number) {
   const num = String(number || '').toUpperCase();
@@ -10601,6 +10642,11 @@ function vtBrief(number, sums) {
     const es = col(mine, 'es');
     if (es.length >= 2 && es.filter(v => v >= 0.5).length / es.length >= 0.7) bits.push('parks at the end');
   }
+  // Which pins it goes for, where they were counted.
+  const pinRows = (isOwn ? rows.own : rows.pair).filter(r => r.ys !== undefined && r.ys !== null);
+  const style = pinRows.length >= 2 ? vtPinStyle(pinRows.reduce((a, r) => a + (r.ys || 0), 0), pinRows.reduce((a, r) => a + (r.as || 0), 0)) : null;
+  if (style) bits.unshift(style.text);
+  B.style = style ? style.kind : null;
   B.strat = bits.length ? bits.join('; ') + '.' : '';
   // Scoring speed: points for each ten seconds spent stacking, where known;
   // else what its alliances score.
@@ -11027,7 +11073,7 @@ function vtPinCount(rec, quad, turnK, track, ph) {
     smooth[c] = sm;
   }
   // 3. Credit: a quadrant's total went up — who was working there?
-  const robots = { 1: [{ ys: 0, as: 0 }, { ys: 0, as: 0 }], 2: [{ ys: 0, as: 0 }, { ys: 0, as: 0 }] };
+  const robots = { 1: [{ ys: 0, as: 0, ev: [] }, { ys: 0, as: 0, ev: [] }], 2: [{ ys: 0, as: 0, ev: [] }, { ys: 0, as: 0, ev: [] }] };
   // The robot that came closest to where the pins appeared, in the twelve
   // seconds before they were seen settled (the smoothing lags by a few).
   const whoWas = (at, t, only) => {
@@ -11064,10 +11110,20 @@ function vtPinCount(rec, quad, turnK, track, ph) {
         }
         from[q] = i;
         const r = whoWas(w > 0 ? [wx / w, wy / w] : VT_QUAD_MID[q], t, c === 3 ? 0 : c);
-        if (r) { if (c === 3) r.ys += d; else r.as += d; }
+        if (r) { if (c === 3) r.ys += d; else r.as += d; r.ev.push([t, d]); }
       }
       last[c] = gain[c][i].reduce((a, b) => a + b, 0);
     }
+  }
+  // When: what it set down in autonomous (ya), and how long into driver
+  // control its fifth pin — ten halves — was down (t5). The smoothing sees a
+  // pin a few seconds after it lands, the same for everyone.
+  for (const c of [1, 2]) for (const r of robots[c]) {
+    r.ev.sort((a, b) => a[0] - b[0]);
+    r.ya = r.ev.filter(e => e[0] < ph.driver).reduce((a, e) => a + e[1], 0);
+    let sum = 0; r.t5 = null;
+    for (const [t, d] of r.ev) { if (t < ph.driver) continue; sum += d; if (sum >= 10) { r.t5 = Math.max(1, Math.round(t - ph.driver)); break; } }
+    delete r.ev;
   }
   return { robots, py: last[3], pr: last[1], pb: last[2], pk: n };
 }
@@ -11080,8 +11136,9 @@ function vtPinLine(mine, others, isOwn) {
   const avg = vtAvg(a), other = o.length >= 2 ? vtAvg(o) : null;
   const stackSec = vtAvg(mine.filter(r => r.ys !== undefined && r.qh !== undefined).map(r => ((r.qh || 0) + (r.qs || 0) + (r.qo || 0)) * 105));
   const pace = stackSec && avg > 0.5 ? stackSec / avg : null;
+  const t5s = mine.map(r => r.t5).filter(v => v !== undefined && v !== null), t5 = t5s.length >= 2 ? vtAvg(t5s) : null;
   return { avg, other, pace, n: a.length,
-    text: `${isOwn ? 'Sets down' : 'A robot on its alliance sets down'} about ${avg.toFixed(1)} yellow halves a match (worth ${Math.round(avg * 10)} when its alliance holds that toggle)${pace ? `, one every ${Math.round(pace)} s of stacking` : ''}${other !== null ? `; the robots it faced: ${other.toFixed(1)}` : ''}.` };
+    text: `${isOwn ? 'Sets down' : 'A robot on its alliance sets down'} about ${avg.toFixed(1)} yellow halves a match (worth ${Math.round(avg * 10)} when its alliance holds that toggle)${pace ? `, one every ${Math.round(pace)} s of stacking` : ''}${t5 !== null ? `; five pins down ${Math.round(t5)} s into driver control` : ''}${other !== null ? `; the robots it faced: ${other.toFixed(1)}` : ''}.` };
 }
 
 

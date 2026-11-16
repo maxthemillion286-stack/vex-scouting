@@ -95,7 +95,7 @@ const mkSums = (num, n, field, extra = {}) => { const m = new Map(); for (let i 
   ok('a clip starts three seconds before autonomous', clips[0].t === 1000 + 12 - 3, String(clips[0].t));
   ok('and says which alliance the team is on', clips[0].side === 'red');
   const old = mkSums('66449A', 2, false); for (const s of old.values()) delete s.vid;
-  ok('a summary from before clips gives none, and is made again', C('66449A', old).length === 0 && /have\.vid !== undefined\) continue;/.test(idx));
+  ok('a summary from before clips gives none, and is made again', C('66449A', old).length === 0 && /have\.vid !== undefined( && [^\n]*)?\) continue;/.test(idx));
   ok('a new summary records its video and where the match is', /vid: \/\^\[A-Za-z0-9_-\]\{6,20\}\$\/\.test\(String\(rec\.vid \|\| ''\)\) \? String\(rec\.vid\) : '', of: Math\.round\(rec\.off \|\| 0\)/.test(idx));
   ok('clips are offered on the team report and in the briefing', /Watch its autonomous runs \(\$\{clips\.length\}\)/.test(idx) && /▶ autonomous runs \(\$\{b\.clips\}\)/.test(idx));
 }
