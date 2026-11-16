@@ -3704,7 +3704,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v122';
+const APP_BUILD = 'v123';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -10820,7 +10820,7 @@ async function vtRevNext() {
     const img = new Image();
     img.onload = () => { if (vtRev !== R) return; R.img = img; const c = document.getElementById('vtRevCanvas'); if (c) { c.width = f.w; c.height = f.h; vtRevDraw(); } };
     img.src = 'data:image/jpeg;base64,' + f.b64;
-    if (left) left.textContent = `${R.ids.length} to review · ${R.done} done now`;
+    if (left) left.textContent = `${R.done} done now · do as many as you like, 150 in all is enough to train`;
     return;
   }
   const body = vtOverlayBody('vtRevOver');

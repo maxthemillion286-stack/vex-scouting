@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.9'
+VERSION = '2.10'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -1895,7 +1895,7 @@ UI_HTML = r"""<!doctype html><html lang="en"><meta charset="utf-8"><meta name="v
  <div class="cards">
   <div class="card"><h2>1 · Track</h2><p>Watches the matches the website sent. Starts by itself.</p>
    <div class="n" id="trackN">&nbsp;</div><button id="bTrack" onclick="start('track')">Start tracking</button></div>
-  <div class="card"><h2>2 · Review</h2><p>Fix the boxes on a few frames. This is what teaches it.</p>
+  <div class="card"><h2>2 · Review</h2><p>Fix the boxes on 150 frames, the hardest first. You never need to do them all.</p>
    <div class="n" id="revN">&nbsp;</div><button id="bRev" onclick="openReview()">Review frames</button></div>
   <div class="card"><h2>3 · Train</h2><p>Makes a better robot finder and publishes it only if it wins.</p>
    <div class="n" id="trainN">&nbsp;</div><button id="bTrain" onclick="start('train')">Train</button></div>
@@ -1927,7 +1927,8 @@ function paint(){
  $('site').textContent=st.site.replace(/^https?:\/\//,'');
  $('keyPill').textContent=st.key?'Admin key saved':'No admin key';$('keyPill').className='pill '+(st.key?'ok':'bad');
  $('key').style.display=st.key?'none':'block';
- $('revN').textContent=st.waiting+' waiting · '+st.done+' reviewed';
+ const goal=st.gold<150?150:st.gold<300?300:Math.ceil((st.gold+1)/150)*150;
+ $('revN').textContent=st.gold+' of '+goal+' done'+(st.gold<150?' · '+(150-st.gold)+' more and it can train':st.gold<300?' · it can train now; 300 is better':' · plenty; more still helps');
  $('bRev').disabled=!st.waiting;
  $('trackN').textContent=st.task==='track'?'Running':' ';
  const need=Math.max(0,150-st.gold);
@@ -1955,7 +1956,7 @@ const c=$('c'),x=c.getContext('2d');let cur=null,img=new Image(),boxes=[],hist=[
 function openReview(){inReview=true;$('home').style.display='none';$('rev').style.display='block';nextFrame()}
 function closeReview(){inReview=false;$('rev').style.display='none';$('home').style.display='block';poll()}
 async function nextFrame(id){cur=await api('/api/next'+(id?'?id='+id:''));if(!cur.id){closeReview();return}
- $('revLeft').textContent=cur.left+' to review · '+cur.done+' done';boxes=cur.boxes.map(b=>b.slice(0,4));hist=[];
+ const g=cur.gold||0,goal=g<150?150:g<300?300:Math.ceil((g+1)/150)*150;$('revLeft').textContent=g+' of '+goal+' done'+(g<150?' · '+(150-g)+' to go until it can train':' · enough to train; stop whenever you like');boxes=cur.boxes.map(b=>b.slice(0,4));hist=[];
  img=new Image();img.onload=()=>{c.width=cur.w;c.height=cur.h;draw()};img.src='/img/'+cur.id+'.jpg?t='+T}
 function draw(){x.drawImage(img,0,0);x.lineWidth=Math.max(2,c.width/450);for(const b of boxes){x.strokeStyle='#39ff88';x.strokeRect(b[0],b[1],b[2],b[3])}
  if(drag&&drag.w){x.strokeStyle='#ffd23f';x.strokeRect(drag.x,drag.y,drag.w,drag.h)}}
@@ -2111,7 +2112,7 @@ def serve_ui(cfg, port=8765, open_window=True):
                 if os.path.exists(lab):                  # going back: show what was saved
                     with open(lab) as f:
                         boxes = json.load(f).get('boxes', boxes)
-                return self._send(200, {'id': name, 'w': p['w'], 'h': p['h'], 'boxes': boxes, 'left': len(c['queue']), 'done': c['done']})
+                return self._send(200, {'id': name, 'w': p['w'], 'h': p['h'], 'boxes': boxes, 'left': len(c['queue']), 'done': c['done'], 'gold': c['gold']})
             self._send(404, {})
         def do_POST(self):
             u = urllib.parse.urlparse(self.path)
