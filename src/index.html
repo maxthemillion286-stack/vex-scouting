@@ -3715,7 +3715,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v132';
+const APP_BUILD = 'v133';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -9685,6 +9685,10 @@ const VT_SUMS_KEY = 'vt:sums';
 // A robot's position is the middle of the bottom edge of its box: its wheels.
 function vtFrames(rec, quad, learn) {
   const H = rec.h || 360, raw = [], N = vtStride(rec), scenery = vtStillKnown(learn);
+  // v133: what the vision model on the tracking computer said of a robot in a
+  // frame, found again by that frame's time and the box's corner.
+  const said = new Map(), acts = [];
+  for (let i = 0, a = rec.vo || []; i + 4 < a.length; i += 5) said.set(a[i] + '|' + a[i + 1] + '|' + a[i + 2], [a[i + 3], a[i + 4]]);
   for (const fr of rec.f || []) {
     const pts = [];
     for (let i = 0; i < fr[1]; i++) {
@@ -9693,6 +9697,8 @@ function vtFrames(rec, quad, learn) {
       if (scenery.length && vtOnStill(scenery, (fr[o] + fr[o + 2] / 2) / VT_SIZE, (fr[o + 1] + fr[o + 3] / 2) / H)) continue;
       pts.push({ x: (fr[o] + fr[o + 2] / 2) / VT_SIZE, y: (fr[o + 1] + fr[o + 3]) / H, c: fr[o + 5],
         g: N === 10 ? vtSigUnpack(fr[o + 6], fr[o + 7], fr[o + 8]) : null, who: N === 10 ? fr[o + 9] : 0 });
+      const v = said.size ? said.get(fr[0] + '|' + fr[o] + '|' + fr[o + 1]) : null;
+      if (v) acts.push({ t: fr[0] / 10, p: pts[pts.length - 1], act: v[0], who: v[1] });
     }
     raw.push({ t: fr[0] / 10, pts });
   }
@@ -9703,14 +9709,14 @@ function vtFrames(rec, quad, learn) {
   const toField = quad && quad.q ? vtHomography(quad.q) : null;
   if (toField) {
     for (const f of raw) for (const p of f.pts) { const [u, v] = toField(p.x, p.y); p.x = Math.max(-0.15, Math.min(1.15, u)); p.y = Math.max(-0.15, Math.min(1.15, v)); }
-    return { frames: raw, ok: true, field: true };
+    return { frames: raw, ok: true, field: true, acts };
   }
   xs.sort((a, b) => a - b); ys.sort((a, b) => a - b);
   const q = (a, f) => a[Math.min(a.length - 1, Math.max(0, Math.round(f * (a.length - 1))))];
   const x0 = q(xs, 0.02), x1 = q(xs, 0.98), y0 = q(ys, 0.02), y1 = q(ys, 0.98);
   const w = Math.max(0.05, x1 - x0), h = Math.max(0.05, y1 - y0);
   for (const f of raw) for (const p of f.pts) { p.x = (p.x - x0) / w; p.y = (p.y - y0) / h; }
-  return { frames: raw, ok: true };
+  return { frames: raw, ok: true, acts };
 }
 // Two slots per alliance. Each look, an alliance's boxes are matched to its
 // slots by the pairing that moves them least; a slot nobody claims keeps its
@@ -9997,6 +10003,7 @@ function vtSummarise(rec, quad, learn) {
   // under Ra, Rb, Ba, Bb.
   const A = side(1), Z = side(2);
   const { ra: Ra, rb: Rb, ...Rall } = A, { ra: Ba, rb: Bb, ...Ball } = Z;
+  vtSeenJoin(F.acts, slotted, { 1: [Ra, Rb], 2: [Ba, Bb] });
   // The game's own measures, only where the field is known.
   if (F.field && axis) {
     try {
@@ -10090,6 +10097,45 @@ async function vtBackfill(ev, force) {
   if (idxChanged) await idbSet('vt:idx:' + ev, idx);
   return made;
 }
+// ── What a vision model saw (v133) ─────────────────────────────────────────
+// The desktop app can show a few frames of each match to a vision-language
+// model running on that computer (free, open; asked for as "work on building
+// for the open vision model that's free with no fees"). For each outlined
+// robot it picks what the robot is doing from this list and, if it can read
+// the plate, which team. Here each answer is given to the robot the tracker
+// had at that spot in that frame: counts v1…v8 by what it was doing, and xa/xb
+// for plates read for the alliance's first/second team.
+const VT_DOING = ['', 'Stacking pins on a goal', 'Picking up pins or cups', 'Carrying pins', 'At a toggle', 'Pushing or blocking a robot', 'Driving', 'Not moving', 'Tipped over or stuck'];
+function vtSeenJoin(acts, slotted, rows) {
+  if (!acts || !acts.length) return 0;
+  const at = new Map(slotted.map(fr => [fr.t, fr]));
+  let n = 0;
+  for (const a of acts) {
+    const fr = at.get(a.t);
+    if (!fr || !a.p) continue;
+    let best = null, bd = 0.03;
+    for (const c of [1, 2]) for (const i of [0, 1]) { const q = fr.s[c][i]; if (q && q.seen) { const d = Math.hypot(q.x - a.p.x, q.y - a.p.y); if (d < bd) { bd = d; best = [c, i]; } } }
+    if (!best) continue;
+    const row = rows[best[0]][best[1]];
+    if (a.act >= 1 && a.act <= 8) { row['v' + a.act] = (row['v' + a.act] || 0) + 1; n++; }
+    // A plate read counts only for a team of that robot's own alliance.
+    if (a.who >= 1 && a.who <= 4 && (a.who <= 2 ? 1 : 2) === best[0]) { const k = (a.who - 1) % 2 === 0 ? 'xa' : 'xb'; row[k] = (row[k] || 0) + 1; }
+  }
+  return n;
+}
+// A team's looks from the vision model, added up over its matches.
+function vtSeenOf(rows) {
+  const counts = new Array(9).fill(0);
+  for (const r of rows) for (let k = 1; k <= 8; k++) counts[k] += r['v' + k] || 0;
+  const n = counts.reduce((a, b) => a + b, 0);
+  return { n, counts, matches: rows.filter(r => { for (let k = 1; k <= 8; k++) if (r['v' + k]) return true; return false; }).length };
+}
+function vtReportSeen(S) {
+  if (!S || S.n < 8) return '';
+  const order = [1, 2, 3, 4, 5, 6, 7, 8].filter(k => S.counts[k]).sort((a, b) => S.counts[b] - S.counts[a]), top = S.counts[order[0]];
+  return `<div class="vr-sec"><div class="vr-h">Seen doing</div><div class="vr-time">${order.map(k => `<div class="vr-time-row"><span>${VT_DOING[k]}</span><b><i style="width:${Math.round(100 * S.counts[k] / top)}%"></i></b><em>${vtPct(S.counts[k] / S.n)}</em></div>`).join('')}</div>
+    <div class="vr-cap">From ${S.n} looks in ${S.matches} match${S.matches === 1 ? '' : 'es'} by a vision model on the tracking computer. It picks from this list for each robot in a frame. It is new and can be wrong.</div></div>`;
+}
 // A summary is made from a match's recording. When a release measures something
 // new, older summaries lack it. They used to be made again only on the
 // computer that tracked the match (its recordings are kept there), so a phone
@@ -10098,7 +10144,7 @@ async function vtBackfill(ev, force) {
 // the recordings are in the shared store too, so whichever device opens a
 // report fetches the ones it needs, makes the summaries again, keeps them, and
 // (with the admin key) shares them.
-const VT_REMAKE = 132;
+const VT_REMAKE = 132;      // not raised for v133: only recordings made with the vision model on carry `vo`
 const vtStale = s => !!(s && s.ok && (s.rv || 0) < VT_REMAKE);
 const vtRefreshTried = new Set();
 async function vtSumsRefresh(sums, limit) {
@@ -10158,6 +10204,13 @@ function vtIdentify(number, sums) {
     const forA = (a[own] || 0) + (b[other] || 0), forB = (b[own] || 0) + (a[other] || 0);
     const e = { key, a, b, partner: list[1 - k] || '', la: vtLookOf(a), lb: vtLookOf(b), pick: null };
     if (Math.max(forA, forB) >= 2 && Math.max(forA, forB) >= 2 * Math.min(forA, forB) + 1) { e.pick = forA > forB ? 'a' : 'b'; picks.set(key, { slot: e.pick, how: 'plate', margin: 1 }); }
+    else {
+      // No plate read by the reader: the vision model's reads, held to a
+      // higher bar (three, and clear of the other by two) since it can guess.
+      const xo = k === 0 ? 'xa' : 'xb', xt = k === 0 ? 'xb' : 'xa';
+      const va = (a[xo] || 0) + (b[xt] || 0), vb = (b[xo] || 0) + (a[xt] || 0);
+      if (Math.max(va, vb) >= 3 && Math.max(va, vb) >= 2 * Math.min(va, vb) + 2) { e.pick = va > vb ? 'a' : 'b'; picks.set(key, { slot: e.pick, how: 'vision', margin: 1 }); }
+    }
     const ev = key.split(':')[0];
     if (!byEvent.has(ev)) byEvent.set(ev, []);
     byEvent.get(ev).push(e);
@@ -10190,7 +10243,7 @@ function vtIdentify(number, sums) {
 const VT_LOOK_MARGIN = 0.08;
 function vtTeamRows(number, sums) {
   const num = String(number).toUpperCase(), mine = [], others = [], own = [], ownOthers = [], pair = [], pairOthers = [];
-  const picks = vtIdentify(num, sums), how = { plate: 0, look: 0 };
+  const picks = vtIdentify(num, sums), how = { plate: 0, look: 0, vision: 0 };
   for (const [key, s] of sums) {
     const onRed = (s.red || []).includes(num), onBlue = (s.blue || []).includes(num);
     if (!onRed && !onBlue) continue;
@@ -10293,7 +10346,7 @@ function vtReport(number, sums) {
     if (pinLine.avg > pinLine.other * 1.25 && pinLine.avg - pinLine.other >= 1) pinGood.push('Stacks more yellow than the robots it faces. ' + pinLine.text);
     else if (pinLine.avg < pinLine.other * 0.75 && pinLine.other - pinLine.avg >= 1) pinWeak.push('Stacks less yellow than the robots it faces. ' + pinLine.text);
   }
-  return { n, total, own: isOwn, how: rows.how, picked: rows.own.length, wins: W.length, losses: L.length, vis: vtAvg(col(rows.mine, 'vis')), game, autoFacts, pins: pinLine,
+  return { n, total, own: isOwn, how: rows.how, picked: rows.own.length, wins: W.length, losses: L.length, vis: vtAvg(col(rows.mine, 'vis')), game, autoFacts, seen: isOwn ? vtSeenOf(rows.own) : null, pins: pinLine,
     lines: { good: pinGood.concat(game.strong, good), weak: pinWeak.concat(game.weak), auto, habits, lose: lose.slice(0, 3).map(x => x.text), use } };
 }
 // The autonomous, in words and (only for a routine it really repeats) as a replay.
@@ -10330,9 +10383,9 @@ function vtReportHtml(number, rep) {
     return `<div class="detail-block"><div class="detail-block-label">Robot report</div>
       <div class="sim-caveat">${rep.n ? `Only ${rep.n} tracked match${rep.n === 1 ? '' : 'es'} with ${esc(number)} so far; a report needs three.` : `No tracked matches with ${esc(number)} yet.`} On a computer, open one of its events and use <strong>Track robots</strong>.</div></div>`;
   }
-  const L = rep.lines, h = rep.how || { plate: 0, look: 0 };
+  const L = rep.lines, h = rep.how || { plate: 0, look: 0, vision: 0 };
   const whose = rep.own
-    ? `<strong>This is ${esc(number)}'s own robot</strong>, picked out in ${rep.picked} of its ${rep.total} tracked matches: by reading its licence plate in ${h.plate}, and in ${h.look} by its look turning up every time ${esc(number)} played while its partner changed.`
+    ? `<strong>This is ${esc(number)}'s own robot</strong>, picked out in ${rep.picked} of its ${rep.total} tracked matches: by reading its licence plate in ${h.plate}${h.vision ? `, by the vision model reading it in ${h.vision}` : ''}, and in ${h.look} by its look turning up every time ${esc(number)} played while its partner changed.`
     : `<strong>This describes the alliances ${esc(number)} was on, not its own robot.</strong> Its robot could be told from its partner's in only ${rep.picked || 0} of ${rep.total} tracked matches (plate read in ${h.plate}, look in ${h.look}); a robot-level report needs three and most of them. Matches tracked before v101 have no plate reads and are watched once more by Track robots.`;
   // The short version first; everything measured is one tap away. Asked for
   // as "make the overviews simple".
@@ -10348,6 +10401,7 @@ function vtReportHtml(number, rep) {
       ${sec('Weaknesses', L.weak || [], 'Nothing stands out.')}
       ${vtReportAuto(rep, L)}
       ${rep.game && rep.game.n >= 3 ? vtReportRole(rep.game) : ''}
+      ${vtReportSeen(rep.seen)}
       ${rep.game && rep.game.n >= 3 ? `<div class="vr-sec"><div class="vr-h">Where it plays</div>${rep.game.where && rep.game.where[0] ? `<ul class="vr-list"><li>${esc(rep.game.where[0])}</li></ul>` : ''}${vtFieldSvg(rep.game.heat, null)}<div class="vr-cap">Driver control. Colour marks where it is more than usual; places it only drives through stay dark. ${VT_FIELD_KEY}</div></div>` : ''}
       ${sec('Does repeatedly', L.habits, 'No habit shows up in seven matches out of ten.')}
       ${sec('When it loses', L.lose, rep.losses < 2 || rep.wins < 2 ? `Needs at least two tracked wins and two losses (has ${rep.wins} and ${rep.losses}).` : 'Its losses look like its wins on these measures.')}

@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.18'
+VERSION = '2.19'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -79,7 +79,7 @@ def load_config():
 
 def save_config(cfg):
     with open(CONFIG, 'w', encoding='utf-8') as f:
-        json.dump(cfg, f, indent=1)
+        json.dump({k: v for k, v in cfg.items() if not k.startswith('_')}, f, indent=1)
 
 def video_id(text):
     """A YouTube link or a bare id → the 11-character id, or None."""
@@ -918,7 +918,7 @@ def find_match(video, eyes, job, spacing, around):
     return None
 
 
-def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None, quad=None):
+def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None, quad=None, think=None):
     """Watch one match. → (recording or None, why, shift found)"""
     learn = learn if learn is not None else {}
     four = [(job['red'] + ['', ''])[0], (job['red'] + ['', ''])[1], (job['blue'] + ['', ''])[0], (job['blue'] + ['', ''])[1]]
@@ -943,6 +943,9 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
             return None, 'past the end of the video', 0
         video.seek(start)
         att, robot_looks, clock_at, checked, kept, next_keep, misses, pin_at = [], 0, -1e9, False, 0, start + 6, 0, -1e9
+        # Frames for the vision model: spread through driver control, each with two or more robots of known colour.
+        shots, think_gap = [], ((WINDOW_WIDE - 30) if wide else 100) / max(1, think or 1)
+        think_at = start + (10 if wide else LEAD + 20)
         cuts = CutWatch()
         redo = None
         while True:
@@ -964,6 +967,11 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
                     b[5] = 1 if who <= 2 else 2
                     tr['hits'] += 1
             rec['f'].append(pack_frame(t - rec['off'], boxes, w))
+            if think and t >= think_at and len(shots) < think and 2 <= len(boxes) <= 6 and sum(1 for b in boxes if b[5]) >= 2:
+                jpeg, n = think_picture(frame, boxes)
+                if jpeg:
+                    shots.append((rec['f'][-1], jpeg, n))
+                    think_at = t + think_gap
             if any(b[5] for b in boxes):
                 robot_looks += 1
             # The pins, every two seconds: by colour and size, off the robots.
@@ -1026,7 +1034,259 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
     if len(rec['f']) > 2000:                         # the website's ceiling
         keep = len(rec['f']) / 2000
         rec['f'] = [rec['f'][int(i * keep)] for i in range(2000)]
+    rec['_shots'] = shots if think else []
     return rec, 'ok', (rec['off'] - off0) if wide else shift
+
+
+# ── a second pair of eyes: a vision model on this computer ────────────────
+# Asked for: "the tracker needs to track as well as a human … i can actively
+# think about what a team is doing, so should the tracker", then "work on
+# building for the open vision model that's free with no fees".
+#
+# The finder says WHERE robots are. A vision-language model can also say what
+# a robot is doing and read a plate the small reader cannot. It runs here, on
+# the graphics card, through Ollama (free, open source; nothing is sent
+# anywhere and nothing is paid for). A few frames a match, each with the
+# robots outlined and numbered; the model answers from fixed lists, never in
+# free writing, so it cannot ramble: which of the four teams' numbers it can
+# READ on each robot (or "unreadable"), and what each robot is doing.
+#
+# NOT TESTED WITH A REAL MODEL when written (the build machine cannot download
+# one); the plumbing is tested against a stand-in server. Off until the owner
+# turns it on.
+OLLAMA = 'http://127.0.0.1:11434'
+THINK_MODEL = 'qwen3-vl:8b'       # about 6 GB; the best small model at reading small text
+THINK_LOOKS = 6
+THINK_DOING = ['cannot tell', 'stacking pins on a goal', 'picking up pins or cups', 'carrying pins', 'at a toggle',
+               'pushing or blocking another robot', 'driving', 'not moving', 'tipped over or stuck']
+
+def ollama_call(path, body=None, timeout=120):
+    req = urllib.request.Request(OLLAMA + path, data=None if body is None else json.dumps(body).encode('utf-8'),
+                                 headers={'Content-Type': 'application/json'})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.loads(r.read().decode('utf-8'))
+
+def ollama_up():
+    try:
+        return bool(ollama_call('/api/version', timeout=3).get('version'))
+    except Exception:
+        return False
+
+def ollama_exe():
+    found = shutil.which('ollama')
+    if found:
+        return found
+    for base in (os.environ.get('LOCALAPPDATA', ''), os.environ.get('ProgramFiles', '')):
+        for sub in ('Programs\\Ollama\\ollama.exe', 'Ollama\\ollama.exe'):
+            cand = os.path.join(base, sub) if base else ''
+            if cand and os.path.exists(cand):
+                return cand
+    return None
+
+def ollama_start():
+    """Running already, or started now. → True when it answers."""
+    if ollama_up():
+        return True
+    exe = ollama_exe()
+    if not exe:
+        return False
+    try:
+        flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0) | getattr(subprocess, 'DETACHED_PROCESS', 0)
+        subprocess.Popen([exe, 'serve'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, creationflags=flags)
+    except Exception:
+        return False
+    for _ in range(40):
+        if ollama_up():
+            return True
+        time.sleep(0.5)
+    return False
+
+def ensure_ollama():
+    """Ollama on this computer and answering. Installs it (Windows) when it is
+    not there: the owner asked for this by turning the vision model on."""
+    if ollama_start():
+        return True
+    if os.name != 'nt':
+        say('Ollama is not installed. Get it from https://ollama.com/download and start again.')
+        return False
+    say('Installing Ollama (free; it runs the vision model on this computer)…')
+    done = False
+    if shutil.which('winget'):
+        try:
+            r = subprocess.run(['winget', 'install', '-e', '--id', 'Ollama.Ollama', '--accept-source-agreements', '--accept-package-agreements', '--silent'],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1800)
+            done = r.returncode == 0
+        except Exception:
+            done = False
+    if not done and not ollama_exe():
+        try:
+            setup = os.path.join(DIRS['build'], 'OllamaSetup.exe')
+            say('  downloading its installer…')
+            urllib.request.urlretrieve('https://ollama.com/download/OllamaSetup.exe', setup)
+            subprocess.run([setup, '/VERYSILENT', '/NORESTART'], timeout=1800)
+        except Exception as e:
+            say('  could not install it:', e)
+    if ollama_start():
+        return True
+    say('Ollama did not start. Install it from https://ollama.com/download , open it once, then press Track again.')
+    return False
+
+def think_model(cfg):
+    return str(cfg.get('think_model') or THINK_MODEL)
+
+def have_think_model(cfg):
+    want = think_model(cfg)
+    try:
+        names = [m.get('name', '') for m in ollama_call('/api/tags', timeout=10).get('models', [])]
+    except Exception:
+        return False
+    return any(n == want or n == want + ':latest' or n.split(':')[0] == want for n in names)
+
+def ensure_think(cfg):
+    """Everything the vision model needs, fetched once. → True when it can be asked."""
+    if not ensure_ollama():
+        return False
+    if have_think_model(cfg):
+        return True
+    want = think_model(cfg)
+    say('Downloading the vision model %s (about 6 GB, once)…' % want)
+    try:
+        req = urllib.request.Request(OLLAMA + '/api/pull', data=json.dumps({'model': want, 'stream': True}).encode('utf-8'), headers={'Content-Type': 'application/json'})
+        last = 0
+        with urllib.request.urlopen(req, timeout=3600) as r:
+            for line in r:
+                try:
+                    d = json.loads(line.decode('utf-8'))
+                except Exception:
+                    continue
+                if d.get('error'):
+                    say('  the download failed:', d['error'])
+                    return False
+                if d.get('total') and time.time() - last > 1:
+                    last = time.time()
+                    progress('Downloading the vision model', d.get('completed', 0), d['total'])
+    except Exception as e:
+        say('  the download failed:', e)
+        return False
+    progress()
+    ok = have_think_model(cfg)
+    say('  the vision model is ready.' if ok else '  the vision model did not arrive.')
+    return ok
+
+def think_picture(frame, boxes):
+    """What the model is shown, as one JPEG: the whole frame with each robot
+    outlined and numbered, and under it each robot again, enlarged from the
+    full-size frame, because in the wide view a plate is a few dozen pixels.
+    → (bytes, how many)"""
+    import cv2, numpy as np
+    h, w = frame.shape[:2]
+    W = 1280
+    k = W / w
+    img = cv2.resize(frame, (W, int(round(h * k))), interpolation=cv2.INTER_AREA if k < 1 else cv2.INTER_LINEAR)
+    def tag(pic, n, x, y):
+        cv2.rectangle(pic, (x, y), (x + 30, y + 30), (0, 0, 0), -1)
+        cv2.putText(pic, str(n), (x + 6, y + 24), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2, cv2.LINE_AA)
+    row = np.zeros((320, W, 3), np.uint8)
+    cell = W // max(4, len(boxes))
+    for n, b in enumerate(boxes, 1):
+        x, y, bw, bh = [int(round(v)) for v in b[:4]]
+        px, py = int(bw * 0.08), int(bh * 0.08)
+        crop = frame[max(0, y - py):min(h, y + bh + py), max(0, x - px):min(w, x + bw + px)]
+        if crop.size:
+            z = min((cell - 8) / crop.shape[1], 320 / crop.shape[0])
+            crop = cv2.resize(crop, (max(1, int(crop.shape[1] * z)), max(1, int(crop.shape[0] * z))), interpolation=cv2.INTER_CUBIC)
+            x0 = (n - 1) * cell + 4
+            row[:crop.shape[0], x0:x0 + crop.shape[1]] = crop
+            tag(row, n, x0, 0)
+        X, Y = int(round(x * k)), int(round(y * k))
+        cv2.rectangle(img, (X, Y), (X + int(round(bw * k)), Y + int(round(bh * k))), (255, 255, 255), 2)
+        tag(img, n, X, max(0, Y - 30))
+    ok, buf = cv2.imencode('.jpg', np.vstack([img, row]), [cv2.IMWRITE_JPEG_QUALITY, 90])
+    return (buf.tobytes() if ok else None), len(boxes)
+
+def think_prompt(four, n):
+    red = ', '.join(t for t in four[:2] if t) or 'unknown'
+    blue = ', '.join(t for t in four[2:] if t) or 'unknown'
+    return ('One frame of a VEX V5 Robotics Competition match (the game is called Override), from a camera above the field. '
+            '%d robot%s outlined in white and numbered in the corner of each outline. Under the frame each robot is shown again, enlarged, with the same number.\n'
+            'Every robot carries licence plates in its alliance colour, red or blue, with its team number in white. '
+            'Red alliance: %s. Blue alliance: %s.\n'
+            'On the field: pins (small red, blue or yellow pieces shaped like two cones), clear cups, goals (cone-shaped stands that pins are stacked on) '
+            'and toggles (a bar at the middle of each wall).\n'
+            'For each numbered robot give:\n'
+            '- plate: the team number, ONLY if you can actually read it on that robot\'s plate; otherwise "unreadable". Never guess from colour alone.\n'
+            '- doing: what that robot is doing in this frame, from the list. If it is not clear, "cannot tell".'
+            % (n, ' is' if n == 1 else 's are', red, blue))
+
+def think_schema(four, n):
+    teams = [t for t in four if t]
+    return {'type': 'object', 'required': ['robots'], 'properties': {'robots': {'type': 'array', 'minItems': n, 'maxItems': n, 'items': {
+        'type': 'object', 'required': ['n', 'plate', 'doing'], 'properties': {
+            'n': {'type': 'integer', 'minimum': 1, 'maximum': n}, 'plate': {'type': 'string', 'enum': teams + ['unreadable']},
+            'doing': {'type': 'string', 'enum': THINK_DOING}}}}}}
+
+_THINK = {'plain': False, 'failed': 0}
+def think_ask(cfg, jpeg, four, n):
+    """One frame to the model. → [{'n', 'plate', 'doing'}] or None."""
+    body = {'model': think_model(cfg), 'stream': False, 'keep_alive': '10m', 'format': think_schema(four, n),
+            'options': {'temperature': 0, 'num_predict': 60 + 40 * n},
+            'messages': [{'role': 'user', 'content': think_prompt(four, n), 'images': [base64.b64encode(jpeg).decode('ascii')]}]}
+    if not _THINK['plain']:
+        body['think'] = False                     # models that reason first: skip it, the answer is a short form
+    try:
+        try:
+            r = ollama_call('/api/chat', body, timeout=180)
+        except urllib.error.HTTPError as e:
+            if e.code == 400 and 'think' in body:    # a model with no such switch
+                _THINK['plain'] = True
+                del body['think']
+                r = ollama_call('/api/chat', body, timeout=180)
+            else:
+                raise
+        got = json.loads((r.get('message') or {}).get('content') or '{}').get('robots')
+        return got if isinstance(got, list) else None
+    except Exception:
+        _THINK['failed'] += 1
+        return None
+
+def think_match(rec, shots, job, cfg):
+    """What the vision model saw in this match's kept frames, written into the
+    recording: `vo`, five whole numbers a robot a look [tenths, box x, box y,
+    what it is doing, plate read (1-4 as in a box, 0 none)]. The website joins
+    each to the robot the tracker had at that spot. → how many it answered."""
+    four = [(job['red'] + ['', ''])[0], (job['red'] + ['', ''])[1], (job['blue'] + ['', ''])[0], (job['blue'] + ['', ''])[1]]
+    alive = set(id(fr) for fr in rec['f'])
+    vo, asked = [], 0
+    for fr, jpeg, n in shots:
+        if id(fr) not in alive or _THINK['failed'] >= 3:   # dropped when the recording was thinned; or the model is not answering
+            continue
+        got = think_ask(cfg, jpeg, four, n)
+        if not got:
+            continue
+        asked += 1
+        said = {}
+        for g in got:
+            try:
+                k = int(g.get('n', 0))
+            except (TypeError, ValueError):
+                continue
+            if 1 <= k <= n and k not in said:
+                said[k] = g
+        # Two robots given the same number: at least one is a guess. Neither counts.
+        plates = [g.get('plate') for g in said.values() if g.get('plate') in four and g.get('plate')]
+        twice = set(p for p in plates if plates.count(p) > 1)
+        for k, g in said.items():
+            o = 2 + 10 * (k - 1)
+            who = four.index(g['plate']) + 1 if g.get('plate') in four and g.get('plate') and g['plate'] not in twice else 0
+            col = fr[o + 5]
+            if who and col and (1 if who <= 2 else 2) != col:      # a red team's number on a robot seen as blue: not believed
+                who = 0
+            act = THINK_DOING.index(g['doing']) if g.get('doing') in THINK_DOING else 0
+            if act or who:
+                vo += [fr[0], fr[o], fr[o + 1], act, who]
+    if vo:
+        rec['vo'] = vo[:600]
+    return asked
 
 
 def spacing_of(jobs):
@@ -1056,9 +1316,17 @@ def work_chunk(args):
                     fld = (site.get('?field=' + job['vid']) or {}).get('field') or {}
                     q = fld.get('q')
                     quads[job['vid']] = q if isinstance(q, list) and len(q) == 8 else None
-                rec, why, shift = track_match(video, _EYES, job, shift, spacing, True, learn, quads[job['vid']])
+                looks = int(cfg.get('think_looks') or THINK_LOOKS) if cfg.get('think') and cfg.get('_think_ok') else 0
+                rec, why, shift = track_match(video, _EYES, job, shift, spacing, True, learn, quads[job['vid']], looks)
+                seen = 0
+                if rec is not None:
+                    shots = rec.pop('_shots', [])
+                    if shots:
+                        seen = think_match(rec, shots, job, cfg)
             except Exception as e:
-                rec, why = None, 'error: ' + str(e)
+                rec, why, seen = None, 'error: ' + str(e), 0
+            if rec is not None:
+                rec.pop('_shots', None)
             saved = None
             if rec is not None:
                 r = site.post({'ev': str(ev), 'id': str(job['id']), 'rec': rec})
@@ -1073,7 +1341,7 @@ def work_chunk(args):
                     pins += rec['pn'][i + 1]
                     i += 2 + 6 * rec['pn'][i + 1]
             out.append({'id': job['id'], 'name': job.get('name'), 'ok': bool(saved), 'why': why, 'sec': time.time() - t0, 'hw': video.hw,
-                        'looks': len(rec['f']) if rec else 0, 'plates': plates, 'pins': pins, 'clock': len(rec['tm']) // 2 if rec else 0})
+                        'looks': len(rec['f']) if rec else 0, 'plates': plates, 'pins': pins, 'clock': len(rec['tm']) // 2 if rec else 0, 'think': len(rec.get('vo', [])) // 5 if rec else 0})
     finally:
         video.close()
     return out
@@ -1428,7 +1696,14 @@ def do_jobs(cfg):
         say('Nothing left to do. Open the Robot tracker box on the website and it brings them in.')
         return
     workers = max(1, int(cfg.get('workers', 4)))
-    totals = {'ok': 0, 'no': 0, 'plates': 0, 'clock': 0, 'looks': 0}
+    totals = {'ok': 0, 'no': 0, 'plates': 0, 'clock': 0, 'looks': 0, 'think': 0}
+    # The vision model, when it is switched on: got ready once, here, so each match can ask it.
+    fresh = load_config()                             # the switch may have been turned since this started
+    for k in ('think', 'think_model', 'think_looks'):
+        cfg[k] = fresh.get(k)
+    cfg['_think_ok'] = bool(cfg.get('think')) and ensure_think(cfg)
+    if cfg.get('think') and not cfg['_think_ok']:
+        say('Tracking without the vision model this time.')
     t_all = time.time()
     # The next video is fetched while this one is being tracked: downloading
     # uses the network and tracking the processor and graphics card, so neither
@@ -1503,9 +1778,10 @@ def do_jobs(cfg):
                     totals['plates'] += res['plates']
                     totals['clock'] += res['clock']
                     totals['looks'] += res['looks']
+                    totals['think'] += res.get('think', 0)
                     totals['hw'] = totals.get('hw') or res.get('hw')
                     say('  %3d/%d  %-22s %s' % (done, len(pairs), str(res['name'])[:22],
-                        ('saved · %d looks · %d plates · %d pin sightings · clock %d · %.0fs' % (res['looks'], res['plates'], res.get('pins', 0), res['clock'], res['sec'])) if res['ok'] else 'not saved: ' + res['why']))
+                        ('saved · %d looks · %d plates · %d pin sightings · clock %d%s · %.0fs' % (res['looks'], res['plates'], res.get('pins', 0), res['clock'], (' · vision model: %d robot looks' % res['think']) if cfg.get('_think_ok') else '', res['sec'])) if res['ok'] else 'not saved: ' + res['why']))
         _PROG['hold'] = False
         if not cfg.get('keep_videos') and path.startswith(DIRS['videos']):
             for junk in (path, path + '.have.json'):
@@ -2373,6 +2649,8 @@ UI_HTML = r"""<!doctype html><html lang="en"><meta charset="utf-8"><meta name="v
  <label>Matches watched at once (4 to 8 suits an 8-core processor)</label><input id="sWorkers" type="number" min="1" max="16" style="width:100%">
  <label>Download speed</label><select id="sSpeed" style="width:100%"><option value="0">Full speed (uses the whole connection)</option><option value="40">Fast, leaves some room (40 MB/s)</option><option value="15">Gentle, fine for gaming (15 MB/s)</option><option value="5">Very gentle (5 MB/s)</option></select>
  <label><input id="sKeep" type="checkbox" style="width:auto"> Keep downloaded videos after tracking</label>
+ <label><input id="sThink" type="checkbox" style="width:auto"> Vision model: also say what each robot is doing, and read plates the small reader cannot</label>
+ <p style="margin:2px 0 10px;font-size:13px;opacity:.75">Free, and it runs on this computer's graphics card: nothing is sent anywhere. Turning it on installs Ollama and downloads a model of about 6 GB, once. Tracking takes roughly 20 seconds longer a match. It is new and can be wrong; the website marks what came from it.</p>
  <label>Admin key</label><button class="ghost" onclick="forgetKey()">Change the admin key</button>
  <label>Trained finder</label><button class="ghost" onclick="dlg.close();start('unpublish')">Take my finder off the website</button>
  <div class="row"><button class="ghost" onclick="dlg.close()">Cancel</button><button onclick="saveSettings()">Save</button></div></dialog>
@@ -2396,7 +2674,7 @@ function paint(){
    '<br>Score: new '+L.new+' vs old '+L.old+(since?'<br>'+since+' more reviewed since then':''));
  for(const b of ['bTrack','bTrain','bAdd'])$(b).disabled=st.busy||(b==='bTrain'&&need>0)||(b==='bTrack'&&!st.key);
  $('bStop').style.display=st.busy?'':'none';
- const names={track:'Tracking',train:'Training',add:'Learning from a video',unpublish:'Removing the finder'};
+ const names={think:'Getting the vision model ready',track:'Tracking',train:'Training',add:'Learning from a video',unpublish:'Removing the finder'};
  const last=(st.log.filter(l=>l.trim()).pop()||'').trim();
  const P=st.busy?st.progress:null,box=$('barBox'),eta=$('eta');
  // A real bar: how much is done, and how long is left at the pace so far.
@@ -2419,8 +2697,8 @@ async function saveKey(){const v=$('keyIn').value.trim();if(!v){$('keyMsg').text
  catch(e){$('keyMsg').textContent='The program behind this window did not answer. Close it and run VEX_Trainer.bat again.'}
  $('bKey').disabled=false;poll()}
 async function forgetKey(){await api('/api/key',{key:''});dlg.close();poll()}
-function openSettings(){$('sWorkers').value=st.workers;$('sKeep').checked=st.keep;$('sSpeed').value=String(st.speed||0);dlg.showModal()}
-async function saveSettings(){await api('/api/settings',{workers:+$('sWorkers').value,keep:$('sKeep').checked,speed:+$('sSpeed').value});dlg.close();poll()}
+function openSettings(){$('sWorkers').value=st.workers;$('sKeep').checked=st.keep;$('sThink').checked=!!st.think;$('sSpeed').value=String(st.speed||0);dlg.showModal()}
+async function saveSettings(){await api('/api/settings',{workers:+$('sWorkers').value,keep:$('sKeep').checked,think:$('sThink').checked,speed:+$('sSpeed').value});dlg.close();poll()}
 // review
 const c=$('c'),x=c.getContext('2d');let cur=null,img=new Image(),boxes=[],hist=[],drag=null,back=[];
 function openReview(){inReview=true;$('home').style.display='none';$('rev').style.display='block';nextFrame()}
@@ -2607,7 +2885,7 @@ def serve_ui(cfg, port=8765, open_window=True):
                 c = counts()
                 return self._send(200, {'version': VERSION, 'site': cfg['site'], 'key': bool(cfg.get('key')), 'busy': job.busy(), 'task': job.task if job.busy() else '',
                                         'log': job.lines(), 'progress': job.progress(), 'waiting': len(c['queue']), 'done': c['done'], 'gold': c['gold'], 'workers': cfg.get('workers', 4),
-                                        'keep': bool(cfg.get('keep_videos')), 'speed': cfg.get('max_mbps', 0), 'last': last_train()})
+                                        'keep': bool(cfg.get('keep_videos')), 'think': bool(cfg.get('think')), 'speed': cfg.get('max_mbps', 0), 'last': last_train()})
             if u.path == '/api/next':
                 c = counts()
                 want = urllib.parse.parse_qs(u.query).get('id', [None])[0]
@@ -2672,9 +2950,13 @@ def serve_ui(cfg, port=8765, open_window=True):
                 except (TypeError, ValueError):
                     pass
                 cfg['keep_videos'] = bool(body.get('keep'))
+                turned_on = bool(body.get('think')) and not cfg.get('think')
+                cfg['think'] = bool(body.get('think'))
                 if body.get('speed') in (0, 5, 15, 40):
                     cfg['max_mbps'] = body['speed']
                 save_config(cfg)
+                if turned_on and not job.busy():           # fetch what it needs now, where the bar shows it
+                    job.start('think', ['--think-setup'])
                 return self._send(200, {'ok': True})
             if u.path == '/api/stop':
                 job.stop()
@@ -2810,6 +3092,8 @@ def main():
             train_auto(cfg)
         elif args[0] == '--unpublish':
             unpublish(cfg)
+        elif args[0] == '--think-setup':
+            say('The vision model is ready. It will be used the next time matches are tracked.' if ensure_think(cfg) else 'The vision model is not ready; tracking goes on without it.')
         else:
             say('Unknown option:', args[0])
     except KeyboardInterrupt:
