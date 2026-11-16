@@ -133,7 +133,7 @@ const f = n => win.eval(n);
   ok('a refusal falls back to the ordinary download', /the fast way was refused; downloading the ordinary way/.test(app) && /info = y\.extract_info\(url, download=True\)/.test(app));
   // v117: downloads
   ok('the downloader gets what YouTube needs now, by itself', /def ensure_downloader/.test(app) && /yt-dlp\[default\]/.test(app) && /deno-x86_64-pc-windows-msvc\.zip/.test(app));
-  ok('a stream is fetched in many pieces at once, at 30 frames a second', /'concurrent_fragment_downloads': 16, 'http_chunk_size': 10 \* 1024 \* 1024/.test(app) && /\[fps<=30\]/.test(app));
+  ok('a stream is fetched in many pieces at once, at 30 frames a second', /'concurrent_fragment_downloads': 4 if limit else 16, 'http_chunk_size': 10 \* 1024 \* 1024/.test(app) && /\[fps<=30\]/.test(app));
   ok('the speed is shown while it downloads', /downloading: %s%\.0f MB at %\.1f MB\/s/.test(app));
   // v113: the app's speed
   ok('a robot already named is glanced at, not read every look', /if tr\['hits'\] >= 3:\s+return gap >= 3/.test(app));

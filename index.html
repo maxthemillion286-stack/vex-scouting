@@ -2579,6 +2579,19 @@
   .vr-short > div { margin: 0 0 6px; }
   .vr-short em { font-style: normal; color: var(--text-dim); display: inline-block; min-width: 104px; }
   .vr-more > summary { cursor: pointer; font-family: var(--body); font-size: 14px; color: var(--text-dim); padding: 6px 0; }
+  .vs-short:not(.vs-open) { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
+  .vs-more { display: inline-block; background: none; border: 0; padding: 2px 0 6px; margin: 0; font: inherit; font-family: var(--body); font-size: 13px; color: var(--text-dim); cursor: pointer; min-height: 0; width: auto; }
+  @media (hover: hover) { .vs-more:hover { color: var(--text); } }
+  .vs-why { margin: 8px 0 0; font-family: var(--body); font-size: 14px; color: var(--text-dim); }
+  .vs-why > summary { cursor: pointer; padding: 4px 0; }
+  .vs-why p { margin: 6px 0; line-height: 1.5; }
+  .vt-coach-table { width: 100%; border-collapse: collapse; font-family: var(--body); font-size: 14px; }
+  .vt-coach-table th, .vt-coach-table td { padding: 8px 14px 8px 0; text-align: left; white-space: nowrap; vertical-align: top; }
+  .vt-coach-table th { color: var(--text-dim); font-weight: 600; font-size: 12.5px; border-bottom: 1px solid var(--border); }
+  .vt-coach-table td { border-bottom: 1px solid var(--border); color: var(--text); }
+  .vt-coach-table td.vt-coach-ev { white-space: normal; min-width: 180px; font-weight: 600; }
+  @media (max-width: 600px) { .vt-coach-table td.vt-coach-ev { min-width: 120px; } .vt-coach-table th, .vt-coach-table td { padding-right: 10px; font-size: 13px; } }
+  .vt-coach-table td span { display: block; font-size: 12px; font-weight: 400; color: var(--text-dim); }
   .vt-over { display: none; position: fixed; inset: 0; z-index: 2147483000; background: var(--bg); overflow-y: auto; -webkit-overflow-scrolling: touch; }
   .vt-over-top { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 16px; background: var(--bg); border-bottom: 1px solid var(--border); font-family: var(--body); }
   .vt-over-body { max-width: 980px; margin: 0 auto; padding: 14px 16px 60px; font-family: var(--body); }
@@ -3678,7 +3691,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v119';
+const APP_BUILD = 'v120';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -10135,18 +10148,34 @@ async function vtCoachFill(number) {
   const repAll = vtReport(num, sums);
   const byEvent = new Map();
   for (const [k, s] of sums) { const ev = k.split(':')[0]; if (!byEvent.has(ev)) byEvent.set(ev, new Map()); byEvent.get(ev).set(k, s); }
-  const rowsHtml = [...byEvent.entries()].map(([ev, m]) => {
-    const r = vtTeamRows(num, m), mine = r.own.length >= 3 ? r.own : r.mine, own = r.own.length >= 3;
+  // Reported with a screenshot: the table said "Event 65240" and its columns
+  // ran together. Events are looked up by name (newest first), the columns
+  // have room, and each number says what it is.
+  const evs = await Promise.all([...byEvent.keys()].map(async ev => { try { const r = await vsEventRecord(ev); return [ev, (r && r[0]) || null]; } catch (e) { return [ev, null]; } }));
+  if (!document.getElementById('vtCoach') || vsMyTeam() !== num) return;
+  const info = new Map(evs);
+  const order = [...byEvent.keys()].sort((a, b) => String((info.get(b) || {}).start || '').localeCompare(String((info.get(a) || {}).start || '')) || Number(b) - Number(a));
+  let anyAlliance = false;
+  const rowsHtml = order.map(ev => {
+    const m = byEvent.get(ev), r = vtTeamRows(num, m), own = r.own.length >= 3, mine = own ? r.own : r.mine;
+    if (!own) anyAlliance = true;
     const a = k => vtAvg(mine.map(x => x[k]).filter(v => v !== null && v !== undefined));
-    const known = vsKnownEvent ? vsKnownEvent(ev) : null;
     const cell = (v, f) => v === null ? '—' : f(v);
-    return `<tr><td>${esc((known && known.name) || 'Event ' + ev)}</td><td>${mine.length}${own ? '' : ' *'}</td>
-      <td>${cell(a('stp'), v => Math.round(v) + ' s')}</td><td>${cell(a('prd'), vtPct)}</td><td>${cell(a('ap'), vtPct)}</td><td>${cell(a('act'), v => (v * 100).toFixed(1))}</td></tr>`;
+    const e = info.get(ev), name = (e && e.name) || 'Event ' + ev;
+    const when = e && e.start ? evDate(e.start, { month: 'short', day: 'numeric' }) : '';
+    return `<tr><td class="vt-coach-ev">${esc(name)}${when ? `<span>${esc(when)}</span>` : ''}</td><td>${mine.length}${own ? '' : '<span>alliance</span>'}</td>
+      <td>${cell(a('stp'), v => Math.round(v) + ' s')}</td><td>${cell(a('prd'), vtPct)}</td><td>${cell(a('ap'), vtPct)}</td><td>${cell(a('act'), v => (v * 100).toFixed(1) + '%')}</td></tr>`;
   }).join('');
   host.innerHTML = `<div class="detail-block"><div class="detail-block-label">Your robot, as the tracker sees it</div>
-    <div class="rw-hint">What an opponent scouting ${esc(num)} would be told. The table is what a driver can change, event by event: time stopped, time spent with an opponent on top of you at home, how far autonomous goes, and pace.</div>
-    <div class="cmp-wrap"><table class="cmp-table"><thead><tr><th>Event</th><th>Matches</th><th>Longest stop</th><th>Pinned at home</th><th>Autonomous distance</th><th>Pace</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>
-    <div class="rw-hint">* your robot could not be told from your partner's at that event, so the row is your alliances. Pace is percent of the field a second.</div>
+    <div class="rw-hint">What a team scouting ${esc(num)} would see, event by event.</div>
+    <div class="cmp-wrap"><table class="cmp-table vt-coach-table"><thead><tr><th>Event</th><th>Matches</th><th>Longest stop</th><th>Pinned at home</th><th>Auto distance</th><th>Speed</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>
+    <details class="vs-why"><summary>What these mean</summary><div>
+      <p><strong>Longest stop:</strong> the longest your robot sat still in a match. Lower is better.</p>
+      <p><strong>Pinned at home:</strong> how much of the match an opponent was right on top of you on your own side.</p>
+      <p><strong>Auto distance:</strong> how far across the field your autonomous travels.</p>
+      <p><strong>Speed:</strong> how much of the field you cover each second while driving.</p>
+      ${anyAlliance ? '<p><strong>alliance:</strong> the tracker could not tell your robot from your partner\'s at that event, so the row is both robots together.</p>' : ''}
+    </div></details>
   </div>` + vtReportHtml(num, repAll);
 }
 async function vtReportFill(number) {
@@ -11044,6 +11073,54 @@ function vtPinLine(mine, others, isOwn) {
   return { avg, other, pace, n: a.length,
     text: `${isOwn ? 'Sets down' : 'A robot on its alliance sets down'} about ${avg.toFixed(1)} yellow halves a match (worth ${Math.round(avg * 10)} when its alliance holds that toggle)${pace ? `, one every ${Math.round(pace)} s of stacking` : ''}${other !== null ? `; the robots it faced: ${other.toFixed(1)}` : ''}.` };
 }
+
+
+// ═══════════════════════════════════════════════════════════════
+// v120 — short first, more on request
+//
+// Asked: "most descriptions on the website … are wayy too long, they should
+// be simple and get the point across although if you click an expanding
+// arrow it can explain furthermore". The explanatory paragraphs (hints,
+// caveats, notes) are shown as their first two lines with a "more" arrow
+// under them; one tap shows the rest, another folds it again. Nothing is
+// removed and nothing is reworded, so no explanation is lost — it is one tap
+// away instead of in the way. Left alone: anything short already, anything
+// that carries a button or a link (a control must not be hidden), and status
+// lines that update while something runs (they have ids).
+const VS_SHORT_SEL = '.rw-hint, .sim-caveat, .sim-hint, .set-p, .info-blurb, .rw-miss, .rw-warn, .vt-note, .ladder-caveat, .bracket-key, .vr-cap, .fav-empty';
+const VS_SHORT_MIN = 150;
+function vsShorten(root) {
+  const host = root || document.body;
+  if (!host || !host.querySelectorAll) return 0;
+  let n = 0;
+  for (const el of host.querySelectorAll(VS_SHORT_SEL)) {
+    if (el.dataset.vs) continue;
+    el.dataset.vs = '1';
+    if (el.id || el.closest('.vs-why') || el.querySelector('button, a, input, select, textarea, details')) continue;
+    if ((el.textContent || '').trim().length < VS_SHORT_MIN) continue;
+    el.classList.add('vs-short');
+    const more = document.createElement('button');
+    more.type = 'button'; more.className = 'vs-more'; more.setAttribute('aria-expanded', 'false'); more.textContent = '▸ more';
+    more.addEventListener('click', () => {
+      const open = el.classList.toggle('vs-open');
+      more.setAttribute('aria-expanded', open ? 'true' : 'false');
+      more.textContent = open ? '▾ less' : '▸ more';
+    });
+    const next = el.nextElementSibling;
+    if (next && next.classList && next.classList.contains('vs-more')) next.remove();
+    el.insertAdjacentElement('afterend', more);
+    n++;
+  }
+  return n;
+}
+(function vsShortenWatch() {
+  if (typeof MutationObserver !== 'function' || !document.body) return;
+  let queued = false;
+  const run = () => { queued = false; try { vsShorten(document.body); } catch (e) {} };
+  const ask = () => { if (queued) return; queued = true; (window.requestAnimationFrame || (f => setTimeout(f, 16)))(run); };
+  new MutationObserver(ask).observe(document.body, { childList: true, subtree: true });
+  ask();
+})();
 
 // ── STATUS BADGE ──────────────────────────────
 // The version, and whether the data is live. "Connected" said something was

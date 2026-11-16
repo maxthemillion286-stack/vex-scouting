@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.8'
+VERSION = '2.9'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -888,7 +888,7 @@ def ensure_downloader():
             say('  could not get it (%s); downloading the slower way.' % str(e)[:100])
     return bool(shutil.which('deno'))
 
-def fetch_parallel(url, dest, headers=None, total=0, conns=32, piece=8 * 1024 * 1024, report=None):
+def fetch_parallel(url, dest, headers=None, total=0, conns=32, piece=8 * 1024 * 1024, report=None, max_mbps=0):
     """One file over many connections at once, each asking for its own range.
 
     Reported, with a gigabit line: "downloading: 13% of 6232 MB at 11.6 MB/s".
@@ -916,8 +916,25 @@ def fetch_parallel(url, dest, headers=None, total=0, conns=32, piece=8 * 1024 * 
     todo = queue.Queue()
     for a in range(0, total, piece):
         todo.put((a, min(total, a + piece) - 1))
-    state = {'done': 0, 'failed': False, 't0': time.time(), 'said': 0.0}
+    state = {'done': 0, 'failed': False, 't0': time.time(), 'said': 0.0, 'got': 0}
     lock = threading.Lock()
+    # A ceiling on speed, when one is set. Reported: "the download is affecting
+    # my ping in games significantly" — a download that fills the whole line
+    # leaves nothing for anything else. With a ceiling, every connection reads
+    # in small blocks and waits whenever the total is ahead of what the
+    # ceiling allows so far; fewer connections are opened, too.
+    cap = max(0.0, float(max_mbps or 0)) * 1e6
+    if cap:
+        conns = max(2, min(conns, int(max_mbps // 3) or 2))
+
+    def pace(nbytes):
+        if not cap:
+            return
+        with lock:
+            state['got'] += nbytes
+            ahead = state['got'] / cap - (time.time() - state['t0'])
+        if ahead > 0:
+            time.sleep(min(ahead, 2.0))
 
     def work():
         with open(part, 'r+b') as f:
@@ -930,7 +947,17 @@ def fetch_parallel(url, dest, headers=None, total=0, conns=32, piece=8 * 1024 * 
                     try:
                         req = urllib.request.Request(url, headers=dict(headers, Range='bytes=%d-%d' % (a, b)))
                         with urllib.request.urlopen(req, timeout=60) as r:
-                            data = r.read()
+                            if cap:
+                                blocks = []
+                                while True:
+                                    blk = r.read(128 * 1024)
+                                    if not blk:
+                                        break
+                                    blocks.append(blk)
+                                    pace(len(blk))
+                                data = b''.join(blocks)
+                            else:
+                                data = r.read()
                         if len(data) != b - a + 1:
                             raise IOError('short piece')
                         with lock:
@@ -971,6 +998,7 @@ def download(vid_or_url, dest_stem):
     except ImportError:
         say('  The downloader is not installed. Close this, run VEX_Trainer.bat again and it will be.')
         return None
+    limit = float(load_config().get('max_mbps') or 0)          # MB a second; 0 is as fast as it will go
     url = vid_or_url if '://' in vid_or_url else 'https://www.youtube.com/watch?v=' + vid_or_url
     last = {'at': 0}
     def hook(d):
@@ -983,7 +1011,9 @@ def download(vid_or_url, dest_stem):
             'outtmpl': dest_stem + '.%(ext)s', 'quiet': True, 'no_warnings': True, 'noprogress': True, 'progress_hooks': [hook],
             # Many pieces at once, and asked for in 10 MB ranges: a single plain
             # connection is what YouTube slows down.
-            'concurrent_fragment_downloads': 16, 'http_chunk_size': 10 * 1024 * 1024, 'retries': 5, 'fragment_retries': 5}
+            'concurrent_fragment_downloads': 4 if limit else 16, 'http_chunk_size': 10 * 1024 * 1024, 'retries': 5, 'fragment_retries': 5}
+    if limit:
+        opts['ratelimit'] = int(limit * 1e6)
     try:
         with yt_dlp.YoutubeDL(opts) as y:
             # Many connections at once when the stream is one plain file (see
@@ -994,7 +1024,7 @@ def download(vid_or_url, dest_stem):
                 if info.get('url') and str(info.get('protocol', '')).startswith('http') and 'dash' not in str(info.get('protocol', '')) and not info.get('fragments'):
                     dest = y.prepare_filename(info)
                     t0 = time.time()
-                    ok = fetch_parallel(info['url'], dest, info.get('http_headers'), int(info.get('filesize') or 0),
+                    ok = fetch_parallel(info['url'], dest, info.get('http_headers'), int(info.get('filesize') or 0), max_mbps=limit,
                                         report=lambda done, total, speed: say('  downloading: %d%% of %.0f MB at %.1f MB/s' % (100 * done / total, total / 1e6, speed / 1e6)))
                     if ok:
                         say('  downloaded %.0f MB in %.0f s.' % (os.path.getsize(dest) / 1e6, time.time() - t0))
@@ -1841,6 +1871,7 @@ UI_HTML = r"""<!doctype html><html lang="en"><meta charset="utf-8"><meta name="v
  .card h2{margin:0;font-size:17px} .card p{margin:0;color:var(--dim);font-size:14px;flex:1} .card .n{font-size:13px;color:var(--text)}
  .card button{width:100%;padding:13px;font-size:16px}
  .add{display:flex;gap:10px;margin-top:16px} .add input{flex:1}
+ select{font:inherit;background:#0c0f14;border:1px solid var(--line);color:var(--text);border-radius:9px;padding:10px 12px}
  input{font:inherit;background:#0c0f14;border:1px solid var(--line);color:var(--text);border-radius:9px;padding:10px 12px;min-width:0}
  .panel{margin-top:16px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
  .now{display:flex;gap:12px;align-items:center} .now b{flex:1;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -1882,6 +1913,7 @@ UI_HTML = r"""<!doctype html><html lang="en"><meta charset="utf-8"><meta name="v
 </main>
 <dialog id="dlg"><b>Settings</b>
  <label>Matches watched at once (4 to 8 suits an 8-core processor)</label><input id="sWorkers" type="number" min="1" max="16" style="width:100%">
+ <label>Download speed</label><select id="sSpeed" style="width:100%"><option value="0">Full speed (uses the whole connection)</option><option value="40">Fast, leaves some room (40 MB/s)</option><option value="15">Gentle, fine for gaming (15 MB/s)</option><option value="5">Very gentle (5 MB/s)</option></select>
  <label><input id="sKeep" type="checkbox" style="width:auto"> Keep downloaded videos after tracking</label>
  <label>Admin key</label><button class="ghost" onclick="forgetKey()">Change the admin key</button>
  <label>Trained finder</label><button class="ghost" onclick="dlg.close();start('unpublish')">Take my finder off the website</button>
@@ -1916,8 +1948,8 @@ async function saveKey(){const v=$('keyIn').value.trim();if(!v){$('keyMsg').text
  catch(e){$('keyMsg').textContent='The program behind this window did not answer. Close it and run VEX_Trainer.bat again.'}
  $('bKey').disabled=false;poll()}
 async function forgetKey(){await api('/api/key',{key:''});dlg.close();poll()}
-function openSettings(){$('sWorkers').value=st.workers;$('sKeep').checked=st.keep;dlg.showModal()}
-async function saveSettings(){await api('/api/settings',{workers:+$('sWorkers').value,keep:$('sKeep').checked});dlg.close();poll()}
+function openSettings(){$('sWorkers').value=st.workers;$('sKeep').checked=st.keep;$('sSpeed').value=String(st.speed||0);dlg.showModal()}
+async function saveSettings(){await api('/api/settings',{workers:+$('sWorkers').value,keep:$('sKeep').checked,speed:+$('sSpeed').value});dlg.close();poll()}
 // review
 const c=$('c'),x=c.getContext('2d');let cur=null,img=new Image(),boxes=[],hist=[],drag=null,back=[];
 function openReview(){inReview=true;$('home').style.display='none';$('rev').style.display='block';nextFrame()}
@@ -2062,7 +2094,7 @@ def serve_ui(cfg, port=8765, open_window=True):
                 c = counts()
                 return self._send(200, {'version': VERSION, 'site': cfg['site'], 'key': bool(cfg.get('key')), 'busy': job.busy(), 'task': job.task if job.busy() else '',
                                         'log': job.lines(), 'waiting': len(c['queue']), 'done': c['done'], 'gold': c['gold'], 'workers': cfg.get('workers', 4),
-                                        'keep': bool(cfg.get('keep_videos')), 'last': last_train()})
+                                        'keep': bool(cfg.get('keep_videos')), 'speed': cfg.get('max_mbps', 0), 'last': last_train()})
             if u.path == '/api/next':
                 c = counts()
                 want = urllib.parse.parse_qs(u.query).get('id', [None])[0]
@@ -2127,6 +2159,8 @@ def serve_ui(cfg, port=8765, open_window=True):
                 except (TypeError, ValueError):
                     pass
                 cfg['keep_videos'] = bool(body.get('keep'))
+                if body.get('speed') in (0, 5, 15, 40):
+                    cfg['max_mbps'] = body['speed']
                 save_config(cfg)
                 return self._send(200, {'ok': True})
             if u.path == '/api/stop':
