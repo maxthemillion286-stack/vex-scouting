@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v121**. Everything green: 81 test files. (The `v19` in §8's
+Current release: **v122**. Everything green: 81 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -2872,6 +2872,24 @@ paces reads against the ceiling and opens fewer connections; yt-dlp fallback
 gets `ratelimit`. Applies from the next download.
 
 **v121:** on a phone (≤600 px) the My team table is cards, not a table: the header row is hidden, each row is a 3-column grid, each cell shows its `data-label` above its number. Reported: it had to be scrolled sideways.
+
+**v122 — the My team table says useful things.** Told: "these metrics are
+basically all useless, i want to know what their autonomous does, how many
+points/pins and cups it scores, and how long it takes them to stack 5 pins (or
+just general scoring speed)", then: "the repeated strategy they like to do,
+like they mostly only score alliance pins or they mostly only score yellows".
+Columns are now Event · Matches · Autonomous (`vtBrief(...).auto` + pins set
+down in it) · Goes for (`vtPinStyle`: ≥70% yellow / ≥70% own colour / both,
+needs 4 halves) · Pins a match · Points from pins (10 × yellow halves + 5 ×
+own, the most they could be worth: yellow needs the toggle) · 5 pins stacked
+in. `vtPinCount` now also returns per robot `ya` (halves credited before
+driver control) and `t5` (seconds into driver control when its credited total
+reached ten halves); `vtBackfill` re-makes summaries that have `pk` but no
+`ya`. `vtCoachPins(rows, per)` averages per match. With no pins counted the
+cells say "not counted yet" and a note says why. `vtBrief`'s strategy line
+leads with the pin habit. **"Cups" is not built: the owner used the word and
+it is not something this code knows about in Override — asked what he means.**
+Stop, pinned, distance and speed are still in the full report below.
 
 ## 33. Feature ideas
 
