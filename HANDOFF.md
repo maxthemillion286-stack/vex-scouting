@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v126**. Everything green: 81 test files. (The `v19` in §8's
+Current release: **v127**. Everything green: 81 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -2949,6 +2949,8 @@ score with a lift mechanism"):
 - Nothing read says a cup is worth points by itself. Cups have no colour to
   find them by (clear and grey), so counting them needs the trained finder:
   a second label in review. Not built; offered.
+
+**v127 — review variety.** Reported: "i keep getting the same frames if not a little different". The queue was hardness only, and hard frames come in runs from one moment of one match. `review_queue` now sends a frame to the back if its robots stand where they did (`same_layout`, within 6% of the picture, same count, same video) in a frame already reviewed or ahead of it, and the front of the queue takes turns between videos. Frames sent to the website for phone review follow the same order. Nothing is deleted.
 
 ## 33. Feature ideas
 
