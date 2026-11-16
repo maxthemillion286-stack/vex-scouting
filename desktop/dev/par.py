@@ -34,3 +34,11 @@ assert ok is False and not os.path.exists('par.bin') and not os.path.exists('par
 print('a refusal part-way leaves nothing behind and reports failure')
 assert T.fetch_parallel('http://127.0.0.1:1/none', 'par.bin') is False
 print('an unreachable address reports failure')
+mode['fail_at'] = None; mode['max'] = 0; T.time.sleep = real_sleep
+t0 = time.time()
+ok = T.fetch_parallel('http://127.0.0.1:8797/v', 'par.bin', piece=1024 * 1024, conns=32, max_mbps=6)
+dt = time.time() - t0; mb = len(DATA) / 1e6
+assert ok and hashlib.sha256(open('par.bin', 'rb').read()).digest() == hashlib.sha256(DATA).digest()
+print('with a 6 MB/s ceiling: %.1f MB in %.1f s = %.1f MB/s, %d connections at most' % (mb, dt, mb / dt, mode['max']))
+assert 4.5 <= mb / dt <= 6.6 and mode['max'] <= 2, (mb / dt, mode['max'])
+os.remove('par.bin')

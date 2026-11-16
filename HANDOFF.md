@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v119**. Everything green: 80 test files. (The `v19` in §8's
+Current release: **v120**. Everything green: 81 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -413,6 +413,7 @@ proxy is at `api/proxy.js`.
 | t117 | **v112** — stream finding reads YouTube's search page before the paid search |
 | t118 | **v114** — briefing, clips, review anywhere, organiser channels, tracking in win chances — §32e |
 | t119 | **v115** — pins found by colour and size, counted on a marked field; the short report — §32f |
+| t120 | **v120** — long descriptions fold to two lines with a "more" arrow; My team table by event name; app download speed limit |
 | sanity | CSS braces balance, inline JS parses, tabs present |
 | tool_sanity | Same for anchor-tool.html |
 
@@ -2850,6 +2851,25 @@ on something it did not need to.
   the page head already defers fonts; index.html is 950 KB / ~270 KB gzipped
   and cached by the service worker after one visit — shrinking it needs a
   build step, and the tests would then be testing a file that is not served.
+
+**v120 — short first, more on request.** Asked: "most descriptions on the
+website … are wayy too long … if you click an expanding arrow it can explain
+furthermore". `vsShorten` (run by a MutationObserver on body) folds any
+`VS_SHORT_SEL` element (`.rw-hint, .sim-caveat, .sim-hint, .set-p, .info-blurb,
+.rw-miss, .rw-warn, .vt-note, .ladder-caveat, .bracket-key, .vr-cap,
+.fav-empty`) of ≥150 characters to two lines (CSS line-clamp) with a
+`.vs-more` button after it. Skipped: elements with an id (live status lines),
+with a button/link/input/details inside (a control must stay visible), inside
+`.vs-why`. No text was reworded or removed — to shorten a particular
+description for real, edit its string; to exempt one, give it an id. New long
+text should use one of those classes and it folds by itself.
+**My team table** (`vtCoachFill`): event names and dates via `vsEventRecord`,
+newest first; "alliance" instead of an asterisk; column meanings in
+`<details class="vs-why">`; `.vt-coach-table` has real padding.
+**App**: Settings → Download speed (full / 40 / 15 / 5 MB/s; `max_mbps` in
+config.json). Reported: the download hurt ping in games. `fetch_parallel`
+paces reads against the ceiling and opens fewer connections; yt-dlp fallback
+gets `ratelimit`. Applies from the next download.
 
 ## 33. Feature ideas
 
