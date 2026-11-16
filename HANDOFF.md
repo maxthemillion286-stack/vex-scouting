@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v130**. Everything green: 81 test files. (The `v19` in §8's
+Current release: **v131**. Everything green: 82 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -2970,6 +2970,46 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v131 — the report says what was asked for; the app's bar is real** (asked:
+"i also dont want to know their autonomous route just the amount of pins. and
+toggles switched to their color. make an actual heatmap and for role and
+stradegy just pu the amount of time scoring on alliance goals, neutral goals,
+and going for toggles, or sitting at their own toggle … replay auton only for
+an auto they consistently do … remove how to use this" and "the progress bar
+doesnt move … actual progress bar with estimayted countdown").
+- `vtGame` adds per robot: `ga`/`gn` (share of driver control within
+  `VT_GOAL_R` of its alliance's goals / a neutral goal, toggles excluded),
+  `sd` (1 = starts in its drivers' quadrant, 2 = elsewhere) and an 8×8 heat
+  grid `g0..g63` in thousandths, zeros left out. Goal positions are
+  `VT_GOALS_OWN/OPP/NEUTRAL`, read off the manual's field drawing in the own
+  frame. **Not checked against real footage.** `validSum` allows 200 fields
+  per robot. Old summaries are remade by themselves (the `ga === undefined`
+  clause in the remake loop); until then the report falls back to the 5×5 grid
+  and shows "—" for goal time.
+- `vtToggleAuto(rec, ph)` → toggles that are a colour at the end of autonomous
+  and were not before the match; stored as `tga` on both robots of an alliance
+  (the tracker cannot say which robot turned it; the page says so).
+- `vtAutoFacts`/`vtAutoText`/`vtAutoSide`: pins, toggles, start side. Used by
+  the My team table (no route any more), `vtBrief` and the report.
+- `vtAutoReplay(rows)`: a routine is ≥3 matches and ≥60% whose six-point paths
+  stay within 0.125 of each other; returns their average with timings, else
+  null. `vtReportAuto` draws the replay (SMIL `<animate>`, started by
+  `vtReplayPlay`) only then; with no routine there is no replay markup at all.
+- `vtReportRole`: four bars (alliance goals, neutral goals, going for toggles,
+  own toggle) and the toggle-fight lines; the Toggles, Autonomous routines and
+  How to use this sections are gone. `vtFieldSvg(heat, paths, replay)` draws
+  the real field (goals, toggles, loaders) and a blurred single-hue heat map.
+- **"Driver-station side" is a guess**: the user defined it as "the side with 2
+  match loaders"; taken to be the triangular quadrant on the alliance's own
+  wall. Asked the user to confirm.
+- App 2.17: `progress(stage, done, total, wait, minor)` prints `@@P {json}`
+  lines when `VEX_UI` is set; `Job.note`/`Job.progress` turn them into share
+  done and seconds left (pace since the stage was first seen); `/api/state`
+  carries `progress`. Window: real bar + "N of M · %" + time left; a moving
+  stripe when there is nothing to measure; no bar while waiting for work, with
+  the seconds until it looks again.
+- Tests: t121.
 
 **v130 — toggles, part-downloads, and a one-press field mark** (asked: "add
 1, 4, 6" from the list in v129's reply).

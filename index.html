@@ -2470,6 +2470,17 @@
   .vt-mark-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
   .vr-field { display: block; width: 100%; max-width: 220px; margin: 10px 0 4px; color: var(--text); }
   .vr-cap { font-family: var(--body); font-size: 12px; color: var(--text-muted); }
+  /* v131: a real heat map, time bars, and the autonomous replay */
+  .vr-field { --vr-heat: #ff6a2b; --vr-toggle: #e2b019; --vr-own: #2fc98b; max-width: 260px; }
+  .vr-ft { font-family: var(--body); font-size: 9px; fill: currentColor; opacity: 0.7; }
+  .vr-field .vr-bot { opacity: 0; }
+  .vr-field.on .vr-bot { opacity: 0.95; }
+  .vr-replay .btn { margin: 4px 0 6px; }
+  .vr-time { margin: 2px 0 6px; }
+  .vr-time-row { display: grid; grid-template-columns: minmax(0, 11.5em) 1fr 3em; align-items: center; gap: 8px; font-family: var(--body); font-size: 14px; color: var(--text); padding: 3px 0; }
+  .vr-time-row b { display: block; height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--text) 10%, transparent); overflow: hidden; }
+  .vr-time-row i { display: block; height: 100%; border-radius: 4px; background: var(--accent-bright); }
+  .vr-time-row em { font-style: normal; text-align: right; font-variant-numeric: tabular-nums; color: var(--text-dim); }
 
   /* v99: the robot report */
   .vr-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 10px; margin-bottom: 10px; align-items: start; }
@@ -3704,7 +3715,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v130';
+const APP_BUILD = 'v131';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -9923,6 +9934,9 @@ function vtSummarise(rec, quad, learn) {
       }
     } catch (e) {}
   }
+  if (F.field && axis && rec.tg && rec.tg.length) {
+    try { const at = vtToggleAuto(rec, ph); if (at) { Ra.tga = Rb.tga = at[1]; Ba.tga = Bb.tga = at[2]; } } catch (e) {}
+  }
   return { ...base, ok: 1, lps: Math.round(lps * 10) / 10, st: ph.start, dr: ph.driver, ck: ph.clock ? 1 : 0, ...pins, R: Rall, B: Ball, Ra, Rb, Ba, Bb };
 }
 
@@ -9967,7 +9981,7 @@ async function vtBackfill(ev, force) {
   }
   for (const id of done) {
     const have = all[ev + ':' + id], quad = await field(idx[id].vid);
-    if (have && have.sv === VT_SUM_V && (have.fq || 0) === vtQuadMark(quad) && have.vid !== undefined && !(have.pk && have.Ra && have.Ra.ya === undefined)) continue;   // made again: one from before clips (no video), or with pins counted but not timed
+    if (have && have.sv === VT_SUM_V && (have.fq || 0) === vtQuadMark(quad) && have.vid !== undefined && !(have.pk && have.Ra && have.Ra.ya === undefined) && !(have.Ra && have.Ra.th !== undefined && have.Ra.th !== null && have.Ra.ga === undefined)) continue;   // made again: one from before clips (no video), or with pins counted but not timed
     const rec = await idbGet(`vt:m:${ev}:${id}`);
     if (!rec) continue;
     const sum = vtSummarise(rec, quad, await vtLearnGet(idx[id].vid));
@@ -10144,14 +10158,42 @@ function vtReport(number, sums) {
   const game = vtGameLines(isOwn ? rows.own : rows.pair, isOwn ? rows.ownOthers : rows.pairOthers, isOwn,
     { swaps: swaps.length >= 3 ? vtAvg(swaps) : null, rate: perTen(rows.mine), otherRate: perTen(rows.others) });
   // Pins (v115): what it set down, against what the robots it faced did.
+  const autoFacts = vtAutoFacts(isOwn ? rows.own : rows.pair, isOwn ? 1 : 2, vtPinCheck(sums));
   const pinLine = vtPinLine(isOwn ? rows.own : rows.pair, isOwn ? rows.ownOthers : rows.pairOthers, isOwn, vtPinCheck(sums));
   const pinGood = [], pinWeak = [];
   if (pinLine && pinLine.other !== null && pinLine.n >= 3) {
     if (pinLine.avg > pinLine.other * 1.25 && pinLine.avg - pinLine.other >= 1) pinGood.push('Stacks more yellow than the robots it faces. ' + pinLine.text);
     else if (pinLine.avg < pinLine.other * 0.75 && pinLine.other - pinLine.avg >= 1) pinWeak.push('Stacks less yellow than the robots it faces. ' + pinLine.text);
   }
-  return { n, total, own: isOwn, how: rows.how, picked: rows.own.length, wins: W.length, losses: L.length, vis: vtAvg(col(rows.mine, 'vis')), game, pins: pinLine,
+  return { n, total, own: isOwn, how: rows.how, picked: rows.own.length, wins: W.length, losses: L.length, vis: vtAvg(col(rows.mine, 'vis')), game, autoFacts, pins: pinLine,
     lines: { good: pinGood.concat(game.strong, good), weak: pinWeak.concat(game.weak), auto, habits, lose: lose.slice(0, 3).map(x => x.text), use } };
+}
+// The autonomous, in words and (only for a routine it really repeats) as a replay.
+function vtReportAuto(rep, L) {
+  const G = rep.game && rep.game.n >= 3 ? rep.game : null, F = rep.autoFacts, items = [];
+  if (F) {
+    if (vtAutoSide(F)) items.push(vtAutoSide(F) + '. The driver-station side is the quadrant by its drivers, with both of its loaders.');
+    if (F.pins !== null) items.push(`Sets down about ${F.pins.toFixed(1)} pin${F.pins.toFixed(1) === '1.0' ? '' : 's'}.`);
+    if (F.tog !== null) items.push(`${F.tog.toFixed(1)} toggle${F.tog.toFixed(1) === '1.0' ? ' is' : 's are'} turned to its alliance's colour by the end of it.`);
+  }
+  const R = G && G.replay;
+  if (R) items.push(R.still ? `Stays where it starts (${R.n} of ${R.of}).` : `Runs the same routine in ${R.n} of ${R.of}.`);
+  else if (G) items.push('No routine it runs consistently: its path changes from match to match.');
+  for (const t of L.auto || []) if (!/routine every time|more than one routine/.test(t)) items.push(t);
+  const play = R && !R.still ? `<div class="vr-replay">${vtFieldSvg(null, null, R)}<button class="btn btn-secondary" onclick="vtReplayPlay(this)">▶ Replay its autonomous</button><div class="vr-cap">The average of those ${R.n} runs, 15 seconds shown in 6. The ring is where it starts. ${VT_FIELD_KEY}</div></div>` : '';
+  return `<div class="vr-sec"><div class="vr-h">Autonomous</div>${items.length ? `<ul class="vr-list">${items.map(t => `<li>${esc(t)}</li>`).join('')}</ul>` : '<div class="vr-none">Not enough of the autonomous period was in view.</div>'}${play}</div>`;
+}
+// Role and strategy: where the driver period goes, then how it does at toggles.
+function vtReportRole(G) {
+  const T = G.time || {}, rows = [['At its alliance’s goals', T.own], ['At neutral goals', T.neutral], ['Going for toggles', T.togs], ['Sitting at its own toggle', T.home]];
+  const known = rows.filter(r => r[1] !== null && r[1] !== undefined), rest = Math.max(0, 1 - known.reduce((a, r) => a + r[1], 0));
+  const top = Math.max(0.01, ...known.map(r => r[1]));
+  const bars = rows.map(([name, v]) => v === null || v === undefined
+    ? `<div class="vr-time-row"><span>${name}</span><b></b><em>—</em></div>`
+    : `<div class="vr-time-row"><span>${name}</span><b><i style="width:${Math.round(100 * v / top)}%"></i></b><em>${vtPct(v)}</em></div>`).join('');
+  return `<div class="vr-sec"><div class="vr-h">Role and strategy</div><div class="vr-time">${bars}</div>
+    <div class="vr-cap">Share of driver control. ${T.n ? `The other ${vtPct(rest)} is driving, loading and midfield.` : 'Goal time appears once these matches are read again: open the event on a computer and it happens by itself.'} Its own toggle is the one on its drivers’ wall.</div>
+    ${G.toggles.length ? `<ul class="vr-list">${G.toggles.map(t => `<li>${esc(t)}</li>`).join('')}</ul>` : ''}</div>`;
 }
 function vtReportHtml(number, rep) {
   const sec = (title, items, empty) => `<div class="vr-sec"><div class="vr-h">${title}</div>${items.length
@@ -10176,14 +10218,11 @@ function vtReportHtml(number, rep) {
     <div class="vr-grid">
       ${sec('Strengths', L.good, rep.own ? 'Nothing stands out against the robots it faced.' : 'Nothing stands out against the alliances it faced.')}
       ${sec('Weaknesses', L.weak || [], 'Nothing stands out.')}
-      ${rep.game && rep.game.n >= 3 ? `<div class="vr-sec"><div class="vr-h">Autonomous routines</div><ul class="vr-list">${rep.game.autos.map(t => `<li>${esc(t)}</li>`).join('')}</ul>${vtFieldSvg(null, rep.game.paths)}<div class="vr-cap">Its paths in the first 15 seconds, its own wall on the left.</div></div>` : ''}
-      ${rep.game && rep.game.n >= 3 ? sec('Role and strategy', rep.game.role.concat(rep.game.shift), '') : ''}
-      ${rep.game && rep.game.n >= 3 ? sec('Toggles', rep.game.toggles, '') : ''}
-      ${rep.game && rep.game.n >= 3 ? `<div class="vr-sec"><div class="vr-h">Where it plays</div><ul class="vr-list">${rep.game.where.map(t => `<li>${esc(t)}</li>`).join('')}</ul>${vtFieldSvg(rep.game.heat, null)}<div class="vr-cap">Driver control, its own wall on the left. Circles are the toggles.</div></div>` : ''}
-      ${sec('Autonomous', L.auto, 'Not enough of the autonomous period was in view.')}
+      ${vtReportAuto(rep, L)}
+      ${rep.game && rep.game.n >= 3 ? vtReportRole(rep.game) : ''}
+      ${rep.game && rep.game.n >= 3 ? `<div class="vr-sec"><div class="vr-h">Where it plays</div>${vtFieldSvg(rep.game.heat, null)}<div class="vr-cap">Driver control. ${VT_FIELD_KEY}</div></div>` : ''}
       ${sec('Does repeatedly', L.habits, 'No habit shows up in seven matches out of ten.')}
       ${sec('When it loses', L.lose, rep.losses < 2 || rep.wins < 2 ? `Needs at least two tracked wins and two losses (has ${rep.wins} and ${rep.losses}).` : 'Its losses look like its wins on these measures.')}
-      ${sec('How to use this', L.use, 'Nothing specific yet.')}
     </div>
     <div class="sim-caveat">Worked out from where robots were on match video. It sees robots and, by colour and size, pins that were moved and set down (an estimate in halves; it cannot tell a pin on a goal from one beside it). It does not see toggles: a toggle counts as taken when the robot is left alone on it, and stacking is time spent working in a quadrant. Both robots of its alliance were in view ${vtPct(rep.vis || 0)} of the time. Identities are settled within one event only, because robots are rebuilt between events. New and unchecked against human scouting — treat it as a lead to confirm, not a fact.</div>
     </details>
@@ -10224,10 +10263,11 @@ async function vtCoachFill(number) {
     const B = vtBrief(num, m);
     const e = info.get(ev), name = (e && e.name) || 'Event ' + ev;
     const when = e && e.start ? evDate(e.start, { month: 'short', day: 'numeric' }) : '';
-    const auto = (B.auto || 'Not enough of it was in view.') + (P && P.auto >= 0.5 ? ` Sets down about ${P.auto.toFixed(1)} pins in it.` : '');
+    const AF = vtAutoFacts(own ? r.own : r.pair, own ? 1 : 2, chk);
+    const auto = vtAutoText(AF, false);
     const none = '<i>not counted yet</i>';
     return `<tr><td class="vt-coach-ev">${esc(name)}${when ? `<span>${esc(when)}</span>` : ''}</td><td data-label="Matches">${(own ? r.own : r.mine).length}${own ? '' : '<span>alliance</span>'}</td>
-      <td data-label="Autonomous" class="vt-coach-wide">${esc(auto)}</td>
+      <td data-label="Autonomous" class="vt-coach-mid">${auto ? esc(auto) : none}</td>
       <td data-label="Goes for" class="vt-coach-mid">${P ? (P.style ? esc(P.style.text) : 'too few pins to say') : none}</td>
       <td data-label="Pins a match">${P ? P.pins.toFixed(1) + `<span>${chk.ok ? `checked: ±${vtPct(chk.err)}` : 'not checked yet'}</span>` : none}</td><td data-label="Points from pins">${P ? Math.round(P.points) : none}</td>
       <td data-label="5 pins stacked in">${P ? (P.t5 !== null ? Math.round(P.t5) + ' s' : `not reached${P.perPin ? `<span>a pin every ${Math.round(P.perPin)} s</span>` : ''}`) : none}</td></tr>`;
@@ -10237,7 +10277,7 @@ async function vtCoachFill(number) {
     <div class="cmp-wrap"><table class="cmp-table vt-coach-table"><thead><tr><th>Event</th><th>Matches</th><th>Autonomous</th><th>Goes for</th><th>Pins a match</th><th>Points from pins</th><th>5 pins stacked in</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>
     ${anyPins ? '' : `<div class="vt-note" id="vtCoachWhy">Pins are not counted for these matches yet. Counting needs two things: the match tracked since pin counting was added, and <strong>Mark the field</strong> done once on its stream (Jumper, open a match, Robot tracker box).</div>`}
     <details class="vs-why"><summary>What these mean</summary><div>
-      <p><strong>Autonomous:</strong> where your robot goes in the first 15 seconds, and how often it runs that route.</p>
+      <p><strong>Autonomous:</strong> pins your robot sets down in the first 15 seconds, and how many toggles your alliance has turned to its colour when they end. The tracker cannot tell which of the two robots turned a toggle.</p>
       <p><strong>Goes for:</strong> whether the pins your robot sets down are mostly yellow, mostly your own colour, or both.</p>
       <p><strong>Pins a match:</strong> pins your robot moved and set down, counted from the video. Two halves make a pin. Only halves that can be seen are counted, which is also the rule: a half hidden inside a cup does not score. Cups themselves are not counted.</p>
       <p><strong>Points from pins:</strong> 10 for each yellow half and 5 for each half of your own colour. Yellow only scores for the alliance holding that toggle, so this is the most those pins could be worth.</p>
@@ -10436,6 +10476,12 @@ function vtZone(a, b) {
   if (1 - a < b && 1 - a < 1 - b) return 4;
   return b < 0.5 ? 2 : 3;
 }
+// The goals, in a robot's own frame (its drivers' wall on the left). From the
+// field drawing in the game manual: two in its alliance's colour, two in the
+// opponents', four neutral and the centre one.
+const VT_GOALS_OWN = [[0.17, 0.66], [0.34, 0.82]], VT_GOALS_OPP = [[0.66, 0.18], [0.82, 0.34]];
+const VT_GOALS_NEUTRAL = [[0.34, 0.18], [0.18, 0.34], [0.66, 0.82], [0.82, 0.66], [0.5, 0.5]];
+const VT_GOAL_R = 0.14;
 const VT_ZONE_WORDS = { 1: 'its own quadrant', 2: 'a side quadrant', 3: 'the other side quadrant', 4: "the opponent's quadrant", 5: 'midfield',
   6: 'its own toggle', 7: 'a side toggle', 8: 'the other side toggle', 9: "the opponent's toggle" };
 // Which physical toggle (0 red's wall, 1 blue's, 2 and 3 the sides) a field position is at, or -1.
@@ -10471,10 +10517,13 @@ function vtGame(bins, ph) {
   for (const r of robots) {
     const foes = robots.filter(o => o.c !== r.c), mate = robots.find(o => o.c === r.c && o !== r);
     const z = new Array(10).fill(0); let secs = 0, tv = 0, ca = 0, cw = 0, da = 0, dw = 0, rl = 0, rn = 0, eg = 0;
-    const seenTog = new Set(), heat = new Array(25).fill(0);
+    const seenTog = new Set(), heat = new Array(25).fill(0), fine = new Array(64).fill(0); let ga = 0, gn = 0;
     for (let t = T0; t <= T1; t++) {
       const p = r.pos.get(t); if (!p) continue;
-      const [a, b] = own(r, p); z[vtZone(a, b)]++; secs++;
+      const [a, b] = own(r, p), zn0 = vtZone(a, b); z[zn0]++; secs++;
+      // v131: beside a goal (and not on a toggle): its alliance's two, or a neutral one.
+      if (zn0 < 6) { if (VT_GOALS_OWN.some(g => Math.hypot(a - g[0], b - g[1]) < VT_GOAL_R)) ga++; else if (VT_GOALS_NEUTRAL.some(g => Math.hypot(a - g[0], b - g[1]) < VT_GOAL_R)) gn++; }
+      fine[Math.min(7, Math.max(0, Math.floor(b * 8))) * 8 + Math.min(7, Math.max(0, Math.floor(a * 8)))]++;
       heat[Math.min(4, Math.max(0, Math.floor(b * 5))) * 5 + Math.min(4, Math.max(0, Math.floor(a * 5)))]++;
       if (t >= T1 - 10 && vtZone(a, b) === 5) eg = 1;
       const g = r.tog.get(t);
@@ -10519,6 +10568,10 @@ function vtGame(bins, ph) {
     const o = { th: pct(z[6]), ts: pct(z[7] + z[8]), to: pct(z[9]), qh: pct(z[1]), qs: pct(z[2] + z[3]), qo: pct(z[4]), qm: pct(z[5]),
       tv, td: seenTog.size, ca, cw, da, dw, gd: r.gd, gt: r.gt, rl, rn, eg, art: Number(route.slice(0, 4).join('')) || 0 };
     path.forEach((v, k) => { o['p' + k] = v; });
+    o.ga = pct(ga); o.gn = pct(gn);
+    // Where it starts: its drivers' quadrant (the wall with both of its loaders), or not.
+    for (let t = A0 - 2; t <= A0 + 3 && !o.sd; t++) { const p = r.pos.get(t); if (p) { const [a, b] = own(r, p); o.sd = a < b && a < 1 - b ? 1 : 2; } }
+    if (secs) fine.forEach((v, k) => { if (v) o['g' + k] = Math.round(v / secs * 1000); });
     heat.forEach((v, k) => { o['h' + k] = secs ? Math.round(v / secs * 100) : 0; });
     out[r.c][r.i] = o;
     out.wk[r.c] += z[1] + z[2] + z[3] + z[4];
@@ -10575,6 +10628,13 @@ function vtGameLines(rows, others, isOwn, extra) {
   L.where.push(`Most of its time is in ${zones[0][1]} (${vtPct(zones[0][0])}), then ${zones[1][1]} (${vtPct(zones[1][0])}).`);
   if (avg(withField, 'qo') + avg(withField, 'to') > 0.3) L.where.push("It plays on the opponent's side for a third of the match or more: pressure on their scoring.");
   L.heat = Array.from({ length: 25 }, (_, k) => avg(withField, 'h' + k) || 0);
+  // v131: the finer grid, and the four things the driver period goes on.
+  const withGoals = withField.filter(r => r.ga !== undefined && r.ga !== null);
+  if (withGoals.length >= 3) {
+    L.heat = Array.from({ length: 64 }, (_, k) => vtAvg(withGoals.map(r => r['g' + k] || 0)) || 0);
+    L.time = { n: withGoals.length, own: avg(withGoals, 'ga') || 0, neutral: avg(withGoals, 'gn') || 0, togs: (avg(withGoals, 'ts') || 0) + (avg(withGoals, 'to') || 0), home: avg(withGoals, 'th') || 0 };
+  } else L.time = { n: 0, own: null, neutral: null, togs: (avg(withField, 'ts') || 0) + (avg(withField, 'to') || 0), home: avg(withField, 'th') || 0 };
+  L.replay = vtAutoReplay(withField);
   // Autonomous routines, most used first.
   const byRoute = new Map();
   for (const r of withField) { const k = r.art || 0; if (!byRoute.has(k)) byRoute.set(k, []); byRoute.get(k).push(r); }
@@ -10598,21 +10658,98 @@ function vtGameLines(rows, others, isOwn, extra) {
   }
   return L;
 }
+// What its autonomous does, as counts: pins set down, toggles its alliance
+// turned, which side it starts on. `per` is 1 for one robot's rows, 2 when the
+// rows are both robots of its alliances.
+function vtAutoFacts(rows, per, check) {
+  const fix = check && check.ok ? check.k : 1, F = { pins: null, tog: null, near: 0, sideN: 0 };
+  const p = rows.filter(r => r.ya !== undefined && r.ya !== null);
+  if (p.length >= per) F.pins = fix * p.reduce((a, r) => a + r.ya, 0) / 2 / (p.length / per);
+  const t = rows.filter(r => r.tga !== undefined && r.tga !== null);
+  if (t.length) F.tog = vtAvg(t.map(r => r.tga));
+  const s = rows.filter(r => r.sd === 1 || r.sd === 2);
+  F.sideN = s.length; F.near = s.filter(r => r.sd === 1).length;
+  return F;
+}
+function vtAutoSide(F) {
+  if (F.sideN < 2) return '';
+  const near = F.near >= F.sideN - F.near;
+  return `Starts on the ${near ? 'driver-station side' : 'far side'} (${near ? F.near : F.sideN - F.near} of ${F.sideN})`;
+}
+function vtAutoText(F, withSide) {
+  const bits = [];
+  if (withSide && vtAutoSide(F)) bits.push(vtAutoSide(F));
+  if (F.pins !== null) bits.push(`${F.pins.toFixed(1)} pin${F.pins.toFixed(1) === '1.0' ? '' : 's'}`);
+  if (F.tog !== null) bits.push(`${F.tog.toFixed(1)} toggle${F.tog.toFixed(1) === '1.0' ? '' : 's'} to its colour`);
+  return bits.join(' · ');
+}
+// One autonomous it runs again and again, or nothing. Each match's path is six
+// points, three seconds apart. A group of matches whose paths stay within an
+// eighth of the field of each other, three or more and most of them, is a
+// routine; its average is what gets replayed. Anything less and there is no
+// replay at all (asked for: "if theres no consistent auton then they shouldnt
+// have the replay option").
+function vtAutoReplay(rows) {
+  const paths = rows.map(r => Array.from({ length: 6 }, (_, k) => r['p' + 2 * k] >= 0 ? [r['p' + 2 * k] / 100, r['p' + (2 * k + 1)] / 100] : null)).filter(p => p.filter(Boolean).length >= 4);
+  if (paths.length < 3) return null;
+  const dist = (a, b) => { let d = 0, n = 0; for (let k = 0; k < 6; k++) if (a[k] && b[k]) { d += Math.hypot(a[k][0] - b[k][0], a[k][1] - b[k][1]); n++; } return n >= 3 ? d / n : Infinity; };
+  let best = [];
+  for (const seed of paths) { const m = paths.filter(q => dist(seed, q) < 0.125); if (m.length > best.length) best = m; }
+  if (best.length < 3 || best.length < 0.6 * paths.length) return null;
+  const pts = [];
+  for (let k = 0; k < 6; k++) { const h = best.map(q => q[k]).filter(Boolean); if (h.length) pts.push([vtAvg(h.map(q => q[0])), vtAvg(h.map(q => q[1])), k * 3]); }
+  let len = 0; for (let k = 1; k < pts.length; k++) len += Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1]);
+  return { pts, n: best.length, of: paths.length, still: len < 0.08 };
+}
+function vtReplayPlay(btn) {
+  const svg = btn && btn.parentNode && btn.parentNode.querySelector('svg');
+  if (!svg) return;
+  svg.classList.add('on');
+  svg.querySelectorAll('animate').forEach(a => { try { a.beginElement(); } catch (e) {} });
+}
 // The field from above, red's… the robot's own wall on the left: where it
 // spends driver control (shading) and its autonomous paths (lines).
-function vtFieldSvg(heat, paths) {
-  const S = 200, max = Math.max(1, ...(heat || [0]));
-  let cells = '';
-  if (heat) for (let r = 0; r < 5; r++) for (let c = 0; c < 5; c++) { const v = heat[r * 5 + c] / max; if (v > 0.04) cells += `<rect x="${c * 40}" y="${r * 40}" width="40" height="40" fill="currentColor" opacity="${(0.08 + 0.6 * v).toFixed(2)}"/>`; }
-  const lines = (paths || []).slice(0, 30).map(p => `<polyline points="${p.map(q => (q[0] * S).toFixed(0) + ',' + (q[1] * S).toFixed(0)).join(' ')}" fill="none" stroke="var(--accent-bright)" stroke-width="1.5" opacity="0.55"/>`).join('');
-  const starts = (paths || []).slice(0, 30).map(p => `<circle cx="${(p[0][0] * S).toFixed(0)}" cy="${(p[0][1] * S).toFixed(0)}" r="2.5" fill="var(--accent-bright)"/>`).join('');
-  const tog = [[0, 100], [200, 100], [100, 0], [100, 200]].map(([x, y]) => `<circle cx="${x}" cy="${y}" r="5" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.7"/>`).join('');
-  return `<svg class="vr-field" viewBox="-8 -8 216 216" role="img" aria-label="The field from above, this robot's own wall on the left">
-    ${cells}<rect x="0" y="0" width="200" height="200" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.6"/>
+let vtFieldN = 0;
+function vtFieldSvg(heat, paths, replay) {
+  const S = 200, id = 'vtf' + (++vtFieldN), P = v => (v * S).toFixed(1);
+  // The heat: one colour, more of it where the robot spent more time, blurred
+  // so it reads as places rather than squares.
+  let hot = '';
+  if (heat && heat.length) {
+    const n = Math.round(Math.sqrt(heat.length)), c = S / n, max = Math.max(0.0001, ...heat);
+    let cells = '';
+    for (let r = 0; r < n; r++) for (let q = 0; q < n; q++) { const v = heat[r * n + q] / max; if (v > 0.03) cells += `<rect x="${(q * c).toFixed(1)}" y="${(r * c).toFixed(1)}" width="${c.toFixed(1)}" height="${c.toFixed(1)}" opacity="${Math.min(1, 0.12 + Math.pow(v, 0.7)).toFixed(2)}"/>`; }
+    hot = `<defs><filter id="${id}b" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="${(c * 0.5).toFixed(1)}"/></filter><clipPath id="${id}c"><rect x="0" y="0" width="${S}" height="${S}"/></clipPath>
+      <linearGradient id="${id}g"><stop offset="0" stop-color="var(--vr-heat)" stop-opacity="0.08"/><stop offset="1" stop-color="var(--vr-heat)"/></linearGradient></defs>
+      <g clip-path="url(#${id}c)"><g filter="url(#${id}b)" fill="var(--vr-heat)">${cells}</g></g>
+      <rect x="60" y="212" width="80" height="6" rx="3" fill="url(#${id}g)"/><text x="54" y="218" text-anchor="end" class="vr-ft">little</text><text x="146" y="218" class="vr-ft">a lot</text>`;
+  }
+  const lines = (paths || []).slice(0, 30).map(p => `<polyline points="${p.map(q => P(q[0]) + ',' + P(q[1])).join(' ')}" fill="none" stroke="var(--vr-own)" stroke-width="1.5" opacity="0.55"/>`).join('');
+  // The replay: the routine's line, and a robot-sized dot that drives it when
+  // Play is pressed. Its six points are three seconds apart, so the dot keeps
+  // the routine's own timing (15 s shown in 6).
+  let play = '';
+  if (replay && replay.pts && replay.pts.length >= 2) {
+    const q = replay.pts, T = q[q.length - 1][2] || 1, kt = q.map(p => (p[2] / T).toFixed(3)).join(';');
+    play = `<polyline points="${q.map(p => P(p[0]) + ',' + P(p[1])).join(' ')}" fill="none" stroke="var(--vr-own)" stroke-width="2" stroke-dasharray="3 4" opacity="0.7"/>
+      <circle cx="${P(q[0][0])}" cy="${P(q[0][1])}" r="4" fill="none" stroke="var(--vr-own)" stroke-width="1.5"/>
+      <rect class="vr-bot" x="${(q[0][0] * S - 9).toFixed(1)}" y="${(q[0][1] * S - 9).toFixed(1)}" width="18" height="18" rx="3" fill="var(--vr-own)">
+        <animate attributeName="x" values="${q.map(p => (p[0] * S - 9).toFixed(1)).join(';')}" keyTimes="${kt}" dur="${(T * 0.4).toFixed(1)}s" begin="indefinite" fill="freeze"/>
+        <animate attributeName="y" values="${q.map(p => (p[1] * S - 9).toFixed(1)).join(';')}" keyTimes="${kt}" dur="${(T * 0.4).toFixed(1)}s" begin="indefinite" fill="freeze"/></rect>`;
+  }
+  const ring = (g, r, extra) => `<circle cx="${P(g[0])}" cy="${P(g[1])}" r="${r}" ${extra}/>`;
+  const goals = VT_GOALS_OWN.map(g => ring(g, 5, 'fill="var(--vr-own)" stroke="var(--bg)" stroke-width="1"')).join('')
+    + VT_GOALS_OPP.map(g => ring(g, 5, 'fill="currentColor" opacity="0.45"')).join('')
+    + VT_GOALS_NEUTRAL.map((g, k) => ring(g, k === 4 ? 10 : 7, 'fill="none" stroke="currentColor" stroke-width="1.25" opacity="0.6"')).join('');
+  const tog = [[-3, 88, 6, 24], [197, 88, 6, 24], [88, -3, 24, 6], [88, 197, 24, 6]].map(([x, y, w, h]) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="2" fill="var(--vr-toggle)"/>`).join('');
+  const load = `<path d="M0 26 L26 0 M0 174 L26 200" stroke="var(--vr-own)" stroke-width="2" opacity="0.8"/><path d="M200 26 L174 0 M200 174 L174 200" stroke="currentColor" stroke-width="2" opacity="0.4"/>`;
+  return `<svg class="vr-field" viewBox="-8 -8 216 ${heat && heat.length ? 232 : 216}" role="img" aria-label="The field from above, this robot's drivers on the left">
+    ${hot}<rect x="0" y="0" width="200" height="200" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.6"/>
     <path d="M0 0 L200 200 M200 0 L0 200" stroke="currentColor" stroke-width="0.75" opacity="0.25"/>
     <path d="M100 56 L144 100 L100 144 L56 100 Z" fill="none" stroke="currentColor" stroke-width="0.75" opacity="0.35"/>
-    ${tog}${lines}${starts}</svg>`;
+    ${load}${goals}${tog}${lines}${play}</svg>`;
 }
+const VT_FIELD_KEY = 'Its drivers stand on the left. Green: its alliance’s goals and loaders. Grey dots: the opponents’ goals. Rings: neutral goals. Yellow bars: toggles.';
 
 // ── Marking the field's corners on a stream ────────────────────────────────
 // Over the Jumper's player, which must be showing the whole field. Four
@@ -10716,16 +10853,12 @@ function vtBrief(number, sums) {
   const field = (isOwn ? rows.own : rows.pair).filter(r => r.th !== undefined && r.th !== null);
   B.field = field.length;
   const who = isOwn ? '' : 'Its alliances: ';
-  // Autonomous: the routes, where the field is known; else how far it goes.
-  if (field.length >= 2) {
-    const by = new Map();
-    for (const r of field) { const k = String(r.art || 0); by.set(k, (by.get(k) || 0) + 1); }
-    const routes = [...by.entries()].sort((a, b) => b[1] - a[1]).slice(0, 2).map(([code, n]) => {
-      const steps = code.split('').map(d => VT_ZONE_WORDS[d]).filter(Boolean);
-      return (steps.length > 1 ? steps[0] + ' → ' + steps.slice(1).join(' → ') : steps.length ? 'stays in ' + steps[0] : 'not in view') + ` (${n} of ${field.length})`;
-    });
-    B.auto = routes.join('; ') + (by.size > 2 ? `; ${by.size - 2} more seen` : '') + '.';
-  } else {
+  // Autonomous: what it gets done (pins, toggles, which side it starts on),
+  // not the route. Asked for: "i also dont want to know their autonomous route
+  // just the amount of pins. and toggles switched to their color".
+  B.auto = vtAutoText(vtAutoFacts(isOwn ? rows.own : rows.pair, isOwn ? 1 : 2, vtPinCheck(sums)), true);
+  if (B.auto) B.auto += '.';
+  else {
     const am = col(mine, 'am'), moved = am.filter(v => v >= 1).length, reach = avg(mine, 'ar');
     if (am.length) B.auto = who + `moved in ${moved} of ${am.length}` + (reach === null ? '.' : reach > 0.55 ? ', usually crossing the middle.' : reach > 0.3 ? ', usually going toward the middle.' : ', staying near its own side.');
   }
@@ -11201,6 +11334,20 @@ function vtToggleRead(rec, turnK, ph) {
     owners[q] = col;
   }
   return owners;
+}
+// Toggles turned to each colour during autonomous: its colour when autonomous
+// ends, and not already that colour before the match began. → { 1: n, 2: n }
+function vtToggleAuto(rec, ph) {
+  const a = rec.tg || [], rows = [];
+  for (let i = 0; i + 8 < a.length; i += 9) rows.push({ t: a[i] / 10, v: a.slice(i + 1, i + 9) });
+  const endT = ph.start + 15, win = (lo, hi) => rows.filter(r => r.t >= lo && r.t <= hi);
+  const end = win(endT - 1, Math.min(endT + 10, Math.max(endT + 2, ph.driver - 0.5)));
+  if (!end.length) return null;
+  const before = win(ph.start - 8, ph.start + 1);
+  const cols = list => [0, 1, 2, 3].map(k => { if (!list.length) return 0; const red = vtAvg(list.map(r => r.v[2 * k])), blue = vtAvg(list.map(r => r.v[2 * k + 1])); return red >= 8 && red >= 2 * blue ? 1 : blue >= 8 && blue >= 2 * red ? 2 : 0; });
+  const e = cols(end), b = cols(before), out = { 1: 0, 2: 0 };
+  for (let k = 0; k < 4; k++) if (e[k] && e[k] !== b[k]) out[e[k]]++;
+  return out;
 }
 function vtPinLook(slot, video, sx, sy, w, h, boxes) {
   const W = VT_PIN_W, H = Math.max(2, Math.round(h * W / w)), k = W / w;
