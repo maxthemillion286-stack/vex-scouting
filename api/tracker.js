@@ -94,7 +94,9 @@ export function validRec(rec) {
     if (!Array.isArray(fr) || fr.length > 2 + per * 40 || !fr.every(v => Number.isInteger(v) && v > -100000 && v < 100000)) return 'bad frame';
     if (fr.length < 2 || fr.length !== 2 + per * fr[1]) return 'bad frame length';
   }
-  const allowed = ['v', 'name', 'round', 'num', 'red', 'blue', 'rs', 'bs', 'vid', 'off', 'rate', 'w', 'h', 'model', 'at', 'f', 'wide', 'tm', 'pn', 'pw', 'ph'];
+  const allowed = ['v', 'name', 'round', 'num', 'red', 'blue', 'rs', 'bs', 'vid', 'off', 'rate', 'w', 'h', 'model', 'at', 'f', 'wide', 'tm', 'pn', 'pw', 'ph', 'tg'];
+  // Toggle readings: [tenths, then red% and blue% for each of four walls], nine whole numbers a look.
+  if (rec.tg != null && !(Array.isArray(rec.tg) && rec.tg.length <= 2000 && rec.tg.length % 9 === 0 && rec.tg.every(v => Number.isInteger(v) && v > -100000 && v < 100000))) return 'bad toggles';
   // Pin sightings: [tenths, how many, then six whole numbers each: x, y, w, h, area, colour].
   if (rec.pn != null && !(Array.isArray(rec.pn) && rec.pn.length <= 40000 && rec.pn.every(v => Number.isInteger(v) && v > -100000 && v < 10000000))) return 'bad pins';
   for (const k of ['pw', 'ph']) if (rec[k] != null && !(Number.isInteger(rec[k]) && rec[k] > 0 && rec[k] < 10000)) return 'bad ' + k;

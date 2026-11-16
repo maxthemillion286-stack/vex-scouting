@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.14'
+VERSION = '2.16'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -289,6 +289,61 @@ def pin_blobs(frame, boxes):
             out.append([jround((2 * x0 + bw) / 2), y0 + bh, bw, bh, area, c])
     out.sort(key=lambda q: -q[4])
     return W, H, out[:PIN_MAX_BLOBS]
+
+TOG_ALONG, TOG_LIFTS, TOG_N = 0.09, (0.035, 0.0475, 0.06, 0.0725, 0.085), 24
+WALL_MID = ((0.5, 0), (1, 0.5), (0.5, 1), (0, 0.5))
+
+def quad_fwd(q):
+    """Unit square → picture, for four corners in any order (the website's vtHomographyFwd)."""
+    cx, cy = (q[0] + q[2] + q[4] + q[6]) / 4, (q[1] + q[3] + q[5] + q[7]) / 4
+    p = sorted(((q[i], q[i + 1]) for i in range(0, 8, 2)), key=lambda t: math.atan2(t[1] - cy, t[0] - cx))
+    (x0, y0), (x1, y1), (x2, y2), (x3, y3) = p
+    dx1, dx2, sx, dy1, dy2, sy = x1 - x2, x3 - x2, x0 - x1 + x2 - x3, y1 - y2, y3 - y2, y0 - y1 + y2 - y3
+    den = dx1 * dy2 - dx2 * dy1
+    if abs(den) < 1e-9:
+        return None
+    g, h = (sx * dy2 - dx2 * sy) / den, (dx1 * sy - sx * dy1) / den
+    a, b, c, d, e, f = x1 - x0 + g * x1, x3 - x0 + h * x3, x0, y1 - y0 + g * y1, y3 - y0 + h * y3, y0
+    def fwd(u, v):
+        w = g * u + h * v + 1
+        return (a * u + b * v + c) / w, (d * u + e * v + f) / w
+    return fwd
+
+def toggle_look(frame, q):
+    """How red and how blue the top of each wall's middle is: [red%, blue%] × 4.
+    The website's vtToggleLook: same points, same colour test."""
+    fwd = quad_fwd(q)
+    if not fwd:
+        return None
+    H, W = frame.shape[:2]
+    aspect = W / H
+    out = []
+    for mu, mv in WALL_MID:
+        along = (1, 0) if mv in (0, 1) else (0, 1)
+        inward = ((0.5 > mu) - (0.5 < mu), (0.5 > mv) - (0.5 < mv))
+        M, A, I = fwd(mu, mv), fwd(mu + along[0] * 0.05, mv + along[1] * 0.05), fwd(mu + inward[0] * 0.05, mv + inward[1] * 0.05)
+        scale = max(math.hypot(A[0] - M[0], (A[1] - M[1]) / aspect), math.hypot(I[0] - M[0], (I[1] - M[1]) / aspect)) / 0.05
+        r = b = n = 0
+        for i in range(TOG_N):
+            t = (i / (TOG_N - 1) * 2 - 1) * TOG_ALONG
+            P = fwd(mu + along[0] * t, mv + along[1] * t)
+            for lift in TOG_LIFTS:
+                x, y = jround(P[0] * W), jround((P[1] - lift * scale * aspect) * H)
+                if x < 0 or y < 0 or x >= W or y >= H:
+                    continue
+                n += 1
+                bb, gg, rr = (float(v) for v in frame[y, x])
+                mx, mn = max(rr, gg, bb), min(rr, gg, bb)
+                if mx < 90 or mx - mn < 0.45 * mx:
+                    continue
+                if rr >= 140 and gg >= 105 and bb < 0.55 * min(rr, gg) and abs(rr - gg) < 0.32 * mx:
+                    continue                          # yellow: neither
+                if rr == mx and gg < 0.55 * rr and bb < 0.6 * rr:
+                    r += 1
+                elif bb == mx and rr < 0.55 * bb:
+                    b += 1
+        out += [jround(100 * r / n) if n else 0, jround(100 * b / n) if n else 0]
+    return out
 
 def plate_box(img, col):
     """Where the plate is inside a robot's box: the widest band of its colour."""
@@ -660,6 +715,20 @@ class Video:
                     cap.release()
             except Exception:
                 self.cap = None
+        # A file fetched in part holds some stretches of the stream, one after
+        # another. `spans` says which. Inside the file time runs on without
+        # the gaps, so a place in the stream has to be turned into a place in
+        # the file to go to it; and the reader reports time counted from the
+        # first stretch's start, so that is added back.
+        self.spans = None
+        try:
+            with open(path + '.have.json') as f:
+                self.spans = [[float(a), float(b)] for a, b in json.load(f)['spans']] or None
+        except Exception:
+            self.spans = None
+        if self.spans:
+            hw = False                                    # the jump test below assumes a whole file
+            self.cap = None
         if self.cap is None:
             self.cap = cv2.VideoCapture(path)
         if not self.cap.isOpened():
@@ -670,13 +739,29 @@ class Video:
         frames = self.cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0
         self.length = frames / self.fps if frames > 0 else 0
         self.pos = 0.0
+        self.out = False                                  # pointed at a stretch this file does not hold
+        if self.spans:
+            self.length = self.spans[-1][1]               # the stream's own length, for "past the end"
 
     def seek(self, sec):
-        self.cap.set(self.cv2.CAP_PROP_POS_MSEC, max(0, sec) * 1000)
-        self.pos = max(0, sec)
+        sec = max(0, sec)
+        self.pos = sec
+        if not self.spans:
+            self.cap.set(self.cv2.CAP_PROP_POS_MSEC, sec * 1000)
+            return
+        before = 0.0
+        for a, b in self.spans:
+            if a <= sec < b:
+                self.out = False
+                self.cap.set(self.cv2.CAP_PROP_POS_MSEC, (before + sec - a) * 1000)
+                return
+            before += b - a
+        self.out = True
 
     def read_at_step(self, step):
         """Skip step-1 frames, return the next. → (seconds, frame) or (None, None) at the end."""
+        if self.out:
+            return None, None
         for _ in range(step - 1):
             if not self.cap.grab():
                 return None, None
@@ -684,11 +769,13 @@ class Video:
         if not ok:
             return None, None
         ms = self.cap.get(self.cv2.CAP_PROP_POS_MSEC)
-        self.pos = ms / 1000 if ms > 0 else self.pos + step / self.fps
+        self.pos = (ms / 1000 + (self.spans[0][0] if self.spans else 0)) if ms > 0 else self.pos + step / self.fps
         return self.pos, frame
 
     def frame_at(self, sec):
         self.seek(sec)
+        if self.out:
+            return None
         ok, frame = self.cap.read()
         return frame if ok else None
 
@@ -726,7 +813,7 @@ def find_match(video, eyes, job, spacing, around):
     return None
 
 
-def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None):
+def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None, quad=None):
     """Watch one match. → (recording or None, why, shift found)"""
     learn = learn if learn is not None else {}
     four = [(job['red'] + ['', ''])[0], (job['red'] + ['', ''])[1], (job['blue'] + ['', ''])[0], (job['blue'] + ['', ''])[1]]
@@ -739,7 +826,7 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
     def fresh():
         return {'v': 2, 'name': str(job.get('name', ''))[:60], 'round': job.get('round'), 'num': job.get('num'), 'red': job['red'], 'blue': job['blue'],
                 'rs': job.get('rs'), 'bs': job.get('bs'), 'vid': job['vid'], 'off': int(round(off)), 'rate': 4, 'w': SIZE, 'h': 0,
-                'model': 'det1', 'at': int(time.time() * 1000), 'f': [], 'tm': [], 'pn': []}
+                'model': 'det1', 'at': int(time.time() * 1000), 'f': [], 'tm': [], 'pn': [], 'tg': []}
 
     while True:
         rec = fresh()
@@ -780,6 +867,10 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
                 pw, ph_, blobs = pin_blobs(frame, boxes)
                 rec['pw'], rec['ph'] = pw, ph_
                 rec['pn'] += [jround((t - rec['off']) * 10), len(blobs)] + [v for bl in blobs for v in bl]
+                if quad and len(rec['tg']) < 1800:      # the toggles, where the field's corners put them
+                    tg = toggle_look(frame, quad)
+                    if tg:
+                        rec['tg'] += [jround((t - rec['off']) * 10)] + tg
             # The match clock: from its known place every second, else searched for every five.
             if t >= clock_at + (1 if learn.get('clock') else 5) and len(rec['tm']) < 320:
                 clock_at = t
@@ -851,11 +942,16 @@ def work_chunk(args):
         _EYES = Eyes(quiet=True, threads=max(1, (os.cpu_count() or 8) // max(1, int(cfg.get('workers', 4)))))
     video = Video(path, hw=bool(cfg.get('hw_decode', True)))
     out, shift, learn = [], 0, {}
+    quads = {}                                        # the field's corners for each video, as marked on the website
     try:
         for job in jobs:
             t0 = time.time()
             try:
-                rec, why, shift = track_match(video, _EYES, job, shift, spacing, True, learn)
+                if job['vid'] not in quads:
+                    fld = (site.get('?field=' + job['vid']) or {}).get('field') or {}
+                    q = fld.get('q')
+                    quads[job['vid']] = q if isinstance(q, list) and len(q) == 8 else None
+                rec, why, shift = track_match(video, _EYES, job, shift, spacing, True, learn, quads[job['vid']])
             except Exception as e:
                 rec, why = None, 'error: ' + str(e)
             saved = None
@@ -879,14 +975,30 @@ def work_chunk(args):
 
 
 # ── getting the video ───────────────────────────────────────────────────────
-def find_video(cfg, vid):
+def find_video(cfg, vid, windows=None):
     mapped = cfg.get('files', {}).get(vid)
     if mapped and os.path.exists(mapped):
         return mapped
     os.makedirs(DIRS['videos'], exist_ok=True)
     for name in os.listdir(DIRS['videos']):
-        if name.startswith(vid + '.') and not name.endswith(('.part', '.ytdl')):
-            return os.path.join(DIRS['videos'], name)
+        if name.startswith(vid + '.') and not name.endswith(('.part', '.ytdl', '.json')):
+            path = os.path.join(DIRS['videos'], name)
+            have = path + '.have.json'
+            if os.path.exists(have):
+                # Fetched in part. Good only for stretches it has; otherwise it is fetched again.
+                try:
+                    with open(have) as f:
+                        got = json.load(f).get('windows', [])
+                except Exception:
+                    got = []
+                if not windows or not all(any(g0 <= w0 and g1 >= w1 for g0, g1 in got) for w0, w1 in windows):
+                    for junk in (path, have):
+                        try:
+                            os.remove(junk)
+                        except OSError:
+                            pass
+                    continue
+            return path
     return None
 
 def ensure_downloader():
@@ -923,7 +1035,80 @@ def ensure_downloader():
             say('  could not get it (%s); downloading the slower way.' % str(e)[:100])
     return bool(shutil.which('deno'))
 
-def fetch_parallel(url, dest, headers=None, total=0, conns=32, piece=8 * 1024 * 1024, report=None, max_mbps=0):
+def parse_index(head):
+    """The segment index (sidx) at the start of a DASH video file.
+    → (where the first segment starts, [(start second, seconds, first byte, bytes), …]) or None."""
+    import struct
+    pos = 0
+    while pos + 8 <= len(head):
+        size, typ = struct.unpack('>I4s', head[pos:pos + 8])
+        hdr = 8
+        if size == 1:
+            if pos + 16 > len(head):
+                return None
+            size, hdr = struct.unpack('>Q', head[pos + 8:pos + 16])[0], 16
+        if size < hdr:
+            return None
+        if typ == b'sidx':
+            if pos + size > len(head):
+                return None
+            b = head[pos + hdr:pos + size]
+            ver = b[0]
+            timescale = struct.unpack('>I', b[8:12])[0]
+            if ver == 0:
+                ept, first = struct.unpack('>II', b[12:20]); o = 20
+            else:
+                ept, first = struct.unpack('>QQ', b[12:28]); o = 28
+            count = struct.unpack('>H', b[o + 2:o + 4])[0]; o += 4
+            if not timescale or count < 1 or o + 12 * count > len(b):
+                return None
+            anchor = pos + size + first
+            segs, t, off = [], ept / timescale, anchor
+            for i in range(count):
+                ref, dur = struct.unpack('>II', b[o + 12 * i:o + 12 * i + 8])
+                if ref >> 31:
+                    return None                       # an index of indexes: not handled
+                sz = ref & 0x7fffffff
+                segs.append((t, dur / timescale, off, sz))
+                t += dur / timescale
+                off += sz
+            return anchor, segs
+        pos += size
+    return None
+
+def needed_ranges(index, windows, total):
+    """Which bytes hold these stretches of time. Asked for as: fetch only the
+    minutes of a stream that have matches in them, not all eight hours.
+    → ([(first byte, last byte), …], [[from second, to second], …]) — the bytes
+    to fetch, and the stretches of time they hold, both in order."""
+    anchor, segs = index
+    keep, spans = [], []
+    for t, dur, off, sz in segs:
+        if off >= total or not any(t < w1 and t + dur > w0 for w0, w1 in windows):
+            continue
+        if keep and off == keep[-1][1] + 1:               # carries straight on from the last one
+            keep[-1] = (keep[-1][0], min(total, off + sz) - 1)
+            spans[-1][1] = t + dur
+        else:
+            keep.append((off, min(total, off + sz) - 1))
+            spans.append([t, t + dur])
+    return keep, spans
+
+def strip_index(head, anchor):
+    """The file's opening without its segment index: the index points at
+    places in the whole file, and would be wrong for the shorter one."""
+    import struct
+    out, pos = b'', 0
+    while pos + 8 <= anchor:
+        size, typ = struct.unpack('>I4s', head[pos:pos + 8])
+        if size < 8:
+            break
+        if typ != b'sidx':
+            out += head[pos:pos + size]
+        pos += size
+    return out
+
+def fetch_parallel(url, dest, headers=None, total=0, conns=32, piece=8 * 1024 * 1024, report=None, max_mbps=0, ranges=None, head=None):
     """One file over many connections at once, each asking for its own range.
 
     Reported, with a gigabit line: "downloading: 13% of 6232 MB at 11.6 MB/s".
@@ -946,11 +1131,25 @@ def fetch_parallel(url, dest, headers=None, total=0, conns=32, piece=8 * 1024 * 
     if total <= 0:
         return False
     part = dest + '.part'
-    with open(part, 'wb') as f:
-        f.truncate(total)
     todo = queue.Queue()
-    for a in range(0, total, piece):
-        todo.put((a, min(total, a + piece) - 1))
+    # The whole file, or only the stretches asked for (see needed_ranges). The
+    # stretches are written one after another behind the file's opening (its
+    # header, already in hand): a shorter file that is still a proper video.
+    # (Leaving them at their own places with gaps between was tried first; the
+    # video reader could not find its way across the gaps.)
+    want, npieces, at = 0, 0, len(head or b'')
+    for r0, r1 in (ranges or [(0, total - 1)]):
+        for a in range(r0, min(total, r1 + 1), piece):
+            b = min(total, r1 + 1, a + piece) - 1
+            todo.put((a, b, at if ranges else a))
+            at += b - a + 1
+            want += b - a + 1
+            npieces += 1
+    with open(part, 'wb') as f:
+        f.truncate(at if ranges else total)
+        if head and ranges:
+            f.seek(0)
+            f.write(head)
     state = {'done': 0, 'failed': False, 't0': time.time(), 'said': 0.0, 'got': 0}
     lock = threading.Lock()
     # A ceiling on speed, when one is set. Reported: "the download is affecting
@@ -975,7 +1174,7 @@ def fetch_parallel(url, dest, headers=None, total=0, conns=32, piece=8 * 1024 * 
         with open(part, 'r+b') as f:
             while not state['failed']:
                 try:
-                    a, b = todo.get_nowait()
+                    a, b, where = todo.get_nowait()
                 except queue.Empty:
                     return
                 for attempt in range(5):
@@ -996,13 +1195,13 @@ def fetch_parallel(url, dest, headers=None, total=0, conns=32, piece=8 * 1024 * 
                         if len(data) != b - a + 1:
                             raise IOError('short piece')
                         with lock:
-                            f.seek(a)
+                            f.seek(where)
                             f.write(data)
                             state['done'] += len(data)
                             now = time.time()
                             if report and now - state['said'] > 5:
                                 state['said'] = now
-                                report(state['done'], total, state['done'] / max(0.1, now - state['t0']))
+                                report(state['done'], want, state['done'] / max(0.1, now - state['t0']))
                         break
                     except Exception:
                         if attempt == 4:
@@ -1010,12 +1209,12 @@ def fetch_parallel(url, dest, headers=None, total=0, conns=32, piece=8 * 1024 * 
                         else:
                             time.sleep(1 + attempt)
 
-    threads = [threading.Thread(target=work, daemon=True) for _ in range(max(1, min(conns, (total + piece - 1) // piece)))]
+    threads = [threading.Thread(target=work, daemon=True) for _ in range(max(1, min(conns, npieces)))]
     for t in threads:
         t.start()
     for t in threads:
         t.join()
-    if state['failed'] or state['done'] != total:
+    if state['failed'] or state['done'] != want:
         try:
             os.remove(part)
         except OSError:
@@ -1024,7 +1223,7 @@ def fetch_parallel(url, dest, headers=None, total=0, conns=32, piece=8 * 1024 * 
     os.replace(part, dest)
     return True
 
-def download(vid_or_url, dest_stem):
+def download(vid_or_url, dest_stem, windows=None):
     """Fetch a stream's recording as a file: 720p, 30 frames a second at most.
     Robots and plates are as readable as at 60, and the file is half the size."""
     ensure_downloader()
@@ -1059,10 +1258,30 @@ def download(vid_or_url, dest_stem):
                 if info.get('url') and str(info.get('protocol', '')).startswith('http') and 'dash' not in str(info.get('protocol', '')) and not info.get('fragments'):
                     dest = y.prepare_filename(info)
                     t0 = time.time()
-                    ok = fetch_parallel(info['url'], dest, info.get('http_headers'), int(info.get('filesize') or 0), max_mbps=limit,
+                    total_bytes = int(info.get('filesize') or 0)
+                    ranges, head = None, None
+                    if windows and total_bytes:
+                        # Only the stretches with matches in them, where the file says where they are.
+                        try:
+                            req = urllib.request.Request(info['url'], headers=dict(info.get('http_headers') or {}, Range='bytes=0-%d' % (min(total_bytes, 2 * 1024 * 1024) - 1)))
+                            with urllib.request.urlopen(req, timeout=60) as r:
+                                first = r.read()
+                            idx = parse_index(first)
+                            if idx:
+                                rs, spans = needed_ranges(idx, windows, total_bytes)
+                                need = sum(b - a + 1 for a, b in rs) + idx[0]
+                                if rs and need < 0.8 * total_bytes:
+                                    ranges, head = rs, strip_index(first, idx[0])
+                                    say('  only the parts with matches in them: %.0f MB of %.0f MB.' % (need / 1e6, total_bytes / 1e6))
+                        except Exception:
+                            ranges, head = None, None
+                    ok = fetch_parallel(info['url'], dest, info.get('http_headers'), total_bytes, max_mbps=limit, ranges=ranges, head=head,
                                         report=lambda done, total, speed: say('  downloading: %d%% of %.0f MB at %.1f MB/s' % (100 * done / total, total / 1e6, speed / 1e6)))
                     if ok:
-                        say('  downloaded %.0f MB in %.0f s.' % (os.path.getsize(dest) / 1e6, time.time() - t0))
+                        say('  downloaded in %.0f s.' % (time.time() - t0))
+                        if ranges:                        # remember which stretches of time this file holds
+                            with open(dest + '.have.json', 'w') as f:
+                                json.dump({'windows': windows, 'spans': spans}, f)
                         return dest
                     say('  the fast way was refused; downloading the ordinary way.')
             except Exception:
@@ -1109,9 +1328,20 @@ def do_jobs(cfg):
     # waits for the other.
     order = sorted(todo.items(), key=lambda kv: -len(kv[1]))
     fetched = {}
+    def windows_of(vid):
+        # Each match with room either side: the Jumper's place for it can be a minute or two out.
+        ws = sorted((max(0, j['off'] - 120), j['off'] + WINDOW_WIDE + 120) for _, j in todo[vid])
+        merged = []
+        for a, b in ws:
+            if merged and a <= merged[-1][1]:
+                merged[-1][1] = max(merged[-1][1], b)
+            else:
+                merged.append([a, b])
+        return merged
     def fetch(vid):
         try:
-            fetched[vid] = find_video(cfg, vid) or download(vid, os.path.join(DIRS['videos'], vid))
+            ws = windows_of(vid)
+            fetched[vid] = find_video(cfg, vid, ws) or download(vid, os.path.join(DIRS['videos'], vid), ws)
         except Exception as e:
             say('  could not get %s: %s' % (vid, str(e)[:120]))
             fetched[vid] = None
@@ -1123,8 +1353,7 @@ def do_jobs(cfg):
                 say('  finishing its download…')
             ahead[1].join()
         else:
-            if not find_video(cfg, vid):
-                say('  downloading it…')
+            say('  getting the video…')
             fetch(vid)
         path = fetched.get(vid)
         ahead = None
@@ -1164,10 +1393,11 @@ def do_jobs(cfg):
                     say('  %3d/%d  %-22s %s' % (done, len(pairs), str(res['name'])[:22],
                         ('saved · %d looks · %d plates · %d pin sightings · clock %d · %.0fs' % (res['looks'], res['plates'], res.get('pins', 0), res['clock'], res['sec'])) if res['ok'] else 'not saved: ' + res['why']))
         if not cfg.get('keep_videos') and path.startswith(DIRS['videos']):
-            try:
-                os.remove(path)
-            except OSError:
-                pass
+            for junk in (path, path + '.have.json'):
+                try:
+                    os.remove(junk)
+                except OSError:
+                    pass
     mins = (time.time() - t_all) / 60
     say('\nDone in %.1f minutes: %d matches saved to the website, %d not. %d plates read, the clock read %d times.%s' % (mins, totals['ok'], totals['no'], totals['plates'], totals['clock'], ' Video was decoded on the graphics card.' if totals.get('hw') else ''))
     say('Now open the Robot tracker box on the website (any event). It brings these in and builds the reports by itself.')

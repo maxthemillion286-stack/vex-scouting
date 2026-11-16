@@ -3704,7 +3704,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v129';
+const APP_BUILD = 'v130';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -8779,12 +8779,13 @@ async function vtWatch(run, slot, m) {
   player.loadVideoById({ videoId: m.vid, startSeconds: start });
   try { player.mute(); player.setPlaybackRate(VT_RATE); } catch (e) {}
   const rec = { v: 2, name: String(m.name || '').slice(0, 60), round: m.round, num: m.num, red: m.red, blue: m.blue,
-    rs: m.rs, bs: m.bs, vid: m.vid, off: m.off, rate: VT_RATE, w: VT_SIZE, h: 0, model: VT_MODEL, at: Date.now(), f: [], tm: [], pn: [] };
+    rs: m.rs, bs: m.bs, vid: m.vid, off: m.off, rate: VT_RATE, w: VT_SIZE, h: 0, model: VT_MODEL, at: Date.now(), f: [], tm: [], pn: [], tg: [] };
   const seen = document.getElementById('vtSeen'), sc = seen && seen.getContext('2d');
   const stage = document.getElementById('vtPlayers'), tile = document.getElementById('vtTile' + slot.i);
   let looks = 0, robotLooks = 0, holding = false, checked = 0, resyncs = 0, clockAt = -1e9, pinAt = -1e9;
   const L = await vtLearnGet(m.vid);
   slot.att = [];
+  try { slot.quad = await vtFieldGet(m.vid); } catch (e) { slot.quad = null; }       // the toggles are looked for where the field's corners put them
   // Which match does the stream say this is?
   const probe = async () => {
     for (let i = 0; i < 30; i++) { let st = -1; try { st = player.getPlayerState(); } catch (e) {} if (st === 1) break; await vtSleep(200); }
@@ -8821,7 +8822,7 @@ async function vtWatch(run, slot, m) {
     }
     // From just before the name appears. The match itself starts some time
     // after that, so the window is long, and the summary finds the real start.
-    m.off = rec.off = Math.max(0, first - 15); rec.wide = 1; rec.f = []; rec.tm = []; rec.pn = []; slot.att = [];
+    m.off = rec.off = Math.max(0, first - 15); rec.wide = 1; rec.f = []; rec.tm = []; rec.pn = []; rec.tg = []; slot.att = [];
     start = m.off; end = start + VT_WINDOW_WIDE; robotLooks = 0; lastT = -1; apiT = -1;
     wallLimit = Date.now() + (VT_WINDOW_WIDE / VT_RATE + 90) * 1000;
     await seek(start);
@@ -8888,7 +8889,7 @@ async function vtWatch(run, slot, m) {
         // thing of a pin's size that is not on a robot.
         if (est >= pinAt + 2 && rec.pn.length < VT_PIN_MAX_INTS) {
           pinAt = est;
-          try { const P = vtPinLook(slot, video, sx, sy, w, h, boxes); rec.pw = P.W; rec.ph = P.H; rec.pn.push(Math.round((est - m.off) * 10), P.n, ...P.flat); run.pinsSeen = (run.pinsSeen || 0) + P.n; if (slot.i === 0) run.pins = P; } catch (e) {}
+          try { const P = vtPinLook(slot, video, sx, sy, w, h, boxes); rec.pw = P.W; rec.ph = P.H; rec.pn.push(Math.round((est - m.off) * 10), P.n, ...P.flat); if (P.tg && rec.tg.length < 1800) rec.tg.push(Math.round((est - m.off) * 10), ...P.tg); run.pinsSeen = (run.pinsSeen || 0) + P.n; if (slot.i === 0) run.pins = P; } catch (e) {}
         }
         if (est >= clockAt + (L.clock ? 1 : 5) && rec.tm.length < 320) {
           clockAt = est;
@@ -9317,6 +9318,7 @@ async function vtLiveLoop(run, slot, ctx, ev) {
   const clean = v => String(v).toUpperCase().replace(/[^A-Z0-9]/g, '');
   let cur = null, busy = false, lastScan = 0, lastLook = 0, lastClock = 0;
   const L = await vtLearnGet(vid);
+  try { slot.quad = await vtFieldGet(vid); } catch (e) { slot.quad = null; }
   const begin = (label, now) => {
     const m = byNum.get(label.num);
     if (!m) return null;                                   // not on the schedule this page loaded
@@ -9324,7 +9326,7 @@ async function vtLiveLoop(run, slot, ctx, ev) {
     slot.att = [];
     return { m: { id: String(m.id), ev, vid, name: m.name, round: 2, num: m.num }, t0: now, last: now,
       rec: { v: 2, name: String(m.name || '').slice(0, 60), round: 2, num: m.num, red: (m.redNums || []).map(clean), blue: (m.blueNums || []).map(clean),
-        rs: null, bs: null, vid, off: Math.round(now), rate: 1, w: VT_SIZE, h: 0, model: VT_MODEL, at: Date.now(), f: [], tm: [], pn: [], wide: 1 } };
+        rs: null, bs: null, vid, off: Math.round(now), rate: 1, w: VT_SIZE, h: 0, model: VT_MODEL, at: Date.now(), f: [], tm: [], pn: [], tg: [], wide: 1 } };
   };
   const finish = async () => { if (!cur) return; const c = cur; cur = null; if (c.rec.f.length >= 60) { await vtKeep(run, c.m, c.rec); run.done++; } };
   await new Promise(resolve => {
@@ -9346,7 +9348,7 @@ async function vtLiveLoop(run, slot, ctx, ev) {
         if (cur) await vtPlates(run, slot, video, sx, sy, boxes, now, w, [cur.rec.red[0], cur.rec.red[1], cur.rec.blue[0], cur.rec.blue[1]]);
         if (cur && now >= (cur.pinAt || 0) + 2 && cur.rec.pn.length < VT_PIN_MAX_INTS) {
           cur.pinAt = now;
-          try { const P = vtPinLook(slot, video, sx, sy, w, h, boxes); cur.rec.pw = P.W; cur.rec.ph = P.H; cur.rec.pn.push(Math.round((now - cur.rec.off) * 10), P.n, ...P.flat); run.pinsSeen = (run.pinsSeen || 0) + P.n; run.pins = P; } catch (e) {}
+          try { const P = vtPinLook(slot, video, sx, sy, w, h, boxes); cur.rec.pw = P.W; cur.rec.ph = P.H; cur.rec.pn.push(Math.round((now - cur.rec.off) * 10), P.n, ...P.flat); if (P.tg && cur.rec.tg.length < 1800) cur.rec.tg.push(Math.round((now - cur.rec.off) * 10), ...P.tg); run.pinsSeen = (run.pinsSeen || 0) + P.n; run.pins = P; } catch (e) {}
         }
         if (cur) { cur.rec.h = Math.round(h * VT_SIZE / w); cur.rec.f.push(vtPackFrame(now - cur.rec.off, boxes, w)); }
         if (Date.now() - lastScan > 4000) {
@@ -9906,6 +9908,18 @@ function vtSummarise(rec, quad, learn) {
         const r1 = v => Math.round(v * 10) / 10;
         [[Ra, 1, 0], [Rb, 1, 1], [Ba, 2, 0], [Bb, 2, 1]].forEach(([row, c, i]) => { const q = P.robots[c][i]; row.ys = r1(q.ys); row.as = r1(q.as); row.ya = r1(q.ya); if (q.t5 !== null) row.t5 = q.t5; });
         pins = { py: r1(P.py), pr: r1(P.pr), pb: r1(P.pb), pk: P.pk };
+        // With the toggles read: what each alliance's pins come to. Yellow in
+        // a quadrant goes to whoever's colour its toggle showed at the end;
+        // yellow in midfield to the alliance with more robots there; 8 for
+        // each robot in midfield. The autonomous bonus is not known to it.
+        const own = rec.tg && rec.tg.length ? vtToggleRead(rec, turnK, ph) : null;
+        if (own) {
+          const mid = c => (c === 1 ? [Ra, Rb] : [Ba, Bb]).filter(r => r.eg).length;
+          const est = c => VT_PTS_OWN * (c === 1 ? P.pr : P.pb) + VT_PTS_YELLOW * (own.reduce((a, o, q) => a + (o === c ? P.yq[q] : 0), 0) + (mid(c) > mid(3 - c) ? P.yq[4] : 0));
+          pins.tw = own[0] + 3 * own[1] + 9 * own[2] + 27 * own[3];
+          pins.er = r1(est(1)); pins.eb = r1(est(2));
+          pins.mr = mid(1); pins.mb = mid(2);
+        }
       }
     } catch (e) {}
   }
@@ -10264,13 +10278,21 @@ function vtPinCheck(sums) {
   ratios.sort((a, b) => a - b);
   const mid = a => a.length % 2 ? a[(a.length - 1) / 2] : (a[a.length / 2 - 1] + a[a.length / 2]) / 2;
   const k = mid(ratios), err = mid(ratios.map(r => Math.abs(r / k - 1)).sort((a, b) => a - b));
-  return { ok: true, n, raw: k, k: Math.max(0.4, Math.min(2.5, k)), err };
+  // Where the toggles were read, each alliance on its own: its pins as
+  // counted and corrected, plus its midfield robots, against its real score.
+  const kk = Math.max(0.4, Math.min(2.5, k)), sides = [];
+  for (const s of (sums && sums.values ? sums.values() : sums || [])) {
+    if (!s || !s.ok || !s.pk || s.er === undefined || !Number.isFinite(s.rs) || !Number.isFinite(s.bs)) continue;
+    for (const [est, mids, real] of [[s.er, s.mr || 0, s.rs], [s.eb, s.mb || 0, s.bs]]) sides.push(Math.abs(kk * est + VT_PTS_MID * mids + VT_PTS_AUTO / 2 - real) / Math.max(20, real));
+  }
+  sides.sort((a, b) => a - b);
+  return { ok: true, n, raw: k, k: kk, err, side: sides.length >= 8 ? mid(sides) : null, sideN: sides.length / 2 };
 }
 // In words: "checked against 12 official scores: counts ran 24% high and are corrected; a typical match is within 15%".
 function vtPinCheckText(c) {
   if (!c || !c.ok) return c && c.n ? `Not yet checked against official scores (${c.n} of the 4 matches needed).` : 'Not yet checked against official scores.';
   const off = 1 / c.raw - 1, how = Math.abs(off) < 0.05 ? 'counts matched' : `counts ran ${vtPct(Math.abs(off))} ${off > 0 ? 'high' : 'low'} and are corrected`;
-  return `Checked against ${c.n} official scores: ${how}; a typical match is within ${vtPct(c.err)}.`;
+  return `Checked against ${c.n} official scores: ${how}; a typical match is within ${vtPct(c.err)}.` + (c.side !== null && c.side !== undefined ? ` With the toggles read (${c.sideN} matches), each alliance's own score comes out within ${vtPct(c.side)}.` : '');
 }
 // Which pins it goes for. Asked: "the repeated strategy they like to do, like
 // they mostly only score alliance pins or they mostly only score yellows".
@@ -10595,7 +10617,7 @@ function vtFieldSvg(heat, paths) {
 // ── Marking the field's corners on a stream ────────────────────────────────
 // Over the Jumper's player, which must be showing the whole field. Four
 // clicks, any order; red's side is worked out from where red robots start.
-function vtMarkField() {
+async function vtMarkField() {
   const ctx = window._rwCtx, host = document.querySelector('#rwPlayer .rw-embed');
   if (!ctx || !ctx.playing || !host) { vtRender('Open a match in the player first (press ▶ on one), pause on a view of the whole field, then press Mark the field.'); return; }
   const m = ctx.matches.find(x => String(x.id) === String(ctx.playing.matchId)), cal = m && rwCalForMatch(m, ctx.cal);
@@ -10608,6 +10630,28 @@ function vtMarkField() {
   host.appendChild(lay);
   const pts = [], svg = lay.querySelector('svg');
   lay.querySelector('#vtMarkCancel').onclick = ev => { ev.stopPropagation(); lay.remove(); };
+  // The field as the tracker has already worked it out for this stream (from
+  // where robots have driven), drawn for a yes or a no: if the outline sits on
+  // the field's corners, one press keeps it; if not, click the real four.
+  // (Finding the corners from the picture itself was tried on the one real
+  // frame there is and got them wrong both ways it was tried, so a person
+  // still has the last word.)
+  let guess = null;
+  try { guess = await vtFieldGet(String(cal.videoId)); } catch (e) {}
+  if (guess && guess.q && guess.by !== 'click' && document.getElementById('vtMark') === lay) {
+    const g = vtQuadOrder(guess.q);
+    svg.innerHTML = `<polygon points="${g.map(p => (p[0] * 1000).toFixed(0) + ',' + (p[1] * 1000).toFixed(0)).join(' ')}" fill="rgba(255,225,74,.10)" stroke="#ffe14a" stroke-width="3" stroke-dasharray="10 8" vector-effect="non-scaling-stroke"/>`;
+    const say = lay.querySelector('.vt-mark-say');
+    say.insertAdjacentHTML('afterbegin', `The dashed outline is the tracker's own guess. <button class="set-link" id="vtMarkKeep">It is right: keep it</button> Or: `);
+    lay.querySelector('#vtMarkKeep').onclick = async ev => {
+      ev.stopPropagation();
+      lay.onclick = null;
+      await vtFieldSet(String(cal.videoId), guess.q, 'click');
+      say.textContent = 'Kept. Every match tracked from this video will be worked out again on it.';
+      setTimeout(() => lay.remove(), 1800);
+      vtBackfill(String(ctx.eventId), true).then(() => vtRender('Field marked for this stream. Reports from it now use real field positions.')).catch(() => {});
+    };
+  }
   lay.onclick = async ev => {
     const r = lay.getBoundingClientRect();
     pts.push((ev.clientX - r.left) / r.width, (ev.clientY - r.top) / r.height);
@@ -11076,11 +11120,96 @@ function vtPinBlobs(px, W, H, boxes) {
   const keep = blobs.slice(0, VT_PIN_MAX_BLOBS);
   return { W, H, n: keep.length, flat: [].concat(...keep) };
 }
+// ── Reading the toggles (v130) ─────────────────────────────────────────────
+// A toggle is a three-sided bar, 656 mm long, on top of the field wall at the
+// middle of each side; the colour facing up says who owns the yellow in that
+// quadrant. With the field's corners known, the middle of each wall is a
+// known place in the picture. The wall top is above the floor line there, by
+// an amount that depends on how big things are at that spot; a band of points
+// is laid along where the bar should be and each point is asked its colour
+// with the pin test. What is recorded is the share of points that were red
+// and that were blue, for each of the four walls, every two seconds — the
+// deciding is done later, so it can be improved without watching again.
+// Unchecked on real video: where exactly the band should sit is worked out
+// from the wall's height (292 mm) and a guess at the camera's angle.
+const VT_TOG_ALONG = 0.09, VT_TOG_LIFTS = [0.035, 0.0475, 0.06, 0.0725, 0.085], VT_TOG_N = 24;
+const VT_WALL_MID = [[0.5, 0], [1, 0.5], [0.5, 1], [0, 0.5]];      // the four walls of the square the corners make, in corner order
+function vtHomographyFwd(quad) {
+  const p = vtQuadOrder(quad);
+  const [x0, y0] = p[0], [x1, y1] = p[1], [x2, y2] = p[2], [x3, y3] = p[3];
+  const dx1 = x1 - x2, dx2 = x3 - x2, sx = x0 - x1 + x2 - x3, dy1 = y1 - y2, dy2 = y3 - y2, sy = y0 - y1 + y2 - y3;
+  const den = dx1 * dy2 - dx2 * dy1;
+  if (Math.abs(den) < 1e-9) return null;
+  const g = (sx * dy2 - dx2 * sy) / den, h = (dx1 * sy - sx * dy1) / den;
+  const a = x1 - x0 + g * x1, b = x3 - x0 + h * x3, c = x0, d = y1 - y0 + g * y1, e = y3 - y0 + h * y3, f = y0;
+  return (u, v) => { const w = g * u + h * v + 1; return [(a * u + b * v + c) / w, (d * u + e * v + f) / w]; };
+}
+// The points to look at, for each wall: [[x, y], …] as fractions of the picture
+// `aspect` is the picture's width over its height (lifts are along y).
+function vtTogglePoints(quad, aspect) {
+  const fwd = vtHomographyFwd(quad);
+  if (!fwd) return null;
+  return VT_WALL_MID.map(([mu, mv]) => {
+    const along = mv === 0 || mv === 1 ? [1, 0] : [0, 1], inward = [0.5 - mu, 0.5 - mv].map(v => Math.sign(v));
+    const M = fwd(mu, mv), A = fwd(mu + along[0] * 0.05, mv + along[1] * 0.05), I = fwd(mu + inward[0] * 0.05, mv + inward[1] * 0.05);
+    // How big things are here: picture-widths per field-width, the larger of along the wall and across it.
+    const scale = Math.max(Math.hypot(A[0] - M[0], (A[1] - M[1]) / aspect), Math.hypot(I[0] - M[0], (I[1] - M[1]) / aspect)) / 0.05;
+    const pts = [];
+    for (let i = 0; i < VT_TOG_N; i++) {
+      const t = (i / (VT_TOG_N - 1) * 2 - 1) * VT_TOG_ALONG, P = fwd(mu + along[0] * t, mv + along[1] * t);
+      for (const lift of VT_TOG_LIFTS) pts.push([P[0], P[1] - lift * scale * aspect]);
+    }
+    return pts;
+  });
+}
+// → [red%, blue%] for each wall, eight whole numbers.
+function vtToggleLook(px, W, H, quad) {
+  const walls = vtTogglePoints(quad, W / H);
+  if (!walls) return null;
+  const out = [];
+  for (const pts of walls) {
+    let r = 0, b = 0, n = 0;
+    for (const [fx, fy] of pts) {
+      const x = Math.round(fx * W), y = Math.round(fy * H);
+      if (x < 0 || y < 0 || x >= W || y >= H) continue;
+      n++;
+      const o = 4 * (y * W + x), c = vtPinClass(px[o], px[o + 1], px[o + 2]);
+      if (c === 1) r++; else if (c === 2) b++;
+    }
+    out.push(n ? Math.round(100 * r / n) : 0, n ? Math.round(100 * b / n) : 0);
+  }
+  return out;
+}
+// Who owned each toggle when the match ended. → [owner of quadrant 0..3], each
+// 0 unknown, 1 red, 2 blue, in the field's own order (red's wall first).
+// A wall counts for a colour when at least 8 points in 100 are that colour
+// and twice as many as the other.
+function vtToggleRead(rec, turnK, ph) {
+  const a = rec.tg || [], rows = [];
+  for (let i = 0; i + 8 < a.length; i += 9) rows.push({ t: a[i] / 10, v: a.slice(i + 1, i + 9) });
+  if (rows.length < 3) return null;
+  let end = rows.filter(r => r.t >= ph.end - 2 && r.t <= ph.end + 8);
+  if (end.length < 2) end = rows.slice(-3);
+  const turn = (x, y) => { for (let i = 0; i < turnK; i++) [x, y] = [y, 1 - x]; return [x, y]; };
+  const owners = [0, 0, 0, 0];
+  for (let k = 0; k < 4; k++) {
+    const red = vtAvg(end.map(r => r.v[2 * k])), blue = vtAvg(end.map(r => r.v[2 * k + 1]));
+    const col = red >= 8 && red >= 2 * blue ? 1 : blue >= 8 && blue >= 2 * red ? 2 : 0;
+    const [u, v] = turn(VT_WALL_MID[k][0], VT_WALL_MID[k][1]);
+    let q = 0, best = Infinity;
+    for (let j = 0; j < 4; j++) { const d = Math.hypot(u - VT_PHYS_TOG[j][0], v - VT_PHYS_TOG[j][1]); if (d < best) { best = d; q = j; } }
+    owners[q] = col;
+  }
+  return owners;
+}
 function vtPinLook(slot, video, sx, sy, w, h, boxes) {
   const W = VT_PIN_W, H = Math.max(2, Math.round(h * W / w)), k = W / w;
   if (!slot.pinCx || slot.pinCv.height !== H) { slot.pinCv = document.createElement('canvas'); slot.pinCv.width = W; slot.pinCv.height = H; slot.pinCx = slot.pinCv.getContext('2d', { willReadFrequently: true }); }
   slot.pinCx.drawImage(video, sx, sy, w, h, 0, 0, W, H);
-  return vtPinBlobs(slot.pinCx.getImageData(0, 0, W, H).data, W, H, boxes.map(b => [b[0] * k, b[1] * k, b[2] * k, b[3] * k]));
+  const data = slot.pinCx.getImageData(0, 0, W, H).data;
+  const P = vtPinBlobs(data, W, H, boxes.map(b => [b[0] * k, b[1] * k, b[2] * k, b[3] * k]));
+  P.tg = slot.quad && slot.quad.q ? vtToggleLook(data, W, H, slot.quad.q) : null;
+  return P;
 }
 function vtPinSamples(rec) {
   const a = rec.pn || [], out = [];
@@ -11112,6 +11241,8 @@ function vtPinCount(rec, quad, turnK, track, ph) {
       if (b.c < 1 || b.c > 3) continue;
       const nx = b.x / W, ny = b.y / H, [u0, v0] = toField(nx, ny);
       if (!(u0 > -0.03 && u0 < 1.03 && v0 > -0.03 && v0 < 1.03)) continue;        // not on the field
+      // Not a toggle: a red or blue bar at the middle of a wall is the toggle there, and it changes colour.
+      if (b.c !== 3 && VT_WALL_MID.some(([mu, mv]) => (mv === 0 || mv === 1 ? Math.abs(u0 - mu) < 0.12 && Math.abs(v0 - mv) < 0.13 : Math.abs(v0 - mv) < 0.12 && Math.abs(u0 - mu) < 0.13))) continue;
       const [u1, v1] = toField(nx + 0.01, ny), d = Math.hypot(u1 - u0, v1 - v0);
       if (!(d > 1e-6)) continue;
       const scale = 0.01 * W / d;                                                  // pixels per field width, at this spot
@@ -11193,7 +11324,11 @@ function vtPinCount(rec, quad, turnK, track, ph) {
     for (const [t, d] of r.ev) { if (t < ph.driver) continue; sum += d; if (sum >= 10) { r.t5 = Math.max(1, Math.round(t - ph.driver)); break; } }
     delete r.ev;
   }
-  return { robots, py: last[3], pr: last[1], pb: last[2], pk: n };
+  // Yellow by quadrant at the end (0..3, then midfield), for the toggles to share out.
+  let endIdx = -1;
+  for (let i = 0; i < n; i++) if (samples[i].t >= ph.start && samples[i].t <= ph.end + 4) endIdx = i;
+  const yq = endIdx >= 0 ? Array.from(gain[3][endIdx]) : [0, 0, 0, 0, 0];
+  return { robots, py: last[3], pr: last[1], pb: last[2], pk: n, yq };
 }
 
 // A team's pins, from its tracked matches: yellow halves set down per match.

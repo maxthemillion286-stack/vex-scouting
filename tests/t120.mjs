@@ -160,7 +160,7 @@ const long = 'This sentence is the point. ' + 'And this is the further explanati
 }
 // ── the app: a ceiling on download speed ──
 {
-  ok('downloads can be held to a speed', /max_mbps=0\):/.test(app) && /def pace\(nbytes\):/.test(app) && /opts\['ratelimit'\] = int\(limit \* 1e6\)/.test(app));
+  ok('downloads can be held to a speed', /max_mbps=0[,)]/.test(app) && /def pace\(nbytes\):/.test(app) && /opts\['ratelimit'\] = int\(limit \* 1e6\)/.test(app));
   ok('Settings offers it in plain words', /Gentle, fine for gaming \(15 MB\/s\)/.test(app) && /if body\.get\('speed'\) in \(0, 5, 15, 40\):/.test(app));
   ok('fewer connections are opened when it is held', /conns = max\(2, min\(conns, int\(max_mbps \/\/ 3\) or 2\)\)/.test(app));
 }

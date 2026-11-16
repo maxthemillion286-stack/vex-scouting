@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v129**. Everything green: 81 test files. (The `v19` in §8's
+Current release: **v130**. Everything green: 81 test files. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
 
 ---
@@ -2970,6 +2970,43 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v130 — toggles, part-downloads, and a one-press field mark** (asked: "add
+1, 4, 6" from the list in v129's reply).
+- **Toggles (1).** `vtTogglePoints` lays 24×5 points above the middle of each
+  wall (lifts 0.035–0.085 of a field width × the local picture scale; forward
+  homography `vtHomographyFwd`), `vtToggleLook` records red% and blue% per
+  wall every 2 s as `rec.tg` (9 ints a look; `validRec` allows it), needing the
+  field's corners AT CAPTURE (`slot.quad`; the app asks `?field=VID`).
+  `vtToggleRead` decides at the end of the match (≥8% and 2× the other), maps
+  walls to quadrants through the same quarter-turns as everything else.
+  Summary: `tw` (owners, base 3), `er`/`eb` (each alliance's pins: 5 × own
+  halves + 10 × yellow in quadrants it holds + midfield yellow if it has more
+  robots there), `mr`/`mb`. `vtPinCheck` adds `side`: each alliance's
+  corrected estimate + midfield + half the auto bonus against its real score,
+  median error, ≥4 matches — so a wrong reading shows up as a large number
+  rather than hiding. Red/blue patches at wall middles are no longer counted
+  as pins. App: `quad_fwd`, `toggle_look`; both give the same eight numbers on
+  the same picture. **The band's place is derived, not observed**: the one
+  real frame is too blended to check it. First thing to verify on real video.
+- **Part-downloads (4).** YouTube's DASH mp4 starts ftyp · moov · sidx; the
+  sidx lists every ~5 s segment's size and length. `parse_index` reads it from
+  the first 2 MB, `needed_ranges` picks segments overlapping each job's window
+  (off −120 … +450 s), `fetch_parallel(ranges=, head=)` writes ftyp+moov
+  (`strip_index`) then the segments back to back: a valid shorter fragmented
+  mp4. `VID.mp4.have.json` records `spans`; `Video` turns stream time into
+  file time (file time has no gaps; the reader reports time from the first
+  span's start) and gives nothing outside the spans. Tested on an
+  ffmpeg-made DASH file through a local range server (`desktop/dev/sparse.py`):
+  29% of the bytes, frames identical to the whole file's. First tried leaving
+  segments at their own offsets with holes: ffmpeg cannot seek across holes.
+  Whole file when ≥80% is needed anyway, or the format has no sidx.
+- **Field mark (6).** Finding corners from the picture was tried two ways on
+  the owner's frame (floor grey; flood from the centre stopped by white walls)
+  and both were wrong — grey shirts, white floor tape — so NOT shipped as
+  automatic. Instead `vtMarkField` draws the outline the tracker already has
+  (`vtQuadGuess`, from where robots drove) and offers "It is right: keep it";
+  otherwise four clicks as before.
 
 ## 33. Feature ideas
 

@@ -22,7 +22,7 @@ if __name__ == '__main__':
     cfg = {'site': 'http://127.0.0.1:8796', 'key': 'correct-horse', 'workers': 2, 'keep_videos': True, 'hw_decode': False,
            'files': {'aaaaaaaaaaa': here + '/vid_a.mp4', 'bbbbbbbbbbb': here + '/vid_b.mp4', 'ccccccccccc': here + '/missing.mp4'}}
     fake_dl = []
-    T.download = lambda vid, stem: fake_dl.append(vid) or None       # the third has no file: "download" fails
+    T.download = lambda vid, stem, windows=None: fake_dl.append(vid) or None       # the third has no file: "download" fails
     n = T.do_jobs(cfg)
     print('saved', n, '| asked to download:', fake_dl)
     assert fake_dl == ['ccccccccccc'], fake_dl

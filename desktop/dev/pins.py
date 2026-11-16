@@ -19,6 +19,9 @@ def scene(t):
     m = t - START
     fr = np.full((H, W, 3), 60, np.uint8)
     cv2.rectangle(fr, (FX0, FY0), (FX1, FY1), (120, 120, 120), -1)
+    # the toggles: a bar on top of the middle of each wall. Left (red's wall) and top show red, right and bottom blue.
+    for (x0, y0, x1, y1), col in (((284, 250, 296, 388), (35, 35, 225)), ((984, 250, 996, 388), (225, 60, 35)), ((577, 18, 703, 58), (35, 35, 225)), ((577, 578, 703, 618), (225, 60, 35))):
+        cv2.rectangle(fr, (x0, y0), (x1, y1), col, -1)
     for u, v in ((0.45, 0.45), (0.55, 0.45), (0.45, 0.55), (0.55, 0.55)): pin(fr, u, v, 'y', 'y')     # never touched
     # red 0 works the left quadrant: a yellow pin set down every 12 s of driver control (6 pins)
     k = int(max(0, min(6, (m - 15 - 6) // 12 + 1))) if m >= 21 else 0
@@ -47,7 +50,7 @@ def fake(frame, conf=T.CONF):
         n, _, st, _ = cv2.connectedComponentsWithStats(cv2.inRange(frame, np.array(lo, np.uint8), np.array(hi, np.uint8)))
         for i in range(1, n):
             x, y, w, h, a = st[i]
-            if a >= 600: out.append([float(x - 5), float(y - 60), 90.0, 90.0, 0.9, 0, None, 0])
+            if 1400 <= a <= 2200 and w > 2.5 * h: out.append([float(x - 5), float(y - 60), 90.0, 90.0, 0.9, 0, None, 0])   # a robot's plate, not a toggle bar
     lb = T.letterbox(frame.shape[1], frame.shape[0]); sq = np.full((640, 640, 3), 114, np.uint8)
     sq[lb['py']:lb['py'] + lb['nh'], lb['px']:lb['px'] + lb['nw']] = cv2.resize(frame, (lb['nw'], lb['nh']))[:, :, ::-1]
     for b in out:
@@ -57,7 +60,9 @@ def fake(frame, conf=T.CONF):
 eyes.detect = fake
 job = {'id': '77', 'name': 'Qualification 5', 'round': 2, 'num': 5, 'vid': 'abcdefghijk', 'off': START, 'red': ['66449A', '1A'], 'blue': ['2B', '3C'], 'rs': 150, 'bs': 20}
 t0 = time.time()
-rec, why, _ = T.track_match(T.Video('run/pins.mp4', hw=False), eyes, job, 0, 300, False, {})
+QUAD = [FX0 / W, FY0 / H, FX1 / W, FY0 / H, FX1 / W, FY1 / H, FX0 / W, FY1 / H]
+rec, why, _ = T.track_match(T.Video('run/pins.mp4', hw=False), eyes, job, 0, 300, False, {}, QUAD)
+print('toggle looks', len(rec['tg']) // 9, 'last', rec['tg'][-8:])
 assert rec, why
 n = 0; i = 0
 while i + 1 < len(rec['pn']): n += 1; i += 2 + 6 * rec['pn'][i + 1]
