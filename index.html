@@ -3704,7 +3704,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v125';
+const APP_BUILD = 'v126';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -10223,7 +10223,7 @@ async function vtCoachFill(number) {
     <details class="vs-why"><summary>What these mean</summary><div>
       <p><strong>Autonomous:</strong> where your robot goes in the first 15 seconds, and how often it runs that route.</p>
       <p><strong>Goes for:</strong> whether the pins your robot sets down are mostly yellow, mostly your own colour, or both.</p>
-      <p><strong>Pins a match:</strong> pins your robot moved and set down, counted from the video. Two halves make a pin.</p>
+      <p><strong>Pins a match:</strong> pins your robot moved and set down, counted from the video. Two halves make a pin. Only halves that can be seen are counted, which is also the rule: a half hidden inside a cup does not score. Cups themselves are not counted.</p>
       <p><strong>Points from pins:</strong> 10 for each yellow half and 5 for each half of your own colour. Yellow only scores for the alliance holding that toggle, so this is the most those pins could be worth.</p>
       <p><strong>5 pins stacked in:</strong> how far into driver control your fifth pin was down. If you did not reach five, it shows how often a pin goes down instead.</p>
       <p>These are estimates read off a stream, not a referee's count.</p>
