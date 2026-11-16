@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v132**. Everything green: 83 test files.
+Current release: **v133**. Everything green: 84 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,33 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v133 — a vision model on the tracking computer (free), UNTESTED WITH A REAL MODEL**
+Asked: "work on building for the open vision model that's free with no fees".
+- App 2.19, off by default (Settings → "Vision model"). Turning it on runs
+  `--think-setup`: `ensure_ollama` (winget, else Ollama's installer, on
+  Windows) and `ensure_think` (pulls `THINK_MODEL` = `qwen3-vl:8b`, ~6 GB, with
+  the progress bar). `cfg['think_model']` / `['think_looks']` override.
+- `track_match(..., think=N)` keeps N frames (default 6, spread through the
+  match, two or more coloured robots) as JPEGs from `think_picture`: the frame
+  with robots outlined and numbered, and each robot enlarged underneath.
+  `think_match` asks Ollama (`/api/chat`, `format` = a JSON schema, `think`
+  off, temperature 0) for each robot: `plate` ∈ the four teams or
+  "unreadable", `doing` ∈ `THINK_DOING`. Guards: a number given to two robots
+  counts for neither; a plate of the wrong alliance for the box's colour is
+  dropped; three failures and it stops asking.
+- Stored in the recording as `vo`: 5 ints a robot a look [tenths, box x, box
+  y, doing 0-8, plate 0-4] (`validRec`, ≤600). The model's plate reads are NOT
+  written into the boxes' `who`: they are kept apart.
+- Website: `vtFrames` returns `acts`; `vtSeenJoin` gives each to the slot at
+  that spot → per-robot `v1..v8` (counts) and `xa`/`xb` (vision plate votes).
+  `vtIdentify` uses them only when the reader has none: ≥3 and clear by 2,
+  `how: 'vision'`. Report: "Seen doing" bars (`vtReportSeen`, ≥8 looks, own
+  robot only), labelled as the model's and fallible.
+- Tested: `desktop/dev/think.py` against a stand-in Ollama (18 checks), t123
+  (28). **Not tested: a real Ollama install, a real model's answers, speed,
+  or whether its "doing" picks are any good.** First real run is the owner's.
+- `VT_REMAKE` not raised: old recordings have no `vo`.
 
 **v132 — slanted plates, a timed pace, old matches re-read anywhere, heat contrast, no comments in the served page**
 - **First clean real frame** (Excalibur 2026, a corner camera, kept as

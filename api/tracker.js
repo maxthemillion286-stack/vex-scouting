@@ -94,7 +94,9 @@ export function validRec(rec) {
     if (!Array.isArray(fr) || fr.length > 2 + per * 40 || !fr.every(v => Number.isInteger(v) && v > -100000 && v < 100000)) return 'bad frame';
     if (fr.length < 2 || fr.length !== 2 + per * fr[1]) return 'bad frame length';
   }
-  const allowed = ['v', 'name', 'round', 'num', 'red', 'blue', 'rs', 'bs', 'vid', 'off', 'rate', 'w', 'h', 'model', 'at', 'f', 'wide', 'tm', 'pn', 'pw', 'ph', 'tg'];
+  const allowed = ['v', 'name', 'round', 'num', 'red', 'blue', 'rs', 'bs', 'vid', 'off', 'rate', 'w', 'h', 'model', 'at', 'f', 'wide', 'tm', 'pn', 'pw', 'ph', 'tg', 'vo'];
+  // What a vision model said: [tenths, box x, box y, what it is doing 0-8, plate 0-4], five whole numbers a robot a look.
+  if (rec.vo != null && !(Array.isArray(rec.vo) && rec.vo.length <= 600 && rec.vo.length % 5 === 0 && rec.vo.every(v => Number.isInteger(v) && v > -100000 && v < 100000))) return 'bad vision notes';
   // Toggle readings: [tenths, then red% and blue% for each of four walls], nine whole numbers a look.
   if (rec.tg != null && !(Array.isArray(rec.tg) && rec.tg.length <= 2000 && rec.tg.length % 9 === 0 && rec.tg.every(v => Number.isInteger(v) && v > -100000 && v < 100000))) return 'bad toggles';
   // Pin sightings: [tenths, how many, then six whole numbers each: x, y, w, h, area, colour].
