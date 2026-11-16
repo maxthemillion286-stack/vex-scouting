@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.12'
+VERSION = '2.13'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -1354,24 +1354,68 @@ window.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();save(fa
 next();
 </script>"""
 
+def layout_of(p):
+    """Where the robots are in a frame, as fractions of the picture, sorted."""
+    w, h = float(p.get('w') or 1), float(p.get('h') or 1)
+    return sorted(((b[0] + b[2] / 2) / w, (b[1] + b[3] / 2) / h) for b in p.get('boxes', []) if b[4] >= 0.35)
+
+def same_layout(a, b, tol=0.06):
+    """Two frames show the robots in the same places: nothing new to teach."""
+    if len(a) != len(b):
+        return False
+    left = list(b)
+    for x, y in a:
+        k = next((i for i, (u, v) in enumerate(left) if abs(u - x) <= tol and abs(v - y) <= tol), None)
+        if k is None:
+            return False
+        left.pop(k)
+    return True
+
 def review_queue():
-    """Frames not yet reviewed, the ones that teach most first."""
+    """Frames not yet reviewed: the ones that teach most first, and no two
+    alike in a row.
+
+    Reported: "i keep getting the same frames if not a little different". The
+    queue was sorted by how unsure the finder was and nothing else, and the
+    frames it is unsure about come in runs — the same moment of the same
+    match, a third of a second apart. Reviewing the second of those teaches
+    almost nothing. So a frame whose robots stand where they stood in one
+    already reviewed, or already ahead of it in the queue, goes to the back;
+    and the front of the queue takes turns between videos.
+    """
     if not os.path.isdir(PROPS):
         return [], 0
     done = set(n[:-5] for n in os.listdir(LABELS)) if os.path.isdir(LABELS) else set()
-    todo = []
+    todo, seen = [], []
     for n in os.listdir(PROPS):
         name = n[:-5]
-        if name in done or not os.path.exists(os.path.join(FRAMES, name + '.jpg')):
+        if not os.path.exists(os.path.join(FRAMES, name + '.jpg')):
             continue
         try:
             with open(os.path.join(PROPS, n)) as f:
-                hard = json.load(f).get('hard', 0)
+                p = json.load(f)
         except Exception:
             continue
-        todo.append((-hard, hashlib.md5(name.encode()).hexdigest(), name))
+        vid = name.rsplit('_', 1)[0]
+        if name in done:
+            seen.append((vid, layout_of(p)))
+            continue
+        todo.append((-p.get('hard', 0), hashlib.md5(name.encode()).hexdigest(), name, vid, layout_of(p)))
     todo.sort()
-    return [t[2] for t in todo], len(done)
+    fresh, alike = {}, []
+    for _, _, name, vid, lay in todo:
+        if any(v == vid and same_layout(lay, l) for v, l in seen[-600:]):
+            alike.append(name)
+            continue
+        seen.append((vid, lay))
+        fresh.setdefault(vid, []).append(name)
+    # Take turns between videos, each video's hardest first.
+    front, lists = [], list(fresh.values())
+    while lists:
+        lists = [l for l in lists if l]
+        for l in lists:
+            front.append(l.pop(0))
+    return front + alike, len(done)
 
 def do_review(cfg, port=8765, open_browser=True):
     queue, _ = review_queue()
@@ -2080,7 +2124,7 @@ def serve_ui(cfg, port=8765, open_window=True):
     queue_cache = {'at': 0, 'queue': [], 'done': 0, 'gold': 0}
 
     def counts(force=False):
-        if force or time.time() - queue_cache['at'] > 5:
+        if force or time.time() - queue_cache['at'] > 60:     # ordering a thousand frames takes a moment; not every poll
             q, done = review_queue()
             queue_cache.update(at=time.time(), queue=q, done=done, gold=len(reviewed()) if done else 0)
         return queue_cache
