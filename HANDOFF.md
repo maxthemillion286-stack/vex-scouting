@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v143**. Everything green: 93 test files.
+Current release: **v144**. Everything green: 94 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,16 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v144 — app 2.26: no blank review screen.** The owner's screenshot showed the
+robot review with a black 300×150 canvas and no counter: `/api/next` either
+failed (an exception dropped the connection, the window's fetch threw, nothing
+was shown) or the picture failed to load. Not reproduced here. Now the window
+server wraps do_GET/do_POST (`_get`/`_post`) and answers `{error}` with a 500
+and a log line; the window shows "Could not load a frame: …" with Try again
+(`revTrouble`); a picture that fails to load sets that frame aside (saved as
+skipped) and moves on (`loadFrame`). If it happens again the message says why.
+Tests: t133.
 
 **v143 — app 2.25: mark pins & cups by clicking** ("can it have me select a
 color and i click a point on the pin and cups"). In Mark pins & cups, a click
