@@ -3715,7 +3715,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v135';
+const APP_BUILD = 'v136';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -10035,6 +10035,20 @@ function vtSummarise(rec, quad, learn) {
         }
       }
     } catch (e) {}
+    try {
+      const G = vtPinCount(rec, quad, turnK, track, ph, 'goals');
+      if (G) {
+        const r1 = v => Math.round(v * 10) / 10;
+        [[Ra, 1, 0], [Rb, 1, 1], [Ba, 2, 0], [Bb, 2, 1]].forEach(([row, c, i]) => { const q = G.robots[c][i]; row.oy = r1(q.ys); row.oa = r1(q.as); row.oya = r1(q.ya); if (q.cy) row.ocy = q.cy; if (q.t5 !== null) row.ot5 = q.t5; for (const N of VT_FAST_N) if (q['k' + N]) row['n' + N] = q['k' + N]; });
+        Object.assign(pins, { gy: r1(G.py), gr: r1(G.pr), gb: r1(G.pb), gk: G.pk });
+        const own = rec.tg && rec.tg.length ? vtToggleRead(rec, turnK, ph) : null;
+        if (own) {
+          const mid = c => (c === 1 ? [Ra, Rb] : [Ba, Bb]).filter(r => r.eg).length;
+          const est = c => VT_PTS_OWN * (c === 1 ? G.pr : G.pb) + VT_PTS_YELLOW * (own.reduce((a, o, q) => a + (o === c ? G.yq[q] : 0), 0) + (mid(c) > mid(3 - c) ? G.yq[4] : 0));
+          pins.oer = r1(est(1)); pins.oeb = r1(est(2));
+        }
+      }
+    } catch (e) {}
   }
   if (F.field && axis && rec.tg && rec.tg.length) {
     try { const at = vtToggleAuto(rec, ph); if (at) { Ra.tga = Rb.tga = at[1]; Ba.tga = Bb.tga = at[2]; } } catch (e) {}
@@ -10144,7 +10158,7 @@ function vtReportSeen(S) {
 // the recordings are in the shared store too, so whichever device opens a
 // report fetches the ones it needs, makes the summaries again, keeps them, and
 // (with the admin key) shares them.
-const VT_REMAKE = 134;      // v134: the fastest stretches of set-downs (k4…k40)
+const VT_REMAKE = 136;      // v136: pins counted on the goals as well (oy, oa, …)
 const vtStale = s => !!(s && s.ok && (s.rv || 0) < VT_REMAKE);
 const vtRefreshTried = new Set();
 async function vtSumsRefresh(sums, limit) {
@@ -10179,7 +10193,7 @@ async function vtTeamSums(number) {
     const r = await vtApi('GET', '?team=' + encodeURIComponent(num));
     if (r.ok && r.body.sums) for (const k of Object.keys(r.body.sums)) { const s = r.body.sums[k]; if (s && s.sv === VT_SUM_V && s.ok && !out.has(k)) out.set(k, s); }
   } catch (e) {}
-  return out;
+  return vtPinPick(out);
 }
 
 // ── A team's report ────────────────────────────────────────────────────────
@@ -10508,13 +10522,13 @@ function vtPinCheck(sums) {
     for (const [est, mids, real] of [[s.er, s.mr || 0, s.rs], [s.eb, s.mb || 0, s.bs]]) sides.push(Math.abs(kk * est + VT_PTS_MID * mids + VT_PTS_AUTO / 2 - real) / Math.max(20, real));
   }
   sides.sort((a, b) => a - b);
-  return { ok: true, n, raw: k, k: kk, err, side: sides.length >= 8 ? mid(sides) : null, sideN: sides.length / 2 };
+  return { ok: true, n, raw: k, k: kk, err, side: sides.length >= 8 ? mid(sides) : null, sideN: sides.length / 2, goals: !!(sums && sums.goalEvents && sums.goalEvents.size) };
 }
 // In words: "checked against 12 official scores: counts ran 24% high and are corrected; a typical match is within 15%".
 function vtPinCheckText(c) {
   if (!c || !c.ok) return c && c.n ? `Not yet checked against official scores (${c.n} of the 4 matches needed).` : 'Not yet checked against official scores.';
   const off = 1 / c.raw - 1, how = Math.abs(off) < 0.05 ? 'counts matched' : `counts ran ${vtPct(Math.abs(off))} ${off > 0 ? 'high' : 'low'} and are corrected`;
-  return `Checked against ${c.n} official scores: ${how}; a typical match is within ${vtPct(c.err)}.` + (c.side !== null && c.side !== undefined ? ` With the toggles read (${c.sideN} matches), each alliance's own score comes out within ${vtPct(c.side)}.` : '');
+  return `${c.goals ? 'Counted on the goals (closer to the official scores than counting the whole field). ' : ''}Checked against ${c.n} official scores: ${how}; a typical match is within ${vtPct(c.err)}.` + (c.side !== null && c.side !== undefined ? ` With the toggles read (${c.sideN} matches), each alliance's own score comes out within ${vtPct(c.side)}.` : '');
 }
 // Which pins it goes for. Asked: "the repeated strategy they like to do, like
 // they mostly only score alliance pins or they mostly only score yellows".
@@ -11020,6 +11034,7 @@ async function vtTeamSumsMany(numbers) {
       for (const n of c) { const sums = r.body.teams[n] || {}; for (const k of Object.keys(sums)) { const s = sums[k]; if (s && s.sv === VT_SUM_V && s.ok && !out.get(n).has(k)) out.get(n).set(k, s); } }
     } catch (e) {}
   });
+  for (const [n, m] of out) out.set(n, vtPinPick(m));
   vtManyMemo.set(key, { at: Date.now(), out });
   return out;
 }
@@ -11559,20 +11574,113 @@ function vtPinSamples(rec) {
   return out;
 }
 const VT_QUAD_MID = [[0.2, 0.5], [0.8, 0.5], [0.5, 0.2], [0.5, 0.8], [0.5, 0.5]];
+// ── Pins counted on the goals (v136) ────────────────────────────────────────
+// The owner: "pins and cups can also only be scored in set spots". A pin lying
+// on the floor or carried past scores nothing, yet counted as set down when
+// pins were counted wherever they appeared on the field (the counts ran 182%
+// high against official scores on his event). So pins are also counted only
+// in a column standing on each of the nine goals, as the toggles are read at
+// their four spots: upright patches of colour whose foot is on the goal or
+// above it, up to a stack's height. Both counts are kept; each event's report
+// uses whichever comes out closer to the official scores (vtPinPick).
+// The goals, red's wall on the left, from the manual's field drawing:
+// red's two, blue's two, the four neutral, the centre.
+const VT_GOALS_FIELD = [[0.17, 0.66], [0.34, 0.82], [0.66, 0.18], [0.82, 0.34], [0.34, 0.18], [0.18, 0.34], [0.66, 0.82], [0.82, 0.66], [0.5, 0.5]];
+const VT_GOAL_HALFW = [0.035, 0.035, 0.035, 0.035, 0.04, 0.04, 0.04, 0.04, 0.05];   // across, in field widths
+const VT_GOAL_TALL = 0.3;                                                            // a full stack, in field widths (about 1.1 m)
+// Each goal's column in the picture: its foot, how wide, how tall, and pixels
+// per field width there (for how big a half should look).
+function vtGoalColumns(q, turnK, aspect) {
+  const fwd = vtHomographyFwd(q);
+  if (!fwd) return null;
+  const unturn = (x, y) => { for (let i = 0; i < turnK; i++) [x, y] = [1 - y, x]; return [x, y]; };
+  return VT_GOALS_FIELD.map(([gu, gv], k) => {
+    const [u, v] = unturn(gu, gv), M = fwd(u, v), A = fwd(u + 0.02, v), B = fwd(u, v + 0.02);
+    if (!M || !Number.isFinite(M[0])) return null;
+    const scale = Math.max(Math.hypot(A[0] - M[0], (A[1] - M[1]) / aspect), Math.hypot(B[0] - M[0], (B[1] - M[1]) / aspect)) / 0.02;   // picture widths per field width
+    return { x: M[0], y: M[1], hw: VT_GOAL_HALFW[k] * scale, up: VT_GOAL_TALL * scale * aspect, down: 0.02 * scale * aspect, scale };
+  });
+}
+// One look: halves of each colour on each goal. A blob is [x, bottom y, w, h,
+// area, colour] in a W×H picture. Upright only (a stacked pin stands up; one
+// lying behind the goal lies flat), and to the nearest column if two overlap.
+function vtGoalLook(blobs, cols, W, H) {
+  const out = [null, new Float32Array(cols.length), new Float32Array(cols.length), new Float32Array(cols.length)];
+  for (const b of blobs) {
+    if (b.c < 1 || b.c > 3 || b.h < 0.6 * b.w) continue;
+    const nx = b.x / W, ny = b.y / H;
+    let best = -1, bd = Infinity;
+    for (let k = 0; k < cols.length; k++) {
+      const g = cols[k];
+      if (!g) continue;
+      const dx = Math.abs(nx - g.x);
+      if (dx > g.hw || ny < g.y - g.up || ny > g.y + g.down) continue;
+      if (dx < bd) { bd = dx; best = k; }
+    }
+    if (best < 0) continue;
+    const px = cols[best].scale * W, half = 0.75 * (40 / VT_FIELD_MM * px) * (82.5 / VT_FIELD_MM * px * 0.9);
+    const halves = Math.min(16, b.area / Math.max(4, half));
+    if (halves >= 0.3) out[b.c][best] += halves;
+  }
+  return out;
+}
+// Which count an event's reports use: the one closer to the official scores,
+// once both can be checked (four matches each). The goal count's fields are
+// copied over the field count's, so everything after reads them unchanged.
+const VT_GOAL_ROW = { ys: 'oy', as: 'oa', ya: 'oya', cy: 'ocy', t5: 'ot5' };
+function vtPinPick(sums) {
+  if (!sums || !sums.size) return sums;
+  // Each event on its own: a different hall, camera and stream.
+  const byEv = new Map();
+  for (const [k, s] of sums) { const ev = String(k).split(':')[0]; if (!byEv.has(ev)) byEv.set(ev, new Map()); byEv.get(ev).set(k, s); }
+  if (byEv.size > 1) {
+    const out = new Map(), from = new Set();
+    for (const [ev, m] of byEv) { const got = vtPinPick(m); if (got.pinsFrom === 'goals') from.add(ev); for (const [k, s] of got) out.set(k, s); }
+    out.goalEvents = from;
+    return out;
+  }
+  const field = vtPinCheck(sums), alt = new Map();
+  for (const [k, s] of sums) {
+    if (!s || s.gk === undefined) { alt.set(k, s); continue; }
+    const o = { ...s, py: s.gy, pr: s.gr, pb: s.gb, pk: s.gk, er: s.oer, eb: s.oeb };
+    for (const side of ['Ra', 'Rb', 'Ba', 'Bb']) {
+      const r = s[side];
+      if (!r) continue;
+      const m = { ...r };
+      for (const [to, from] of Object.entries(VT_GOAL_ROW)) { if (r[from] !== undefined) m[to] = r[from]; else delete m[to]; }
+      for (const N of VT_FAST_N) { if (r['n' + N] !== undefined) m['k' + N] = r['n' + N]; else delete m['k' + N]; }
+      o[side] = m;
+    }
+    alt.set(k, o);
+  }
+  const goal = vtPinCheck(alt);
+  const useGoals = goal.ok && (!field.ok || goal.err < field.err);
+  if (!useGoals) return sums;
+  alt.pinsFrom = 'goals';
+  alt.goalEvents = new Set(byEv.keys());
+  return alt;
+}
 // → { robots: { 1: [{ ys, as }, …], 2: […] }, py, pr, pb, pk } or null.
 // ys: yellow halves set down while this robot was the one working there;
 // as: halves of its own alliance's colour, likewise. py/pr/pb: what had been
 // set down by the end, per colour. pk: how many looks it rests on.
-function vtPinCount(rec, quad, turnK, track, ph) {
+function vtPinCount(rec, quad, turnK, track, ph, mode) {
   const toField = quad && quad.q ? vtHomography(quad.q) : null, W = rec.pw || VT_PIN_W, H = rec.ph || Math.round(W * 9 / 16);
   const samples = vtPinSamples(rec);
   if (!toField || samples.length < 8) return null;
   const turn = (x, y) => { for (let i = 0; i < turnK; i++) [x, y] = [y, 1 - x]; return [x, y]; };
-  const C = VT_PIN_CELLS, NC = C * C, clamp = v => Math.max(0, Math.min(0.999, v));
-  const cellQ = new Int8Array(NC);
-  for (let k = 0; k < NC; k++) { const q = vtPhysQuad((k % C + 0.5) / C, (Math.floor(k / C) + 0.5) / C); cellQ[k] = q < 0 ? 4 : q; }
-  // 1. Each look: halves of each colour in each square.
-  const raw = samples.map(s => {
+  const C = VT_PIN_CELLS, clamp = v => Math.max(0, Math.min(0.999, v));
+  // The spots counted: the squares of the field, or (mode 'goals') the nine
+  // goals, where alone a pin can score. spotU/V: where each is, red's wall left.
+  const goals = mode === 'goals';
+  const spotU = goals ? VT_GOALS_FIELD.map(g => g[0]) : Array.from({ length: C * C }, (_, k) => (k % C + 0.5) / C);
+  const spotV = goals ? VT_GOALS_FIELD.map(g => g[1]) : Array.from({ length: C * C }, (_, k) => (Math.floor(k / C) + 0.5) / C);
+  const NC = spotU.length, cellQ = new Int8Array(NC);
+  for (let k = 0; k < NC; k++) { const q = vtPhysQuad(spotU[k], spotV[k]); cellQ[k] = q < 0 ? 4 : q; }
+  const cols = goals ? vtGoalColumns(quad.q, turnK, W / H) : null;
+  if (goals && !cols) return null;
+  // 1. Each look: halves of each colour at each spot.
+  const raw = goals ? samples.map(s => vtGoalLook(s.blobs, cols, W, H)) : samples.map(s => {
     const cells = [null, new Float32Array(NC), new Float32Array(NC), new Float32Array(NC)];
     for (const b of s.blobs) {
       if (b.c < 1 || b.c > 3) continue;
@@ -11642,7 +11750,7 @@ function vtPinCount(rec, quad, turnK, track, ph) {
         for (let k = 0; k < NC; k++) {
           if (cellQ[k] !== q) continue;
           const up = smooth[c][i][k] - (prev ? prev[k] : 0);
-          if (up > 0) { wx += up * (k % C + 0.5) / C; wy += up * (Math.floor(k / C) + 0.5) / C; w += up; }
+          if (up > 0) { wx += up * spotU[k]; wy += up * spotV[k]; w += up; }
         }
         from[q] = i;
         const r = whoWas(w > 0 ? [wx / w, wy / w] : VT_QUAD_MID[q], t, c === 3 ? 0 : c);

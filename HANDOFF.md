@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v135**. Everything green: 86 test files.
+Current release: **v136**. Everything green: 87 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,28 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v136 — pins counted on the goals; each event uses the closer count**
+Owner: "pins and cups can also only be scored in set spots" → "build".
+- `vtPinCount(..., mode)`: mode `'goals'` counts at the nine goals
+  (`VT_GOALS_FIELD`, red's wall left, from the manual drawing) instead of the
+  8×8 field squares. `vtGoalColumns(q, turnK, aspect)` projects each goal's
+  foot with `vtHomographyFwd` (un-turning `turnK`) and sizes a column
+  (`VT_GOAL_HALFW` across, `VT_GOAL_TALL` = 0.3 field widths up, a little
+  below the foot). `vtGoalLook` takes only UPRIGHT blobs (h ≥ 0.6·w) whose
+  foot is in a column, nearest column wins, halves by area as before. Steps
+  2–3 (smoothing, baseline, credit) are shared; spots carry `spotU/V`.
+- Summaries keep both: per robot `oy, oa, oya, ocy, ot5, n4…n40`; top level
+  `gy, gr, gb, gk, oer, oeb`. `VT_REMAKE` → 136.
+- `vtPinPick(sums)`: per event, if the goal count's `vtPinCheck` error is
+  lower than the field count's (or only it can be checked), the goal fields
+  are copied over the field ones in a new Map (originals untouched) with
+  `goalEvents`. Applied at the end of `vtTeamSums` and per team in
+  `vtTeamSumsMany`, so every report reads it unchanged. Check text says
+  "Counted on the goals".
+- **Not checked on real footage**: goal positions, column sizes and the
+  upright rule are estimates; the official-score check decides per event.
+  Cups (`cu` from the app's trained finder) are still not used.
 
 **v135 — marking pins & cups, and a finder trained on them (app 2.21)**
 Asked: "how can i make it recognize pin and cups?" → "build it".
