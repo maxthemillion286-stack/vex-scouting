@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v133**. Everything green: 84 test files.
+Current release: **v134**. Everything green: 85 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,26 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v134 — fastest five pins; speed with identical answers**
+- Reported: "48 seconds is way too slow for 5 pins, this team has proven to
+  stack 2 full 7 pin stacks in under 50 seconds alone". `t5` was the time from
+  the start of driver control to the fifth pin. Now `vtFastWindows(ev, driver)`
+  stores per robot `k4…k40` (`VT_FAST_N`): the shortest time in which N more
+  counted halves went down after a set-down (or after driver control starts;
+  set-downs <0.5 s apart merged). `vtFastFive(row, fix)` reads the window for
+  10 / fix counted halves (fix = the official-score correction), between the
+  two nearest sizes; `vtFastFiveOf` = median over matches (≥2). Used by the
+  My team table and the report. `t5` is still stored but no longer shown.
+  `VT_REMAKE` → 134 so every device remakes summaries.
+- App 2.20 speed, all checked identical against 2.19 by `desktop/dev/same.py`
+  (317 comparisons on the real frame and synthetic ones, 0 differ):
+  `pin_blobs` 3–4× (per-pixel max/min by `np.maximum` chains, not
+  `.max(2)`), `plate_tilts` ~5× (box fitted to the convex hull, angles
+  vectorised), `Eyes.read_many` reads strips in one call on a graphics card
+  (plate ways, and `scan`'s lines), the vision model and the upload run in a
+  background thread while the next match is tracked (`work_chunk.finish`).
+- `tools/build.mjs`: `minifySyntax: true` (names still kept): 616 KB.
 
 **v133 — a vision model on the tracking computer (free), UNTESTED WITH A REAL MODEL**
 Asked: "work on building for the open vision model that's free with no fees".
