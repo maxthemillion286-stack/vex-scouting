@@ -72,4 +72,9 @@ a = T.spot_boxes(1920, 1080, Q); b = T.spot_boxes(1920, 1080, Q, {'g': g, 'l': N
 check('a goal dragged into place: its column stands where it was dragged', abs((b[0][0] + b[0][2]) / 2 - 0.30 * 1920) < 2 and b[0][1] < 0.60 * 1080 < b[0][3])
 check('same size as before', abs((b[0][2] - b[0][0]) - (a[0][2] - a[0][0])) <= 2)
 check('loaders not placed stay where the corners put them', b[9] == a[9])
+# v2.24: a finder from before 2.22 (whole frame, 1280) is not used; one of the new kind is
+json.dump({'use': True}, open(T.pieces_info_file(), 'w'))
+check('an old whole-frame finder is not used', not T.pieces_ready())
+json.dump({'use': True, 'size': T.PIECE_SIZE}, open(T.pieces_info_file(), 'w'))
+check('one trained on goal and loader pictures is', T.pieces_ready())
 print('%d passed, %d failed' % (ok, fail)); shutil.rmtree(tmp, ignore_errors=True); sys.exit(1 if fail else 0)
