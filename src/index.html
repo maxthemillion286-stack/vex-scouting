@@ -3715,7 +3715,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v133';
+const APP_BUILD = 'v134';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -10019,7 +10019,7 @@ function vtSummarise(rec, quad, learn) {
       const P = vtPinCount(rec, quad, turnK, track, ph);
       if (P) {
         const r1 = v => Math.round(v * 10) / 10;
-        [[Ra, 1, 0], [Rb, 1, 1], [Ba, 2, 0], [Bb, 2, 1]].forEach(([row, c, i]) => { const q = P.robots[c][i]; row.ys = r1(q.ys); row.as = r1(q.as); row.ya = r1(q.ya); if (q.cy) row.cy = q.cy; if (q.t5 !== null) row.t5 = q.t5; });
+        [[Ra, 1, 0], [Rb, 1, 1], [Ba, 2, 0], [Bb, 2, 1]].forEach(([row, c, i]) => { const q = P.robots[c][i]; row.ys = r1(q.ys); row.as = r1(q.as); row.ya = r1(q.ya); if (q.cy) row.cy = q.cy; if (q.t5 !== null) row.t5 = q.t5; for (const N of VT_FAST_N) if (q['k' + N]) row['k' + N] = q['k' + N]; });
         pins = { py: r1(P.py), pr: r1(P.pr), pb: r1(P.pb), pk: P.pk };
         // With the toggles read: what each alliance's pins come to. Yellow in
         // a quadrant goes to whoever's colour its toggle showed at the end;
@@ -10144,7 +10144,7 @@ function vtReportSeen(S) {
 // the recordings are in the shared store too, so whichever device opens a
 // report fetches the ones it needs, makes the summaries again, keeps them, and
 // (with the admin key) shares them.
-const VT_REMAKE = 132;      // not raised for v133: only recordings made with the vision model on carry `vo`
+const VT_REMAKE = 134;      // v134: the fastest stretches of set-downs (k4…k40)
 const vtStale = s => !!(s && s.ok && (s.rv || 0) < VT_REMAKE);
 const vtRefreshTried = new Set();
 async function vtSumsRefresh(sums, limit) {
@@ -10463,7 +10463,7 @@ async function vtCoachFill(number) {
       <p><strong>Goes for:</strong> whether the pins your robot sets down are mostly yellow, mostly your own colour, or both.</p>
       <p><strong>Pins a match:</strong> pins your robot moved and set down, counted from the video. Two halves make a pin. Only halves that can be seen are counted, which is also the rule: a half hidden inside a cup does not score. Cups themselves are not counted.</p>
       <p><strong>Points from pins:</strong> 10 for each yellow half and 5 for each half of your own colour. Yellow only scores for the alliance holding that toggle, so this is the most those pins could be worth.</p>
-      <p><strong>5 pins stacked in:</strong> how far into driver control your fifth pin was down. If you did not reach five, it shows how often a pin goes down instead.</p>
+      <p><strong>5 pins stacked in:</strong> your fastest stretch of five pins in a match, the usual one across your matches: timed from one pin going down to the fifth after it, not from the start of driver control. If you did not reach five, it shows how often a pin goes down instead.</p>
       <p><strong>checked:</strong> the pin counts were compared with the official scores of those matches and corrected to fit; ± is how far a typical match was off. "Not checked yet" means fewer than four scored matches had pins counted.</p>
       <p>These are estimates read off a stream, not a referee's count.</p>
       ${anyAlliance ? '<p><strong>alliance:</strong> the tracker could not tell your robot from your partner\'s at that event, so the row is both robots together.</p>' : ''}
@@ -10537,9 +10537,9 @@ function vtCoachPins(rows, per, check) {
   const fix = check && check.ok ? check.k : 1;           // corrected by the official scores, where they could be checked
   const matches = got.length / per, sum = k => fix * got.reduce((a, r) => a + (r[k] || 0), 0);
   const halves = (sum('ys') + sum('as')) / matches, pins = halves / 2;
-  const t5 = got.map(r => r.t5).filter(v => v !== undefined && v !== null);
+  const t5 = vtFastFiveOf(got, fix);
   return { pins, points: (sum('ys') * 10 + sum('as') * 5) / matches, auto: sum('ya') / 2 / matches, style: vtPinStyle(sum('ys'), sum('as')),
-    t5: t5.length ? vtAvg(t5) : null, perPin: (c => c.length ? vtAvg(c) : null)(got.map(r => r.cy).filter(v => v > 0)) };
+    t5, perPin: (c => c.length ? vtAvg(c) : null)(got.map(r => r.cy).filter(v => v > 0)) };
 }
 async function vtReportFill(number) {
   const num = String(number || '').toUpperCase();
@@ -11660,6 +11660,7 @@ function vtPinCount(rec, quad, turnK, track, ph) {
     let sum = 0; r.t5 = null;
     for (const [t, d] of r.ev) { if (t < ph.driver) continue; sum += d; if (sum >= 10) { r.t5 = Math.max(1, Math.round(t - ph.driver)); break; } }
     r.cy = vtPinCycle(r.ev, ph.driver);
+    Object.assign(r, vtFastWindows(r.ev, ph.driver));
     delete r.ev;
   }
   // Yellow by quadrant at the end (0..3, then midfield), for the toggles to share out.
@@ -11683,6 +11684,49 @@ function vtPinCycle(ev, driver) {
   per.sort((a, b) => a - b);
   return Math.max(1, Math.round(per[Math.floor(per.length / 2)]));
 }
+// How long it takes to stack five pins: its FASTEST stretch, not the clock
+// from the start of driver control. Reported: "48 seconds is way too slow for
+// 5 pins, this team has proven to stack 2 full 7 pin stacks in under 50
+// seconds alone" — t5 counted everything before the fifth pin (driving out,
+// collecting, defending). Now, for each match: the shortest time in which N
+// more halves went down, starting at a set-down (or at the start of driver
+// control), for several N. Several, because the counts are corrected against
+// official scores afterwards: if the tracker counts 2.8 halves for each real
+// one, five real pins are 28 counted halves, and that is the window read.
+const VT_FAST_N = [4, 6, 8, 10, 12, 14, 17, 20, 24, 28, 34, 40];
+function vtFastWindows(ev, driver) {
+  const d = [[driver, 0]];
+  for (const [t, n] of ev) if (t >= driver) { const last = d[d.length - 1]; if (t - last[0] < 0.5) last[1] += n; else d.push([t, n]); }
+  const out = {};
+  for (const N of VT_FAST_N) {
+    let best = Infinity;
+    for (let i = 0, j = 0, sum = 0; i < d.length; i++) {
+      // sum = halves in (i, j]; move j on until it reaches N
+      if (j < i) { j = i; sum = 0; }
+      while (j + 1 < d.length && sum < N) { j++; sum += d[j][1]; }
+      if (sum >= N) best = Math.min(best, d[j][0] - d[i][0]);
+      if (i + 1 <= j) sum -= d[i + 1][1];
+    }
+    if (best < Infinity) out['k' + N] = Math.max(1, Math.round(best));
+  }
+  return out;
+}
+// Five real pins, from one match's windows: the counted halves that make ten
+// real ones, read between the two nearest window sizes. → seconds or null.
+function vtFastFive(row, fix) {
+  const need = 10 / (fix > 0 ? fix : 1);
+  let lo = null, hi = null;
+  for (const N of VT_FAST_N) { const v = row['k' + N]; if (!v) continue; if (N <= need) lo = [N, v]; if (N >= need && !hi) hi = [N, v]; }
+  if (!hi) return null;
+  if (!lo || lo[0] === hi[0]) return hi[1];
+  return lo[1] + (hi[1] - lo[1]) * (need - lo[0]) / (hi[0] - lo[0]);
+}
+// The usual best: the middle of its matches' fastest five. Matches where it
+// never set five down are left out (that is a pins-a-match matter).
+function vtFastFiveOf(rows, fix) {
+  const v = rows.map(r => vtFastFive(r, fix)).filter(x => x !== null).sort((a, b) => a - b);
+  return v.length >= 2 ? v[Math.floor(v.length / 2)] : null;
+}
 // A team's pins, from its tracked matches: yellow halves set down per match.
 function vtPinLine(mine, others, isOwn, check) {
   const got = list => list.map(r => r.ys).filter(v => v !== null && v !== undefined);
@@ -11691,9 +11735,9 @@ function vtPinLine(mine, others, isOwn, check) {
   const fix = check && check.ok ? check.k : 1;
   const avg = vtAvg(a) * fix, other = o.length >= 2 ? vtAvg(o) * fix : null;
   const cys = mine.map(r => r.cy).filter(v => v > 0), pace = cys.length >= 2 ? vtAvg(cys) : null;
-  const t5s = mine.map(r => r.t5).filter(v => v !== undefined && v !== null), t5 = t5s.length >= 2 ? vtAvg(t5s) : null;
+  const t5 = vtFastFiveOf(mine, fix);
   return { avg, other, pace, n: a.length,
-    text: `${isOwn ? 'Sets down' : 'A robot on its alliance sets down'} about ${avg.toFixed(1)} yellow halves a match (worth ${Math.round(avg * 10)} when its alliance holds that toggle)${pace ? `, a pin every ${Math.round(pace)} s while it is stacking (timed from one set-down to the next)` : ''}${t5 !== null ? `; five pins down ${Math.round(t5)} s into driver control` : ''}${other !== null ? `; the robots it faced: ${other.toFixed(1)}` : ''}. ${vtPinCheckText(check)}` };
+    text: `${isOwn ? 'Sets down' : 'A robot on its alliance sets down'} about ${avg.toFixed(1)} yellow halves a match (worth ${Math.round(avg * 10)} when its alliance holds that toggle)${pace ? `, a pin every ${Math.round(pace)} s while it is stacking (timed from one set-down to the next)` : ''}${t5 !== null ? `; its fastest five pins usually take ${Math.round(t5)} s` : ''}${other !== null ? `; the robots it faced: ${other.toFixed(1)}` : ''}. ${vtPinCheckText(check)}` };
 }
 
 

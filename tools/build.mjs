@@ -21,7 +21,7 @@ export function build(html) {
   const pack = (code, loader) => {
     try {
       return transformSync(code, loader === 'js'
-        ? { loader: 'js', minifyWhitespace: true, minifySyntax: false, minifyIdentifiers: false, legalComments: 'none', charset: 'utf8', lineLimit: 1000 }
+        ? { loader: 'js', minifyWhitespace: true, minifySyntax: true, minifyIdentifiers: false, legalComments: 'none', charset: 'utf8', lineLimit: 1000 }
         : { loader: 'css', minify: true, legalComments: 'none', charset: 'utf8', lineLimit: 1000 }).code.trim();
     } catch (e) { warn.push(loader + ': ' + String(e.message || e).split('\n')[0]); return code; }
   };

@@ -87,12 +87,12 @@ const long = 'This sentence is the point. ' + 'And this is the further explanati
 // ── the table with pins counted ──
 {
   const C = f('vtCoachPins');
-  const own = [{ ys: 12, as: 2, ya: 2, t5: 50 }, { ys: 8, as: 0, ya: 0 }, { ys: 10, as: 4, ya: 4, t5: 70 }];
+  const own = [{ ys: 12, as: 2, ya: 2, k10: 50 }, { ys: 8, as: 0, ya: 0 }, { ys: 10, as: 4, ya: 4, k10: 70 }];
   const P = C(own, 1);
   ok('pins a match: halves over two, averaged', Math.abs(P.pins - (12 + 2 + 8 + 10 + 4) / 2 / 3) < 1e-9, String(P.pins));
   ok('points: 10 a yellow half, 5 an alliance half', Math.abs(P.points - ((30 * 10 + 6 * 5) / 3)) < 1e-9, String(P.points));
   ok('pins set down in autonomous', Math.abs(P.auto - 1) < 1e-9);
-  ok('time to five pins is averaged over the matches that got there', P.t5 === 60);
+  ok('time to five pins: the middle of the matches that got there (v134: fastest stretch)', P.t5 === 70);
   ok('no pace without timed set-downs (v132: it is measured, not divided)', P.perPin === null && C([{ ys: 4, cy: 10 }, { ys: 4, cy: 14 }], 1).perPin === 12);
   const pair = C([{ ys: 6, as: 0, ya: 0 }, { ys: 4, as: 2, ya: 2 }, { ys: 2, as: 0, ya: 0 }, { ys: 0, as: 0, ya: 0 }], 2);
   ok('when the row is the alliance, both robots make one match', pair.pins === 3.5, String(pair.pins));
@@ -102,8 +102,8 @@ const long = 'This sentence is the point. ' + 'And this is the further explanati
   win.__rec120 = fx.rec; win.__quad120 = { q: fx.quad, by: 'click' };
   const sum = win.eval('vtSummarise(__rec120, __quad120, null)');
   const top = [sum.Ra, sum.Rb].sort((a, b) => b.ys - a.ys)[0], low = [sum.Ra, sum.Rb].sort((a, b) => b.ys - a.ys)[1];
-  ok('the robot that stacked six pins has a time to its fifth', top.t5 >= 30 && top.t5 <= 80, String(top.t5));
-  ok('the one that stacked two never reached five', low.t5 === undefined);
+  ok('the robot that stacked six pins has a fastest five, no slower than its time from the start', top.k10 >= 1 && top.k10 <= top.t5, JSON.stringify([top.k10, top.t5]));
+  ok('the one that stacked two never reached five', low.t5 === undefined && low.k10 === undefined);
   ok('nothing was set down in autonomous in that match', top.ya === 0 && low.ya === 0, JSON.stringify([top.ya, low.ya]));
   const mod = await import('../api/tracker.js');
   ok('the server accepts the timed summary', mod.validSum(JSON.parse(JSON.stringify(sum))) === null);
@@ -112,7 +112,7 @@ const long = 'This sentence is the point. ' + 'And this is the further explanati
   const robot = (o = {}) => ({ sec: 100, am: 1, ap: 0.32, ar: 0.6, act: 0.036, opp: 0.3, prs: 0.05, prd: 0.08, stp: 24, es: 0.2, ea: 0.3, apt: 0.3, vis: 0.9, wa: 3, wb: 0, ...o });
   const sums = new Map();
   for (let i = 0; i < 4; i++) sums.set('65240:' + (i + 1), { sv: f('VT_SUM_V'), ok: 1, name: 'Q' + i, red: ['66449A', '1A'], blue: ['2B', '3C'], rs: 40, bs: 30, vid: 'abcdefghijk', of: 100, st: 5, dr: 20, pk: 70,
-    R: { ...robot(), sw: 0, wk: 0 }, B: { ...robot(), sw: 0, wk: 0 }, Ra: robot({ ys: 12, as: 2, ya: 2, t5: 48 }), Rb: robot({ wa: 0, wb: 3, ys: 2, as: 0, ya: 0 }), Ba: robot({ ys: 0, as: 0, ya: 0 }), Bb: robot({ wa: 0, wb: 3, ys: 0, as: 0, ya: 0 }) });
+    R: { ...robot(), sw: 0, wk: 0 }, B: { ...robot(), sw: 0, wk: 0 }, Ra: robot({ ys: 12, as: 2, ya: 2, k10: 48 }), Rb: robot({ wa: 0, wb: 3, ys: 2, as: 0, ya: 0 }), Ba: robot({ ys: 0, as: 0, ya: 0 }), Bb: robot({ wa: 0, wb: 3, ys: 0, as: 0, ya: 0 }) });
   win.__sums120b = sums;
   win.eval(`vtTeamSums = async () => __sums120b; vsEventRecord = async () => [{ name: 'Cypress Showdown', start: '2026-11-07T08:00:00-06:00' }];`);
   await f('vtCoachFill')('66449A');
