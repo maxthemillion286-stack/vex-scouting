@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.25'
+VERSION = '2.26'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -3175,6 +3175,11 @@ UI_HTML = r"""<!doctype html><html lang="en"><meta charset="utf-8"><meta name="v
 <script>
 const T=new URLSearchParams(location.search).get('t')||'',$=id=>document.getElementById(id),dlg=$('dlg');
 const api=async(path,body)=>{const r=await fetch(path,{method:body?'POST':'GET',headers:{'X-Token':T,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});return r.json()};
+// The review screen never sits as an empty black box: it says what went wrong.
+function revTrouble(t){$('revLeft').innerHTML='<span style="color:#ff8a8a">'+t+'</span> <button class="ghost" onclick="nextFrame()">Try again</button>'}
+function loadFrame(){img=new Image();img.onload=()=>{c.width=cur.w;c.height=cur.h;draw()};
+ img.onerror=()=>{const id=cur.id;revTrouble('The picture for this frame is missing on this computer; it is set aside.');api(pm?'/api/psave':'/api/save',pm?{id,skip:true,pieces:[]}:{id,skip:true,boxes:[]}).then(()=>setTimeout(()=>nextFrame(),1200))};
+ img.src='/img/'+cur.id+'.jpg?t='+T}
 let st=null,inReview=false;
 async function poll(){try{st=await api('/api/state');paint()}catch(e){$('now').textContent='The program behind this window has stopped. Close this and run VEX_Trainer.bat again.'}}
 function paint(){
@@ -3232,12 +3237,13 @@ c.addEventListener('wheel',e=>{if(!pm)return;e.preventDefault();const r=c.getBou
 function openReview(p){pm=!!p;back=[];setZoom(1);inReview=true;$('home').style.display='none';$('rev').style.display='block';
  $('rKeys').style.display=pm?'none':'';$('pKeys').style.display=pm?'':'none';$('pMsg').style.display=pm?'':'none';$('revMsg').style.display=pm?'none':'';if(pm)clsBar();nextFrame()}
 function closeReview(){inReview=false;$('rev').style.display='none';$('home').style.display='block';poll()}
-async function nextFrame(id){if(pm)return nextPieces(id);cur=await api('/api/next'+(id?'?id='+id:''));if(!cur.id){closeReview();return}
- const g=cur.gold||0,goal=g<150?150:g<300?300:Math.ceil((g+1)/150)*150;$('revLeft').textContent=g+' of '+goal+' done'+(g<150?' · '+(150-g)+' to go until it can train':' · enough to train; stop whenever you like');boxes=cur.boxes.map(b=>b.slice(0,4));hist=[];
- img=new Image();img.onload=()=>{c.width=cur.w;c.height=cur.h;draw()};img.src='/img/'+cur.id+'.jpg?t='+T}
-async function nextPieces(id){cur=await api('/api/pnext'+(id?'?id='+id:''));if(!cur.id){closeReview();return}
+async function nextFrame(id){if(pm)return nextPieces(id);try{cur=await api('/api/next'+(id?'?id='+id:''))}catch(e){revTrouble('The app did not answer ('+e.message+').');return}
+ if(cur.error){revTrouble('Could not load a frame: '+cur.error);return}if(!cur.id){closeReview();return}
+ const g=cur.gold||0,goal=g<150?150:g<300?300:Math.ceil((g+1)/150)*150;$('revLeft').textContent=g+' of '+goal+' done'+(g<150?' · '+(150-g)+' to go until it can train':' · enough to train; stop whenever you like');boxes=(cur.boxes||[]).map(b=>b.slice(0,4));hist=[];loadFrame()}
+async function nextPieces(id){try{cur=await api('/api/pnext'+(id?'?id='+id:''))}catch(e){revTrouble('The app did not answer ('+e.message+').');return}
+ if(cur.error){revTrouble('Could not load a frame: '+cur.error);return}if(!cur.id){closeReview();return}
  const m=cur.marked||0,goal=m<60?60:m<150?150:Math.ceil((m+1)/100)*100;$('revLeft').textContent=m+' of '+goal+' marked'+(m<60?' · '+(60-m)+' to go until it can train':' · enough to train; more makes it better');
- boxes=cur.pieces.map(b=>b.slice(0,5));hist=[];img=new Image();img.onload=()=>{c.width=cur.w;c.height=cur.h;draw()};img.src='/img/'+cur.id+'.jpg?t='+T}
+ boxes=(cur.pieces||[]).map(b=>b.slice(0,5));hist=[];loadFrame()}
 function draw(){x.drawImage(img,0,0);
  if(pm){x.lineWidth=Math.max(1,c.width/1400);x.setLineDash([6,6]);x.strokeStyle='#ffffff55';for(const r of cur.robots||[])x.strokeRect(r[0],r[1],r[2],r[3]);x.setLineDash([]);
   x.lineWidth=Math.max(1.5,c.width/1100);for(const b of boxes){x.strokeStyle=PCOL[b[4]]||'#fff';x.strokeRect(b[0],b[1],b[2],b[3])}
@@ -3437,6 +3443,18 @@ def serve_ui(cfg, port=8765, open_window=True):
             given = self.headers.get('X-Token') or urllib.parse.parse_qs(u.query).get('t', [''])[0]
             return secrets.compare_digest(given, token)
         def do_GET(self):
+            # Anything that goes wrong comes back to the window as words to
+            # show (reported: the review screen stayed an empty black box).
+            try:
+                return self._get()
+            except Exception as e:
+                say('  window: %s failed: %s' % (self.path.split('?')[0], e))
+                try:
+                    return self._send(500, {'error': '%s: %s' % (type(e).__name__, e)})
+                except Exception:
+                    pass
+
+        def _get(self):
             u = urllib.parse.urlparse(self.path)
             if not self._allowed(u):
                 return self._send(403, {'error': 'not allowed'})
@@ -3506,6 +3524,16 @@ def serve_ui(cfg, port=8765, open_window=True):
                 return self._send(200, {'id': name, 'w': p['w'], 'h': p['h'], 'boxes': boxes, 'left': len(c['queue']), 'done': c['done'], 'gold': c['gold']})
             self._send(404, {})
         def do_POST(self):
+            try:
+                return self._post()
+            except Exception as e:
+                say('  window: %s failed: %s' % (self.path.split('?')[0], e))
+                try:
+                    return self._send(500, {'error': '%s: %s' % (type(e).__name__, e)})
+                except Exception:
+                    pass
+
+        def _post(self):
             u = urllib.parse.urlparse(self.path)
             if not self._allowed(u):
                 return self._send(403, {'error': 'not allowed'})
