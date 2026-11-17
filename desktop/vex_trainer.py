@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.24'
+VERSION = '2.25'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -2276,6 +2276,18 @@ def spot_boxes(W, H, q, placed=None):
         out.append([x0, y0, x1, y1] if x1 - x0 >= 6 and y1 - y0 >= 6 else None)
     return out
 
+def spot_units(W, H, q):
+    """Pixels per field width at each spot's foot: how big a pin or cup there looks."""
+    fwd = quad_fwd(q) if q else None
+    if not fwd:
+        return None
+    aspect = W / H
+    out = []
+    for u, v, *_ in SPOTS:
+        M, A, B = fwd(u, v), fwd(u + 0.02, v), fwd(u, v + 0.02)
+        out.append(round(max(math.hypot(A[0] - M[0], (A[1] - M[1]) / aspect), math.hypot(B[0] - M[0], (B[1] - M[1]) / aspect)) / 0.02 * W, 1))
+    return out
+
 def in_spots(b, boxes):
     """Is a box's middle inside one of the spots? → that spot's index, or -1."""
     cx, cy = b[0] + b[2] / 2, b[1] + b[3] / 2
@@ -3147,9 +3159,9 @@ UI_HTML = r"""<!doctype html><html lang="en"><meta charset="utf-8"><meta name="v
 <main id="rev">
  <div class="top"><button class="ghost" onclick="closeReview()">← Back</button><b id="revLeft"></b><span class="sp"></span>
   <span class="keys" id="rKeys"><kbd>click a box</kbd>remove <kbd>drag</kbd>add a robot <kbd>Enter</kbd>save, next <kbd>S</kbd>not a field view <kbd>Z</kbd>undo <kbd>B</kbd>back one</span>
-  <span class="keys" id="pKeys" style="display:none"><span id="pCls"></span> <kbd>drag</kbd>add <kbd>click</kbd>remove <kbd>wheel</kbd>zoom <kbd>Enter</kbd>save <kbd>Z</kbd>undo <kbd>B</kbd>back</span>
+  <span class="keys" id="pKeys" style="display:none"><span id="pCls"></span> <kbd>click</kbd>place one <kbd>click a box</kbd>remove <kbd>drag</kbd>exact box <kbd>wheel</kbd>zoom <kbd>Enter</kbd>save <kbd>Z</kbd>undo <kbd>B</kbd>back</span>
   <button class="ghost" onclick="saveFrame(true)">Skip</button><button onclick="saveFrame(false)">Save, next</button></div>
- <div id="cw" style="overflow:auto;max-height:calc(100vh - 210px)"><canvas id="c"></canvas></div><div class="hint" id="pMsg" style="display:none">Pre-drawn boxes are the colour finder's guesses. <b>One box per pin half</b> in that half's colour (a red-and-yellow pin is two boxes), and one box per cup. Only inside the <b>dotted yellow boxes</b>: each stands on a goal or over a loader. Mark every pin half and cup you can see in them, including ones half hidden; nothing else on the field matters. Pick the colour with <kbd>1</kbd>–<kbd>4</kbd> before drawing; scroll the mouse wheel over the picture to zoom.</div><div class="hint" id="revMsg">Green boxes are what the finder thinks are robots. Box every robot you can see, even partly hidden ones, and nothing else. <b>Two robots touching get one box each:</b> if one green box covers both, click it away and draw two, split at the gap between their drivebases.</div>
+ <div id="cw" style="overflow:auto;max-height:calc(100vh - 210px)"><canvas id="c"></canvas></div><div class="hint" id="pMsg" style="display:none">Pre-drawn boxes are the colour finder's guesses. Pick a colour (or cup) above or with <kbd>1</kbd>–<kbd>4</kbd>, then <b>click the middle of each pin half</b> of that colour (a red-and-yellow pin is two clicks, one per colour) and the middle of each cup. Click a box to remove it. Only inside the <b>dotted yellow boxes</b>: each stands on a goal or over a loader. Mark every pin half and cup you can see in them, including ones half hidden; nothing else on the field matters. Scroll the mouse wheel over the picture to zoom; drag for an exact box.</div><div class="hint" id="revMsg">Green boxes are what the finder thinks are robots. Box every robot you can see, even partly hidden ones, and nothing else. <b>Two robots touching get one box each:</b> if one green box covers both, click it away and draw two, split at the gap between their drivebases.</div>
 </main>
 <dialog id="dlg"><b>Settings</b>
  <label>Matches watched at once (4 to 8 suits an 8-core processor)</label><input id="sWorkers" type="number" min="1" max="16" style="width:100%">
@@ -3237,9 +3249,14 @@ function pos(e){const r=c.getBoundingClientRect();return[(e.clientX-r.left)*c.wi
 c.onmousedown=e=>{const[px,py]=pos(e);drag={x0:px,y0:py,x:px,y:py,w:0,h:0}};
 c.onmousemove=e=>{if(!drag)return;const[px,py]=pos(e);drag.x=Math.min(px,drag.x0);drag.y=Math.min(py,drag.y0);drag.w=Math.abs(px-drag.x0);drag.h=Math.abs(py-drag.y0);draw()};
 window.onmouseup=()=>{if(!drag)return;const d=drag;drag=null;hist.push(boxes.map(b=>b.slice()));
- if(pm&&d.w>=3&&d.h>=3)boxes.push([d.x,d.y,d.w,d.h,pc]);
+ if(pm&&d.w>=6&&d.h>=6)boxes.push([d.x,d.y,d.w,d.h,pc]);
+ else if(pm&&!onBox(d.x0,d.y0)){const s=spotAt(d.x0,d.y0);if(s){const u=s[4]/3658,w=(pc===3?95:70)*u,h=(pc===3?165:95)*u;boxes.push([d.x0-w/2,d.y0-h/2,w,h,pc])}else{hist.pop();flash('Click inside a dotted box: only goals and loaders count.')}}
  else if(!pm&&d.w>8&&d.h>8)boxes.push([d.x,d.y,d.w,d.h]);
  else{let k=-1,a=1e12;boxes.forEach((b,i)=>{if(d.x0>=b[0]&&d.x0<=b[0]+b[2]&&d.y0>=b[1]&&d.y0<=b[1]+b[3]&&b[2]*b[3]<a){a=b[2]*b[3];k=i}});if(k>=0)boxes.splice(k,1);else hist.pop()}draw()};
+// Pins & cups: a click places one of the chosen colour, sized for where it is (v2.25).
+function onBox(x0,y0){return boxes.some(b=>x0>=b[0]&&x0<=b[0]+b[2]&&y0>=b[1]&&y0<=b[1]+b[3])}
+function spotAt(x0,y0){return (cur.spots||[]).find(s=>x0>=s[0]&&x0<=s[2]&&y0>=s[1]&&y0<=s[3])}
+function flash(t){const m=$('pMsg');if(!m)return;const old=m.innerHTML;m.innerHTML='<b>'+t+'</b>';setTimeout(()=>{m.innerHTML=old},1600)}
 async function saveFrame(skip){if(!cur||!cur.id)return;back.push(cur.id);if(pm)await api('/api/psave',{id:cur.id,skip,pieces:boxes});else await api('/api/save',{id:cur.id,skip,boxes});nextFrame()}
 window.onkeydown=e=>{if(!inReview||dlg.open)return;if(e.key==='Enter'||e.key===' '){e.preventDefault();saveFrame(false)}else if(/^s$/i.test(e.key))saveFrame(true);
  else if(pm&&/^[1-4]$/.test(e.key)){pc=+e.key-1;clsBar()}else if(/^z$/i.test(e.key)){if(hist.length){boxes=hist.pop();draw()}}else if(/^b$/i.test(e.key)){if(back.length)nextFrame(back.pop())}else if(e.key==='Escape')closeReview()};
@@ -3453,7 +3470,9 @@ def serve_ui(cfg, port=8765, open_window=True):
                 lab = lab_read(name)
                 robots = lab.get('boxes', [])
                 vid = name.rsplit('_', 1)[0]
-                spots = spot_boxes(p['w'], p['h'], quad_for(vid, qsite()), placed_for(vid)) or []
+                q = quad_for(vid, qsite())
+                spots = spot_boxes(p['w'], p['h'], q, placed_for(vid)) or []
+                units = spot_units(p['w'], p['h'], q) or []
                 if 'pieces' in lab:                      # going back: what was saved
                     pieces = clean_pieces(lab['pieces'])
                 else:
@@ -3467,7 +3486,7 @@ def serve_ui(cfg, port=8765, open_window=True):
                         except Exception:
                             pieces = pieces_from_colour(frame, robots, spots)
                 return self._send(200, {'id': name, 'w': p['w'], 'h': p['h'], 'pieces': [[round(v, 1) for v in b[:4]] + [int(b[4])] for b in pieces],
-                                        'robots': robots, 'spots': [s for s in spots if s], 'left': len(P['queue']), 'marked': P['marked']})
+                                        'robots': robots, 'spots': [s + [units[k]] for k, s in enumerate(spots) if s and k < len(units)], 'left': len(P['queue']), 'marked': P['marked']})
             if u.path == '/api/next':
                 c = counts()
                 want = urllib.parse.parse_qs(u.query).get('id', [None])[0]

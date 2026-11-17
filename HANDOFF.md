@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v142**. Everything green: 92 test files.
+Current release: **v143**. Everything green: 93 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,14 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v143 — app 2.25: mark pins & cups by clicking** ("can it have me select a
+color and i click a point on the pin and cups"). In Mark pins & cups, a click
+inside a dotted spot (not on a box) places a box of the chosen class centred
+on the click, sized from `spot_units` (px per field width at that spot, sent
+as a 5th number on each spot): halves 70×95 mm, cups 95×165 mm. Click on a box
+removes it; a drag still draws an exact box; a click outside spots flashes why.
+Tests: t132.
 
 **v142 — app 2.24: an old pin finder is not loaded.** A pin & cup finder trained
 before 2.22 (whole frame, 1280) cannot read the 320 goal/loader crops;
