@@ -3715,7 +3715,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v136';
+const APP_BUILD = 'v137';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -10357,8 +10357,8 @@ function vtReport(number, sums) {
   const pinLine = vtPinLine(isOwn ? rows.own : rows.pair, isOwn ? rows.ownOthers : rows.pairOthers, isOwn, vtPinCheck(sums));
   const pinGood = [], pinWeak = [];
   if (pinLine && pinLine.other !== null && pinLine.n >= 3) {
-    if (pinLine.avg > pinLine.other * 1.25 && pinLine.avg - pinLine.other >= 1) pinGood.push('Stacks more yellow than the robots it faces. ' + pinLine.text);
-    else if (pinLine.avg < pinLine.other * 0.75 && pinLine.other - pinLine.avg >= 1) pinWeak.push('Stacks less yellow than the robots it faces. ' + pinLine.text);
+    if (pinLine.avg > pinLine.other * 1.25 && pinLine.avg - pinLine.other >= 1) pinGood.push(`Stacks more yellow than the robots it faces (${pinLine.avg.toFixed(1)} halves a match to their ${pinLine.other.toFixed(1)}).`);
+    else if (pinLine.avg < pinLine.other * 0.75 && pinLine.other - pinLine.avg >= 1) pinWeak.push(`Stacks less yellow than the robots it faces (${pinLine.avg.toFixed(1)} halves a match to their ${pinLine.other.toFixed(1)}).`);
   }
   return { n, total, own: isOwn, how: rows.how, picked: rows.own.length, wins: W.length, losses: L.length, vis: vtAvg(col(rows.mine, 'vis')), game, autoFacts, seen: isOwn ? vtSeenOf(rows.own) : null, pins: pinLine,
     lines: { good: pinGood.concat(game.strong, good), weak: pinWeak.concat(game.weak), auto, habits, lose: lose.slice(0, 3).map(x => x.text), use } };
@@ -10414,6 +10414,7 @@ function vtReportHtml(number, rep) {
       ${sec('Strengths', L.good, rep.own ? 'Nothing stands out against the robots it faced.' : 'Nothing stands out against the alliances it faced.')}
       ${sec('Weaknesses', L.weak || [], 'Nothing stands out.')}
       ${vtReportAuto(rep, L)}
+      ${rep.pins && rep.pins.text ? `<div class="vr-sec"><div class="vr-h">Scoring, in full</div><ul class="vr-list"><li>${esc(rep.pins.text)}</li></ul></div>` : ''}
       ${rep.game && rep.game.n >= 3 ? vtReportRole(rep.game) : ''}
       ${vtReportSeen(rep.seen)}
       ${rep.game && rep.game.n >= 3 ? `<div class="vr-sec"><div class="vr-h">Where it plays</div>${rep.game.where && rep.game.where[0] ? `<ul class="vr-list"><li>${esc(rep.game.where[0])}</li></ul>` : ''}${vtFieldSvg(rep.game.heat, null)}<div class="vr-cap">Driver control. Colour marks where it is more than usual; places it only drives through stay dark. ${VT_FIELD_KEY}</div></div>` : ''}
@@ -11106,7 +11107,7 @@ function vtBrief(number, sums) {
   if (pts.length >= 2) B.speed = `Its alliances score ${Math.round(vtAvg(pts))} a match.`;
   // Pins counted off the video say it better than a score divided by time.
   const pin = vtPinLine(isOwn ? rows.own : rows.pair, null, isOwn, vtPinCheck(sums));
-  if (pin) B.speed = pin.text + (B.speed ? ' ' + B.speed : '');
+  if (pin) B.speed = pin.short;
   B.pins = pin ? pin.avg : null;
   return B;
 }
@@ -11844,7 +11845,9 @@ function vtPinLine(mine, others, isOwn, check) {
   const avg = vtAvg(a) * fix, other = o.length >= 2 ? vtAvg(o) * fix : null;
   const cys = mine.map(r => r.cy).filter(v => v > 0), pace = cys.length >= 2 ? vtAvg(cys) : null;
   const t5 = vtFastFiveOf(mine, fix);
-  return { avg, other, pace, n: a.length,
+  // The short form, for the report's top lines. Asked: "way too much info for scoring".
+  const short = [`${avg.toFixed(1)} yellow halves a match${check && check.ok ? ` (±${vtPct(check.err)})` : ''}`, pace ? `a pin every ${Math.round(pace)} s` : '', t5 !== null ? `5 pins in ${Math.round(t5)} s` : ''].filter(Boolean).join(' · ');
+  return { avg, other, pace, n: a.length, short,
     text: `${isOwn ? 'Sets down' : 'A robot on its alliance sets down'} about ${avg.toFixed(1)} yellow halves a match (worth ${Math.round(avg * 10)} when its alliance holds that toggle)${pace ? `, a pin every ${Math.round(pace)} s while it is stacking (timed from one set-down to the next)` : ''}${t5 !== null ? `; its fastest five pins usually take ${Math.round(t5)} s` : ''}${other !== null ? `; the robots it faced: ${other.toFixed(1)}` : ''}. ${vtPinCheckText(check)}` };
 }
 

@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v136**. Everything green: 87 test files.
+Current release: **v137**. Everything green: 88 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,12 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v137 — short Scoring line** ("way too much info for scoring"): `vtPinLine`
+returns `short` ("4.0 yellow halves a match (±21%) · a pin every 15 s · 5 pins
+in 32 s"); the report's top Scoring line (`B.speed`) uses it; the full sentence
+sits under "Everything it measured" as "Scoring, in full". Strength/weakness
+pin lines shortened too. Tests: t127.
 
 **v136 — pins counted on the goals; each event uses the closer count**
 Owner: "pins and cups can also only be scored in set spots" → "build".
