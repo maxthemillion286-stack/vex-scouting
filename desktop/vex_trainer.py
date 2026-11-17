@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.23'
+VERSION = '2.24'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -2420,7 +2420,10 @@ def pieces_ready():
             info = json.load(f)
     except Exception:
         return False
-    return bool(info.get('use')) and os.path.exists(pieces_file())
+    # A finder trained before 2.22 looked at the whole frame at 1280 and cannot
+    # read the goal and loader pictures; it is not used (its marks are kept and
+    # train the new one).
+    return bool(info.get('use')) and info.get('size') == PIECE_SIZE and os.path.exists(pieces_file())
 
 def piece_letterbox(w, h):
     s = PIECE_SIZE / max(w, h)
@@ -2580,7 +2583,7 @@ def do_train_pieces(cfg):
         say('  current trained          %5.1f%% / %5.1f%% / %5.1f              %5.1f%% / %5.1f' % (cur['halves'][0] * 100, cur['halves'][1] * 100, cur['halves'][2] * 100, cur['cups'][1] * 100, cur['cups'][2] * 100))
     say('  new                      %5.1f%% / %5.1f%% / %5.1f              %5.1f%% / %5.1f' % (new['halves'][0] * 100, new['halves'][1] * 100, new['halves'][2] * 100, new['cups'][1] * 100, new['cups'][2] * 100))
     info = {'tag': tag, 'file': out, 'colour': colour, 'new': new, 'frames': len(marked), 'train': counts['train'], 'test': counts['val'],
-            'rounds': rounds['n'], 'when': time.strftime('%b %d, %H:%M'), 'use': False}
+            'rounds': rounds['n'], 'when': time.strftime('%b %d, %H:%M'), 'use': False, 'size': PIECE_SIZE}
     if use:
         tmp = pieces_file() + '.tmp'
         shutil.copyfile(out, tmp)
@@ -2590,7 +2593,8 @@ def do_train_pieces(cfg):
     else:
         try:
             with open(pieces_info_file()) as f:
-                info['use'] = bool(json.load(f).get('use')) and os.path.exists(pieces_file())   # the one before stays
+                before = json.load(f)                        # the one before stays, if it is the same kind
+                info['use'] = bool(before.get('use')) and before.get('size') == PIECE_SIZE and os.path.exists(pieces_file())
         except Exception:
             pass
         info['beat'] = False
