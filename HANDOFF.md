@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v134**. Everything green: 85 test files.
+Current release: **v135**. Everything green: 86 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,30 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v135 — marking pins & cups, and a finder trained on them (app 2.21)**
+Asked: "how can i make it recognize pin and cups?" → "build it".
+- Review card has a second button, **Mark pins & cups** (`openReview(true)`,
+  `pm`): frames whose robots are reviewed (not skipped), queued alternating
+  videos (`pieces_queue`). Pre-drawn: the trained finder's guesses once it is
+  in use, else `pieces_from_colour` (the colour blobs as frame boxes). Classes
+  `PIECE_NAMES` = red half, blue half, yellow half, cup — one box per pin HALF
+  (matches how scoring counts). Keys 1–4 pick the class, wheel zooms, robots
+  shown dashed. Saved in the frame's label file as `pieces` ([x,y,w,h,class])
+  or `pskip`; `lab_write` merges so robot saves / website labels keep them.
+- Train: `train_auto` now trains the pin & cup finder when ≥`PIECE_NEED` (60)
+  frames are marked, even if robots are short of 150. `do_train_pieces`:
+  yolov8s at 1280, 150 rounds, patience 30; scored by `score_pieces` (same
+  class, IoU ≥ 0.3) on held-back marked frames against the colour finder and
+  the current trained one; copied to `models/pieces.onnx` and `use: true` in
+  `pieces_latest.json` only if its pin-half F1 beats both.
+- Tracking: `Eyes.pieces` (`PieceFinder`) replaces `pin_blobs` when in use,
+  giving the same blob shape (area ≈ 0.55·w·h), no boxes on robots; cups go
+  into the recording as `cu` [tenths, n, (x, bottom, w, h)…] at 960 wide, and
+  `pf: 1`. `validRec` accepts both. **The website does not use `cu` yet.**
+- Tested: `desktop/dev/pieces.py` (23 checks, stand-in ONNX finder) and the
+  window driven in Chromium. **Not tested: real training, real accuracy.**
+- App-only: the website's own tab tracker still uses the colour finder.
 
 **v134 — fastest five pins; speed with identical answers**
 - Reported: "48 seconds is way too slow for 5 pins, this team has proven to

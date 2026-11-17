@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.20'
+VERSION = '2.21'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -579,6 +579,12 @@ class Eyes:
         if self.reader is None:
             self.reader = ort.InferenceSession(os.path.join(DIRS['models'], 'plate_reader.onnx'), so, providers=cpu)
         self.finder = ort.InferenceSession(os.path.join(DIRS['models'], 'text_finder.onnx'), so, providers=cpu)
+        self.pieces = None
+        if pieces_ready():
+            try:
+                self.pieces = PieceFinder(pieces_file(), so, prov)
+            except Exception:
+                self.pieces = None
         with open(os.path.join(DIRS['models'], 'plate_chars.json'), encoding='utf-8') as f:
             self.chars = {int(k): v for k, v in json.load(f).items()}
         if not quiet:
@@ -966,7 +972,7 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
     def fresh():
         return {'v': 2, 'name': str(job.get('name', ''))[:60], 'round': job.get('round'), 'num': job.get('num'), 'red': job['red'], 'blue': job['blue'],
                 'rs': job.get('rs'), 'bs': job.get('bs'), 'vid': job['vid'], 'off': int(round(off)), 'rate': 4, 'w': SIZE, 'h': 0,
-                'model': 'det1', 'at': int(time.time() * 1000), 'f': [], 'tm': [], 'pn': [], 'tg': []}
+                'model': 'det1', 'at': int(time.time() * 1000), 'f': [], 'tm': [], 'pn': [], 'tg': [], 'cu': []}
 
     while True:
         rec = fresh()
@@ -1012,7 +1018,13 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
             # The pins, every two seconds: by colour and size, off the robots.
             if t >= pin_at + 2 and len(rec['pn']) < PIN_MAX_INTS:
                 pin_at = t
-                pw, ph_, blobs = pin_blobs(frame, boxes)
+                if eyes.pieces is not None:              # the trained pin & cup finder, once it has beaten the colours
+                    pw, ph_, blobs, cups = eyes.pieces.blobs(frame, boxes)
+                    if len(rec['cu']) < 20000:
+                        rec['cu'] += [jround((t - rec['off']) * 10), len(cups)] + [v for c in cups for v in c]
+                    rec['pf'] = 1
+                else:
+                    pw, ph_, blobs = pin_blobs(frame, boxes)
                 rec['pw'], rec['ph'] = pw, ph_
                 rec['pn'] += [jround((t - rec['off']) * 10), len(blobs)] + [v for bl in blobs for v in bl]
                 if quad and len(rec['tg']) < 1800:      # the toggles, where the field's corners put them
@@ -2199,6 +2211,312 @@ def reviewed():
         out.append((name, p['w'], p['h'], lab.get('boxes', [])))
     return out
 
+# ── pins and cups ─────────────────────────────────────────────────────────
+# Asked: "how can i make it recognize pin and cups?", then "build it". Pins
+# were found by colour alone (patches of red, blue or yellow), which cannot
+# tell two touching pins apart, misses a pin in shadow and cannot see a cup at
+# all (clear and black). So the owner marks them, like the robots: the review
+# screen has a second job, "Pins & cups", where the colour finder's guesses
+# are drawn already and he fixes them. From 60 marked frames a second finder
+# is trained (one half of a pin is one box, coloured red, blue or yellow; a
+# cup is one box). It replaces the colour finder only when it beats it on
+# marked frames neither trained on. Its boxes go into the recording in the
+# same shape the colour finder's did, so the website counts pins as before;
+# cups are recorded as well (`cu`).
+PIECE_NAMES = ('red half', 'blue half', 'yellow half', 'cup')
+PIECE_SIZE, PIECE_NEED, PIECE_CONF = 1280, 60, 0.35
+
+def pieces_file():
+    return os.path.join(DIRS['models'], 'pieces.onnx')
+
+def pieces_info_file():
+    return os.path.join(DIRS['models'], 'pieces_latest.json')
+
+def lab_read(name):
+    try:
+        with open(os.path.join(LABELS, name + '.json')) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def lab_write(name, **changes):
+    """Change one frame's saved marks, keeping the rest (robot boxes and
+    pin/cup boxes are saved by different screens)."""
+    os.makedirs(LABELS, exist_ok=True)
+    lab = lab_read(name)
+    lab.update(changes)
+    tmp = os.path.join(LABELS, name + '.json.tmp')
+    with open(tmp, 'w') as f:
+        json.dump(lab, f)
+    os.replace(tmp, os.path.join(LABELS, name + '.json'))
+
+def clean_pieces(raw):
+    out = []
+    for b in raw or []:
+        try:
+            x, y, w, h, c = float(b[0]), float(b[1]), float(b[2]), float(b[3]), int(b[4])
+        except (TypeError, ValueError, IndexError):
+            continue
+        if w >= 2 and h >= 2 and 0 <= c < len(PIECE_NAMES):
+            out.append([round(x, 1), round(y, 1), round(w, 1), round(h, 1), c])
+    return out[:300]
+
+def pieces_marked():
+    """Frames whose pins and cups have been marked: (name, w, h, robots, pieces)."""
+    out = []
+    if not os.path.isdir(LABELS):
+        return out
+    for n in sorted(os.listdir(LABELS)):
+        if not n.endswith('.json'):
+            continue
+        name = n[:-5]
+        lab = lab_read(name)
+        if 'pieces' not in lab or lab.get('pskip') or not os.path.exists(os.path.join(FRAMES, name + '.jpg')):
+            continue
+        try:
+            with open(os.path.join(PROPS, name + '.json')) as f:
+                p = json.load(f)
+        except Exception:
+            continue
+        out.append((name, p['w'], p['h'], lab.get('boxes', []), clean_pieces(lab['pieces'])))
+    return out
+
+def pieces_queue():
+    """Frames with their robots done (not skipped) and pins not yet marked,
+    taking turns between videos so it is not the same scene twice in a row."""
+    if not os.path.isdir(LABELS):
+        return []
+    by = {}
+    for n in sorted(os.listdir(LABELS), key=lambda n: hashlib.md5(n.encode()).hexdigest()):
+        if not n.endswith('.json'):
+            continue
+        name = n[:-5]
+        lab = lab_read(name)
+        if lab.get('skip') or 'pieces' in lab or lab.get('pskip') or not os.path.exists(os.path.join(FRAMES, name + '.jpg')):
+            continue
+        by.setdefault(name.rsplit('_', 1)[0], []).append(name)
+    out, lists = [], list(by.values())
+    while any(lists):
+        for l in lists:
+            if l:
+                out.append(l.pop(0))
+    return out
+
+def pieces_from_colour(frame, robots):
+    """The colour finder's pins as boxes in the frame: [x, y, w, h, class]."""
+    W, H, blobs = pin_blobs(frame, robots)
+    k = W / frame.shape[1]
+    return [[round((b[0] - b[2] / 2) / k, 1), round((b[1] - b[3]) / k, 1), round(b[2] / k, 1), round(b[3] / k, 1), b[5] - 1] for b in blobs]
+
+def pieces_ready():
+    """A trained pin and cup finder that beat the colour finder, on this computer."""
+    try:
+        with open(pieces_info_file()) as f:
+            info = json.load(f)
+    except Exception:
+        return False
+    return bool(info.get('use')) and os.path.exists(pieces_file())
+
+def piece_letterbox(w, h):
+    s = PIECE_SIZE / max(w, h)
+    nw, nh = jround(w * s), jround(h * s)
+    return {'s': s, 'nw': nw, 'nh': nh, 'px': (PIECE_SIZE - nw) // 2, 'py': (PIECE_SIZE - nh) // 2}
+
+def piece_decode(out, lb, w, h, conf):
+    """out: (4 + classes, N) → [x, y, w, h, score, class] in the frame, kept apart by class."""
+    import numpy as np
+    sc = out[4:]
+    cls, best = sc.argmax(0), sc.max(0)
+    by = {}
+    for i in np.nonzero(best >= conf)[0]:
+        bw, bh = out[2, i] / lb['s'], out[3, i] / lb['s']
+        x = (out[0, i] - lb['px']) / lb['s'] - bw / 2
+        y = (out[1, i] - lb['py']) / lb['s'] - bh / 2
+        x0, y0, x1, y1 = max(0, x), max(0, y), min(w, x + bw), min(h, y + bh)
+        if x1 - x0 >= 2 and y1 - y0 >= 2:
+            by.setdefault(int(cls[i]), []).append([float(x0), float(y0), float(x1 - x0), float(y1 - y0), float(best[i]), int(cls[i])])
+    out_ = []
+    for c, bs in by.items():
+        out_ += nms(bs, 0.5)
+    return out_
+
+def on_robot(b, robots):
+    cx, cy = b[0] + b[2] / 2, b[1] + b[3] / 2
+    return any(r[0] - r[2] * 0.06 <= cx <= r[0] + r[2] * 1.06 and r[1] - r[3] * 0.06 <= cy <= r[1] + r[3] * 1.06 for r in robots or [])
+
+def score_pieces(find, val):
+    """How a pin finder does on marked frames: find(frame, robots) → [[x,y,w,h,class], …].
+    Halves count right when the class matches and they overlap (IoU 0.3: they
+    are small, and a few pixels move it a lot). → {'halves': (p, r, f1), 'cups': (p, r, f1)}"""
+    import cv2
+    tally = {'halves': [0, 0, 0], 'cups': [0, 0, 0]}
+    for name, w, h, robots, truth in val:
+        frame = cv2.imread(os.path.join(FRAMES, name + '.jpg'))
+        if frame is None:
+            continue
+        found = find(frame, robots)
+        for part, keep in (('halves', lambda c: c < 3), ('cups', lambda c: c == 3)):
+            T = [t for t in truth if keep(t[4])]
+            F = [f for f in found if keep(f[4])]
+            used = set()
+            for f in sorted(F, key=lambda f: -f[2] * f[3]):
+                best, bi = 0, -1
+                for i, t in enumerate(T):
+                    if i in used or t[4] != f[4]:
+                        continue
+                    v = iou(f, t)
+                    if v > best:
+                        best, bi = v, i
+                if best >= 0.3:
+                    used.add(bi)
+                    tally[part][0] += 1
+                else:
+                    tally[part][1] += 1
+            tally[part][2] += len(T) - len(used)
+    res = {}
+    for part, (tp, fp, fn) in tally.items():
+        pr = tp / (tp + fp) if tp + fp else 0
+        rc = tp / (tp + fn) if tp + fn else 0
+        res[part] = (pr, rc, (2 * pr * rc / (pr + rc) if pr + rc else 0))
+    return res
+
+def build_pieces_dataset(marked):
+    root = os.path.join(DIRS['build'], 'pieces_dataset')
+    shutil.rmtree(root, ignore_errors=True)
+    counts = {'train': 0, 'val': 0}
+    for part in ('train', 'val'):
+        os.makedirs(os.path.join(root, 'images', part))
+        os.makedirs(os.path.join(root, 'labels', part))
+    for name, w, h, robots, pieces in marked:
+        part = 'val' if is_val(name) else 'train'
+        shutil.copyfile(os.path.join(FRAMES, name + '.jpg'), os.path.join(root, 'images', part, name + '.jpg'))
+        with open(os.path.join(root, 'labels', part, name + '.txt'), 'w') as f:
+            for x, y, bw, bh, c in pieces:
+                x, y = max(0, x), max(0, y)
+                bw, bh = min(bw, w - x), min(bh, h - y)
+                if bw > 1 and bh > 1:
+                    f.write('%d %.6f %.6f %.6f %.6f\n' % (c, (x + bw / 2) / w, (y + bh / 2) / h, bw / w, bh / h))
+        counts[part] += 1
+    with open(os.path.join(root, 'data.yaml'), 'w') as f:
+        f.write('path: %s\ntrain: images/train\nval: images/val\nnames:\n' % root.replace('\\', '/') + ''.join('  %d: %s\n' % (i, n) for i, n in enumerate(PIECE_NAMES)))
+    return root, counts
+
+def do_train_pieces(cfg):
+    """Train the pin and cup finder from the marked frames; use it only if it
+    finds pin halves better than what is used now. → info, or None."""
+    marked = pieces_marked()
+    val = [m for m in marked if is_val(m[0])]
+    say('\nPins & cups: %d marked frames (%d held back for testing).' % (len(marked), len(val)))
+    if len(marked) < PIECE_NEED or len(val) < 6:
+        say('Mark pins and cups on at least %d frames to train their finder (%d more).' % (PIECE_NEED, max(0, PIECE_NEED - len(marked), 6 - len(val))))
+        return None
+    if not ensure_training_tools():
+        return None
+    import torch
+    from ultralytics import YOLO
+    root, counts = build_pieces_dataset(marked)
+    device = 0 if torch.cuda.is_available() else 'cpu'
+    tag = 'p' + time.strftime('%y%m%d%H%M')
+    runs = os.path.join(DIRS['build'], 'runs')
+    total_rounds = int(cfg.get('piece_epochs', 150))
+    rounds = {'n': 0}
+    def each_round(trainer):
+        rounds['n'] = int(getattr(trainer, 'epoch', rounds['n'])) + 1
+        say('  training pins & cups: round %d/%d' % (rounds['n'], total_rounds))
+        progress('Training the pin & cup finder', rounds['n'], total_rounds)
+    # A bigger model than the robot finder, at twice the picture size: a pin is
+    # a few dozen pixels across in a wide shot, and this one only runs in the app.
+    model = YOLO(str(cfg.get('piece_model') or 'yolov8s.pt'))
+    try:
+        model.add_callback('on_fit_epoch_end', each_round)
+    except Exception:
+        pass
+    say('Training the pin & cup finder on %d frames; testing on %d.' % (counts['train'], counts['val']))
+    model.train(data=os.path.join(root, 'data.yaml'), epochs=total_rounds, imgsz=PIECE_SIZE, batch=int(cfg.get('piece_batch', 8)), device=device,
+                workers=4, patience=30, project=runs, name=tag, exist_ok=True, verbose=False, plots=False, fliplr=0.5, mosaic=1.0)
+    best = os.path.join(runs, tag, 'weights', 'best.pt')
+    onnx_path = YOLO(best).export(format='onnx', imgsz=PIECE_SIZE, opset=12, simplify=True, dynamic=False)
+    out = os.path.join(DIRS['models'], 'pieces_%s.onnx' % tag)
+    shutil.copyfile(onnx_path, out)
+    import onnxruntime as ort
+    sess = ort.InferenceSession(out, providers=['CPUExecutionProvider'])
+    if list(sess.get_outputs()[0].shape)[:2] != [1, 4 + len(PIECE_NAMES)]:
+        say('The new pin finder answers in an unexpected shape (%s); not used.' % sess.get_outputs()[0].shape)
+        return None
+    say('\nMeasuring on the %d test frames…' % len(val))
+    colour = score_pieces(lambda fr, rb: pieces_from_colour(fr, rb), val)
+    newf = PieceFinder(out)
+    new = score_pieces(lambda fr, rb: [b[:4] + [b[5]] for b in newf.find(fr, rb)], val)
+    cur = None
+    if pieces_ready():
+        curf = PieceFinder(pieces_file())
+        cur = score_pieces(lambda fr, rb: [b[:4] + [b[5]] for b in curf.find(fr, rb)], val)
+    bar = max(colour['halves'][2], cur['halves'][2] if cur else 0)
+    use = new['halves'][2] > bar
+    say('                     pin halves: right when it says one / found / overall      cups: found / overall')
+    say('  colour finder            %5.1f%% / %5.1f%% / %5.1f                        —' % (colour['halves'][0] * 100, colour['halves'][1] * 100, colour['halves'][2] * 100))
+    if cur:
+        say('  current trained          %5.1f%% / %5.1f%% / %5.1f              %5.1f%% / %5.1f' % (cur['halves'][0] * 100, cur['halves'][1] * 100, cur['halves'][2] * 100, cur['cups'][1] * 100, cur['cups'][2] * 100))
+    say('  new                      %5.1f%% / %5.1f%% / %5.1f              %5.1f%% / %5.1f' % (new['halves'][0] * 100, new['halves'][1] * 100, new['halves'][2] * 100, new['cups'][1] * 100, new['cups'][2] * 100))
+    info = {'tag': tag, 'file': out, 'colour': colour, 'new': new, 'frames': len(marked), 'train': counts['train'], 'test': counts['val'],
+            'rounds': rounds['n'], 'when': time.strftime('%b %d, %H:%M'), 'use': False}
+    if use:
+        tmp = pieces_file() + '.tmp'
+        shutil.copyfile(out, tmp)
+        os.replace(tmp, pieces_file())
+        info['use'] = True
+        say('PIN & CUP FINDER IN USE: it beat what was used before on frames it never saw. Matches tracked from now on use it.')
+    else:
+        try:
+            with open(pieces_info_file()) as f:
+                info['use'] = bool(json.load(f).get('use')) and os.path.exists(pieces_file())   # the one before stays
+        except Exception:
+            pass
+        info['beat'] = False
+        say('The new pin & cup finder is NOT better than what is used now, so it is not used. Mark more frames and train again.')
+    with open(pieces_info_file(), 'w') as f:
+        json.dump(info, f)
+    return info
+
+
+class PieceFinder:
+    """The trained pin and cup finder."""
+    def __init__(self, path=None, so=None, prov=None):
+        import numpy as np, onnxruntime as ort
+        self.np = np
+        if prov is None:
+            have = ort.get_available_providers()
+            prov = [p for p in ('DmlExecutionProvider', 'CUDAExecutionProvider') if p in have] + ['CPUExecutionProvider']
+        self.sess = ort.InferenceSession(path or pieces_file(), so, providers=prov) if so else ort.InferenceSession(path or pieces_file(), providers=prov)
+
+    def find(self, frame, robots=None, conf=PIECE_CONF):
+        """→ [x, y, w, h, score, class] in the frame's pixels, none on a robot."""
+        import cv2
+        np = self.np
+        h, w = frame.shape[:2]
+        lb = piece_letterbox(w, h)
+        sq = np.full((PIECE_SIZE, PIECE_SIZE, 3), 114, np.uint8)
+        sq[lb['py']:lb['py'] + lb['nh'], lb['px']:lb['px'] + lb['nw']] = cv2.resize(frame, (lb['nw'], lb['nh']), interpolation=cv2.INTER_LINEAR)[:, :, ::-1]
+        out = self.sess.run(None, {self.sess.get_inputs()[0].name: (sq.astype(np.float32) / 255).transpose(2, 0, 1)[None]})[0][0]
+        return [b for b in piece_decode(out, lb, w, h, conf) if not on_robot(b, robots)]
+
+    def blobs(self, frame, robots):
+        """In the colour finder's shape, so the website counts them the same:
+        (W, H, [[x, bottom y, w, h, area, colour], …], cups [[x, bottom y, w, h], …]) in a picture PIN_W wide."""
+        h0, w0 = frame.shape[:2]
+        W, H = PIN_W, max(2, jround(h0 * PIN_W / w0))
+        k = W / w0
+        halves, cups = [], []
+        for x, y, bw, bh, sc, c in self.find(frame, robots):
+            q = [jround((x + bw / 2) * k), jround((y + bh) * k), max(1, jround(bw * k)), max(1, jround(bh * k))]
+            if c == 3:
+                cups.append(q)
+            else:
+                halves.append(q + [max(1, jround(q[2] * q[3] * 0.55)), c + 1])   # about the share of its box a half fills
+        halves.sort(key=lambda q: -q[4])
+        return W, H, halves[:PIN_MAX_BLOBS], cups[:40]
+
+
 def is_val(name):
     return int(hashlib.md5(name.encode()).hexdigest(), 16) % 100 < 15
 
@@ -2495,8 +2813,7 @@ def pull_labels(cfg):
         if not os.path.exists(os.path.join(PROPS, name + '.json')):
             continue                                  # a frame this computer does not have
         boxes = [[float(v) for v in b[:4]] for b in (lab.get('boxes') or []) if isinstance(b, list) and len(b) >= 4][:60]
-        with open(os.path.join(LABELS, name + '.json'), 'w') as f:
-            json.dump({'skip': bool(lab.get('skip')), 'boxes': boxes}, f)
+        lab_write(name, skip=bool(lab.get('skip')), boxes=boxes)
     for i in range(0, len(got), 300):
         site.post({'labelsdone': got[i:i + 300]}, tries=1)
     return len(got)
@@ -2588,6 +2905,17 @@ def add_source(cfg, src):
 def train_auto(cfg):
     """Train, measure, and publish only if the new finder is better."""
     sync_review(cfg)                                  # corrections made on a phone count too
+    robots_ok, pieces_ok = len(reviewed()) >= 150, len(pieces_marked()) >= PIECE_NEED
+    if not robots_ok and not pieces_ok:
+        say('Nothing to train yet: review 150 frames for robots, or mark pins & cups on %d.' % PIECE_NEED)
+        return
+    if pieces_ok:
+        try:
+            do_train_pieces(cfg)
+        except Exception as e:
+            say('Training the pin & cup finder stopped:', e)
+    if not robots_ok:
+        return
     info = do_train(cfg)
     if not info:
         return
@@ -2663,6 +2991,7 @@ UI_HTML = r"""<!doctype html><html lang="en"><meta charset="utf-8"><meta name="v
  details.more{margin-top:14px} details.more>summary{cursor:pointer;color:var(--dim);font-size:13px} details.more .add{margin-top:10px} .panel details.more{margin-top:4px}
  #key{display:none;margin-bottom:16px;border-color:#4a3d1a;background:#1d1a12} #key .row{display:flex;gap:10px;margin-top:10px} #key input{flex:1}
  #rev{display:none} #rev .top{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px} #rev .top .sp{flex:1}
+ .pc{border:2px solid transparent;border-radius:7px;padding:2px 8px;margin-right:4px;cursor:pointer;font-size:13px} .pc.on{border-color:#fff}
  #rev canvas{max-width:100%;max-height:calc(100vh - 210px);background:#000;border-radius:10px;cursor:crosshair;display:block;margin:0 auto}
  kbd{background:#252b38;border-radius:5px;padding:1px 7px;font:12.5px ui-monospace,Consolas,monospace;margin-right:3px}
  .keys{color:var(--dim);font-size:13px}
@@ -2678,7 +3007,8 @@ UI_HTML = r"""<!doctype html><html lang="en"><meta charset="utf-8"><meta name="v
   <div class="card"><h2>1 · Track</h2><p>Watches the matches the website sent. Starts by itself.</p>
    <div class="n" id="trackN">&nbsp;</div><button id="bTrack" onclick="start('track')">Start tracking</button></div>
   <div class="card"><h2>2 · Review</h2><p>Fix the boxes on 150 frames, the hardest first. You never need to do them all.</p>
-   <div class="n" id="revN">&nbsp;</div><button id="bRev" onclick="openReview()">Review frames</button></div>
+   <div class="n" id="revN">&nbsp;</div><button id="bRev" onclick="openReview(false)">Review robots</button>
+   <div class="n" id="pcsN" style="margin-top:10px">&nbsp;</div><button class="ghost" id="bPcs" onclick="openReview(true)">Mark pins &amp; cups</button></div>
   <div class="card"><h2>3 · Train</h2><p>Makes a better robot finder and publishes it only if it wins.</p>
    <div class="n" id="trainN">&nbsp;</div><button id="bTrain" onclick="start('train')">Train</button></div>
  </div>
@@ -2689,9 +3019,10 @@ UI_HTML = r"""<!doctype html><html lang="en"><meta charset="utf-8"><meta name="v
 </main>
 <main id="rev">
  <div class="top"><button class="ghost" onclick="closeReview()">← Back</button><b id="revLeft"></b><span class="sp"></span>
-  <span class="keys"><kbd>click a box</kbd>remove <kbd>drag</kbd>add a robot <kbd>Enter</kbd>save, next <kbd>S</kbd>not a field view <kbd>Z</kbd>undo <kbd>B</kbd>back one</span>
+  <span class="keys" id="rKeys"><kbd>click a box</kbd>remove <kbd>drag</kbd>add a robot <kbd>Enter</kbd>save, next <kbd>S</kbd>not a field view <kbd>Z</kbd>undo <kbd>B</kbd>back one</span>
+  <span class="keys" id="pKeys" style="display:none"><span id="pCls"></span> <kbd>drag</kbd>add <kbd>click</kbd>remove <kbd>wheel</kbd>zoom <kbd>Enter</kbd>save <kbd>Z</kbd>undo <kbd>B</kbd>back</span>
   <button class="ghost" onclick="saveFrame(true)">Skip</button><button onclick="saveFrame(false)">Save, next</button></div>
- <canvas id="c"></canvas><div class="hint" id="revMsg">Green boxes are what the finder thinks are robots. Box every robot you can see, even partly hidden ones, and nothing else. <b>Two robots touching get one box each:</b> if one green box covers both, click it away and draw two, split at the gap between their drivebases.</div>
+ <div id="cw" style="overflow:auto;max-height:calc(100vh - 210px)"><canvas id="c"></canvas></div><div class="hint" id="pMsg" style="display:none">Pre-drawn boxes are the colour finder's guesses. <b>One box per pin half</b> in that half's colour (a red-and-yellow pin is two boxes), and one box per cup. Mark the ones on the field and on goals; leave pins a robot is holding. Pick the colour with <kbd>1</kbd>–<kbd>4</kbd> before drawing; scroll the mouse wheel over the picture to zoom.</div><div class="hint" id="revMsg">Green boxes are what the finder thinks are robots. Box every robot you can see, even partly hidden ones, and nothing else. <b>Two robots touching get one box each:</b> if one green box covers both, click it away and draw two, split at the gap between their drivebases.</div>
 </main>
 <dialog id="dlg"><b>Settings</b>
  <label>Matches watched at once (4 to 8 suits an 8-core processor)</label><input id="sWorkers" type="number" min="1" max="16" style="width:100%">
@@ -2714,13 +3045,18 @@ function paint(){
  const goal=st.gold<150?150:st.gold<300?300:Math.ceil((st.gold+1)/150)*150;
  $('revN').textContent=st.gold+' of '+goal+' done'+(st.gold<150?' · '+(150-st.gold)+' more and it can train':st.gold<300?' · it can train now; 300 is better':' · plenty; more still helps');
  $('bRev').disabled=!st.waiting;
+ const Pc=st.pieces||{marked:0,left:0,need:60},PL=Pc.last;
+ $('pcsN').innerHTML='Pins &amp; cups: '+Pc.marked+' of '+(Pc.marked<Pc.need?Pc.need:Math.max(150,Math.ceil((Pc.marked+1)/100)*100))+' marked'+(Pc.marked<Pc.need?' · '+(Pc.need-Pc.marked)+' more and it can train':'')+
+  (PL?'<br>'+(PL.use?'Trained finder in use':'Colour finder in use')+' · pin halves '+(PL.use?PL.new:PL.colour)+(PL.use?' (colours: '+PL.colour+')':'')+' · cups '+PL.cups:'');
+ $('bPcs').disabled=!Pc.left;
  $('trackN').textContent=st.task==='track'?'Running':' ';
  const need=Math.max(0,150-st.gold);
  const L=st.last,since=L?Math.max(0,st.gold-L.frames):0;
- $('trainN').innerHTML=st.task==='train'?'Training now. The bar below shows how far along.':need?('Review '+need+' more frames first'):!L?(st.gold+' reviewed frames ready'):
+ $('trainN').innerHTML=st.task==='train'?'Training now. The bar below shows how far along.':need?(((st.pieces||{}).marked||0)>=((st.pieces||{}).need||60)?'Ready to train the pin &amp; cup finder. Robots: review '+need+' more frames first':'Review '+need+' more frames first'):!L?(st.gold+' reviewed frames ready'):
   ('<b>'+(L.published?'Finished and published':'Finished, not published (it was no better)')+'</b>'+(L.when?' · '+L.when:'')+'<br>Trained on '+L.frames+' frames you reviewed'+(L.auto?' + '+L.auto+' it was sure of':'')+(L.rounds?', '+L.rounds+' rounds':'')+
    '<br>Score: new '+L.new+' vs old '+L.old+(since?'<br>'+since+' more reviewed since then':''));
- for(const b of ['bTrack','bTrain','bAdd'])$(b).disabled=st.busy||(b==='bTrain'&&need>0)||(b==='bTrack'&&!st.key);
+ const pNeed=Math.max(0,((st.pieces||{}).need||60)-((st.pieces||{}).marked||0));
+ for(const b of ['bTrack','bTrain','bAdd'])$(b).disabled=st.busy||(b==='bTrain'&&need>0&&pNeed>0)||(b==='bTrack'&&!st.key);
  $('bStop').style.display=st.busy?'':'none';
  const names={think:'Getting the vision model ready',track:'Tracking',train:'Training',add:'Learning from a video',unpublish:'Removing the finder'};
  const last=(st.log.filter(l=>l.trim()).pop()||'').trim();
@@ -2748,23 +3084,37 @@ async function forgetKey(){await api('/api/key',{key:''});dlg.close();poll()}
 function openSettings(){$('sWorkers').value=st.workers;$('sKeep').checked=st.keep;$('sThink').checked=!!st.think;$('sSpeed').value=String(st.speed||0);dlg.showModal()}
 async function saveSettings(){await api('/api/settings',{workers:+$('sWorkers').value,keep:$('sKeep').checked,think:$('sThink').checked,speed:+$('sSpeed').value});dlg.close();poll()}
 // review
-const c=$('c'),x=c.getContext('2d');let cur=null,img=new Image(),boxes=[],hist=[],drag=null,back=[];
-function openReview(){inReview=true;$('home').style.display='none';$('rev').style.display='block';nextFrame()}
+const c=$('c'),x=c.getContext('2d');let cur=null,img=new Image(),boxes=[],hist=[],drag=null,back=[],pm=false,pc=2,zoom=1;
+// Pins & cups: one class for each half's colour, one for cups.
+const PN=['red half','blue half','yellow half','cup'],PCOL=['#ff4d4d','#4da3ff','#ffd23f','#e8e8e8'];
+function clsBar(){$('pCls').innerHTML=PN.map((n,i)=>'<span class="pc'+(i===pc?' on':'')+'" style="background:'+PCOL[i]+'33;color:'+PCOL[i]+'" onclick="pc='+i+';clsBar()"><kbd>'+(i+1)+'</kbd>'+n+'</span>').join('')}
+function setZoom(z){zoom=Math.max(1,Math.min(6,z));if(zoom===1){c.style.maxWidth='100%';c.style.maxHeight='calc(100vh - 210px)';c.style.width=''}else{c.style.maxWidth='none';c.style.maxHeight='none';c.style.width=($('cw').clientWidth*zoom)+'px'}}
+c.addEventListener('wheel',e=>{if(!pm)return;e.preventDefault();const r=c.getBoundingClientRect(),fx=(e.clientX-r.left)/r.width,fy=(e.clientY-r.top)/r.height,w=$('cw');setZoom(zoom*(e.deltaY<0?1.25:0.8));const r2=c.getBoundingClientRect();w.scrollLeft+=r2.width*fx-(e.clientX-r.left)-(r2.left-r.left);w.scrollTop+=r2.height*fy-(e.clientY-r.top)-(r2.top-r.top)},{passive:false});
+function openReview(p){pm=!!p;back=[];setZoom(1);inReview=true;$('home').style.display='none';$('rev').style.display='block';
+ $('rKeys').style.display=pm?'none':'';$('pKeys').style.display=pm?'':'none';$('pMsg').style.display=pm?'':'none';$('revMsg').style.display=pm?'none':'';if(pm)clsBar();nextFrame()}
 function closeReview(){inReview=false;$('rev').style.display='none';$('home').style.display='block';poll()}
-async function nextFrame(id){cur=await api('/api/next'+(id?'?id='+id:''));if(!cur.id){closeReview();return}
+async function nextFrame(id){if(pm)return nextPieces(id);cur=await api('/api/next'+(id?'?id='+id:''));if(!cur.id){closeReview();return}
  const g=cur.gold||0,goal=g<150?150:g<300?300:Math.ceil((g+1)/150)*150;$('revLeft').textContent=g+' of '+goal+' done'+(g<150?' · '+(150-g)+' to go until it can train':' · enough to train; stop whenever you like');boxes=cur.boxes.map(b=>b.slice(0,4));hist=[];
  img=new Image();img.onload=()=>{c.width=cur.w;c.height=cur.h;draw()};img.src='/img/'+cur.id+'.jpg?t='+T}
-function draw(){x.drawImage(img,0,0);x.lineWidth=Math.max(2,c.width/450);for(const b of boxes){x.strokeStyle='#39ff88';x.strokeRect(b[0],b[1],b[2],b[3])}
+async function nextPieces(id){cur=await api('/api/pnext'+(id?'?id='+id:''));if(!cur.id){closeReview();return}
+ const m=cur.marked||0,goal=m<60?60:m<150?150:Math.ceil((m+1)/100)*100;$('revLeft').textContent=m+' of '+goal+' marked'+(m<60?' · '+(60-m)+' to go until it can train':' · enough to train; more makes it better');
+ boxes=cur.pieces.map(b=>b.slice(0,5));hist=[];img=new Image();img.onload=()=>{c.width=cur.w;c.height=cur.h;draw()};img.src='/img/'+cur.id+'.jpg?t='+T}
+function draw(){x.drawImage(img,0,0);
+ if(pm){x.lineWidth=Math.max(1,c.width/1400);x.setLineDash([6,6]);x.strokeStyle='#ffffff55';for(const r of cur.robots||[])x.strokeRect(r[0],r[1],r[2],r[3]);x.setLineDash([]);
+  x.lineWidth=Math.max(1.5,c.width/1100);for(const b of boxes){x.strokeStyle=PCOL[b[4]]||'#fff';x.strokeRect(b[0],b[1],b[2],b[3])}
+  if(drag&&drag.w){x.strokeStyle=PCOL[pc];x.strokeRect(drag.x,drag.y,drag.w,drag.h)}return}
+ x.lineWidth=Math.max(2,c.width/450);for(const b of boxes){x.strokeStyle='#39ff88';x.strokeRect(b[0],b[1],b[2],b[3])}
  if(drag&&drag.w){x.strokeStyle='#ffd23f';x.strokeRect(drag.x,drag.y,drag.w,drag.h)}}
 function pos(e){const r=c.getBoundingClientRect();return[(e.clientX-r.left)*c.width/r.width,(e.clientY-r.top)*c.height/r.height]}
 c.onmousedown=e=>{const[px,py]=pos(e);drag={x0:px,y0:py,x:px,y:py,w:0,h:0}};
 c.onmousemove=e=>{if(!drag)return;const[px,py]=pos(e);drag.x=Math.min(px,drag.x0);drag.y=Math.min(py,drag.y0);drag.w=Math.abs(px-drag.x0);drag.h=Math.abs(py-drag.y0);draw()};
 window.onmouseup=()=>{if(!drag)return;const d=drag;drag=null;hist.push(boxes.map(b=>b.slice()));
- if(d.w>8&&d.h>8)boxes.push([d.x,d.y,d.w,d.h]);
+ if(pm&&d.w>=3&&d.h>=3)boxes.push([d.x,d.y,d.w,d.h,pc]);
+ else if(!pm&&d.w>8&&d.h>8)boxes.push([d.x,d.y,d.w,d.h]);
  else{let k=-1,a=1e12;boxes.forEach((b,i)=>{if(d.x0>=b[0]&&d.x0<=b[0]+b[2]&&d.y0>=b[1]&&d.y0<=b[1]+b[3]&&b[2]*b[3]<a){a=b[2]*b[3];k=i}});if(k>=0)boxes.splice(k,1);else hist.pop()}draw()};
-async function saveFrame(skip){if(!cur||!cur.id)return;back.push(cur.id);await api('/api/save',{id:cur.id,skip,boxes});nextFrame()}
+async function saveFrame(skip){if(!cur||!cur.id)return;back.push(cur.id);if(pm)await api('/api/psave',{id:cur.id,skip,pieces:boxes});else await api('/api/save',{id:cur.id,skip,boxes});nextFrame()}
 window.onkeydown=e=>{if(!inReview||dlg.open)return;if(e.key==='Enter'||e.key===' '){e.preventDefault();saveFrame(false)}else if(/^s$/i.test(e.key))saveFrame(true);
- else if(/^z$/i.test(e.key)){if(hist.length){boxes=hist.pop();draw()}}else if(/^b$/i.test(e.key)){if(back.length)nextFrame(back.pop())}else if(e.key==='Escape')closeReview()};
+ else if(pm&&/^[1-4]$/.test(e.key)){pc=+e.key-1;clsBar()}else if(/^z$/i.test(e.key)){if(hist.length){boxes=hist.pop();draw()}}else if(/^b$/i.test(e.key)){if(back.length)nextFrame(back.pop())}else if(e.key==='Escape')closeReview()};
 poll();setInterval(()=>{if(!inReview)poll()},1000);
 </script></html>"""
 
@@ -2883,6 +3233,28 @@ def serve_ui(cfg, port=8765, open_window=True):
             queue_cache.update(at=time.time(), queue=q, done=done, gold=len(reviewed()) if done else 0)
         return queue_cache
 
+    pcache = {'at': 0, 'queue': [], 'marked': 0}
+    def pcounts():
+        if time.time() - pcache['at'] > 20:
+            pcache.update(at=time.time(), queue=pieces_queue(), marked=len(pieces_marked()))
+        return pcache
+
+    pf_holder = {}
+    def pfinder():
+        if 'f' not in pf_holder:
+            f = PieceFinder(pieces_file(), prov=['CPUExecutionProvider'])
+            pf_holder['f'] = lambda fr, rb: f.find(fr, rb)
+        return pf_holder['f']
+
+    def last_pieces():
+        try:
+            with open(pieces_info_file()) as f:
+                i = json.load(f)
+            return {'when': i.get('when', ''), 'use': bool(i.get('use')), 'beat': i.get('beat', True), 'frames': i.get('frames', 0),
+                    'new': '%.1f' % (i['new']['halves'][2] * 100), 'colour': '%.1f' % (i['colour']['halves'][2] * 100), 'cups': '%.1f' % (i['new']['cups'][2] * 100)}
+        except Exception:
+            return None
+
     def last_train():
         try:
             with open(os.path.join(DIRS['models'], 'trained_latest.json')) as f:
@@ -2933,7 +3305,34 @@ def serve_ui(cfg, port=8765, open_window=True):
                 c = counts()
                 return self._send(200, {'version': VERSION, 'site': cfg['site'], 'key': bool(cfg.get('key')), 'busy': job.busy(), 'task': job.task if job.busy() else '',
                                         'log': job.lines(), 'progress': job.progress(), 'waiting': len(c['queue']), 'done': c['done'], 'gold': c['gold'], 'workers': cfg.get('workers', 4),
-                                        'keep': bool(cfg.get('keep_videos')), 'think': bool(cfg.get('think')), 'speed': cfg.get('max_mbps', 0), 'last': last_train()})
+                                        'keep': bool(cfg.get('keep_videos')), 'think': bool(cfg.get('think')), 'pieces': {'marked': pcounts()['marked'], 'left': len(pcounts()['queue']), 'need': PIECE_NEED, 'last': last_pieces()}, 'speed': cfg.get('max_mbps', 0), 'last': last_train()})
+            if u.path == '/api/pnext':
+                P = pcounts()
+                want = urllib.parse.parse_qs(u.query).get('id', [None])[0]
+                if want and re.fullmatch(r'[A-Za-z0-9_-]+', want) and os.path.exists(os.path.join(LABELS, want + '.json')):
+                    name = want
+                else:
+                    name = P['queue'][0] if P['queue'] else None
+                if not name:
+                    return self._send(200, {'id': None, 'marked': P['marked']})
+                with open(os.path.join(PROPS, name + '.json')) as f:
+                    p = json.load(f)
+                lab = lab_read(name)
+                robots = lab.get('boxes', [])
+                if 'pieces' in lab:                      # going back: what was saved
+                    pieces = clean_pieces(lab['pieces'])
+                else:
+                    import cv2
+                    frame = cv2.imread(os.path.join(FRAMES, name + '.jpg'))
+                    pieces = []
+                    if frame is not None:
+                        # The trained finder's guesses once there is one (cups too), else the colours'.
+                        try:
+                            pieces = [b[:4] + [b[5]] for b in pfinder()(frame, robots)] if pieces_ready() else pieces_from_colour(frame, robots)
+                        except Exception:
+                            pieces = pieces_from_colour(frame, robots)
+                return self._send(200, {'id': name, 'w': p['w'], 'h': p['h'], 'pieces': [[round(v, 1) for v in b[:4]] + [int(b[4])] for b in pieces],
+                                        'robots': robots, 'left': len(P['queue']), 'marked': P['marked']})
             if u.path == '/api/next':
                 c = counts()
                 want = urllib.parse.parse_qs(u.query).get('id', [None])[0]
@@ -2965,14 +3364,22 @@ def serve_ui(cfg, port=8765, open_window=True):
                 if not re.fullmatch(r'[A-Za-z0-9_-]+', name):
                     return self._send(400, {'error': 'bad id'})
                 boxes = [[float(v) for v in b[:4]] for b in body.get('boxes', []) if len(b) >= 4][:60]
-                os.makedirs(LABELS, exist_ok=True)
-                with open(os.path.join(LABELS, name + '.json'), 'w') as f:
-                    json.dump({'skip': bool(body.get('skip')), 'boxes': boxes}, f)
+                lab_write(name, skip=bool(body.get('skip')), boxes=boxes)
                 c = counts()
                 if name in c['queue']:
                     c['queue'].remove(name)
                     c['done'] += 1
                     c['gold'] += 0 if body.get('skip') else 1
+                return self._send(200, {'ok': True})
+            if u.path == '/api/psave':
+                name = str(body.get('id', ''))
+                if not re.fullmatch(r'[A-Za-z0-9_-]+', name) or not os.path.exists(os.path.join(LABELS, name + '.json')):
+                    return self._send(400, {'error': 'bad id'})
+                if body.get('skip'):
+                    lab_write(name, pskip=True)
+                else:
+                    lab_write(name, pieces=clean_pieces(body.get('pieces')), pskip=False)
+                pcache['at'] = 0
                 return self._send(200, {'ok': True})
             if u.path == '/api/key':
                 key = str(body.get('key', '')).strip()
