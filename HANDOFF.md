@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v138**. Everything green: 89 test files.
+Current release: **v139**. Everything green: 90 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,18 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v139 — five pins always has a figure; a real-time autonomous replay**
+- "the scoring doesnt show how much anymore for 5 pins": when no match has a
+  stretch of five pins (`vtFastFiveOf` null — likely more often with the
+  goal count), the Scoring line and the My team table show "about 5 × pace"
+  from the timed pace, marked "about".
+- "have it literally replay on like the same field format type as the
+  heatmap": the replay is the robot (a box to scale, 18 in) on the same field
+  drawing, driven by `vtReplayPlay` with requestAnimationFrame in real time
+  (15 s), a trail behind it and the autonomous clock counting down; no SMIL.
+  Points in `data-pts` on the svg. Still only for a routine it repeats.
+  Tests: t129.
 
 **v138 — drawings on phones** ("some things dont show up on mobile like the
 heatmap"). SVG colours were given as `fill="var(--x)"` presentation

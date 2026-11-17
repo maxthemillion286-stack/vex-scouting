@@ -80,7 +80,7 @@ const game = (where) => {
   ok('staying put is consistent but nothing to replay', still && still.still === true);
   const rep = g => ({ game: g, autoFacts: f('vtAutoFacts')([], 1, null) }), L = { auto: ['Moved in autonomous in 5 of 5 matches.', 'It looks like the same routine every time.'] };
   const yes = H(rep({ n: 5, replay: same }), L), no = H(rep({ n: 5, replay: null }), L), stay = H(rep({ n: 5, replay: still }), L);
-  ok('a routine gets a replay button and a moving robot', /vtReplayPlay\(this\)/.test(yes) && /<animate attributeName="x"/.test(yes) && /Runs the same routine in 4 of 5/.test(yes));
+  ok('a routine gets a replay button and a moving robot', /vtReplayPlay\(this\)/.test(yes) && /data-pts=/.test(yes) && /class="vr-bot"/.test(yes) && /Runs the same routine in 4 of 5/.test(yes));
   ok('no routine: the replay is not there at all', !/Replay|vr-replay|<svg|animate/.test(no) && /No routine it runs consistently/.test(no), no);
   ok('nor for a robot that does not move', !/vr-replay|animate/.test(stay) && /Stays where it starts/.test(stay));
   ok('the older guess about repeating is not said beside it', !/same routine every time/.test(yes) && /Moved in autonomous in 5 of 5/.test(yes));

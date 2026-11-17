@@ -1,0 +1,40 @@
+// t129 — v139: five pins always gets a figure; the autonomous replay plays in real time.
+import fs from 'fs';
+import { boot, settle } from './harness.mjs';
+let pass = 0, fail = 0;
+const ok = (name, cond, detail) => { if (cond) { pass++; console.log('  ok   ' + name); } else { fail++; console.log('  FAIL ' + name + (detail ? '\n         ' + detail : '')); } };
+const src = fs.readFileSync('../src/index.html', 'utf8');
+console.log('t129 — v139');
+const { win } = await boot();
+await settle(win);
+const f = n => win.eval(n);
+// "the scoring doesnt show how much anymore for 5 pins"
+const rows = [{ ys: 3, cy: 9 }, { ys: 3, cy: 11 }, { ys: 3, cy: 10 }];
+const p = f('vtPinLine')(rows, null, true, null);
+ok('no stretch of five seen: five times its pace, marked "about"', /5 pins in about 50 s/.test(p.short), p.short);
+ok('a real stretch is shown as it is', /5 pins in 34 s$/.test(f('vtPinLine')([{ ys: 4, cy: 9, k10: 30 }, { ys: 4, cy: 9, k10: 34 }], null, true, null).short));
+ok('the table does the same', /about \$\{Math\.round\(5 \* P\.perPin\)\} s<span>from a pin every/.test(src));
+// "have it literally replay on like the same field format type as the heatmap"
+const pts = [[0.1, 0.6, 0], [0.2, 0.7, 3], [0.3, 0.8, 6], [0.3, 0.8, 9], [0.3, 0.8, 12], [0.3, 0.8, 15]];
+const html = f('vtReportAuto')({ game: { n: 5, replay: { pts, n: 4, of: 5, still: false } }, autoFacts: null }, { auto: [] });
+ok('the replay is on the field drawing with the robot, a trail and the clock', /class="vr-field"/.test(html) && /class="vr-bot"/.test(html) && /class="vr-trail"/.test(html) && />0:15</.test(html) && /data-pts=/.test(html));
+ok('played in real time', /played in real time \(15 s\)/.test(html) && !/15 seconds shown in 6/.test(html));
+const doc = win.document;
+doc.body.innerHTML = html;
+const svg = doc.querySelector('svg[data-pts]');
+ok('its points are readable back', JSON.parse(svg.getAttribute('data-pts')).length === 6);
+let frames = 0, now = 0;
+win.performance.now = () => now;
+win.requestAnimationFrame = cb => { frames++; if (frames < 200) setTimeout(() => cb(now), 0); return frames; };
+win.cancelAnimationFrame = () => {};
+const btn = doc.querySelector('.vr-replay button');
+now = 0; f('vtReplayPlay')(btn);
+await new Promise(r => setTimeout(r, 5));
+now = 4500; await new Promise(r => setTimeout(r, 20));
+const bot = doc.querySelector('.vr-bot'), clock = doc.querySelector('.vr-clock');
+ok('it moves, and the clock runs down', +bot.getAttribute('x') > 0.2 * 200 - 13 && clock.textContent === '0:11', bot.getAttribute('x') + ' ' + clock.textContent);
+now = 16000; await new Promise(r => setTimeout(r, 30));
+ok('and stops where the routine ends, at 0:00', Math.abs(+bot.getAttribute('x') - (0.3 * 200 - 12.5)) < 0.2 && clock.textContent === '0:00' && /Play again/.test(btn.textContent), bot.getAttribute('x') + ' ' + clock.textContent + ' ' + btn.textContent);
+ok('release is v139 or later', /const APP_BUILD = 'v1[3-9]\d'/.test(src) && !/const APP_BUILD = 'v13[0-8]'/.test(src));
+console.log(`\n${pass} passed, ${fail} failed`);
+process.exit(fail ? 1 : 0);
