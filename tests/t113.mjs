@@ -320,7 +320,7 @@ console.log('\n· the game: toggles, roles, routes');
   ok('corners nobody clicked are guessed from the robots\' footprint', !!guess && guess.length === 8 && Math.min(...guess.filter((_, k) => k % 2 === 0)) < 0.2 && Math.max(...guess.filter((_, k) => k % 2 === 0)) > 0.8, JSON.stringify(guess));
   ok('but not from too little', win.vtQuadGuess(pts.slice(0, 500)) === null);
   ok('a clicked field and a guessed one are told apart', win.eval('vtQuadMark')({ q: QUAD.q, by: 'click' }) > 10000 && win.eval('vtQuadMark')({ q: QUAD.q, by: 'auto' }) < 10000 && win.eval('vtQuadMark')(null) === 0);
-  ok('summaries are redone when a stream\'s field is marked', /\(have\.fq \|\| 0\) === vtQuadMark\(quad\)/.test(idx) && /vtBackfill\(String\(ctx\.eventId\), true\)/.test(idx));
+  ok('summaries are redone when a stream\'s field is marked', /\(have\.fq \|\| 0\) === vtQuadMark\(quad\)/.test(idx) && /vtBackfill\((String\(ctx\.eventId\)|eventId), true\)/.test(idx));
   ok('the corners are marked over the Jumper\'s player, in four clicks', /function vtMarkField\(\)/.test(idx) && /onclick="vtMarkField\(\)">Mark the field</.test(idx));
 }
 

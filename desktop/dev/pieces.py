@@ -66,4 +66,10 @@ check('a spot off the picture says so', F.spot_counts(img, off)[12] == [-1, -1, 
 fs = F.find_spots(img, sb)
 check('boxes come back in the frame\'s pixels, inside their spot', all(T.in_spots(b[:4], [sb[b[6]]]) == 0 for b in fs) and len(fs) == 3 * sum(1 for b in sb if b))
 check('a look is 1 + 13×4 numbers, as the website reads it', len([0] + [v for c in cnt for v in c]) == 53)
+# v2.23: goals dragged into place on the website
+g = [0.30, 0.60, 0.4, 0.75, 0.6, 0.3, 0.7, 0.36, 0.4, 0.33, 0.28, 0.41, 0.67, 0.74, 0.79, 0.6, 0.51, 0.49]
+a = T.spot_boxes(1920, 1080, Q); b = T.spot_boxes(1920, 1080, Q, {'g': g, 'l': None})
+check('a goal dragged into place: its column stands where it was dragged', abs((b[0][0] + b[0][2]) / 2 - 0.30 * 1920) < 2 and b[0][1] < 0.60 * 1080 < b[0][3])
+check('same size as before', abs((b[0][2] - b[0][0]) - (a[0][2] - a[0][0])) <= 2)
+check('loaders not placed stay where the corners put them', b[9] == a[9])
 print('%d passed, %d failed' % (ok, fail)); shutil.rmtree(tmp, ignore_errors=True); sys.exit(1 if fail else 0)

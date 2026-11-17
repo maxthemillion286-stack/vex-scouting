@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.22'
+VERSION = '2.23'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -1031,7 +1031,7 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
             if eyes.pieces is not None and quad and t >= spot_at + 1 and len(rec['gs']) < 24000:
                 spot_at = t
                 if spots is None:
-                    spots = spot_boxes(frame.shape[1], frame.shape[0], quad) or []
+                    spots = spot_boxes(frame.shape[1], frame.shape[0], quad, placed_for(job['vid'])) or []
                 if spots:
                     rec['gs'] += [jround((t - rec['off']) * 10)] + [v for c in eyes.pieces.spot_counts(frame, spots) for v in c]
             # The match clock: from its known place every second, else searched for every five.
@@ -1395,6 +1395,7 @@ def work_chunk(args):
                     fld = (site.get('?field=' + job['vid']) or {}).get('field') or {}
                     q = fld.get('q')
                     quads[job['vid']] = q if isinstance(q, list) and len(q) == 8 else None
+                    _QUADS[job['vid']] = {'q': quads[job['vid']], 'g': fld.get('g'), 'l': fld.get('l')} if quads[job['vid']] else None
                 looks = int(cfg.get('think_looks') or THINK_LOOKS) if cfg.get('think') and cfg.get('_think_ok') else 0
                 rec, why, shift = track_match(video, _EYES, job, shift, spacing, True, learn, quads[job['vid']], looks)
             except Exception as e:
@@ -2239,26 +2240,36 @@ PIECE_SIZE, PIECE_NEED, PIECE_CONF = 320, 60, 0.35
 # layout looks the same turned a quarter, so which goal is red's is left to
 # the website, which knows which way round the field is.
 SPOTS = [  # u, v, half-width, height above, depth below (field widths)
-    # Placed against the owner's first clean frame (Excalibur 2026): the goal
-    # feet fall on the goal bases; wide enough to forgive a hand-marked field.
-    (0.17, 0.66, 0.05, 0.22, 0.03), (0.34, 0.82, 0.05, 0.22, 0.03), (0.66, 0.18, 0.05, 0.22, 0.03), (0.82, 0.34, 0.05, 0.22, 0.03),
-    (0.34, 0.18, 0.05, 0.22, 0.03), (0.18, 0.34, 0.05, 0.22, 0.03), (0.66, 0.82, 0.05, 0.22, 0.03), (0.82, 0.66, 0.05, 0.22, 0.03),
-    (0.5, 0.5, 0.06, 0.30, 0.03),
-    # The loaders: at the corners, on the perimeter. NOT yet checked on video.
-    (0.02, 0.02, 0.10, 0.22, 0.08), (0.98, 0.02, 0.10, 0.22, 0.08), (0.98, 0.98, 0.10, 0.22, 0.08), (0.02, 0.98, 0.10, 0.22, 0.08)]
+    # Where the manual's drawing puts them. On a real stream the corners put
+    # them near, not on, the goals; the website asks for each to be dragged
+    # onto its goal (v141), and then the dragged foot is used (`placed`).
+    # Tall enough for a full stack seen from the far end (owner's Excalibur frame).
+    (0.17, 0.66, 0.05, 0.30, 0.03), (0.34, 0.82, 0.05, 0.30, 0.03), (0.66, 0.18, 0.05, 0.30, 0.03), (0.82, 0.34, 0.05, 0.30, 0.03),
+    (0.34, 0.18, 0.05, 0.30, 0.03), (0.18, 0.34, 0.05, 0.30, 0.03), (0.66, 0.82, 0.05, 0.30, 0.03), (0.82, 0.66, 0.05, 0.30, 0.03),
+    (0.5, 0.5, 0.06, 0.38, 0.03),
+    # The loaders: placed by hand on the website; until then, the corners.
+    (0.02, 0.02, 0.10, 0.25, 0.08), (0.98, 0.02, 0.10, 0.25, 0.08), (0.98, 0.98, 0.10, 0.25, 0.08), (0.02, 0.98, 0.10, 0.25, 0.08)]
 N_GOALS = 9
 
-def spot_boxes(W, H, q):
+def spot_boxes(W, H, q, placed=None):
     """Each spot's box in a W×H picture: [x0, y0, x1, y1] in pixels, or None
-    when it falls off the picture."""
+    when it falls off the picture. `placed`: where the goals (g) and loaders
+    (l) really are, dragged into place on the website (v141); the corners
+    alone put them near, not on, the real ones."""
     fwd = quad_fwd(q) if q else None
     if not fwd:
         return None
     aspect = W / H
     out = []
-    for u, v, hw, up, down in SPOTS:
+    pts = None
+    if placed and isinstance(placed.get('g'), list) and len(placed['g']) == 18:
+        pts = [placed['g'][i:i + 2] for i in range(0, 18, 2)]
+        pts += [placed['l'][i:i + 2] for i in range(0, 8, 2)] if isinstance(placed.get('l'), list) and len(placed['l']) == 8 else [None] * 4
+    for k, (u, v, hw, up, down) in enumerate(SPOTS):
         M, A, B = fwd(u, v), fwd(u + 0.02, v), fwd(u, v + 0.02)
         scale = max(math.hypot(A[0] - M[0], (A[1] - M[1]) / aspect), math.hypot(B[0] - M[0], (B[1] - M[1]) / aspect)) / 0.02
+        if pts and pts[k]:
+            M = pts[k]
         x0, x1 = (M[0] - hw * scale) * W, (M[0] + hw * scale) * W
         y0, y1 = (M[1] - up * scale * aspect) * H, (M[1] + down * scale * aspect) * H
         x0, y0, x1, y1 = max(0, int(x0)), max(0, int(y0)), min(W, int(math.ceil(x1))), min(H, int(math.ceil(y1)))
@@ -2274,6 +2285,11 @@ def in_spots(b, boxes):
     return -1
 
 _QUADS = {}
+def placed_for(vid):
+    """The goals and loaders as dragged into place on the website, or None."""
+    f = _QUADS.get(vid)
+    return f if isinstance(f, dict) and f.get('g') else None
+
 def quad_for(vid, site=None):
     """The field mark of a video, as the website has it (kept on disk once fetched)."""
     path = os.path.join(DIRS['data'], 'quads.json')
@@ -2283,16 +2299,20 @@ def quad_for(vid, site=None):
                 _QUADS.update(json.load(f))
         except Exception:
             pass
-    if vid in _QUADS:
-        return _QUADS[vid]
+    f = _QUADS.get(vid, 0)
+    # Fetched again after ten minutes when the website can be asked: the goals
+    # may have been dragged into place since.
+    if f != 0 and (site is None or (isinstance(f, dict) and time.time() - f.get('at', 0) < 600)):
+        return f.get('q') if isinstance(f, dict) else f
     if site is None:
         return None
     try:
-        q = ((site.get('?field=' + vid) or {}).get('field') or {}).get('q')
+        fld = (site.get('?field=' + vid) or {}).get('field') or {}
     except Exception:
         return None
+    q = fld.get('q')
     q = q if isinstance(q, list) and len(q) == 8 else None
-    _QUADS[vid] = q
+    _QUADS[vid] = {'q': q, 'g': fld.get('g'), 'l': fld.get('l'), 'at': time.time()} if q else None
     try:
         os.makedirs(DIRS['data'], exist_ok=True)
         with open(path, 'w') as f:
@@ -2356,7 +2376,7 @@ def pieces_marked():
         q = quad_for(name.rsplit('_', 1)[0])
         if q is None:
             continue
-        sb = spot_boxes(p['w'], p['h'], q)
+        sb = spot_boxes(p['w'], p['h'], q, placed_for(name.rsplit('_', 1)[0]))
         out.append((name, p['w'], p['h'], lab.get('boxes', []), [b for b in clean_pieces(lab['pieces']) if in_spots(b, sb) >= 0], sb))
     return out
 
@@ -3428,7 +3448,8 @@ def serve_ui(cfg, port=8765, open_window=True):
                     p = json.load(f)
                 lab = lab_read(name)
                 robots = lab.get('boxes', [])
-                spots = spot_boxes(p['w'], p['h'], quad_for(name.rsplit('_', 1)[0], qsite())) or []
+                vid = name.rsplit('_', 1)[0]
+                spots = spot_boxes(p['w'], p['h'], quad_for(vid, qsite()), placed_for(vid)) or []
                 if 'pieces' in lab:                      # going back: what was saved
                     pieces = clean_pieces(lab['pieces'])
                 else:

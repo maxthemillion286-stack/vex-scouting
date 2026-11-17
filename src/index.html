@@ -2466,7 +2466,7 @@
 
   /* v105: field marking and the field picture */
   .vt-mark { position: absolute; inset: 0; z-index: 5; cursor: crosshair; background: rgba(0, 0, 0, 0.15); }
-  .vt-mark-say { position: absolute; left: 10px; top: 10px; right: 10px; padding: 8px 12px; border-radius: var(--r-md); background: rgba(0, 0, 0, 0.8); color: #fff; font-family: var(--body); font-size: 14px; }
+  .vt-mark-say { position: absolute; left: 10px; top: 10px; right: 10px; padding: 8px 12px; border-radius: var(--r-md); background: rgba(0, 0, 0, 0.8); color: #fff; font-family: var(--body); font-size: 14px; z-index: 2; }
   .vt-mark-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
   .vr-field { display: block; width: 100%; max-width: 220px; margin: 10px 0 4px; color: var(--text); }
   .vr-cap { font-family: var(--body); font-size: 12px; color: var(--text-muted); }
@@ -3714,7 +3714,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v140';
+const APP_BUILD = 'v141';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -10649,7 +10649,8 @@ function vtHomography(quad) {
   const A = e - f * h, B = c * h - b, C = b * f - c * e, D = f * g - d, E = a - c * g, F = c * d - a * f, G = d * h - e * g, H = b * g - a * h, I = a * e - b * d;
   return (x, y) => { const w = G * x + H * y + I; return w ? [(A * x + B * y + C) / w, (D * x + E * y + F) / w] : [0.5, 0.5]; };
 }
-const vtQuadMark = q => q ? 1 + (Math.abs(Math.round(q.q.reduce((s, v, i) => s + v * (i + 1) * 997, 0))) % 9000) + (q.by === 'click' ? 10000 : 0) : 0;
+// Placed goals count too (v141): dragging them onto the real ones redoes the summaries.
+const vtQuadMark = q => q ? 1 + (Math.abs(Math.round(q.q.concat(q.g || []).reduce((s, v, i) => s + v * (i + 1) * 997, 0))) % 9000) + (q.by === 'click' ? 10000 : 0) : 0;
 // The corners a person has not given: the outline of everywhere robots'
 // wheels have been in this video, trimmed to four corners. Robots do not reach
 // the walls, so it is pushed out a little. Rough; used only until someone
@@ -10678,12 +10679,19 @@ async function vtFieldGet(vid) {
   try { const r = await vtApi('GET', '?field=' + encodeURIComponent(vid)); if (r.ok && r.body.field && Array.isArray(r.body.field.q)) { all[vid] = r.body.field; await idbSet(VT_FIELDS_KEY, all); return all[vid]; } } catch (e) {}
   return all[vid] || null;
 }
-async function vtFieldSet(vid, q, by) {
-  const all = await vtFieldsLocal();
-  all[vid] = { q: q.map(v => Math.round(v * 10000) / 10000), by, at: Date.now() };
+async function vtFieldSet(vid, q, by, spots) {
+  const all = await vtFieldsLocal(), r4 = v => Math.round(v * 10000) / 10000;
+  const prev = all[vid] || {};
+  all[vid] = { q: q.map(r4), by, at: Date.now() };
+  // Where each goal and loader really is in the picture, as placed by hand
+  // (v141): g = 9 goals, l = 4 loaders, picture fractions, in VT_SPOTS_RAW's
+  // order. Kept when only the corners are marked again.
+  const sp = spots || (prev.g ? { g: prev.g, l: prev.l } : null);
+  if (sp && Array.isArray(sp.g) && sp.g.length === 18) all[vid].g = sp.g.map(r4);
+  if (sp && Array.isArray(sp.l) && sp.l.length === 8) all[vid].l = sp.l.map(r4);
   await idbSet(VT_FIELDS_KEY, all);
   const pass = vtPass();
-  if (pass && by === 'click') { try { await vtApi('POST', '', { passcode: pass, field: { vid, q: all[vid].q, by } }); } catch (e) {} }
+  if (pass && by === 'click') { try { await vtApi('POST', '', { passcode: pass, field: { vid, q: all[vid].q, by, ...(all[vid].g ? { g: all[vid].g } : {}), ...(all[vid].l ? { l: all[vid].l } : {}) } }); } catch (e) {} }
   return all[vid];
 }
 
@@ -11037,9 +11045,7 @@ async function vtMarkField() {
       ev.stopPropagation();
       lay.onclick = null;
       await vtFieldSet(String(cal.videoId), guess.q, 'click');
-      say.textContent = 'Kept. Every match tracked from this video will be worked out again on it.';
-      setTimeout(() => lay.remove(), 1800);
-      vtBackfill(String(ctx.eventId), true).then(() => vtRender('Field marked for this stream. Reports from it now use real field positions.')).catch(() => {});
+      vtMarkSpots(lay, String(cal.videoId), guess.q, String(ctx.eventId));
     };
   }
   lay.onclick = async ev => {
@@ -11051,10 +11057,49 @@ async function vtMarkField() {
     if (pts.length < 8) return;
     lay.onclick = null;
     await vtFieldSet(String(cal.videoId), pts, 'click');
-    lay.querySelector('.vt-mark-say').textContent = 'Saved. Every match tracked from this video will be worked out again on the real field.';
-    setTimeout(() => lay.remove(), 1800);
-    vtBackfill(String(ctx.eventId), true).then(() => vtRender('Field marked for this stream. Reports from it now use real field positions.')).catch(() => {});
+    vtMarkSpots(lay, String(cal.videoId), pts, String(ctx.eventId));
   };
+}
+// Step two: the goals and loaders. Worked out from the corners and the
+// manual's drawing they land near, not on, the real ones (reported, with a
+// picture: "these are very clearly not the goals..."; the corners of a field
+// seen from one end are hard to click exactly, and a few per cent off moves a
+// goal off its base). So each is drawn as a circle to drag onto the real one:
+// yellow for goals, pink for loaders. The tracker then looks exactly there.
+async function vtMarkSpots(lay, vid, q, eventId) {
+  const fwd = vtHomographyFwd(q), say = lay.querySelector('.vt-mark-say'), svg = lay.querySelector('svg');
+  const have = (await vtFieldsLocal())[vid] || {};
+  const pos = VT_SPOTS_RAW.map(([u, v], k) => {
+    const saved = k < 9 ? have.g : have.l, j = k < 9 ? k : k - 9;
+    if (saved && saved.length >= 2 * j + 2) return [saved[2 * j], saved[2 * j + 1]];
+    const p = fwd ? fwd(u, v) : [0.5, 0.5];
+    return [Math.min(0.99, Math.max(0.01, p[0])), Math.min(0.99, Math.max(0.01, p[1]))];
+  });
+  lay.style.cursor = 'default';
+  svg.style.pointerEvents = 'auto';
+  svg.style.touchAction = 'none';
+  say.innerHTML = `Now drag each circle onto the bottom of its real one: <b style="color:#ffe14a">yellow</b> on the nine goals, <b style="color:#ff6bd6">pink</b> on the four match loaders. <button class="set-link" id="vtSpotsDone">Done</button> <button class="set-link" id="vtSpotsSkip">Skip</button>`;
+  const draw = () => {
+    // Round on screen although the drawing is stretched to the video's shape.
+    const box = svg.getBoundingClientRect(), rx = 14 * 1000 / Math.max(1, box.width || 1000), ry = 14 * 1000 / Math.max(1, box.height || 1000);
+    svg.innerHTML = pos.map((p, k) => `<g data-k="${k}" style="cursor:grab"><ellipse cx="${(p[0] * 1000).toFixed(1)}" cy="${(p[1] * 1000).toFixed(1)}" rx="${rx.toFixed(1)}" ry="${ry.toFixed(1)}" fill="rgba(0,0,0,.35)" stroke="${k < 9 ? '#ffe14a' : '#ff6bd6'}" stroke-width="4" vector-effect="non-scaling-stroke"/><text x="${(p[0] * 1000).toFixed(1)}" y="${(p[1] * 1000 + ry * 0.45).toFixed(1)}" text-anchor="middle" font-size="${(ry * 1.1).toFixed(1)}" style="fill:#fff;pointer-events:none">${k < 9 ? k + 1 : 'L'}</text></g>`).join('');
+  };
+  draw();
+  let dragging = -1;
+  const at = ev => { const r = svg.getBoundingClientRect(); return [Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (ev.clientY - r.top) / r.height))]; };
+  svg.onpointerdown = ev => { const g = ev.target.closest('g[data-k]'); if (!g) return; ev.preventDefault(); ev.stopPropagation(); dragging = +g.getAttribute('data-k'); try { svg.setPointerCapture(ev.pointerId); } catch (e) {} };
+  svg.onpointermove = ev => { if (dragging < 0) return; pos[dragging] = at(ev); draw(); };
+  svg.onpointerup = ev => { dragging = -1; };
+  lay.onclick = ev => ev.stopPropagation();
+  const finish = async keep => {
+    svg.onpointerdown = svg.onpointermove = svg.onpointerup = null;
+    if (keep) await vtFieldSet(vid, q, 'click', { g: pos.slice(0, 9).flat(), l: pos.slice(9).flat() });
+    say.textContent = keep ? 'Saved. The tracker looks for pins and cups exactly on these from now on.' : 'Saved the corners. The goals and loaders are taken from the drawing.';
+    setTimeout(() => lay.remove(), 1800);
+    vtBackfill(eventId, true).then(() => vtRender('Field marked for this stream. Reports from it now use real field positions.')).catch(() => {});
+  };
+  lay.querySelector('#vtSpotsDone').onclick = ev => { ev.stopPropagation(); finish(true); };
+  lay.querySelector('#vtSpotsSkip').onclick = ev => { ev.stopPropagation(); finish(false); };
 }
 
 
@@ -11643,12 +11688,21 @@ const VT_GOAL_HALFW = [0.035, 0.035, 0.035, 0.035, 0.04, 0.04, 0.04, 0.04, 0.05]
 const VT_GOAL_TALL = 0.3;                                                            // a full stack, in field widths (about 1.1 m)
 // Each goal's column in the picture: its foot, how wide, how tall, and pixels
 // per field width there (for how big a half should look).
-function vtGoalColumns(q, turnK, aspect) {
+function vtGoalColumns(q, turnK, aspect, placed) {
   const fwd = vtHomographyFwd(q);
   if (!fwd) return null;
   const unturn = (x, y) => { for (let i = 0; i < turnK; i++) [x, y] = [1 - y, x]; return [x, y]; };
   return VT_GOALS_FIELD.map(([gu, gv], k) => {
-    const [u, v] = unturn(gu, gv), M = fwd(u, v), A = fwd(u + 0.02, v), B = fwd(u, v + 0.02);
+    const [u, v] = unturn(gu, gv), A = fwd(u + 0.02, v), B = fwd(u, v + 0.02);
+    let M = fwd(u, v);
+    // Placed by hand: the raw spot nearest this goal, at its placed foot.
+    if (placed && placed.length === 18) {
+      let j = 0, bd = Infinity;
+      VT_SPOTS_RAW.slice(0, 9).forEach(([a, b], i) => { const d = Math.hypot(a - u, b - v); if (d < bd) { bd = d; j = i; } });
+      const P = [placed[2 * j], placed[2 * j + 1]];
+      if (M) { A[0] += P[0] - M[0]; A[1] += P[1] - M[1]; B[0] += P[0] - M[0]; B[1] += P[1] - M[1]; }
+      M = P;
+    }
     if (!M || !Number.isFinite(M[0])) return null;
     const scale = Math.max(Math.hypot(A[0] - M[0], (A[1] - M[1]) / aspect), Math.hypot(B[0] - M[0], (B[1] - M[1]) / aspect)) / 0.02;   // picture widths per field width
     return { x: M[0], y: M[1], hw: VT_GOAL_HALFW[k] * scale, up: VT_GOAL_TALL * scale * aspect, down: 0.02 * scale * aspect, scale };
@@ -11850,7 +11904,7 @@ function vtPinCount(rec, quad, turnK, track, ph, mode) {
   const spotV = goals ? VT_GOALS_FIELD.map(g => g[1]) : Array.from({ length: C * C }, (_, k) => (Math.floor(k / C) + 0.5) / C);
   const NC = spotU.length, cellQ = new Int8Array(NC);
   for (let k = 0; k < NC; k++) { const q = vtPhysQuad(spotU[k], spotV[k]); cellQ[k] = q < 0 ? 4 : q; }
-  const cols = goals ? vtGoalColumns(quad.q, turnK, W / H) : null;
+  const cols = goals ? vtGoalColumns(quad.q, turnK, W / H, quad.g) : null;
   if (goals && !cols) return null;
   // 1. Each look: halves of each colour at each spot.
   const raw = goals ? samples.map(s => vtGoalLook(s.blobs, cols, W, H)) : samples.map(s => {
