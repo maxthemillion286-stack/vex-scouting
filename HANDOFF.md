@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v140**. Everything green: 91 test files.
+Current release: **v141**. Everything green: 92 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,26 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v141 — goals and loaders dragged into place (app 2.23)**
+Reported with a picture: "these are very clearly not the goals...". Goal
+columns from four hand-clicked corners + the manual's layout landed beside
+the goals (a near-side corner a few % off moves a goal off its base). The
+layout itself was checked against the owner's Excalibur frame: with the goal
+feet read off the picture, every goal sits where the drawing says, within the
+corner error.
+- Field marking now has a second step, `vtMarkSpots`: 9 yellow + 4 pink
+  circles (drawing positions, or the last saved ones) to drag onto each goal's
+  base and each loader; Done saves `g` (18 numbers) and `l` (8) with the
+  corners (`vtFieldSet(vid, q, by, {g, l})`, kept when only corners are marked
+  again); Skip keeps the drawing's. Server stores/validates g and l.
+- `vtGoalColumns(q, turnK, aspect, placed)`: foot at the placed point (raw
+  spot nearest the un-turned goal), size still from the corners.
+- App: `spot_boxes(W, H, q, placed)`; `_QUADS` holds {q, g, l, at}, refetched
+  after 10 min (`quad_for`), `placed_for(vid)`. Spot heights raised (goals
+  0.30, centre 0.38) for tall stacks seen from the far end.
+- **The owner needs to place them once per stream** (Jumper → Mark the field).
+- Tests: t131; desktop/dev/pieces.py +3.
 
 **v140 — pins & cups only on goals and loaders; cups and match-load speed (app 2.22)**
 Owner: "it doesnt need to track stuff on the field only in the goals for pin

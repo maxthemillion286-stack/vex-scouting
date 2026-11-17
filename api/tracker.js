@@ -360,7 +360,10 @@ export default async function handler(req, res) {
         const f = body.field;
         if (!f || typeof f !== 'object' || !/^[A-Za-z0-9_-]{6,20}$/.test(String(f.vid || '')) || !Array.isArray(f.q) || f.q.length !== 8 ||
             !f.q.every(v => typeof v === 'number' && Number.isFinite(v) && v >= -0.5 && v <= 1.5)) return res.status(400).json({ error: 'bad field' });
-        await redis(E, [['SET', `vt:field:${f.vid}`, JSON.stringify({ q: f.q, by: 'click', at: Date.now() })]]);
+        // Where each goal (g, 9 points) and loader (l, 4 points) really is, if placed by hand.
+        const pts = (a, n) => Array.isArray(a) && a.length === 2 * n && a.every(v => typeof v === 'number' && Number.isFinite(v) && v >= -0.5 && v <= 1.5);
+        if ((f.g !== undefined && !pts(f.g, 9)) || (f.l !== undefined && !pts(f.l, 4))) return res.status(400).json({ error: 'bad field' });
+        await redis(E, [['SET', `vt:field:${f.vid}`, JSON.stringify({ q: f.q, by: 'click', at: Date.now(), ...(f.g ? { g: f.g } : {}), ...(f.l ? { l: f.l } : {}) })]]);
         return res.status(200).json({ ok: true });
       }
       if (body.chan !== undefined) {
