@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v139**. Everything green: 90 test files.
+Current release: **v140**. Everything green: 91 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,40 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v140 — pins & cups only on goals and loaders; cups and match-load speed (app 2.22)**
+Owner: "it doesnt need to track stuff on the field only in the goals for pin
+and cups. maybe matchloader too to count matchload speeds."
+- App `SPOTS`: 9 goal columns + 4 corner loader columns in the marked square
+  (u, v, half-width, height, depth in field widths); `spot_boxes(W, H, q)`
+  projects them with `quad_fwd`. Goal feet checked against the owner's
+  Excalibur frame (they land on the goal bases). **Loader spots are a guess
+  (corners, on the perimeter) and unchecked.** The goal set looks the same
+  turned a quarter, so the app stays turn-agnostic; the website maps spots
+  with turnK (`VT_SPOTS_RAW`, same order — t130 checks).
+- Review "Mark pins & cups": only frames whose video has a field mark
+  (`quad_for`, cached in data/quads.json, fetched from `?field=`); spots drawn
+  dotted; colour proposals only inside spots; marks outside spots are ignored
+  for training. Earlier full-frame marks still count (filtered to spots).
+- Training: `build_pieces_dataset` writes one crop per spot per marked frame
+  (empty spots included); yolov8s at 320, batch 32. `PieceFinder.find_spots`,
+  `spot_counts` → [red, blue, yellow halves, cups] per spot (-1 off-picture).
+  Scored within spots vs the colour finder; used only if better.
+- Tracking (finder in use + quad known): every second `rec['gs'] += [tenths]
+  + 13×4`. The full-frame `cu`/`pf` path from v135 is gone (pins on the
+  field keep using the colour finder for `pn`).
+- Website `vtSpotCount(rec, turnK, track, ph)`: per spot per class, median of
+  five looks; a change counts once it holds for three looks; rises credited
+  to the nearest robot within 0.22 (own-colour halves only to that alliance;
+  yellow and cups to anyone) over the 8 s before; falls on goals → `kn`
+  (knocked off). Loaders: pieces = halves/2 + cups; falls credited to that
+  alliance's robot within 0.3 → `ld`, and `lds` = median seconds between loads
+  in one visit (≤10 s apart). End state → gy/gr/gb (absolute, i.e. what scores)
+  and `gc` cups, `gs: 1`. Replaces the colour goal count's fields (oy, oa,
+  oya, ocy, ot5, n*) when present, so `vtPinPick` compares it with the field
+  count against official scores. Report: "· N cups" in Scoring, a "Match
+  loads" row. `VT_REMAKE` → 140.
+- Tests: t130 (24), desktop/dev/pieces.py rewritten for spots (15).
 
 **v139 — five pins always has a figure; a real-time autonomous replay**
 - "the scoring doesnt show how much anymore for 5 pins": when no match has a

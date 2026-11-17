@@ -1,4 +1,4 @@
-"""Pins & cups marking, finder and training plumbing (no real training here: no GPU, no ultralytics)."""
+"""v2.22: pins & cups only in goal and loader spots. Stand-in finder (no GPU or ultralytics here)."""
 import sys, os, json, shutil, tempfile, numpy as np, cv2
 sys.path.insert(0, 'run')
 import vex_trainer as T
@@ -15,68 +15,55 @@ for n in os.listdir('run/models'):
     if not n.startswith('pieces') and not n.startswith('trained'): os.symlink(os.path.abspath(os.path.join('run/models', n)), os.path.join(models, n))
 T.DIRS = {k: os.path.join(tmp, k) for k in ('models', 'videos', 'data', 'build')}
 T.FRAMES, T.PROPS, T.LABELS = (os.path.join(tmp, 'data', k) for k in ('frames', 'prop', 'labels'))
-img = cv2.imread(sys.argv[1]); img = cv2.resize(img, (1920, 1080), interpolation=cv2.INTER_AREA)
+T._QUADS.clear()
+img = cv2.resize(cv2.imread(sys.argv[1]), (1920, 1080), interpolation=cv2.INTER_AREA)
+Q = [0.066, 0.80, 0.86, 0.78, 0.81, 0.21, 0.21, 0.21]           # the field's corners in that frame, by eye
 robots = [[x * 0.75, y * 0.75, w * 0.75, h * 0.75] for x, y, w, h in [[923, 551, 268, 331], [527, 277, 252, 250], [341, 463, 301, 316], [1943, 450, 286, 301]]]
-for tag, fr in (('vidA', img), ('vidA', img[:, ::-1].copy()), ('vidB', img[::-1].copy())):
-    T.keep_frame(fr, [r + [0.9] for r in robots], tag, 1)
-names = sorted(n[:-4] for n in os.listdir(T.FRAMES))
-img0 = {n: cv2.imread(os.path.join(T.FRAMES, n + '.jpg')) for n in names}
-check('three frames kept', len(names) == 3)
-check('nothing to mark before robots are reviewed', T.pieces_queue() == [])
-for n in names: T.lab_write(n, skip=False, boxes=robots)
+sb = T.spot_boxes(1920, 1080, Q)
+check('13 spots, most in the picture', len(sb) == 13 and sum(1 for b in sb if b) >= 12, str(sb))
+fwd = T.quad_fwd(Q)
+x, y = fwd(0.5, 0.5)
+check('the centre goal\'s spot stands on the middle of the field', sb[8][0] < x * 1920 < sb[8][2] and abs(sb[8][3] - y * 1080) < 40)
+check('goal spots are taller than wide', all(b[3] - b[1] > b[2] - b[0] for b in sb[:9] if b))
+check('none falls outside the picture', all(0 <= b[0] < b[2] <= 1920 and 0 <= b[1] < b[3] <= 1080 for b in sb if b))
+check('a box in a spot is found; one outside is not', T.in_spots([sb[8][0] + 5, sb[8][1] + 5, 6, 6], sb) == 8 and T.in_spots([5, 1070, 4, 4], sb[:9]) == -1)
+col = T.pieces_from_colour(img, robots, sb)
+check('the colour guesses are only inside the spots', len(col) > 0 and all(T.in_spots(b, sb) >= 0 for b in col) and len(col) < len(T.pieces_from_colour(img, robots)), '%d of %d' % (len(col), len(T.pieces_from_colour(img, robots))))
+# frames: one with its field marked, one without
+T.keep_frame(img, [r + [0.9] for r in robots], 'vidmarkedAA', 1)
+T.keep_frame(img[::-1].copy(), [r + [0.9] for r in robots], 'vidnofieldB', 1)
+for n in os.listdir(T.PROPS): T.lab_write(n[:-5], skip=False, boxes=robots)
+T._QUADS['vidmarkedAA'] = Q; T._QUADS['vidnofieldB'] = None
 q = T.pieces_queue()
-check('reviewed frames wait for pins', len(q) == 3 and q[0].split('_')[0] != q[1].split('_')[0], str(q))
-prop = T.pieces_from_colour(img0[names[0]], robots)
-check('the colour finder proposes pin halves in the frame\'s pixels, none on robots', len(prop) > 5 and all(0 <= b[4] <= 2 for b in prop) and not any(T.on_robot(b, robots) for b in prop), str(prop[:3]))
-# marking keeps robots, saving robots keeps marks
-T.lab_write(names[0], pieces=T.clean_pieces(prop + [[100, 100, 40, 50, 3], [1, 1, 1, 1, 2], [5, 5, 20, 20, 9]]))
-lab = T.lab_read(names[0])
-check('marks are cleaned: tiny boxes and unknown classes dropped', len(lab['pieces']) == len(prop) + 1 and lab['pieces'][-1][4] == 3)
-T.lab_write(names[0], skip=False, boxes=robots[:3])
-check('saving robots again keeps the pin marks', len(T.lab_read(names[0])['pieces']) == len(prop) + 1 and len(T.lab_read(names[0])['boxes']) == 3)
-T.lab_write(names[0], boxes=robots)
-check('a marked frame leaves the queue', names[0] not in T.pieces_queue() and len(T.pieces_marked()) == 1)
-T.lab_write(names[1], pskip=True)
-check('a skipped one too, and it is not training material', names[1] not in T.pieces_queue() and len(T.pieces_marked()) == 1)
-# scoring: the colour finder against its own guesses is perfect; against nothing, all wrong
+check('only frames whose field is marked are asked for', len(q) == 1 and q[0].startswith('vidmarkedAA'), str(q))
+name = q[0]
+T.lab_write(name, pieces=T.clean_pieces(col + [[1800, 20, 30, 30, 2]]))
 m = T.pieces_marked()
-sc = T.score_pieces(lambda fr, rb: T.pieces_from_colour(fr, rb), [(n, w, h, rb, [p for p in pcs if p[4] < 3]) for n, w, h, rb, pcs in m])
-check('scoring: the same boxes score 100', abs(sc['halves'][2] - 1) < 1e-9, str(sc))
-sc2 = T.score_pieces(lambda fr, rb: [], m)
-check('scoring: finding nothing scores 0, cups missed', sc2['halves'][2] == 0 and sc2['cups'][1] == 0)
-shifted = T.score_pieces(lambda fr, rb: [[b[0] + b[2] * 0.15, b[1], b[2], b[3], b[4]] for b in T.pieces_from_colour(fr, rb)], m)
-check('scoring: a box a little off still counts', shifted['halves'][2] > 0.9, str(shifted['halves']))
-wrong = T.score_pieces(lambda fr, rb: [[*b[:4], (b[4] + 1) % 3] for b in T.pieces_from_colour(fr, rb)], m)
-check('scoring: the wrong colour does not count', wrong['halves'][0] == 0)
-# dataset
+check('a mark outside every spot is left out of training', len(m) == 1 and len(m[0][4]) == len(col) and len(m[0]) == 6, str(len(m[0][4])))
 root, counts = T.build_pieces_dataset(m)
-lbl = open(os.path.join(root, 'labels', 'val' if T.is_val(m[0][0]) else 'train', m[0][0] + '.txt')).read().split('\n')
-check('dataset: one line a box, classes 0-3, centres within the picture', len([l for l in lbl if l]) == len(prop) + 1 and all(0 <= float(v) <= 1 for l in lbl if l for v in l.split()[1:]) and lbl[-2].startswith('3 '))
-check('dataset names its four classes', 'yellow half' in open(os.path.join(root, 'data.yaml')).read() and '3: cup' in open(os.path.join(root, 'data.yaml')).read())
-# a stand-in trained finder: always says the same boxes (in the 1280 square)
-lb = T.piece_letterbox(1920, 1080)
-want = [(300, 400, 30, 40, 2), (302, 402, 30, 40, 2), (800, 900, 60, 70, 3), (1000, 600, 20, 30, 0), (480, 640, 40, 40, 1)]   # frame boxes
-N = 16; out = np.zeros((1, 8, N), np.float32)
-for i, (x, y, w, h, c) in enumerate(want):
-    out[0, 0, i] = (x + w / 2) * lb['s'] + lb['px']; out[0, 1, i] = (y + h / 2) * lb['s'] + lb['py']; out[0, 2, i] = w * lb['s']; out[0, 3, i] = h * lb['s']; out[0, 4 + c, i] = 0.9
-out[0, 4, 10] = 0.2                                   # below the bar
+part = 'val' if T.is_val(name) else 'train'
+imgs = sorted(os.listdir(os.path.join(root, 'images', part)))
+check('one picture for each spot in the frame', counts[part] == sum(1 for b in sb if b) and len(imgs) == counts[part], str(counts))
+labs = [open(os.path.join(root, 'labels', part, i[:-4] + '.txt')).read().split('\n') for i in imgs]
+nl = sum(1 for L in labs for l in L if l)
+check('every mark lands in a spot picture, inside it', nl >= len(col) and all(0 <= float(v) <= 1 for L in labs for l in L if l for v in l.split()[1:]), '%d labels for %d marks' % (nl, len(col)))
+k8 = cv2.imread(os.path.join(root, 'images', part, name + '_s08.jpg'))
+check('a spot picture is that spot cut out', k8 is not None and k8.shape[:2] == (sb[8][3] - sb[8][1], sb[8][2] - sb[8][0]))
+# a stand-in finder for 320×320 spot pictures: two yellow halves and a cup near the middle, always
+lb = T.piece_letterbox(320, 320)
+out = np.zeros((1, 8, 8), np.float32)
+for i, (cx, cy, w, h, c) in enumerate([(160, 100, 30, 40, 2), (160, 160, 30, 40, 2), (160, 230, 50, 50, 3)]):
+    out[0, :4, i] = [cx, cy, w, h]; out[0, 4 + c, i] = 0.9
 g = helper.make_graph([helper.make_node('Constant', [], ['o'], value=numpy_helper.from_array(out))], 'g',
-                      [helper.make_tensor_value_info('images', TensorProto.FLOAT, [1, 3, 1280, 1280])], [helper.make_tensor_value_info('o', TensorProto.FLOAT, [1, 8, N])])
+                      [helper.make_tensor_value_info('images', TensorProto.FLOAT, [1, 3, 320, 320])], [helper.make_tensor_value_info('o', TensorProto.FLOAT, [1, 8, 8])])
 mdl = helper.make_model(g, opset_imports=[helper.make_opsetid('', 12)]); mdl.ir_version = 8
 onnx.save(mdl, T.pieces_file())
 F = T.PieceFinder(T.pieces_file(), prov=['CPUExecutionProvider'])
-got = F.find(img, [[460, 620, 80, 80]])
-check('the finder\'s boxes come back in frame pixels, by class', any(abs(b[0] - 800) < 1 and abs(b[1] - 900) < 1 and b[5] == 3 for b in got), str(got))
-check('overlapping same-class boxes are one; weak ones dropped', sum(1 for b in got if b[5] == 2) == 1 and len(got) == 3, str(got))
-check('none on a robot', not any(b[5] == 1 for b in got))
-W, H, halves, cups = F.blobs(img, [[460, 620, 80, 80]])
-check('in the colour finder\'s shape at 960 wide', W == 960 and H == 540 and len(halves) == 2 and len(cups) == 1 and all(len(h) == 6 and h[5] in (1, 2, 3) for h in halves), str(halves))
-check('a cup is x, bottom, w, h', cups[0] == [T.jround(830 / 2), T.jround(970 / 2), 30, 35], str(cups))
-check('not used before it has won', not T.pieces_ready())
-json.dump({'use': True, 'new': {'halves': [1, 1, 1], 'cups': [1, 1, 1]}, 'colour': {'halves': [0.5, 0.5, 0.5]}}, open(T.pieces_info_file(), 'w'))
-check('used once it has', T.pieces_ready())
-eyes = T.Eyes(quiet=True)
-check('tracking picks it up', eyes.pieces is not None)
-os.remove(T.pieces_info_file())
-check('and drops it when the record says not to', T.Eyes(quiet=True).pieces is None)
+cnt = F.spot_counts(img, sb)
+check('counts for each spot: red, blue, yellow halves, cups', len(cnt) == 13 and all(c == [0, 0, 2, 1] for c, b in zip(cnt, sb) if b), str(cnt[:3]))
+off = list(sb); off[12] = None
+check('a spot off the picture says so', F.spot_counts(img, off)[12] == [-1, -1, -1, -1])
+fs = F.find_spots(img, sb)
+check('boxes come back in the frame\'s pixels, inside their spot', all(T.in_spots(b[:4], [sb[b[6]]]) == 0 for b in fs) and len(fs) == 3 * sum(1 for b in sb if b))
+check('a look is 1 + 13×4 numbers, as the website reads it', len([0] + [v for c in cnt for v in c]) == 53)
 print('%d passed, %d failed' % (ok, fail)); shutil.rmtree(tmp, ignore_errors=True); sys.exit(1 if fail else 0)
