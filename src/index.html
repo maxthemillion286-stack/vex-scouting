@@ -2473,8 +2473,7 @@
   /* v131: a real heat map, time bars, and the autonomous replay */
   .vr-field { --vr-heat: #ff6a2b; --vr-toggle: #e2b019; --vr-own: #2fc98b; max-width: 260px; }
   .vr-ft { font-family: var(--body); font-size: 9px; fill: currentColor; opacity: 0.7; }
-  .vr-field .vr-bot { opacity: 0; }
-  .vr-field.on .vr-bot { opacity: 0.95; }
+  .vr-field .vr-clock { font-family: var(--mono); font-size: 13px; font-weight: 700; }
   .vr-replay .btn { margin: 4px 0 6px; }
   .vr-time { margin: 2px 0 6px; }
   .vr-time-row { display: grid; grid-template-columns: minmax(0, 11.5em) 1fr 3em; align-items: center; gap: 8px; font-family: var(--body); font-size: 14px; color: var(--text); padding: 3px 0; }
@@ -3715,7 +3714,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v138';
+const APP_BUILD = 'v139';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -10375,7 +10374,7 @@ function vtReportAuto(rep, L) {
   if (R) items.push(R.still ? `Stays where it starts (${R.n} of ${R.of}).` : `Runs the same routine in ${R.n} of ${R.of}.`);
   else if (G) items.push('No routine it runs consistently: its path changes from match to match.');
   for (const t of L.auto || []) if (!/routine every time|more than one routine/.test(t)) items.push(t);
-  const play = R && !R.still ? `<div class="vr-replay">${vtFieldSvg(null, null, R)}<button class="btn btn-secondary" onclick="vtReplayPlay(this)">▶ Replay its autonomous</button><div class="vr-cap">The average of those ${R.n} runs, 15 seconds shown in 6. The ring is where it starts. ${VT_FIELD_KEY}</div></div>` : '';
+  const play = R && !R.still ? `<div class="vr-replay">${vtFieldSvg(null, null, R)}<button class="btn btn-secondary" onclick="vtReplayPlay(this)">▶ Play its autonomous</button><div class="vr-cap">Its routine as it ran in ${R.n} matches, played in real time (15 s). ${VT_FIELD_KEY}</div></div>` : '';
   return `<div class="vr-sec"><div class="vr-h">Autonomous</div>${items.length ? `<ul class="vr-list">${items.map(t => `<li>${esc(t)}</li>`).join('')}</ul>` : '<div class="vr-none">Not enough of the autonomous period was in view.</div>'}${play}</div>`;
 }
 // Role and strategy: where the driver period goes, then how it does at toggles.
@@ -10467,7 +10466,7 @@ async function vtCoachFill(number) {
       <td data-label="Autonomous" class="vt-coach-mid">${auto ? esc(auto) : none}</td>
       <td data-label="Goes for" class="vt-coach-mid">${P ? (P.style ? esc(P.style.text) : 'too few pins to say') : none}</td>
       <td data-label="Pins a match">${P ? P.pins.toFixed(1) + `<span>${chk.ok ? `checked: ±${vtPct(chk.err)}` : 'not checked yet'}</span>` : none}</td><td data-label="Points from pins">${P ? Math.round(P.points) : none}</td>
-      <td data-label="5 pins stacked in">${P ? (P.t5 !== null ? Math.round(P.t5) + ' s' : `not reached${P.perPin ? `<span>a pin every ${Math.round(P.perPin)} s</span>` : ''}`) : none}</td></tr>`;
+      <td data-label="5 pins stacked in">${P ? (P.t5 !== null ? Math.round(P.t5) + ' s' : P.perPin ? `about ${Math.round(5 * P.perPin)} s<span>from a pin every ${Math.round(P.perPin)} s</span>` : 'not counted yet') : none}</td></tr>`;
   }).join('');
   host.innerHTML = `<div class="detail-block"><div class="detail-block-label">Your robot, as the tracker sees it</div>
     <div class="rw-hint">What a team scouting ${esc(num)} would see, event by event.</div>
@@ -10904,10 +10903,32 @@ function vtAutoReplay(rows) {
   return { pts, n: best.length, of: paths.length, still: len < 0.08 };
 }
 function vtReplayPlay(btn) {
-  const svg = btn && btn.parentNode && btn.parentNode.querySelector('svg');
+  const svg = btn && btn.parentNode && btn.parentNode.querySelector('svg[data-pts]');
   if (!svg) return;
-  svg.classList.add('on');
-  svg.querySelectorAll('animate').forEach(a => { try { a.beginElement(); } catch (e) {} });
+  let pts;
+  try { pts = JSON.parse(svg.getAttribute('data-pts')); } catch (e) { return; }
+  const bot = svg.querySelector('.vr-bot'), trail = svg.querySelector('.vr-trail'), clock = svg.querySelector('.vr-clock');
+  if (!bot || !pts || pts.length < 2) return;
+  const S = 200, B = +bot.getAttribute('width') || 25, end = pts[pts.length - 1][2] || 15, LEN = 15;
+  const at = s => {
+    if (s <= pts[0][2]) return pts[0];
+    for (let k = 1; k < pts.length; k++) if (s <= pts[k][2]) { const a = pts[k - 1], b = pts[k], f = (s - a[2]) / Math.max(0.001, b[2] - a[2]); return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f]; }
+    return pts[pts.length - 1];
+  };
+  if (svg._vrRaf) cancelAnimationFrame(svg._vrRaf);
+  const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const t0 = performance.now(), seen = [];
+  const step = now => {
+    const s = reduce ? LEN : Math.min(LEN, (now - t0) / 1000), p = at(Math.min(s, end));
+    bot.setAttribute('x', (p[0] * S - B / 2).toFixed(1)); bot.setAttribute('y', (p[1] * S - B / 2).toFixed(1));
+    seen.push((p[0] * S).toFixed(1) + ',' + (p[1] * S).toFixed(1));
+    if (trail) trail.setAttribute('points', seen.join(' '));
+    if (clock) clock.textContent = '0:' + String(Math.max(0, Math.ceil(LEN - s))).padStart(2, '0');
+    if (s < LEN) svg._vrRaf = requestAnimationFrame(step);
+    else { svg._vrRaf = 0; btn.textContent = '↻ Play again'; }
+  };
+  btn.textContent = '■ Playing…';
+  svg._vrRaf = requestAnimationFrame(step);
 }
 // The field from above, red's… the robot's own wall on the left: where it
 // spends driver control (shading) and its autonomous paths (lines).
@@ -10932,17 +10953,18 @@ function vtFieldSvg(heat, paths, replay) {
       <rect x="60" y="212" width="80" height="6" rx="3" fill="url(#${id}g)"/><text x="54" y="218" text-anchor="end" class="vr-ft">usual</text><text x="146" y="218" class="vr-ft">a lot</text>`;
   }
   const lines = (paths || []).slice(0, 30).map(p => `<polyline points="${p.map(q => P(q[0]) + ',' + P(q[1])).join(' ')}" fill="none" stroke-width="1.5" opacity="0.55" style="stroke:var(--vr-own)"/>`).join('');
-  // The replay: the routine's line, and a robot-sized dot that drives it when
-  // Play is pressed. Its six points are three seconds apart, so the dot keeps
-  // the routine's own timing (15 s shown in 6).
+  // The replay: the robot itself (to scale, 18 in on a 12 ft field) driving
+  // its routine on this same field, in real time with the autonomous clock
+  // counting down. Asked: "have it literally replay on like the same field
+  // format type as the heatmap". vtReplayPlay moves it; until then it waits
+  // where it starts.
   let play = '';
   if (replay && replay.pts && replay.pts.length >= 2) {
-    const q = replay.pts, T = q[q.length - 1][2] || 1, kt = q.map(p => (p[2] / T).toFixed(3)).join(';');
-    play = `<polyline points="${q.map(p => P(p[0]) + ',' + P(p[1])).join(' ')}" fill="none" stroke-width="2" stroke-dasharray="3 4" opacity="0.7" style="stroke:var(--vr-own)"/>
-      <circle cx="${P(q[0][0])}" cy="${P(q[0][1])}" r="4" fill="none" stroke-width="1.5" style="stroke:var(--vr-own)"/>
-      <rect class="vr-bot" x="${(q[0][0] * S - 9).toFixed(1)}" y="${(q[0][1] * S - 9).toFixed(1)}" width="18" height="18" rx="3" style="fill:var(--vr-own)">
-        <animate attributeName="x" values="${q.map(p => (p[0] * S - 9).toFixed(1)).join(';')}" keyTimes="${kt}" dur="${(T * 0.4).toFixed(1)}s" begin="indefinite" fill="freeze"/>
-        <animate attributeName="y" values="${q.map(p => (p[1] * S - 9).toFixed(1)).join(';')}" keyTimes="${kt}" dur="${(T * 0.4).toFixed(1)}s" begin="indefinite" fill="freeze"/></rect>`;
+    const q = replay.pts, B = 25, half = B / 2;
+    play = `<polyline points="${q.map(p => P(p[0]) + ',' + P(p[1])).join(' ')}" fill="none" stroke-width="1.5" stroke-dasharray="3 4" opacity="0.35" style="stroke:var(--vr-own)"/>
+      <polyline class="vr-trail" points="" fill="none" stroke-width="2.5" stroke-linecap="round" opacity="0.8" style="stroke:var(--vr-own)"/>
+      <rect class="vr-bot" x="${(q[0][0] * S - half).toFixed(1)}" y="${(q[0][1] * S - half).toFixed(1)}" width="${B}" height="${B}" rx="4" stroke-width="3" style="fill:var(--text);stroke:var(--vr-own)"/>
+      <text class="vr-clock" x="100" y="16" text-anchor="middle" style="fill:currentColor">0:15</text>`;
   }
   const ring = (g, r, extra) => `<circle cx="${P(g[0])}" cy="${P(g[1])}" r="${r}" ${extra}/>`;
   const goals = VT_GOALS_OWN.map(g => ring(g, 5, 'stroke-width="1" style="fill:var(--vr-own);stroke:var(--bg)"')).join('')
@@ -10950,7 +10972,7 @@ function vtFieldSvg(heat, paths, replay) {
     + VT_GOALS_NEUTRAL.map((g, k) => ring(g, k === 4 ? 10 : 7, 'fill="none" stroke="currentColor" stroke-width="1.25" opacity="0.6"')).join('');
   const tog = [[-3, 88, 6, 24], [197, 88, 6, 24], [88, -3, 24, 6], [88, 197, 24, 6]].map(([x, y, w, h]) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="2" style="fill:var(--vr-toggle)"/>`).join('');
   const load = `<path d="M0 26 L26 0 M0 174 L26 200" stroke-width="2" opacity="0.8" style="stroke:var(--vr-own)"/><path d="M200 26 L174 0 M200 174 L174 200" stroke="currentColor" stroke-width="2" opacity="0.4"/>`;
-  return `<svg class="vr-field" viewBox="-8 -8 216 ${heat && heat.length ? 232 : 216}" role="img" aria-label="The field from above, this robot's drivers on the left">
+  return `<svg class="vr-field"${replay && replay.pts ? ` data-pts="${esc(JSON.stringify(replay.pts.map(p => [+p[0].toFixed(3), +p[1].toFixed(3), p[2]])))}"` : ''} viewBox="-8 -8 216 ${heat && heat.length ? 232 : 216}" role="img" aria-label="The field from above, this robot's drivers on the left">
     ${hot}<rect x="0" y="0" width="200" height="200" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.6"/>
     <path d="M0 0 L200 200 M200 0 L0 200" stroke="currentColor" stroke-width="0.75" opacity="0.25"/>
     <path d="M100 56 L144 100 L100 144 L56 100 Z" fill="none" stroke="currentColor" stroke-width="0.75" opacity="0.35"/>
@@ -11846,7 +11868,7 @@ function vtPinLine(mine, others, isOwn, check) {
   const cys = mine.map(r => r.cy).filter(v => v > 0), pace = cys.length >= 2 ? vtAvg(cys) : null;
   const t5 = vtFastFiveOf(mine, fix);
   // The short form, for the report's top lines. Asked: "way too much info for scoring".
-  const short = [`${avg.toFixed(1)} yellow halves a match${check && check.ok ? ` (±${vtPct(check.err)})` : ''}`, pace ? `a pin every ${Math.round(pace)} s` : '', t5 !== null ? `5 pins in ${Math.round(t5)} s` : ''].filter(Boolean).join(' · ');
+  const short = [`${avg.toFixed(1)} yellow halves a match${check && check.ok ? ` (±${vtPct(check.err)})` : ''}`, pace ? `a pin every ${Math.round(pace)} s` : '', t5 !== null ? `5 pins in ${Math.round(t5)} s` : pace ? `5 pins in about ${Math.round(5 * pace)} s` : ''].filter(Boolean).join(' · ');
   return { avg, other, pace, n: a.length, short,
     text: `${isOwn ? 'Sets down' : 'A robot on its alliance sets down'} about ${avg.toFixed(1)} yellow halves a match (worth ${Math.round(avg * 10)} when its alliance holds that toggle)${pace ? `, a pin every ${Math.round(pace)} s while it is stacking (timed from one set-down to the next)` : ''}${t5 !== null ? `; its fastest five pins usually take ${Math.round(t5)} s` : ''}${other !== null ? `; the robots it faced: ${other.toFixed(1)}` : ''}. ${vtPinCheckText(check)}` };
 }
