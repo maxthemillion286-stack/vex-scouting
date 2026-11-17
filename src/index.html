@@ -2483,7 +2483,7 @@
   .vr-time-row em { font-style: normal; text-align: right; font-variant-numeric: tabular-nums; color: var(--text-dim); }
 
   /* v99: the robot report */
-  .vr-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 10px; margin-bottom: 10px; align-items: start; }
+  .vr-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 10px; margin-bottom: 10px; align-items: start; }
   .vr-sec { background: var(--card); border-radius: var(--r-lg); padding: 14px 16px; }
   .vr-h { font-family: var(--display); font-size: 16px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
   .vr-list { margin: 0; padding-left: 18px; }
@@ -3715,7 +3715,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v137';
+const APP_BUILD = 'v138';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -10927,29 +10927,29 @@ function vtFieldSvg(heat, paths, replay) {
     const mean = heat.reduce((a, b) => a + b, 0) / heat.length, floor = max > 1.25 * mean ? mean : max;
     for (let r = 0; r < n; r++) for (let q = 0; q < n; q++) { const v = Math.max(0, (heat[r * n + q] - floor) / Math.max(0.0001, max - floor)); if (v > 0.04) cells += `<rect x="${(q * c).toFixed(1)}" y="${(r * c).toFixed(1)}" width="${c.toFixed(1)}" height="${c.toFixed(1)}" opacity="${Math.pow(v, 1.3).toFixed(2)}"/>`; }
     hot = `<defs><filter id="${id}b" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="${Math.min(9, c * 0.4).toFixed(1)}"/></filter><clipPath id="${id}c"><rect x="0" y="0" width="${S}" height="${S}"/></clipPath>
-      <linearGradient id="${id}g"><stop offset="0" stop-color="var(--vr-heat)" stop-opacity="0.08"/><stop offset="1" stop-color="var(--vr-heat)"/></linearGradient></defs>
-      <g clip-path="url(#${id}c)"><g filter="url(#${id}b)" fill="var(--vr-heat)">${cells}</g></g>
+      <linearGradient id="${id}g"><stop offset="0" stop-opacity="0.08" style="stop-color:var(--vr-heat)"/><stop offset="1" style="stop-color:var(--vr-heat)"/></linearGradient></defs>
+      <g clip-path="url(#${id}c)"><g filter="url(#${id}b)" style="fill:var(--vr-heat)">${cells}</g></g>
       <rect x="60" y="212" width="80" height="6" rx="3" fill="url(#${id}g)"/><text x="54" y="218" text-anchor="end" class="vr-ft">usual</text><text x="146" y="218" class="vr-ft">a lot</text>`;
   }
-  const lines = (paths || []).slice(0, 30).map(p => `<polyline points="${p.map(q => P(q[0]) + ',' + P(q[1])).join(' ')}" fill="none" stroke="var(--vr-own)" stroke-width="1.5" opacity="0.55"/>`).join('');
+  const lines = (paths || []).slice(0, 30).map(p => `<polyline points="${p.map(q => P(q[0]) + ',' + P(q[1])).join(' ')}" fill="none" stroke-width="1.5" opacity="0.55" style="stroke:var(--vr-own)"/>`).join('');
   // The replay: the routine's line, and a robot-sized dot that drives it when
   // Play is pressed. Its six points are three seconds apart, so the dot keeps
   // the routine's own timing (15 s shown in 6).
   let play = '';
   if (replay && replay.pts && replay.pts.length >= 2) {
     const q = replay.pts, T = q[q.length - 1][2] || 1, kt = q.map(p => (p[2] / T).toFixed(3)).join(';');
-    play = `<polyline points="${q.map(p => P(p[0]) + ',' + P(p[1])).join(' ')}" fill="none" stroke="var(--vr-own)" stroke-width="2" stroke-dasharray="3 4" opacity="0.7"/>
-      <circle cx="${P(q[0][0])}" cy="${P(q[0][1])}" r="4" fill="none" stroke="var(--vr-own)" stroke-width="1.5"/>
-      <rect class="vr-bot" x="${(q[0][0] * S - 9).toFixed(1)}" y="${(q[0][1] * S - 9).toFixed(1)}" width="18" height="18" rx="3" fill="var(--vr-own)">
+    play = `<polyline points="${q.map(p => P(p[0]) + ',' + P(p[1])).join(' ')}" fill="none" stroke-width="2" stroke-dasharray="3 4" opacity="0.7" style="stroke:var(--vr-own)"/>
+      <circle cx="${P(q[0][0])}" cy="${P(q[0][1])}" r="4" fill="none" stroke-width="1.5" style="stroke:var(--vr-own)"/>
+      <rect class="vr-bot" x="${(q[0][0] * S - 9).toFixed(1)}" y="${(q[0][1] * S - 9).toFixed(1)}" width="18" height="18" rx="3" style="fill:var(--vr-own)">
         <animate attributeName="x" values="${q.map(p => (p[0] * S - 9).toFixed(1)).join(';')}" keyTimes="${kt}" dur="${(T * 0.4).toFixed(1)}s" begin="indefinite" fill="freeze"/>
         <animate attributeName="y" values="${q.map(p => (p[1] * S - 9).toFixed(1)).join(';')}" keyTimes="${kt}" dur="${(T * 0.4).toFixed(1)}s" begin="indefinite" fill="freeze"/></rect>`;
   }
   const ring = (g, r, extra) => `<circle cx="${P(g[0])}" cy="${P(g[1])}" r="${r}" ${extra}/>`;
-  const goals = VT_GOALS_OWN.map(g => ring(g, 5, 'fill="var(--vr-own)" stroke="var(--bg)" stroke-width="1"')).join('')
+  const goals = VT_GOALS_OWN.map(g => ring(g, 5, 'stroke-width="1" style="fill:var(--vr-own);stroke:var(--bg)"')).join('')
     + VT_GOALS_OPP.map(g => ring(g, 5, 'fill="currentColor" opacity="0.45"')).join('')
     + VT_GOALS_NEUTRAL.map((g, k) => ring(g, k === 4 ? 10 : 7, 'fill="none" stroke="currentColor" stroke-width="1.25" opacity="0.6"')).join('');
-  const tog = [[-3, 88, 6, 24], [197, 88, 6, 24], [88, -3, 24, 6], [88, 197, 24, 6]].map(([x, y, w, h]) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="2" fill="var(--vr-toggle)"/>`).join('');
-  const load = `<path d="M0 26 L26 0 M0 174 L26 200" stroke="var(--vr-own)" stroke-width="2" opacity="0.8"/><path d="M200 26 L174 0 M200 174 L174 200" stroke="currentColor" stroke-width="2" opacity="0.4"/>`;
+  const tog = [[-3, 88, 6, 24], [197, 88, 6, 24], [88, -3, 24, 6], [88, 197, 24, 6]].map(([x, y, w, h]) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="2" style="fill:var(--vr-toggle)"/>`).join('');
+  const load = `<path d="M0 26 L26 0 M0 174 L26 200" stroke-width="2" opacity="0.8" style="stroke:var(--vr-own)"/><path d="M200 26 L174 0 M200 174 L174 200" stroke="currentColor" stroke-width="2" opacity="0.4"/>`;
   return `<svg class="vr-field" viewBox="-8 -8 216 ${heat && heat.length ? 232 : 216}" role="img" aria-label="The field from above, this robot's drivers on the left">
     ${hot}<rect x="0" y="0" width="200" height="200" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.6"/>
     <path d="M0 0 L200 200 M200 0 L0 200" stroke="currentColor" stroke-width="0.75" opacity="0.25"/>
@@ -17119,24 +17119,24 @@ function buildRadarSVG(axes) {
   let grid = '';
   for (const frac of [0.25, 0.5, 0.75, 1]) {
     const pts = axes.map((_, i) => pt(i, R * frac).map(v => v.toFixed(1)).join(',')).join(' ');
-    grid += `<polygon points="${pts}" fill="none" stroke="var(--border)" stroke-width="1"${frac === 1 ? '' : ' opacity="0.55"'}/>`;
+    grid += `<polygon points="${pts}" fill="none" stroke-width="1"${frac === 1 ? '' : ' opacity="0.55"'} style="stroke:var(--border)"/>`;
   }
   let spokes = '', labels = '';
   axes.forEach((ax, i) => {
     const [x, y] = pt(i, R);
-    spokes += `<line x1="${cx}" y1="${cy}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="var(--border)" stroke-width="1" opacity="0.55"/>`;
+    spokes += `<line x1="${cx}" y1="${cy}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke-width="1" opacity="0.55" style="stroke:var(--border)"/>`;
     const [lx, ly] = pt(i, R + 24);
     const anchor = Math.abs(lx - cx) < 8 ? 'middle' : (lx > cx ? 'start' : 'end');
-    labels += `<text x="${lx.toFixed(1)}" y="${(ly + 4).toFixed(1)}" text-anchor="${anchor}" fill="var(--text-dim)" font-family="var(--body)" font-size="11">${ax.label}</text>`;
+    labels += `<text x="${lx.toFixed(1)}" y="${(ly + 4).toFixed(1)}" text-anchor="${anchor}" font-size="11" style="fill:var(--text-dim);font-family:var(--body)">${ax.label}</text>`;
   });
   const valPts = axes.map((ax, i) => pt(i, R * Math.max(0, Math.min(100, ax.value || 0)) / 100).map(v => v.toFixed(1)).join(',')).join(' ');
   const dots = axes.map((ax, i) => {
     const [x, y] = pt(i, R * Math.max(0, Math.min(100, ax.value || 0)) / 100);
-    return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.5" fill="var(--accent-bright)"/>`;
+    return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.5" style="fill:var(--accent-bright)"/>`;
   }).join('');
   return `<svg viewBox="0 0 ${size} ${size}" class="radar-svg" xmlns="http://www.w3.org/2000/svg">
     ${grid}${spokes}
-    <polygon points="${valPts}" fill="var(--accent)" fill-opacity="0.28" stroke="var(--accent-bright)" stroke-width="2" stroke-linejoin="round"/>
+    <polygon points="${valPts}" fill-opacity="0.28" stroke-width="2" stroke-linejoin="round" style="fill:var(--accent);stroke:var(--accent-bright)"/>
     ${dots}${labels}
   </svg>`;
 }
