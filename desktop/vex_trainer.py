@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.21'
+VERSION = '2.22'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -972,7 +972,7 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
     def fresh():
         return {'v': 2, 'name': str(job.get('name', ''))[:60], 'round': job.get('round'), 'num': job.get('num'), 'red': job['red'], 'blue': job['blue'],
                 'rs': job.get('rs'), 'bs': job.get('bs'), 'vid': job['vid'], 'off': int(round(off)), 'rate': 4, 'w': SIZE, 'h': 0,
-                'model': 'det1', 'at': int(time.time() * 1000), 'f': [], 'tm': [], 'pn': [], 'tg': [], 'cu': []}
+                'model': 'det1', 'at': int(time.time() * 1000), 'f': [], 'tm': [], 'pn': [], 'tg': [], 'gs': []}
 
     while True:
         rec = fresh()
@@ -984,6 +984,7 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
             return None, 'past the end of the video', 0
         video.seek(start)
         att, robot_looks, clock_at, checked, kept, next_keep, misses, pin_at = [], 0, -1e9, False, 0, start + 6, 0, -1e9
+        spot_at, spots = -1e9, None
         # Frames for the vision model: spread through driver control, each with two or more robots of known colour.
         shots, think_gap = [], ((WINDOW_WIDE - 30) if wide else 100) / max(1, think or 1)
         think_at = start + (10 if wide else LEAD + 20)
@@ -1018,19 +1019,21 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
             # The pins, every two seconds: by colour and size, off the robots.
             if t >= pin_at + 2 and len(rec['pn']) < PIN_MAX_INTS:
                 pin_at = t
-                if eyes.pieces is not None:              # the trained pin & cup finder, once it has beaten the colours
-                    pw, ph_, blobs, cups = eyes.pieces.blobs(frame, boxes)
-                    if len(rec['cu']) < 20000:
-                        rec['cu'] += [jround((t - rec['off']) * 10), len(cups)] + [v for c in cups for v in c]
-                    rec['pf'] = 1
-                else:
-                    pw, ph_, blobs = pin_blobs(frame, boxes)
+                pw, ph_, blobs = pin_blobs(frame, boxes)
                 rec['pw'], rec['ph'] = pw, ph_
                 rec['pn'] += [jround((t - rec['off']) * 10), len(blobs)] + [v for bl in blobs for v in bl]
                 if quad and len(rec['tg']) < 1800:      # the toggles, where the field's corners put them
                     tg = toggle_look(frame, quad)
                     if tg:
                         rec['tg'] += [jround((t - rec['off']) * 10)] + tg
+            # Pins and cups on each goal and in each loader, every second, once
+            # the trained finder is in use and the field is marked.
+            if eyes.pieces is not None and quad and t >= spot_at + 1 and len(rec['gs']) < 24000:
+                spot_at = t
+                if spots is None:
+                    spots = spot_boxes(frame.shape[1], frame.shape[0], quad) or []
+                if spots:
+                    rec['gs'] += [jround((t - rec['off']) * 10)] + [v for c in eyes.pieces.spot_counts(frame, spots) for v in c]
             # The match clock: from its known place every second, else searched for every five.
             if t >= clock_at + (1 if learn.get('clock') else 5) and len(rec['tm']) < 320:
                 clock_at = t
@@ -2224,7 +2227,79 @@ def reviewed():
 # same shape the colour finder's did, so the website counts pins as before;
 # cups are recorded as well (`cu`).
 PIECE_NAMES = ('red half', 'blue half', 'yellow half', 'cup')
-PIECE_SIZE, PIECE_NEED, PIECE_CONF = 1280, 60, 0.35
+PIECE_SIZE, PIECE_NEED, PIECE_CONF = 320, 60, 0.35
+
+# v2.22. The owner: "it doesnt need to track stuff on the field only in the
+# goals for pin and cups. maybe matchloader too to count matchload speeds."
+# So pins and cups are looked for only in a few fixed SPOTS: a column standing
+# on each of the nine goals and one over each corner's loader. Each spot is
+# cut out of the frame and enlarged, so a pin a few pixels wide in the wide
+# shot fills a good part of the picture the finder sees. The spots are where
+# the field mark puts them, in the marked square (u, v from 0 to 1). The goal
+# layout looks the same turned a quarter, so which goal is red's is left to
+# the website, which knows which way round the field is.
+SPOTS = [  # u, v, half-width, height above, depth below (field widths)
+    # Placed against the owner's first clean frame (Excalibur 2026): the goal
+    # feet fall on the goal bases; wide enough to forgive a hand-marked field.
+    (0.17, 0.66, 0.05, 0.22, 0.03), (0.34, 0.82, 0.05, 0.22, 0.03), (0.66, 0.18, 0.05, 0.22, 0.03), (0.82, 0.34, 0.05, 0.22, 0.03),
+    (0.34, 0.18, 0.05, 0.22, 0.03), (0.18, 0.34, 0.05, 0.22, 0.03), (0.66, 0.82, 0.05, 0.22, 0.03), (0.82, 0.66, 0.05, 0.22, 0.03),
+    (0.5, 0.5, 0.06, 0.30, 0.03),
+    # The loaders: at the corners, on the perimeter. NOT yet checked on video.
+    (0.02, 0.02, 0.10, 0.22, 0.08), (0.98, 0.02, 0.10, 0.22, 0.08), (0.98, 0.98, 0.10, 0.22, 0.08), (0.02, 0.98, 0.10, 0.22, 0.08)]
+N_GOALS = 9
+
+def spot_boxes(W, H, q):
+    """Each spot's box in a W×H picture: [x0, y0, x1, y1] in pixels, or None
+    when it falls off the picture."""
+    fwd = quad_fwd(q) if q else None
+    if not fwd:
+        return None
+    aspect = W / H
+    out = []
+    for u, v, hw, up, down in SPOTS:
+        M, A, B = fwd(u, v), fwd(u + 0.02, v), fwd(u, v + 0.02)
+        scale = max(math.hypot(A[0] - M[0], (A[1] - M[1]) / aspect), math.hypot(B[0] - M[0], (B[1] - M[1]) / aspect)) / 0.02
+        x0, x1 = (M[0] - hw * scale) * W, (M[0] + hw * scale) * W
+        y0, y1 = (M[1] - up * scale * aspect) * H, (M[1] + down * scale * aspect) * H
+        x0, y0, x1, y1 = max(0, int(x0)), max(0, int(y0)), min(W, int(math.ceil(x1))), min(H, int(math.ceil(y1)))
+        out.append([x0, y0, x1, y1] if x1 - x0 >= 6 and y1 - y0 >= 6 else None)
+    return out
+
+def in_spots(b, boxes):
+    """Is a box's middle inside one of the spots? → that spot's index, or -1."""
+    cx, cy = b[0] + b[2] / 2, b[1] + b[3] / 2
+    for k, s in enumerate(boxes or []):
+        if s and s[0] <= cx <= s[2] and s[1] <= cy <= s[3]:
+            return k
+    return -1
+
+_QUADS = {}
+def quad_for(vid, site=None):
+    """The field mark of a video, as the website has it (kept on disk once fetched)."""
+    path = os.path.join(DIRS['data'], 'quads.json')
+    if not _QUADS:
+        try:
+            with open(path) as f:
+                _QUADS.update(json.load(f))
+        except Exception:
+            pass
+    if vid in _QUADS:
+        return _QUADS[vid]
+    if site is None:
+        return None
+    try:
+        q = ((site.get('?field=' + vid) or {}).get('field') or {}).get('q')
+    except Exception:
+        return None
+    q = q if isinstance(q, list) and len(q) == 8 else None
+    _QUADS[vid] = q
+    try:
+        os.makedirs(DIRS['data'], exist_ok=True)
+        with open(path, 'w') as f:
+            json.dump(_QUADS, f)
+    except Exception:
+        pass
+    return q
 
 def pieces_file():
     return os.path.join(DIRS['models'], 'pieces.onnx')
@@ -2278,12 +2353,17 @@ def pieces_marked():
                 p = json.load(f)
         except Exception:
             continue
-        out.append((name, p['w'], p['h'], lab.get('boxes', []), clean_pieces(lab['pieces'])))
+        q = quad_for(name.rsplit('_', 1)[0])
+        if q is None:
+            continue
+        sb = spot_boxes(p['w'], p['h'], q)
+        out.append((name, p['w'], p['h'], lab.get('boxes', []), [b for b in clean_pieces(lab['pieces']) if in_spots(b, sb) >= 0], sb))
     return out
 
-def pieces_queue():
+def pieces_queue(site=None):
     """Frames with their robots done (not skipped) and pins not yet marked,
-    taking turns between videos so it is not the same scene twice in a row."""
+    taking turns between videos so it is not the same scene twice in a row.
+    Only frames whose video has its field marked: the spots come from that."""
     if not os.path.isdir(LABELS):
         return []
     by = {}
@@ -2294,7 +2374,10 @@ def pieces_queue():
         lab = lab_read(name)
         if lab.get('skip') or 'pieces' in lab or lab.get('pskip') or not os.path.exists(os.path.join(FRAMES, name + '.jpg')):
             continue
-        by.setdefault(name.rsplit('_', 1)[0], []).append(name)
+        vid = name.rsplit('_', 1)[0]
+        if quad_for(vid, site) is None:
+            continue
+        by.setdefault(vid, []).append(name)
     out, lists = [], list(by.values())
     while any(lists):
         for l in lists:
@@ -2302,11 +2385,13 @@ def pieces_queue():
                 out.append(l.pop(0))
     return out
 
-def pieces_from_colour(frame, robots):
-    """The colour finder's pins as boxes in the frame: [x, y, w, h, class]."""
+def pieces_from_colour(frame, robots, spots=None):
+    """The colour finder's pins as boxes in the frame: [x, y, w, h, class];
+    with `spots`, only those inside one."""
     W, H, blobs = pin_blobs(frame, robots)
     k = W / frame.shape[1]
-    return [[round((b[0] - b[2] / 2) / k, 1), round((b[1] - b[3]) / k, 1), round(b[2] / k, 1), round(b[3] / k, 1), b[5] - 1] for b in blobs]
+    out = [[round((b[0] - b[2] / 2) / k, 1), round((b[1] - b[3]) / k, 1), round(b[2] / k, 1), round(b[3] / k, 1), b[5] - 1] for b in blobs]
+    return [b for b in out if in_spots(b, spots) >= 0] if spots is not None else out
 
 def pieces_ready():
     """A trained pin and cup finder that beat the colour finder, on this computer."""
@@ -2350,11 +2435,13 @@ def score_pieces(find, val):
     are small, and a few pixels move it a lot). → {'halves': (p, r, f1), 'cups': (p, r, f1)}"""
     import cv2
     tally = {'halves': [0, 0, 0], 'cups': [0, 0, 0]}
-    for name, w, h, robots, truth in val:
+    for item in val:
+        name, w, h, robots, truth = item[:5]
+        spots = item[5] if len(item) > 5 else None
         frame = cv2.imread(os.path.join(FRAMES, name + '.jpg'))
         if frame is None:
             continue
-        found = find(frame, robots)
+        found = find(frame, robots, spots) if spots is not None else find(frame, robots)
         for part, keep in (('halves', lambda c: c < 3), ('cups', lambda c: c == 3)):
             T = [t for t in truth if keep(t[4])]
             F = [f for f in found if keep(f[4])]
@@ -2381,22 +2468,36 @@ def score_pieces(find, val):
     return res
 
 def build_pieces_dataset(marked):
+    """One picture for each spot of each marked frame: the spot cut out, its
+    pins and cups as labels inside it (empty spots teach "nothing here" too)."""
+    import cv2
     root = os.path.join(DIRS['build'], 'pieces_dataset')
     shutil.rmtree(root, ignore_errors=True)
     counts = {'train': 0, 'val': 0}
     for part in ('train', 'val'):
         os.makedirs(os.path.join(root, 'images', part))
         os.makedirs(os.path.join(root, 'labels', part))
-    for name, w, h, robots, pieces in marked:
+    for name, w, h, robots, pieces, spots in marked:
+        frame = cv2.imread(os.path.join(FRAMES, name + '.jpg'))
+        if frame is None:
+            continue
         part = 'val' if is_val(name) else 'train'
-        shutil.copyfile(os.path.join(FRAMES, name + '.jpg'), os.path.join(root, 'images', part, name + '.jpg'))
-        with open(os.path.join(root, 'labels', part, name + '.txt'), 'w') as f:
-            for x, y, bw, bh, c in pieces:
-                x, y = max(0, x), max(0, y)
-                bw, bh = min(bw, w - x), min(bh, h - y)
-                if bw > 1 and bh > 1:
-                    f.write('%d %.6f %.6f %.6f %.6f\n' % (c, (x + bw / 2) / w, (y + bh / 2) / h, bw / w, bh / h))
-        counts[part] += 1
+        for k, sb in enumerate(spots):
+            if not sb:
+                continue
+            x0, y0, x1, y1 = sb
+            cw, ch = x1 - x0, y1 - y0
+            stem = '%s_s%02d' % (name, k)
+            cv2.imwrite(os.path.join(root, 'images', part, stem + '.jpg'), frame[y0:y1, x0:x1], [cv2.IMWRITE_JPEG_QUALITY, 95])
+            with open(os.path.join(root, 'labels', part, stem + '.txt'), 'w') as f:
+                for x, y, bw, bh, c in pieces:
+                    if in_spots([x, y, bw, bh], [sb]) < 0:
+                        continue
+                    ax, ay = max(x0, x), max(y0, y)
+                    bx, by = min(x1, x + bw), min(y1, y + bh)
+                    if bx - ax > 1 and by - ay > 1:
+                        f.write('%d %.6f %.6f %.6f %.6f\n' % (c, ((ax + bx) / 2 - x0) / cw, ((ay + by) / 2 - y0) / ch, (bx - ax) / cw, (by - ay) / ch))
+            counts[part] += 1
     with open(os.path.join(root, 'data.yaml'), 'w') as f:
         f.write('path: %s\ntrain: images/train\nval: images/val\nnames:\n' % root.replace('\\', '/') + ''.join('  %d: %s\n' % (i, n) for i, n in enumerate(PIECE_NAMES)))
     return root, counts
@@ -2424,15 +2525,15 @@ def do_train_pieces(cfg):
         rounds['n'] = int(getattr(trainer, 'epoch', rounds['n'])) + 1
         say('  training pins & cups: round %d/%d' % (rounds['n'], total_rounds))
         progress('Training the pin & cup finder', rounds['n'], total_rounds)
-    # A bigger model than the robot finder, at twice the picture size: a pin is
-    # a few dozen pixels across in a wide shot, and this one only runs in the app.
+    # A bigger model than the robot finder: it looks at the spots cut out and
+    # enlarged, where a pin is a good part of the picture.
     model = YOLO(str(cfg.get('piece_model') or 'yolov8s.pt'))
     try:
         model.add_callback('on_fit_epoch_end', each_round)
     except Exception:
         pass
-    say('Training the pin & cup finder on %d frames; testing on %d.' % (counts['train'], counts['val']))
-    model.train(data=os.path.join(root, 'data.yaml'), epochs=total_rounds, imgsz=PIECE_SIZE, batch=int(cfg.get('piece_batch', 8)), device=device,
+    say('Training the pin & cup finder on %d goal and loader pictures; testing on %d.' % (counts['train'], counts['val']))
+    model.train(data=os.path.join(root, 'data.yaml'), epochs=total_rounds, imgsz=PIECE_SIZE, batch=int(cfg.get('piece_batch', 32)), device=device,
                 workers=4, patience=30, project=runs, name=tag, exist_ok=True, verbose=False, plots=False, fliplr=0.5, mosaic=1.0)
     best = os.path.join(runs, tag, 'weights', 'best.pt')
     onnx_path = YOLO(best).export(format='onnx', imgsz=PIECE_SIZE, opset=12, simplify=True, dynamic=False)
@@ -2444,13 +2545,13 @@ def do_train_pieces(cfg):
         say('The new pin finder answers in an unexpected shape (%s); not used.' % sess.get_outputs()[0].shape)
         return None
     say('\nMeasuring on the %d test frames…' % len(val))
-    colour = score_pieces(lambda fr, rb: pieces_from_colour(fr, rb), val)
+    colour = score_pieces(lambda fr, rb, sp: pieces_from_colour(fr, rb, sp), val)
     newf = PieceFinder(out)
-    new = score_pieces(lambda fr, rb: [b[:4] + [b[5]] for b in newf.find(fr, rb)], val)
+    new = score_pieces(lambda fr, rb, sp: [b[:4] + [b[5]] for b in newf.find_spots(fr, sp)], val)
     cur = None
     if pieces_ready():
         curf = PieceFinder(pieces_file())
-        cur = score_pieces(lambda fr, rb: [b[:4] + [b[5]] for b in curf.find(fr, rb)], val)
+        cur = score_pieces(lambda fr, rb, sp: [b[:4] + [b[5]] for b in curf.find_spots(fr, sp)], val)
     bar = max(colour['halves'][2], cur['halves'][2] if cur else 0)
     use = new['halves'][2] > bar
     say('                     pin halves: right when it says one / found / overall      cups: found / overall')
@@ -2465,7 +2566,7 @@ def do_train_pieces(cfg):
         shutil.copyfile(out, tmp)
         os.replace(tmp, pieces_file())
         info['use'] = True
-        say('PIN & CUP FINDER IN USE: it beat what was used before on frames it never saw. Matches tracked from now on use it.')
+        say('PIN & CUP FINDER IN USE: it beat what was used before on frames it never saw. Matches tracked from now on count pins and cups on every goal and loader with it.')
     else:
         try:
             with open(pieces_info_file()) as f:
@@ -2500,21 +2601,23 @@ class PieceFinder:
         out = self.sess.run(None, {self.sess.get_inputs()[0].name: (sq.astype(np.float32) / 255).transpose(2, 0, 1)[None]})[0][0]
         return [b for b in piece_decode(out, lb, w, h, conf) if not on_robot(b, robots)]
 
-    def blobs(self, frame, robots):
-        """In the colour finder's shape, so the website counts them the same:
-        (W, H, [[x, bottom y, w, h, area, colour], …], cups [[x, bottom y, w, h], …]) in a picture PIN_W wide."""
-        h0, w0 = frame.shape[:2]
-        W, H = PIN_W, max(2, jround(h0 * PIN_W / w0))
-        k = W / w0
-        halves, cups = [], []
-        for x, y, bw, bh, sc, c in self.find(frame, robots):
-            q = [jround((x + bw / 2) * k), jround((y + bh) * k), max(1, jround(bw * k)), max(1, jround(bh * k))]
-            if c == 3:
-                cups.append(q)
-            else:
-                halves.append(q + [max(1, jround(q[2] * q[3] * 0.55)), c + 1])   # about the share of its box a half fills
-        halves.sort(key=lambda q: -q[4])
-        return W, H, halves[:PIN_MAX_BLOBS], cups[:40]
+    def find_spots(self, frame, spots):
+        """Pins and cups in each spot, in the frame's pixels: [x, y, w, h, score, class, spot]."""
+        out = []
+        for k, sb in enumerate(spots or []):
+            if not sb:
+                continue
+            x0, y0, x1, y1 = sb
+            for b in self.find(frame[y0:y1, x0:x1]):
+                out.append([b[0] + x0, b[1] + y0, b[2], b[3], b[4], b[5], k])
+        return out
+
+    def spot_counts(self, frame, spots):
+        """→ per spot [red halves, blue halves, yellow halves, cups], -1s where the spot is off the picture."""
+        cnt = [[0, 0, 0, 0] if sb else [-1, -1, -1, -1] for sb in (spots or [])]
+        for b in self.find_spots(frame, spots):
+            cnt[b[6]][b[5]] += 1
+        return cnt
 
 
 def is_val(name):
@@ -3022,7 +3125,7 @@ UI_HTML = r"""<!doctype html><html lang="en"><meta charset="utf-8"><meta name="v
   <span class="keys" id="rKeys"><kbd>click a box</kbd>remove <kbd>drag</kbd>add a robot <kbd>Enter</kbd>save, next <kbd>S</kbd>not a field view <kbd>Z</kbd>undo <kbd>B</kbd>back one</span>
   <span class="keys" id="pKeys" style="display:none"><span id="pCls"></span> <kbd>drag</kbd>add <kbd>click</kbd>remove <kbd>wheel</kbd>zoom <kbd>Enter</kbd>save <kbd>Z</kbd>undo <kbd>B</kbd>back</span>
   <button class="ghost" onclick="saveFrame(true)">Skip</button><button onclick="saveFrame(false)">Save, next</button></div>
- <div id="cw" style="overflow:auto;max-height:calc(100vh - 210px)"><canvas id="c"></canvas></div><div class="hint" id="pMsg" style="display:none">Pre-drawn boxes are the colour finder's guesses. <b>One box per pin half</b> in that half's colour (a red-and-yellow pin is two boxes), and one box per cup. Mark the ones on the field and on goals; leave pins a robot is holding. Pick the colour with <kbd>1</kbd>–<kbd>4</kbd> before drawing; scroll the mouse wheel over the picture to zoom.</div><div class="hint" id="revMsg">Green boxes are what the finder thinks are robots. Box every robot you can see, even partly hidden ones, and nothing else. <b>Two robots touching get one box each:</b> if one green box covers both, click it away and draw two, split at the gap between their drivebases.</div>
+ <div id="cw" style="overflow:auto;max-height:calc(100vh - 210px)"><canvas id="c"></canvas></div><div class="hint" id="pMsg" style="display:none">Pre-drawn boxes are the colour finder's guesses. <b>One box per pin half</b> in that half's colour (a red-and-yellow pin is two boxes), and one box per cup. Only inside the <b>dotted yellow boxes</b>: each stands on a goal or over a loader. Mark every pin half and cup you can see in them, including ones half hidden; nothing else on the field matters. Pick the colour with <kbd>1</kbd>–<kbd>4</kbd> before drawing; scroll the mouse wheel over the picture to zoom.</div><div class="hint" id="revMsg">Green boxes are what the finder thinks are robots. Box every robot you can see, even partly hidden ones, and nothing else. <b>Two robots touching get one box each:</b> if one green box covers both, click it away and draw two, split at the gap between their drivebases.</div>
 </main>
 <dialog id="dlg"><b>Settings</b>
  <label>Matches watched at once (4 to 8 suits an 8-core processor)</label><input id="sWorkers" type="number" min="1" max="16" style="width:100%">
@@ -3102,6 +3205,7 @@ async function nextPieces(id){cur=await api('/api/pnext'+(id?'?id='+id:''));if(!
 function draw(){x.drawImage(img,0,0);
  if(pm){x.lineWidth=Math.max(1,c.width/1400);x.setLineDash([6,6]);x.strokeStyle='#ffffff55';for(const r of cur.robots||[])x.strokeRect(r[0],r[1],r[2],r[3]);x.setLineDash([]);
   x.lineWidth=Math.max(1.5,c.width/1100);for(const b of boxes){x.strokeStyle=PCOL[b[4]]||'#fff';x.strokeRect(b[0],b[1],b[2],b[3])}
+  x.setLineDash([3,4]);x.lineWidth=Math.max(1.5,c.width/900);x.strokeStyle='#ffd23f';for(const s of cur.spots||[])x.strokeRect(s[0],s[1],s[2]-s[0],s[3]-s[1]);x.setLineDash([]);
   if(drag&&drag.w){x.strokeStyle=PCOL[pc];x.strokeRect(drag.x,drag.y,drag.w,drag.h)}return}
  x.lineWidth=Math.max(2,c.width/450);for(const b of boxes){x.strokeStyle='#39ff88';x.strokeRect(b[0],b[1],b[2],b[3])}
  if(drag&&drag.w){x.strokeStyle='#ffd23f';x.strokeRect(drag.x,drag.y,drag.w,drag.h)}}
@@ -3236,15 +3340,20 @@ def serve_ui(cfg, port=8765, open_window=True):
     pcache = {'at': 0, 'queue': [], 'marked': 0}
     def pcounts():
         if time.time() - pcache['at'] > 20:
-            pcache.update(at=time.time(), queue=pieces_queue(), marked=len(pieces_marked()))
+            pcache.update(at=time.time(), queue=pieces_queue(qsite()), marked=len(pieces_marked()))
         return pcache
 
     pf_holder = {}
     def pfinder():
         if 'f' not in pf_holder:
             f = PieceFinder(pieces_file(), prov=['CPUExecutionProvider'])
-            pf_holder['f'] = lambda fr, rb: f.find(fr, rb)
+            pf_holder['f'] = lambda fr, sp: f.find_spots(fr, sp)
         return pf_holder['f']
+
+    def qsite():
+        if 's' not in pf_holder:
+            pf_holder['s'] = Site(cfg)
+        return pf_holder['s']
 
     def last_pieces():
         try:
@@ -3319,6 +3428,7 @@ def serve_ui(cfg, port=8765, open_window=True):
                     p = json.load(f)
                 lab = lab_read(name)
                 robots = lab.get('boxes', [])
+                spots = spot_boxes(p['w'], p['h'], quad_for(name.rsplit('_', 1)[0], qsite())) or []
                 if 'pieces' in lab:                      # going back: what was saved
                     pieces = clean_pieces(lab['pieces'])
                 else:
@@ -3326,13 +3436,13 @@ def serve_ui(cfg, port=8765, open_window=True):
                     frame = cv2.imread(os.path.join(FRAMES, name + '.jpg'))
                     pieces = []
                     if frame is not None:
-                        # The trained finder's guesses once there is one (cups too), else the colours'.
+                        # The trained finder's guesses once there is one (cups too), else the colours', in the spots only.
                         try:
-                            pieces = [b[:4] + [b[5]] for b in pfinder()(frame, robots)] if pieces_ready() else pieces_from_colour(frame, robots)
+                            pieces = [b[:4] + [b[5]] for b in pfinder()(frame, spots)] if pieces_ready() else pieces_from_colour(frame, robots, spots)
                         except Exception:
-                            pieces = pieces_from_colour(frame, robots)
+                            pieces = pieces_from_colour(frame, robots, spots)
                 return self._send(200, {'id': name, 'w': p['w'], 'h': p['h'], 'pieces': [[round(v, 1) for v in b[:4]] + [int(b[4])] for b in pieces],
-                                        'robots': robots, 'left': len(P['queue']), 'marked': P['marked']})
+                                        'robots': robots, 'spots': [s for s in spots if s], 'left': len(P['queue']), 'marked': P['marked']})
             if u.path == '/api/next':
                 c = counts()
                 want = urllib.parse.parse_qs(u.query).get('id', [None])[0]

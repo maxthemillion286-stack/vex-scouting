@@ -3714,7 +3714,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v139';
+const APP_BUILD = 'v140';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -10048,6 +10048,29 @@ function vtSummarise(rec, quad, learn) {
         }
       }
     } catch (e) {}
+    // The app's trained finder counted pins and cups on the goals themselves:
+    // that takes the place of the colour count on the goals, and brings cups
+    // and loads.
+    try {
+      const Z = rec.gs && rec.gs.length ? vtSpotCount(rec, turnK, track, ph) : null;
+      if (Z) {
+        const r1 = v => Math.round(v * 10) / 10;
+        [[Ra, 1, 0], [Rb, 1, 1], [Ba, 2, 0], [Bb, 2, 1]].forEach(([row, c, i]) => {
+          const q = Z.robots[c][i];
+          row.oy = r1(q.ys); row.oa = r1(q.as); row.oya = r1(q.ya); delete row.ocy; delete row.ot5;
+          if (q.cy) row.ocy = q.cy; if (q.t5 !== null) row.ot5 = q.t5;
+          for (const N of VT_FAST_N) { delete row['n' + N]; if (q['k' + N]) row['n' + N] = q['k' + N]; }
+          row.cp = r1(q.cp); row.kn = r1(q.kn); row.ld = q.ld; if (q.lds !== null) row.lds = q.lds;
+        });
+        Object.assign(pins, { gy: r1(Z.py), gr: r1(Z.pr), gb: r1(Z.pb), gk: Z.pk, gc: r1(Z.cups), gs: 1 });
+        const own = rec.tg && rec.tg.length ? vtToggleRead(rec, turnK, ph) : null;
+        if (own) {
+          const mid = c => (c === 1 ? [Ra, Rb] : [Ba, Bb]).filter(r => r.eg).length;
+          const est = c => VT_PTS_OWN * (c === 1 ? Z.pr : Z.pb) + VT_PTS_YELLOW * (own.reduce((a, o, q) => a + (o === c ? Z.yq[q] : 0), 0) + (mid(c) > mid(3 - c) ? Z.yq[4] : 0));
+          pins.oer = r1(est(1)); pins.oeb = r1(est(2));
+        }
+      }
+    } catch (e) {}
   }
   if (F.field && axis && rec.tg && rec.tg.length) {
     try { const at = vtToggleAuto(rec, ph); if (at) { Ra.tga = Rb.tga = at[1]; Ba.tga = Bb.tga = at[2]; } } catch (e) {}
@@ -10157,7 +10180,7 @@ function vtReportSeen(S) {
 // the recordings are in the shared store too, so whichever device opens a
 // report fetches the ones it needs, makes the summaries again, keeps them, and
 // (with the admin key) shares them.
-const VT_REMAKE = 136;      // v136: pins counted on the goals as well (oy, oa, …)
+const VT_REMAKE = 140;      // v136: pins counted on the goals as well (oy, oa, …)
 const vtStale = s => !!(s && s.ok && (s.rv || 0) < VT_REMAKE);
 const vtRefreshTried = new Set();
 async function vtSumsRefresh(sums, limit) {
@@ -10197,6 +10220,7 @@ async function vtTeamSums(number) {
 
 // ── A team's report ────────────────────────────────────────────────────────
 const vtAvg = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;
+const vtMedian = a => { if (!a.length) return NaN; const b = a.slice().sort((x, y) => x - y), h = b.length >> 1; return b.length % 2 ? b[h] : (b[h - 1] + b[h]) / 2; };
 const vtPct = v => Math.round(v * 100) + '%';
 const vtLookOf = r => (r && r.g0 !== undefined) ? Array.from({ length: 12 }, (_, k) => r['g' + k] || 0) : null;
 // In each match a team played, which of its alliance's two robots is it?
@@ -10403,7 +10427,7 @@ function vtReportHtml(number, rep) {
   // The short version first; everything measured is one tap away. Asked for
   // as "make the overviews simple".
   const b = rep.brief || {};
-  const short = [['Autonomous', b.auto], ['Strategy', b.strat], ['Scoring', b.speed], ['Best at', L.good[0]], ['Watch for', (L.weak || [])[0] || L.lose[0]]].filter(x => x[1]);
+  const short = [['Autonomous', b.auto], ['Strategy', b.strat], ['Scoring', b.speed], ['Match loads', b.load], ['Best at', L.good[0]], ['Watch for', (L.weak || [])[0] || L.lose[0]]].filter(x => x[1]);
   return `<div class="detail-block"><div class="detail-block-label">Robot report · ${rep.total} tracked matches</div>
     ${short.length ? `<div class="vr-short">${short.map(([k, v]) => `<div><em>${k}</em>${esc(v)}</div>`).join('')}</div>` : ''}
     <details class="vr-more"${short.length ? '' : ' open'}><summary>Everything it measured</summary>
@@ -11130,6 +11154,12 @@ function vtBrief(number, sums) {
   // Pins counted off the video say it better than a score divided by time.
   const pin = vtPinLine(isOwn ? rows.own : rows.pair, null, isOwn, vtPinCheck(sums));
   if (pin) B.speed = pin.short;
+  // Match loads, where the app counted pieces leaving its alliance's loaders.
+  const lrows = rows.mine.filter(r => r.ld !== undefined && r.ld !== null);
+  if (lrows.length >= 2) {
+    const per = vtAvg(lrows.map(r => r.ld)), gaps = lrows.map(r => r.lds).filter(v => v > 0);
+    if (per >= 0.5) B.load = `${per.toFixed(1)} a match${gaps.length ? ` · one every ${vtMedian(gaps).toFixed(1)} s` : ''}`;
+  }
   B.pins = pin ? pin.avg : null;
   return B;
 }
@@ -11647,6 +11677,126 @@ function vtGoalLook(blobs, cols, W, H) {
   }
   return out;
 }
+// ── What the app's trained finder counts on each goal and loader (v140) ────
+// The owner: "it doesnt need to track stuff on the field only in the goals
+// for pin and cups. maybe matchloader too to count matchload speeds." The app
+// cuts out a column on each goal and over each corner's loader, enlarged, and
+// counts pin halves by colour and cups in each, every second: `gs` =
+// [tenths, then for each of 13 spots: red, blue, yellow halves, cups] (-1s
+// when a spot is off the picture). Spots are in the marked square's own
+// order; which goal is whose follows from turnK here. Same order as SPOTS in
+// desktop/vex_trainer.py.
+const VT_SPOTS_RAW = [[0.17, 0.66], [0.34, 0.82], [0.66, 0.18], [0.82, 0.34], [0.34, 0.18], [0.18, 0.34], [0.66, 0.82], [0.82, 0.66], [0.5, 0.5],
+  [0.02, 0.02], [0.98, 0.02], [0.98, 0.98], [0.02, 0.98]];
+function vtSpotCount(rec, turnK, track, ph) {
+  const a = rec.gs || [], S = VT_SPOTS_RAW.length, step = 1 + 4 * S;
+  if (a.length < step * 8 || a.length % step) return null;
+  const turn = (x, y) => { for (let i = 0; i < turnK; i++) [x, y] = [y, 1 - x]; return [x, y]; };
+  const spots = VT_SPOTS_RAW.map(([u, v], k) => {
+    const [x, y] = turn(u, v);
+    if (k >= 9) return { loader: true, x, y, side: x < 0.5 ? 1 : 2 };
+    let g = 0, bd = Infinity;
+    VT_GOALS_FIELD.forEach((p, j) => { const d = Math.hypot(p[0] - x, p[1] - y); if (d < bd) { bd = d; g = j; } });
+    const q = vtPhysQuad(x, y);
+    return { loader: false, x, y, g, quad: q < 0 ? 4 : q };
+  });
+  const looks = [];
+  for (let i = 0; i + step <= a.length; i += step) looks.push({ t: a[i] / 10, c: Array.from({ length: S }, (_, k) => a.slice(i + 1 + 4 * k, i + 5 + 4 * k)) });
+  const n = looks.length;
+  // Smoothed: the middle of five looks, skipping looks where the spot was off the picture.
+  const sm = (k, c) => {
+    const out = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const w = [];
+      for (let j = Math.max(0, i - 2); j <= Math.min(n - 1, i + 2); j++) { const v = looks[j].c[k][c]; if (v >= 0) w.push(v); }
+      out[i] = w.length ? vtMedian(w) : NaN;
+    }
+    return out;
+  };
+  // A change counts once it holds for three looks.
+  const steps = (ser, t0, t1) => {
+    const ev = [];
+    let level = null;
+    for (let i = 0; i < n; i++) {
+      const v = ser[i];
+      if (!Number.isFinite(v)) continue;
+      if (looks[i].t < t0) { level = v; continue; }
+      if (looks[i].t > t1) break;
+      if (level === null) { level = v; continue; }
+      const d = Math.round(v - level);
+      if (!d) continue;
+      let held = true;
+      for (let j = i + 1; j <= Math.min(n - 1, i + 2); j++) { const w = ser[j]; if (Number.isFinite(w) && Math.round(w - level) * Math.sign(d) < Math.abs(d) * 0.5) held = false; }
+      if (!held) continue;
+      ev.push([looks[i].t, d]);
+      level = level + d;
+    }
+    return ev;
+  };
+  const rob = c => [0, 1].map(() => ({ ys: 0, as: 0, ya: 0, cp: 0, kn: 0, ld: 0, ev: [], lt: [] }));
+  const robots = { 1: rob(1), 2: rob(2) };
+  const near = (x, y, t, only, reach, back) => {
+    let best = null, bd = reach;
+    for (const c of [1, 2]) {
+      if (only && c !== only) continue;
+      for (const i of [0, 1]) for (const b of track) {
+        if (b.t < t - back || b.t > t) continue;
+        const p = b.s[c][i];
+        if (!p) continue;
+        const d = Math.hypot(p.x - x, p.y - y);
+        if (d < bd) { bd = d; best = robots[c][i]; }
+      }
+    }
+    return best;
+  };
+  const t0 = ph.start, t1 = ph.end + 4;
+  let endIdx = -1;
+  for (let i = 0; i < n; i++) if (looks[i].t <= t1) endIdx = i;
+  const end = { 1: 0, 2: 0, 3: 0, cups: 0 }, yq = [0, 0, 0, 0, 0];
+  for (let k = 0; k < S; k++) {
+    const sp = spots[k];
+    if (sp.loader) {
+      // A loader: pieces going out of it while one of its alliance's robots is there.
+      const tot = sm(k, 0).map((v, i) => v + sm(k, 1)[i] + sm(k, 2)[i]), cups = sm(k, 3);
+      const pieces = tot.map((v, i) => v / 2 + cups[i]);
+      for (const [t, d] of steps(pieces, t0, t1)) {
+        if (d >= 0) continue;
+        const r = near(sp.x, sp.y, t, sp.side, 0.3, 6);
+        if (r) { r.ld += -d; for (let m = 0; m < -d; m++) r.lt.push(t); }
+      }
+      continue;
+    }
+    for (let c = 0; c < 4; c++) {
+      const ser = sm(k, c);
+      if (endIdx >= 0 && Number.isFinite(ser[endIdx])) { const v = Math.max(0, ser[endIdx]); if (c < 3) { end[c + 1] += v; if (c === 2) yq[sp.quad] += v; } else end.cups += v; }
+      for (const [t, d] of steps(ser, t0, t1)) {
+        if (d > 0) {
+          // Own-colour halves are put there by that alliance; yellow and cups by whoever was closest.
+          const r = near(sp.x, sp.y, t, c === 0 ? 1 : c === 1 ? 2 : 0, 0.22, 8);
+          if (!r) continue;
+          if (c === 3) r.cp += d;
+          else { if (c === 2) r.ys += d; else r.as += d; r.ev.push([t, d]); if (t < ph.driver) r.ya += d; }
+        } else {
+          const r = near(sp.x, sp.y, t, 0, 0.22, 8);
+          if (r && c < 3) r.kn += -d;
+        }
+      }
+    }
+  }
+  for (const c of [1, 2]) for (const r of robots[c]) {
+    r.ev.sort((x, y) => x[0] - y[0]);
+    let sum = 0; r.t5 = null;
+    for (const [t, d] of r.ev) { if (t < ph.driver) continue; sum += d; if (sum >= 10) { r.t5 = Math.max(1, Math.round(t - ph.driver)); break; } }
+    r.cy = vtPinCycle(r.ev, ph.driver);
+    Object.assign(r, vtFastWindows(r.ev, ph.driver));
+    // Seconds between loads in one visit to the loader (gaps over ten seconds are new visits).
+    const gaps = [];
+    for (let i = 1; i < r.lt.length; i++) { const g = r.lt[i] - r.lt[i - 1]; if (g > 0 && g <= 10) gaps.push(g); }
+    r.lds = gaps.length >= 2 ? Math.round(vtMedian(gaps) * 10) / 10 : null;
+    delete r.ev; delete r.lt;
+  }
+  return { robots, py: end[3], pr: end[1], pb: end[2], pk: n, yq, cups: end.cups };
+}
 // Which count an event's reports use: the one closer to the official scores,
 // once both can be checked (four matches each). The goal count's fields are
 // copied over the field count's, so everything after reads them unchanged.
@@ -11868,7 +12018,8 @@ function vtPinLine(mine, others, isOwn, check) {
   const cys = mine.map(r => r.cy).filter(v => v > 0), pace = cys.length >= 2 ? vtAvg(cys) : null;
   const t5 = vtFastFiveOf(mine, fix);
   // The short form, for the report's top lines. Asked: "way too much info for scoring".
-  const short = [`${avg.toFixed(1)} yellow halves a match${check && check.ok ? ` (±${vtPct(check.err)})` : ''}`, pace ? `a pin every ${Math.round(pace)} s` : '', t5 !== null ? `5 pins in ${Math.round(t5)} s` : pace ? `5 pins in about ${Math.round(5 * pace)} s` : ''].filter(Boolean).join(' · ');
+  const cupRows = mine.filter(r => r.cp !== undefined && r.cp !== null), cups = cupRows.length >= 2 ? vtAvg(cupRows.map(r => r.cp)) : null;
+  const short = [`${avg.toFixed(1)} yellow halves a match${check && check.ok ? ` (±${vtPct(check.err)})` : ''}`, cups !== null ? `${cups.toFixed(1)} cups` : '', pace ? `a pin every ${Math.round(pace)} s` : '', t5 !== null ? `5 pins in ${Math.round(t5)} s` : pace ? `5 pins in about ${Math.round(5 * pace)} s` : ''].filter(Boolean).join(' · ');
   return { avg, other, pace, n: a.length, short,
     text: `${isOwn ? 'Sets down' : 'A robot on its alliance sets down'} about ${avg.toFixed(1)} yellow halves a match (worth ${Math.round(avg * 10)} when its alliance holds that toggle)${pace ? `, a pin every ${Math.round(pace)} s while it is stacking (timed from one set-down to the next)` : ''}${t5 !== null ? `; its fastest five pins usually take ${Math.round(t5)} s` : ''}${other !== null ? `; the robots it faced: ${other.toFixed(1)}` : ''}. ${vtPinCheckText(check)}` };
 }
