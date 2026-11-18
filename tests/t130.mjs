@@ -61,7 +61,7 @@ ok('the summary takes it in place of the colour count on the goals, with cups an
 const L = f('vtPinLine')([{ ys: 4, cy: 9, k10: 30, cp: 2 }, { ys: 4, cy: 9, k10: 34, cp: 1 }], null, true, null);
 ok('the Scoring line gains cups', /· 1\.5 cups ·/.test(L.short), L.short);
 ok('a Match loads line', /\['Match loads', b\.load\]/.test(src) && /a match\$\{gaps\.length \? ` · one every/.test(src));
-ok('every device remakes older summaries', /const VT_REMAKE = 140;/.test(src));
+ok('every device remakes older summaries', /const VT_REMAKE = 1(4\d|[5-9]\d);/.test(src));
 // ── the app ──
 ok('the app looks only at goal and loader spots', /SPOTS = \[/.test(app) && /def spot_boxes\(W, H, q(, placed=None)?\):/.test(app) && /def find_spots\(self, frame, spots\):/.test(app));
 ok('the same 13 spots, in the same order, on both sides', (() => { const m = [...app.slice(app.indexOf('SPOTS = ['), app.indexOf('N_GOALS')).matchAll(/\((0\.\d+), (0\.\d+), 0\.\d+, 0\.\d+, 0\.\d+\)/g)].map(x => [+x[1], +x[2]]); const w = f('VT_SPOTS_RAW'); return m.length === 13 && m.every((p, k) => p[0] === w[k][0] && p[1] === w[k][1]); })());

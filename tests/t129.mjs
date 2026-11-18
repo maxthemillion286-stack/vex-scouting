@@ -9,11 +9,11 @@ const { win } = await boot();
 await settle(win);
 const f = n => win.eval(n);
 // "the scoring doesnt show how much anymore for 5 pins"
-const rows = [{ ys: 3, cy: 9 }, { ys: 3, cy: 11 }, { ys: 3, cy: 10 }];
+const rows = [{ ys: 3, cy: 9, vs: 15, vh: 4 }, { ys: 3, cy: 11, vs: 13, vh: 4 }, { ys: 3, cy: 10, vs: 17, vh: 4 }];
 const p = f('vtPinLine')(rows, null, true, null);
-ok('no stretch of five seen: five times its pace, marked "about"', /5 pins in about 50 s/.test(p.short), p.short);
+ok('five pins from its time at the goal (v145: 45 s over 6 pins)', /5 pins in 38 s · 7\.5 s a pin/.test(p.short), p.short);
 ok('a real stretch is shown as it is', /5 pins in 34 s$/.test(f('vtPinLine')([{ ys: 4, cy: 9, k10: 30 }, { ys: 4, cy: 9, k10: 34 }], null, true, null).short));
-ok('the table does the same', /about \$\{Math\.round\(5 \* P\.perPin\)\} s<span>from a pin every/.test(src));
+ok('the table does the same', /a pin every \$\{P\.perPin\.toFixed\(1\)\} s at the goal<\/span>/.test(src));
 // "have it literally replay on like the same field format type as the heatmap"
 const pts = [[0.1, 0.6, 0], [0.2, 0.7, 3], [0.3, 0.8, 6], [0.3, 0.8, 9], [0.3, 0.8, 12], [0.3, 0.8, 15]];
 const html = f('vtReportAuto')({ game: { n: 5, replay: { pts, n: 4, of: 5, still: false } }, autoFacts: null }, { auto: [] });
