@@ -93,7 +93,7 @@ const long = 'This sentence is the point. ' + 'And this is the further explanati
   ok('points: 10 a yellow half, 5 an alliance half', Math.abs(P.points - ((30 * 10 + 6 * 5) / 3)) < 1e-9, String(P.points));
   ok('pins set down in autonomous', Math.abs(P.auto - 1) < 1e-9);
   ok('time to five pins: the middle of the matches that got there (v134: fastest stretch)', P.t5 === 70);
-  ok('no pace without timed set-downs (v132: it is measured, not divided)', P.perPin === null && C([{ ys: 4, cy: 10 }, { ys: 4, cy: 14 }], 1).perPin === 12);
+  ok('no pace without time at the goal (v145: timed per visit)', P.perPin === null && C([{ ys: 4, vs: 20, vh: 4 }, { ys: 4, vs: 28, vh: 4 }], 1).perPin === 12);
   const pair = C([{ ys: 6, as: 0, ya: 0 }, { ys: 4, as: 2, ya: 2 }, { ys: 2, as: 0, ya: 0 }, { ys: 0, as: 0, ya: 0 }], 2);
   ok('when the row is the alliance, both robots make one match', pair.pins === 3.5, String(pair.pins));
   ok('no pins counted: nothing claimed', C([{ act: 1 }, { act: 2 }], 1) === null);

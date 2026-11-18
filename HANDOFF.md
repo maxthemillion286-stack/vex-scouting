@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v144**. Everything green: 94 test files.
+Current release: **v145**. Everything green: 95 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,21 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v145 — stacking timed at the goal.** Reported: "5 pins … about 103 s" while
+the team stacks 5 in 20–30 s. Pins are seen only after the robot leaves the
+stack, in one lump per visit, so the gaps between sightings (`cy`) were
+mostly driving. Now each credited gain also finds the robot's visit to that
+spot (`vtVisitAdd`: the robot's closest point to the gain in the 12 s before
+the sighting, then as long as it stayed within `VT_VISIT_R` 0.1 of there,
+before and after, 1.5 s unseen allowed; one visit's time counted once, capped
+`VT_VISIT_MAX` 25 s) → per robot `vs` (seconds at the goal in visits
+that added pins) and `vh` (halves added); goal count `ovs/ovh` (mapped by
+`vtPinPick`), the trained finder's spot count too. `vtStackPace(rows, fix)` =
+vs / (vh·fix/2), from 3 pins. Five pins = 5 × that, else the fastest window
+(k*); the gap-based "about" figure is gone. Table: "N s" + "a pin every X s at
+the goal"; Scoring line "5 pins in N s · X s a pin". `VT_REMAKE` → 145.
+Tests: t134.
 
 **v144 — app 2.26: no blank review screen.** The owner's screenshot showed the
 robot review with a black 300×150 canvas and no counter: `/api/next` either
