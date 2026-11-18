@@ -3714,7 +3714,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v145';
+const APP_BUILD = 'v146';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -10180,7 +10180,7 @@ function vtReportSeen(S) {
 // the recordings are in the shared store too, so whichever device opens a
 // report fetches the ones it needs, makes the summaries again, keeps them, and
 // (with the admin key) shares them.
-const VT_REMAKE = 145;      // v145: stacking timed at the goal (vs, vh)      // v136: pins counted on the goals as well (oy, oa, …)
+const VT_REMAKE = 146;      // v145/146: stacking timed at the goal (vs, vh)      // v136: pins counted on the goals as well (oy, oa, …)
 const vtStale = s => !!(s && s.ok && (s.rv || 0) < VT_REMAKE);
 const vtRefreshTried = new Set();
 async function vtSumsRefresh(sums, limit) {
@@ -10458,6 +10458,13 @@ async function vtCoachFill(number) {
   const sums = await vtTeamSums(num);
   if (!document.getElementById('vtCoach') || vsMyTeam() !== num) return;
   if (!sums.size) { host.innerHTML = ''; return; }
+  // Older matches read again here as well (v146): the table showed "not timed
+  // yet" while its summaries were from before the timing existed, because only
+  // the report remade them.
+  if (!host.dataset.fresh && [...sums.values()].some(vtStale)) {
+    host.dataset.fresh = '1';
+    vtSumsRefresh(sums).then(n => { delete host.dataset.fresh; if (n) { vtManyMemo && vtManyMemo.clear && vtManyMemo.clear(); vtCoachFill(num); } }).catch(() => { delete host.dataset.fresh; });
+  }
   const repAll = vtReport(num, sums);
   const byEvent = new Map();
   for (const [k, s] of sums) { const ev = k.split(':')[0]; if (!byEvent.has(ev)) byEvent.set(ev, new Map()); byEvent.get(ev).set(k, s); }
@@ -10490,7 +10497,7 @@ async function vtCoachFill(number) {
       <td data-label="Autonomous" class="vt-coach-mid">${auto ? esc(auto) : none}</td>
       <td data-label="Goes for" class="vt-coach-mid">${P ? (P.style ? esc(P.style.text) : 'too few pins to say') : none}</td>
       <td data-label="Pins a match">${P ? P.pins.toFixed(1) + `<span>${chk.ok ? `checked: ±${vtPct(chk.err)}` : 'not checked yet'}</span>` : none}</td><td data-label="Points from pins">${P ? Math.round(P.points) : none}</td>
-      <td data-label="5 pins stacked in">${P ? (P.t5 !== null ? Math.round(P.t5) + ' s' + (P.timed ? `<span>a pin every ${P.perPin.toFixed(1)} s at the goal</span>` : '') : 'not timed yet') : none}</td></tr>`;
+      <td data-label="5 pins stacked in">${P ? (P.t5 !== null ? Math.round(P.t5) + ' s' + (P.timed ? `<span>a pin every ${P.perPin.toFixed(1)} s at the goal</span>` : '') : `not timed yet<span>${[...m.values()].some(vtStale) ? 'its matches are being read again' : 'too few pins seen being stacked'}</span>`) : none}</td></tr>`;
   }).join('');
   host.innerHTML = `<div class="detail-block"><div class="detail-block-label">Your robot, as the tracker sees it</div>
     <div class="rw-hint">What a team scouting ${esc(num)} would see, event by event.</div>
@@ -11878,7 +11885,10 @@ function vtPinPick(sums) {
       const r = s[side];
       if (!r) continue;
       const m = { ...r };
-      for (const [to, from] of Object.entries(VT_GOAL_ROW)) { if (r[from] !== undefined) m[to] = r[from]; else delete m[to]; }
+      for (const [to, from] of Object.entries(VT_GOAL_ROW)) { if (r[from] !== undefined) m[to] = r[from]; else if (to !== 'vs' && to !== 'vh') delete m[to]; }
+      // Time at the goal is the robot's, whichever way its pins were counted:
+      // without the goal count's own, the field count's stays (v146).
+      if (r.ovh === undefined && r.vh !== undefined) { m.vs = r.vs; m.vh = r.vh; }
       for (const N of VT_FAST_N) { if (r['n' + N] !== undefined) m['k' + N] = r['n' + N]; else delete m['k' + N]; }
       o[side] = m;
     }
@@ -12026,7 +12036,7 @@ function vtVisitAdd(r, track, at, t, halves) {
   // Where it stood to stack: its closest point to where the pins showed up,
   // in the twelve seconds before (pins on a stack are seen higher up the
   // picture than the robot's wheels, so not on the spot itself).
-  let k0 = -1, best = 0.35;
+  let k0 = -1, best = 0.5;
   for (let k = track.length - 1; k >= 0; k--) {
     const b = track[k];
     if (b.t > t) continue;
