@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v145**. Everything green: 95 test files.
+Current release: **v146**. Everything green: 96 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,15 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v146 — "it just says its not timed yet now".** The My team table read
+summaries from before v145 (only the report ran `vtSumsRefresh`); now
+`vtCoachFill` refreshes stale ones too and redraws, and the cell says why a
+time is missing. `vtPinPick` keeps the field count's `vs/vh` when the goal
+count has no `ovs/ovh`. `vtVisitAdd` accepts the credited robot up to 0.5
+field widths from where the pins showed up. `VT_REMAKE` → 146. Not seen on
+the owner's data (the live API is not reachable from the build machine).
+Tests: t135.
 
 **v145 — stacking timed at the goal.** Reported: "5 pins … about 103 s" while
 the team stacks 5 in 20–30 s. Pins are seen only after the robot leaves the
