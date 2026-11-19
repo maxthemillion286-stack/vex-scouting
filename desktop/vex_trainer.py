@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.30'
+VERSION = '2.31'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -532,6 +532,28 @@ def timer_text(text):
     m = re.match(r'^([0-2]):([0-5]\d)$', str(text or '').strip())
     return int(m.group(1)) * 60 + int(m.group(2)) if m else None
 
+def score_text(text):
+    """A score as a stream writes it: one to three digits, nothing else."""
+    m = re.match(r'^\s*(\d{1,3})\s*$', str(text or ''))
+    return int(m.group(1)) if m else None
+
+def score_spots(seen, rs, bs, end):
+    """Where the stream writes each alliance's score, worked out from the
+    official final score (v2.31): of every number seen in the same place over
+    the match, the place that showed red's final in the last 40 s is red's,
+    and blue's likewise. → {'r': box, 'b': box} or None (no live score shown,
+    a wrong one, or a tie that cannot tell them apart)."""
+    if rs is None or bs is None or rs == bs:
+        return None
+    def best(want):
+        got = [(len(v), k) for k, v in seen.items() if any(n == want and t >= end - 40 for t, n, _ in v)]
+        return max(got)[1] if got else None
+    kr, kb = best(rs), best(bs)
+    if kr is None or kb is None or kr == kb:
+        return None
+    med = lambda k: [sorted(b[i] for _, _, b in seen[k])[len(seen[k]) // 2] for i in range(4)]
+    return {'r': med(kr), 'b': med(kb), 'kr': kr, 'kb': kb}
+
 def label_of(texts):
     other = None
     for t in texts:
@@ -740,6 +762,12 @@ class Eyes:
         h, w = frame.shape[:2]
         got = self._line(frame, box[0] * w, box[1] * h, box[2] * w, box[3] * h)
         return timer_text(got[0]) if got and got[1] >= 0.5 else None
+
+    def number_at(self, frame, box):
+        """The number written at a known place (a score), or None."""
+        h, w = frame.shape[:2]
+        got = self._line(frame, box[0] * w, box[1] * h, box[2] * w, box[3] * h)
+        return score_text(got[0]) if got and got[1] >= 0.5 else None
 
 
 class CamFollow:
@@ -1107,7 +1135,7 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
     def fresh():
         return {'v': 2, 'name': str(job.get('name', ''))[:60], 'round': job.get('round'), 'num': job.get('num'), 'red': job['red'], 'blue': job['blue'],
                 'rs': job.get('rs'), 'bs': job.get('bs'), 'vid': job['vid'], 'off': int(round(off)), 'rate': 4, 'w': SIZE, 'h': 0,
-                'model': 'det1', 'at': int(time.time() * 1000), 'f': [], 'tm': [], 'pn': [], 'tg': [], 'gs': []}
+                'model': 'det1', 'at': int(time.time() * 1000), 'f': [], 'tm': [], 'pn': [], 'tg': [], 'gs': [], 'sc': []}
 
     while True:
         rec = fresh()
@@ -1120,6 +1148,11 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
         video.seek(start)
         att, robot_looks, clock_at, checked, kept, next_keep, misses, pin_at = [], 0, -1e9, False, 0, start + 6, 0, -1e9
         spot_at, spots = -1e9, None
+        # The stream's own score (v2.31), a check and never the truth: live
+        # scorers make mistakes and some events show none. Read every second
+        # once its place is known; until then, every number on screen every
+        # three seconds, to find the place from the official final.
+        score_at, seen_nums, rs_, bs_ = -1e9, {}, job.get('rs'), job.get('bs')
         # Frames for the vision model: spread through driver control, each with two or more robots of known colour.
         shots, think_gap = [], ((WINDOW_WIDE - 30) if wide else 100) / max(1, think or 1)
         think_at = start + (10 if wide else LEAD + 20)
@@ -1239,6 +1272,16 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
                     spots = spot_boxes(frame.shape[1], frame.shape[0], cur_quad, cur_placed) or []
                 if spots:
                     rec['gs'] += [jround((t - rec['off']) * 10)] + [v for c in eyes.pieces.spot_counts(frame, spots) for v in c]
+            if (learn.get('score') or (rs_ is not None and bs_ is not None)) and not away and t >= score_at + (1 if learn.get('score') else 3) and len(rec['sc']) < 1200:
+                score_at = t
+                if learn.get('score'):
+                    r_, b_ = eyes.number_at(frame, learn['score']['r']), eyes.number_at(frame, learn['score']['b'])
+                    rec['sc'] += [jround((t - rec['off']) * 10), -1 if r_ is None else r_, -1 if b_ is None else b_]
+                else:
+                    for x in eyes.scan(frame):
+                        n_ = score_text(x['text'])
+                        if n_ is not None:
+                            seen_nums.setdefault((round(x['box'][0] * 40), round(x['box'][1] * 40)), []).append((t, n_, x['box']))
             # The match clock: from its known place every second, else searched for every five.
             if t >= clock_at + (1 if learn.get('clock') else 5) and len(rec['tm']) < 320:
                 clock_at = t
@@ -1295,6 +1338,22 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
     if len(rec['f']) > 2000:                         # still over: evenly
         keep = len(rec['f']) / 2000
         rec['f'] = [rec['f'][int(i * keep)] for i in range(2000)]
+    # The score: its place found from this match's numbers, or, with a place
+    # already known, checked against the official final; a place that no
+    # longer shows the finals is forgotten and found again next match.
+    if not learn.get('score'):
+        sp = score_spots(seen_nums, rs_, bs_, max((x[0] for v in seen_nums.values() for x in v), default=0))
+        if sp:
+            learn['score'] = {'r': sp['r'], 'b': sp['b']}
+            at = sorted(set(x[0] for k in (sp['kr'], sp['kb']) for x in seen_nums[k]))
+            val = lambda k, tt: next((n for t2, n, _ in seen_nums[k] if t2 == tt), -1)
+            rec['sc'] = [v for tt in at for v in (jround((tt - rec['off']) * 10), val(sp['kr'], tt), val(sp['kb'], tt))]
+    elif rec['sc']:
+        tail = [(rec['sc'][i + 1], rec['sc'][i + 2]) for i in range(0, len(rec['sc']), 3)][-40:]
+        if rs_ is not None and bs_ is not None and (rs_, bs_) not in tail:
+            learn['score'] = None
+    if not rec['sc']:
+        del rec['sc']
     rec['_shots'] = shots if think else []
     rec['_cam'] = {k: cam[k] for k in ('checks', 'found', 'moves')}
     rec['_cam']['away'] = round(cam['away'])

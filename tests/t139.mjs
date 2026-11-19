@@ -71,7 +71,7 @@ const after = path.find(p => p.t === 5);
 ok('a quick move is not dragged behind', after && after.x > 0.58, JSON.stringify(after));
 
 ok('the app records unsure boxes, marked', /unsure = sorted\(\(b for b in every if PROPOSE <= b\[4\] < cut and robot_like\(b\) and all\(iou\(b, k\) < 0\.3 for k in boxes\)\)/.test(app) && /rec\['cf'\] = cf/.test(app));
-ok('the server takes the threshold, checked', /'cf'\]/.test(api) && /rec\.cf >= 1 && rec\.cf <= 100/.test(api));
+ok('the server takes the threshold, checked', /'cf'[,\]]/.test(api) && /rec\.cf >= 1 && rec\.cf <= 100/.test(api));
 ok('the fastest normal drive is the limit', /600 rpm on 2\.75 in wheels, is 7\.2 ft\/s/.test(src));
 ok('every device remakes its matches', /const VT_REMAKE = (1[5-9]\d);/.test(src));
 ok('app 2.29 or later', /VERSION = '2\.(29|[3-9]\d)'/.test(app));
