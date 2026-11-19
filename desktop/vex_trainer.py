@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.28'
+VERSION = '2.29'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -1167,8 +1167,18 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
             if away:
                 cam['away'] += step / video.fps
             every = eyes.detect(frame, PROPOSE)
-            boxes = [b for b in every if b[4] >= learn.get('conf', CONF) and robot_like(b)]
+            cut = learn.get('conf', CONF)
+            boxes = [b for b in every if b[4] >= cut and robot_like(b)]
             last_n = len(boxes)
+            # v2.29: up to three boxes the finder was less sure of, not on top
+            # of a sure one, kept marked as unsure (below `cf`). The website
+            # uses them only to carry on a robot that just went missing, right
+            # where it should be: half hidden behind a goal, a real robot is
+            # often only found faintly.
+            cf = max(2, jround(cut * 100))
+            unsure = sorted((b for b in every if PROPOSE <= b[4] < cut and robot_like(b) and all(iou(b, k) < 0.3 for k in boxes)), key=lambda b: -b[4])[:3]
+            unsure = [b[:4] + [min(b[4], (cf - 1) / 100)] + b[5:] for b in unsure]
+            rec['cf'] = cf
             rec['h'] = jround(h * SIZE / w)
             for b, tr in attend(att, boxes, t, w, reads):
                 tr['tries'] += 1
@@ -1180,7 +1190,7 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
                     tr['hits'] += 1
             # Recorded where they stand in the marked picture; nothing while
             # the picture is not the field.
-            put = [] if away else (boxes_to_marked(boxes, cam['Hinv'], w, h) if cam['Hinv'] else boxes)
+            put = [] if away else (boxes_to_marked(boxes + unsure, cam['Hinv'], w, h) if cam['Hinv'] else boxes + unsure)
             rec['f'].append(pack_frame(t - rec['off'], put, w))
             if think and not away and t >= think_at and len(shots) < think and 2 <= len(boxes) <= 6 and sum(1 for b in boxes if b[5]) >= 2:
                 jpeg, n = think_picture(frame, boxes)
@@ -1253,9 +1263,10 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
             off, wide = found, True
             continue
         break
-    with_robot = sum(1 for fr in rec['f'] if any(fr[2 + 10 * i + 5] for i in range(fr[1])))
-    red = sum(1 for fr in rec['f'] if any(fr[2 + 10 * i + 5] == 1 for i in range(fr[1])))
-    blue = sum(1 for fr in rec['f'] if any(fr[2 + 10 * i + 5] == 2 for i in range(fr[1])))
+    sure = lambda fr, i: fr[2 + 10 * i + 4] >= rec.get('cf', 0)
+    with_robot = sum(1 for fr in rec['f'] if any(fr[2 + 10 * i + 5] and sure(fr, i) for i in range(fr[1])))
+    red = sum(1 for fr in rec['f'] if any(fr[2 + 10 * i + 5] == 1 and sure(fr, i) for i in range(fr[1])))
+    blue = sum(1 for fr in rec['f'] if any(fr[2 + 10 * i + 5] == 2 and sure(fr, i) for i in range(fr[1])))
     if with_robot < MIN_FRAMES or red < 10 or blue < 10:
         return None, 'robots of both alliances were not seen (a break, a slate, or the wrong place)', 0
     if len(rec['f']) > 2000:                         # the website's ceiling
