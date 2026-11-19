@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.32'
+VERSION = '2.33'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -972,11 +972,26 @@ def attend(att, boxes, t, w, n):
 
 
 # ── frames kept for training ────────────────────────────────────────────────
+def looks_broken(frame):
+    """A picture the video decoder garbled (v2.33): rows smeared straight down
+    from the one above, so long runs of rows are the same as the row before
+    while not being one flat colour (a black bar is flat, a smear has
+    streaks). Reported with a screenshot: a review frame of yellow streaks."""
+    import numpy as np
+    if frame is None or frame.size == 0:
+        return True
+    g = frame[::2, ::4].mean(axis=2) if frame.ndim == 3 else frame[::2, ::4].astype(np.float32)
+    same = np.abs(np.diff(g, axis=0)).mean(axis=1) < 1.0
+    busy = g[1:].std(axis=1) > 8
+    return bool((same & busy).mean() > 0.25)
+
 def keep_frame(frame, boxes, tag, hard, steady=None, auto=False):
     """Save a picture with the finder's suggestions, for review later.
     `steady`: the four robots in it were where the look before put them (v2.32);
     `auto`: kept only to train on, never asked about in review."""
     import cv2
+    if looks_broken(frame):
+        return
     for d in (FRAMES, PROPS, LABELS):
         os.makedirs(d, exist_ok=True)
     name = tag + '_' + hashlib.md5(frame[::16, ::16].tobytes()).hexdigest()[:10]
@@ -1208,6 +1223,8 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
             h, w = frame.shape[:2]
             if cuts.changing(frame, t):                 # mid-cut or mid-fade: not a picture of anything
                 was_cut = True
+                continue
+            if looks_broken(frame):                     # garbled by the decoder: not a picture of anything
                 continue
             if follow is not None and quad and (t >= cam['at'] + 1 or was_cut):
                 by_cut = was_cut
@@ -2395,7 +2412,7 @@ REVIEW_HTML = r"""<!doctype html><meta charset="utf-8"><title>Review frames</tit
 const c=document.getElementById('c'),x=c.getContext('2d');let cur=null,img=new Image(),boxes=[],hist=[],drag=null,back=[];
 async function next(id){const r=await fetch('/api/next'+(id?'?id='+id:''));cur=await r.json();document.getElementById('left').textContent=cur.id?cur.done+' done · 150 in all is enough to train':'';
  if(!cur.id){document.getElementById('wrap').innerHTML='<p style="padding:30px;font-size:18px">Nothing left to review. You can close this tab; in the app, choose Train.</p>';return;}
- boxes=cur.boxes.map(b=>b.slice(0,4));hist=[];img=new Image();img.onload=()=>{c.width=cur.w;c.height=cur.h;draw()};img.src='/img/'+cur.id+'.jpg';}
+ boxes=cur.boxes.map(b=>b.slice(0,4));hist=[];img=new Image();img.onload=()=>{c.width=img.naturalWidth||cur.w;c.height=img.naturalHeight||cur.h;draw()};img.src='/img/'+cur.id+'.jpg';}
 function draw(){x.drawImage(img,0,0);x.lineWidth=Math.max(2,c.width/500);boxes.forEach(b=>{x.strokeStyle='#39ff88';x.strokeRect(b[0],b[1],b[2],b[3])});
  if(drag&&drag.w){x.strokeStyle='#ffd23f';x.strokeRect(drag.x,drag.y,drag.w,drag.h)}}
 function pos(e){const r=c.getBoundingClientRect();return[(e.clientX-r.left)*c.width/r.width,(e.clientY-r.top)*c.height/r.height]}
@@ -3582,7 +3599,14 @@ const T=new URLSearchParams(location.search).get('t')||'',$=id=>document.getElem
 const api=async(path,body)=>{const r=await fetch(path,{method:body?'POST':'GET',headers:{'X-Token':T,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});return r.json()};
 // The review screen never sits as an empty black box: it says what went wrong.
 function revTrouble(t){$('revLeft').innerHTML='<span style="color:#ff8a8a">'+t+'</span> <button class="ghost" onclick="nextFrame()">Try again</button>'}
-function loadFrame(){img=new Image();img.onload=()=>{c.width=cur.w;c.height=cur.h;draw()};
+// The picture's own size, not the size saved beside it: a size that was
+// missing or wrong left the canvas at the browser's 300×150 and showed only
+// the picture's corner (reported, with screenshots, on app 2.32).
+function loadFrame(){const want=cur.id;img=new Image();c.style.visibility='hidden';
+ img.onload=()=>{if(!cur||cur.id!==want)return;const W=img.naturalWidth||cur.w,H=img.naturalHeight||cur.h;
+  if(!(W>16&&H>16)){img.onerror();return}
+  if(cur.w&&cur.w!==W){const k=W/cur.w;boxes=boxes.map(b=>b.map((v,i)=>i<4?v*k:v));cur.robots=(cur.robots||[]).map(b=>b.map(v=>v*k));cur.spots=(cur.spots||[]).map(b=>b.map((v,i)=>i<4?v*k:v))}
+  c.width=W;c.height=H;c.style.visibility='';draw()};
  img.onerror=()=>{const id=cur.id;revTrouble('The picture for this frame is missing on this computer; it is set aside.');api(pm?'/api/psave':'/api/save',pm?{id,skip:true,pieces:[]}:{id,skip:true,boxes:[]}).then(()=>setTimeout(()=>nextFrame(),1200))};
  img.src='/img/'+cur.id+'.jpg?t='+T}
 let st=null,inReview=false;
@@ -3642,10 +3666,10 @@ c.addEventListener('wheel',e=>{if(!pm)return;e.preventDefault();const r=c.getBou
 function openReview(p){pm=!!p;back=[];setZoom(1);inReview=true;$('home').style.display='none';$('rev').style.display='block';
  $('rKeys').style.display=pm?'none':'';$('pKeys').style.display=pm?'':'none';$('pMsg').style.display=pm?'':'none';$('revMsg').style.display=pm?'none':'';if(pm)clsBar();nextFrame()}
 function closeReview(){inReview=false;$('rev').style.display='none';$('home').style.display='block';poll()}
-async function nextFrame(id){if(pm)return nextPieces(id);try{cur=await api('/api/next'+(id?'?id='+id:''))}catch(e){revTrouble('The app did not answer ('+e.message+').');return}
+async function nextFrame(id){if(pm)return nextPieces(id);$('revLeft').textContent='Loading the next frame…';c.style.visibility='hidden';try{cur=await api('/api/next'+(id?'?id='+id:''))}catch(e){revTrouble('The app did not answer ('+e.message+').');return}
  if(cur.error){revTrouble('Could not load a frame: '+cur.error);return}if(!cur.id){closeReview();return}
  const g=cur.gold||0,goal=g<150?150:g<300?300:Math.ceil((g+1)/150)*150;$('revLeft').textContent=g+' of '+goal+' done'+(g<150?' · '+(150-g)+' to go until it can train':' · enough to train; stop whenever you like');boxes=(cur.boxes||[]).map(b=>b.slice(0,4));hist=[];loadFrame()}
-async function nextPieces(id){try{cur=await api('/api/pnext'+(id?'?id='+id:''))}catch(e){revTrouble('The app did not answer ('+e.message+').');return}
+async function nextPieces(id){$('revLeft').textContent='Loading the next frame…';c.style.visibility='hidden';try{cur=await api('/api/pnext'+(id?'?id='+id:''))}catch(e){revTrouble('The app did not answer ('+e.message+').');return}
  if(cur.error){revTrouble('Could not load a frame: '+cur.error);return}if(!cur.id){closeReview();return}
  const m=cur.marked||0,goal=m<60?60:m<150?150:Math.ceil((m+1)/100)*100;$('revLeft').textContent=m+' of '+goal+' marked'+(m<60?' · '+(60-m)+' to go until it can train':' · enough to train; more makes it better');
  boxes=(cur.pieces||[]).map(b=>b.slice(0,5));hist=[];loadFrame()}
@@ -3957,6 +3981,16 @@ def serve_ui(cfg, port=8765, open_window=True):
                     return self._send(200, {'id': None, 'done': c['done']})
                 with open(os.path.join(PROPS, name + '.json')) as f:
                     p = json.load(f)
+                import cv2
+                pic = cv2.imread(os.path.join(FRAMES, name + '.jpg'))
+                if pic is not None and not want and looks_broken(pic) and getattr(self, '_skips', 0) < 40:
+                    self._skips = getattr(self, '_skips', 0) + 1
+                    lab_write(name, skip=True, boxes=[], broken=True)   # garbled: set aside, the next one comes
+                    if name in c['queue']:
+                        c['queue'].remove(name)
+                    return self._get()
+                if pic is not None:
+                    p['h'], p['w'] = pic.shape[:2]
                 boxes = [b for b in p['boxes'] if b[4] >= 0.35]
                 lab = os.path.join(LABELS, name + '.json')
                 if os.path.exists(lab):                  # going back: show what was saved
