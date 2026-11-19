@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v154**. Everything green: 104 test files.
+Current release: **v155**. Everything green: 105 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,16 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v155 (app 2.32) — frames the tracker labels itself.** Pseudo-labels
+already joined training (4 boxes ≥ 0.6, ≤ 2× reviewed, never in val). Now
+`steady_four` marks a look certain: exactly four sure boxes, colours
+[1,1,2,2], no unsure box, each within 3% of the width of a box a look ago at
+0.75–1.33× its width. Harvested frames carry `steady`; up to
+`AUTO_PER_MATCH` 6 extra certain frames a match, `AUTO_GAP` 15 s apart, are
+kept with `auto: 1` (no more than `AUTO_MAX` 1500 on disk) and skipped by
+`review_queue`. `build_dataset` drops frames with `steady: 0` and takes
+steady ones first. Checks: desktop/dev/selflabel.py (13), t144.
 
 **v154 — goal counts by the game's rules.** `vtGoalPath(ser)`: Viterbi over
 counts 0..max+2 (halves, ≤ 30). Emission: reading low costs 0.8 a half (a
