@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.38'
+VERSION = '2.39'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -2686,11 +2686,15 @@ SPOTS = [  # u, v, half-width, height above, depth below (field widths)
     # them near, not on, the goals; the website asks for each to be dragged
     # onto its goal (v141), and then the dragged foot is used (`placed`).
     # Tall enough for a full stack seen from the far end (owner's Excalibur frame).
-    (0.17, 0.66, 0.05, 0.30, 0.03), (0.34, 0.82, 0.05, 0.30, 0.03), (0.66, 0.18, 0.05, 0.30, 0.03), (0.82, 0.34, 0.05, 0.30, 0.03),
-    (0.34, 0.18, 0.05, 0.30, 0.03), (0.18, 0.34, 0.05, 0.30, 0.03), (0.66, 0.82, 0.05, 0.30, 0.03), (0.82, 0.66, 0.05, 0.30, 0.03),
-    (0.5, 0.5, 0.06, 0.38, 0.03),
-    # The loaders: placed by hand on the website; until then, the corners.
-    (0.02, 0.02, 0.10, 0.25, 0.08), (0.98, 0.02, 0.10, 0.25, 0.08), (0.98, 0.98, 0.10, 0.25, 0.08), (0.02, 0.98, 0.10, 0.25, 0.08)]
+    # v2.39: wide enough for a stack that leans (the camera tilts tall things,
+    # robots push them); what counts is decided by `stacked`, not the box.
+    (0.17, 0.66, 0.11, 0.30, 0.03), (0.34, 0.82, 0.11, 0.30, 0.03), (0.66, 0.18, 0.11, 0.30, 0.03), (0.82, 0.34, 0.11, 0.30, 0.03),
+    (0.34, 0.18, 0.11, 0.30, 0.03), (0.18, 0.34, 0.11, 0.30, 0.03), (0.66, 0.82, 0.11, 0.30, 0.03), (0.82, 0.66, 0.11, 0.30, 0.03),
+    (0.5, 0.5, 0.12, 0.38, 0.03),
+    # The loaders: placed by hand; until then, the corners. A loader is small:
+    # about 10 in wide and 21 in tall around where it stands (v2.39; they were
+    # 2.4 ft by 4 ft, reported: "why are matchload boxes so ridiculously huge").
+    (0.02, 0.02, 0.035, 0.12, 0.025), (0.98, 0.02, 0.035, 0.12, 0.025), (0.98, 0.98, 0.035, 0.12, 0.025), (0.02, 0.98, 0.035, 0.12, 0.025)]
 N_GOALS = 9
 
 def spot_boxes(W, H, q, placed=None):
@@ -2746,6 +2750,46 @@ def spot_column(k, sb):
     up, down = SPOTS[k][3], SPOTS[k][4]
     base = y1 - down / (up + down) * (y1 - y0)
     return (mid - half, mid + half, base + 0.04 * (y1 - y0))
+
+def spot_foot_px(k, sb):
+    """Where spot k's goal or loader stands, in pixels, and pixels per field
+    width there (from the box, which is centred on the foot)."""
+    hw, up, down = SPOTS[k][2], SPOTS[k][3], SPOTS[k][4]
+    x0, y0, x1, y1 = sb
+    return (x0 + x1) / 2, y1 - down / (up + down) * (y1 - y0), (x1 - x0) / (2 * hw)
+
+def stacked(pieces, k, sb):
+    """Of the pieces in spot k, the ones on its goal (v2.39): the ones touching
+    the goal's base, and then any touching one already counted, so a stack is
+    followed however it leans. Loose pieces lie apart and are left out. A
+    loader keeps everything in its box. Reported, with a picture of a leaning
+    stack outside its column: "not gonna work"."""
+    inside = [b for b in pieces if sb and sb[0] <= b[0] + b[2] / 2 <= sb[2] and sb[1] <= b[1] + b[3] / 2 <= sb[3]]
+    if k >= N_GOALS:
+        return inside
+    fx, fy, u = spot_foot_px(k, sb)
+    gap = 0.025 * u                                     # about 3.5 in: touching, give or take the box
+    near = lambda a, b: a[0] - gap <= b[0] + b[2] and b[0] - gap <= a[0] + a[2] and a[1] - gap <= b[1] + b[3] and b[1] - gap <= a[1] + a[3]
+    base = [fx - 0.045 * u, fy - 0.06 * u, 0.09 * u, 0.09 * u]
+    got, todo = [], list(inside)
+    grew = True
+    while grew:
+        grew = False
+        for b in list(todo):
+            if near(b, base) or any(near(b, g) for g in got):
+                got.append(b); todo.remove(b); grew = True
+    return got
+
+def keep_stacked(pieces, spots):
+    """All the pieces on goals or in loaders, from boxes anywhere in the picture."""
+    out, seen = [], set()
+    for k, sb in enumerate(spots or []):
+        if not sb:
+            continue
+        for b in stacked(pieces, k, sb):
+            if id(b) not in seen:
+                seen.add(id(b)); out.append(b)
+    return out
 
 def on_spot(b, k, sb):
     """Is box b ([x, y, w, h, …]) a piece on spot k: on the goal (its column,
@@ -2974,7 +3018,7 @@ def pieces_marked():
         sb = frame_spots(name)
         if not sb:
             continue
-        out.append((name, p['w'], p['h'], lab.get('boxes', []), [b for b in clean_pieces(lab['pieces']) if on_spots(b, sb) >= 0], sb))
+        out.append((name, p['w'], p['h'], lab.get('boxes', []), [b for b in clean_pieces(lab['pieces']) if in_spots(b, sb) >= 0], sb))
     return out
 
 def pieces_queue(site=None):
@@ -3010,7 +3054,7 @@ def pieces_from_colour(frame, robots, spots=None):
     W, H, blobs = pin_blobs(frame, robots)
     k = W / frame.shape[1]
     out = [[round((b[0] - b[2] / 2) / k, 1), round((b[1] - b[3]) / k, 1), round(b[2] / k, 1), round(b[3] / k, 1), b[5] - 1] for b in blobs]
-    return [b for b in out if on_spots(b, spots) >= 0] if spots is not None else out
+    return keep_stacked(out, spots) if spots is not None else out
 
 def pieces_why(site=None):
     """Why there may be nothing to mark pins and cups on (v2.35): frames are
@@ -3329,10 +3373,8 @@ class PieceFinder:
             if not sb:
                 continue
             x0, y0, x1, y1 = sb
-            for b in self.find(frame[y0:y1, x0:x1]):
-                fb = [b[0] + x0, b[1] + y0, b[2], b[3], b[4], b[5], k]
-                if on_spot(fb, k, sb):                   # on the goal, not loose beside it (v2.37)
-                    out.append(fb)
+            found = [[b[0] + x0, b[1] + y0, b[2], b[3], b[4], b[5], k] for b in self.find(frame[y0:y1, x0:x1])]
+            out += stacked(found, k, sb)                 # on the goal, not loose beside it (v2.39)
         return out
 
     def spot_counts(self, frame, spots):
@@ -3876,7 +3918,7 @@ UI_HTML = r"""<!doctype html><html lang="en"><meta charset="utf-8"><meta name="v
   <button class="ghost" id="pMove" style="display:none" onclick="moveGoals()">Move the goals</button>
   <button class="ghost" id="pRemark" style="display:none" onclick="if(cur&&cur.id)openField(cur.id.replace(/_[^_]*$/,''),cur.id)">Boxes off? Mark the field on this picture</button>
   <button class="ghost" onclick="saveFrame(true)">Skip</button><button onclick="saveFrame(false)">Save, next</button></div>
- <div id="cw" style="overflow:auto;max-height:calc(100vh - 210px)"><canvas id="c"></canvas></div><div class="hint" id="pMsg" style="display:none">Pre-drawn boxes are the colour finder's guesses. Pick a colour (or cup) above or with <kbd>1</kbd>–<kbd>4</kbd>, then <b>click the middle of each pin half</b> of that colour (a red-and-yellow pin is two clicks, one per colour) and the middle of each cup. Click a box to remove it. Only on the goals and loaders: each goal is a <b>dotted yellow column</b> (only pieces stacked on it count, not loose ones on the floor beside it), each loader a dotted box. Mark every pin half and cup you can see on them, including ones half hidden. If the dotted shapes are not on the goals, press <b>Boxes off? Mark the field on this picture</b>: every other frame of the stream then follows the camera from it. Scroll the mouse wheel over the picture to zoom; drag for an exact box.</div><div class="hint" id="revMsg">Green boxes are what the finder thinks are robots. Box every robot you can see, even partly hidden ones, and nothing else. <b>Two robots touching get one box each:</b> if one green box covers both, click it away and draw two, split at the gap between their drivebases.</div>
+ <div id="cw" style="overflow:auto;max-height:calc(100vh - 210px)"><canvas id="c"></canvas></div><div class="hint" id="pMsg" style="display:none">Pre-drawn boxes are the colour finder's guesses. Pick a colour (or cup) above or with <kbd>1</kbd>–<kbd>4</kbd>, then <b>click the middle of each pin half</b> of that colour (a red-and-yellow pin is two clicks, one per colour) and the middle of each cup. Click a box to remove it. Only on the goals and loaders: each goal and loader is a dotted box, with a dot where the goal stands. Mark only pieces stacked on the goal (however the stack leans), never loose ones lying on the floor in the box. Mark every pin half and cup you can see on them, including ones half hidden. If the dotted shapes are not on the goals, press <b>Boxes off? Mark the field on this picture</b>: every other frame of the stream then follows the camera from it. Scroll the mouse wheel over the picture to zoom; drag for an exact box.</div><div class="hint" id="revMsg">Green boxes are what the finder thinks are robots. Box every robot you can see, even partly hidden ones, and nothing else. <b>Two robots touching get one box each:</b> if one green box covers both, click it away and draw two, split at the gap between their drivebases.</div>
 </main>
 <main id="fld">
  <div class="top"><button class="ghost" onclick="closeField()">← Back</button><b id="fSay"></b><span class="sp"></span>
@@ -4012,7 +4054,7 @@ async function nextPieces(id){$('revLeft').textContent='Loading the next frame�
 function draw(){x.drawImage(img,0,0);
  if(pm){x.lineWidth=Math.max(1,c.width/1400);x.setLineDash([6,6]);x.strokeStyle='#ffffff55';for(const r of cur.robots||[])x.strokeRect(r[0],r[1],r[2],r[3]);x.setLineDash([]);
   x.lineWidth=Math.max(1.5,c.width/1100);for(const b of boxes){x.strokeStyle=PCOL[b[4]]||'#fff';x.strokeRect(b[0],b[1],b[2],b[3])}
-  x.setLineDash([3,4]);x.lineWidth=Math.max(1.5,c.width/900);x.strokeStyle='#ffd23f';if(gm){x.setLineDash([]);x.lineWidth=Math.max(2,c.width/500)}for(const s of cur.spots||[]){if(s.length>8)x.strokeRect(s[6],s[1],s[7]-s[6],s[8]-s[1]);else x.strokeRect(s[0],s[1],s[2]-s[0],s[3]-s[1]);if(gm){x.fillStyle='#ffd23f';x.beginPath();x.arc((s[0]+s[2])/2,s.length>8?s[8]:s[3],Math.max(4,c.width/250),0,7);x.fill()}}x.setLineDash([]);
+  x.setLineDash([3,4]);x.lineWidth=Math.max(1.5,c.width/900);x.strokeStyle='#ffd23f';if(gm){x.setLineDash([]);x.lineWidth=Math.max(2,c.width/500)}for(const s of cur.spots||[]){x.globalAlpha=s[5]<9&&!gm?0.45:1;x.strokeRect(s[0],s[1],s[2]-s[0],s[3]-s[1]);x.globalAlpha=1;if(s.length>7){x.fillStyle='#ffd23f';x.beginPath();x.arc(s[6],s[7],Math.max(3,c.width/(gm?250:400)),0,7);x.fill()}}x.setLineDash([]);
   if(drag&&drag.w){x.strokeStyle=PCOL[pc];x.strokeRect(drag.x,drag.y,drag.w,drag.h)}return}
  x.lineWidth=Math.max(2,c.width/450);for(const b of boxes){x.strokeStyle='#39ff88';x.strokeRect(b[0],b[1],b[2],b[3])}
  if(drag&&drag.w){x.strokeStyle='#ffd23f';x.strokeRect(drag.x,drag.y,drag.w,drag.h)}}
@@ -4033,24 +4075,24 @@ c.onmousedown=e=>{const[px,py]=pos(e);
  if(pm&&gm){const k=spotIdx(px,py);if(k>=0)drag={mode:'goal',k,lx:px,ly:py};return}
  if(pm){const k=boxAt(px,py);hist.push(boxes.map(b=>b.slice()));
   if(k>=0){drag={mode:'box',k,lx:px,ly:py,x0:px,y0:py,moved:false};return}
-  const s=spotAt(px,py);if(!s){hist.pop();flash('Only on a goal (inside its dotted column) or over a loader. Loose pieces on the floor are not marked.');return}
+  const s=spotAt(px,py);if(!s){hist.pop();flash('Only on a goal or loader (inside a dotted box). Loose pieces on the floor are not marked.');return}
   boxes.push(sizedBox(px,py,s));drag={mode:'box',k:boxes.length-1,lx:px,ly:py,x0:px,y0:py,moved:true,fresh:true};draw();return}
  drag={x0:px,y0:py,x:px,y:py,w:0,h:0}};
 c.onmousemove=e=>{if(!drag)return;const[px,py]=pos(e);
- if(drag.mode==='goal'){const s=cur.spots[drag.k],dx=px-drag.lx,dy=py-drag.ly;for(const i of [0,2,6,7])if(s[i]!==undefined)s[i]+=dx;for(const i of [1,3,8])if(s[i]!==undefined)s[i]+=dy;drag.lx=px;drag.ly=py;draw();return}
+ if(drag.mode==='goal'){const s=cur.spots[drag.k],dx=px-drag.lx,dy=py-drag.ly;for(const i of [0,2,6])if(s[i]!==undefined)s[i]+=dx;for(const i of [1,3,7])if(s[i]!==undefined)s[i]+=dy;drag.lx=px;drag.ly=py;draw();return}
  if(drag.mode==='box'){const b=boxes[drag.k],dx=px-drag.lx,dy=py-drag.ly;b[0]+=dx;b[1]+=dy;drag.lx=px;drag.ly=py;if(Math.hypot(px-drag.x0,py-drag.y0)>3)drag.moved=true;draw();return}drag.x=Math.min(px,drag.x0);drag.y=Math.min(py,drag.y0);drag.w=Math.abs(px-drag.x0);drag.h=Math.abs(py-drag.y0);draw()};
 window.onmouseup=()=>{if(!drag)return;const d=drag;drag=null;
  if(d.mode==='goal')return;
- if(d.mode==='box'){const b=boxes[d.k];if(!d.moved){boxes.splice(d.k,1)}else if(b&&!spotAt(b[0]+b[2]/2,b[1]+b[3]/2)){boxes.splice(d.k,1);flash('Only on a goal (inside its dotted column) or over a loader.')}draw();return}
+ if(d.mode==='box'){const b=boxes[d.k];if(!d.moved){boxes.splice(d.k,1)}else if(b&&!spotAt(b[0]+b[2]/2,b[1]+b[3]/2)){boxes.splice(d.k,1);flash('Only on a goal or loader (inside a dotted box).')}draw();return}
  hist.push(boxes.map(b=>b.slice()));
  if(pm&&d.w>=6&&d.h>=6)boxes.push([d.x,d.y,d.w,d.h,pc]);
- else if(pm&&!onBox(d.x0,d.y0)){const s=spotAt(d.x0,d.y0);if(s){const u=s[4]/3658,w=(pc===3?95:70)*u,h=(pc===3?165:95)*u;boxes.push([d.x0-w/2,d.y0-h/2,w,h,pc])}else{hist.pop();flash('Only on a goal (inside its dotted column) or over a loader. Loose pieces on the floor are not marked.')}}
+ else if(pm&&!onBox(d.x0,d.y0)){const s=spotAt(d.x0,d.y0);if(s){const u=s[4]/3658,w=(pc===3?95:70)*u,h=(pc===3?165:95)*u;boxes.push([d.x0-w/2,d.y0-h/2,w,h,pc])}else{hist.pop();flash('Only on a goal or loader (inside a dotted box). Loose pieces on the floor are not marked.')}}
  else if(!pm&&d.w>8&&d.h>8)boxes.push([d.x,d.y,d.w,d.h]);
  else{let k=-1,a=1e12;boxes.forEach((b,i)=>{if(d.x0>=b[0]&&d.x0<=b[0]+b[2]&&d.y0>=b[1]&&d.y0<=b[1]+b[3]&&b[2]*b[3]<a){a=b[2]*b[3];k=i}});if(k>=0)boxes.splice(k,1);else hist.pop()}draw()};
 // Pins & cups: a click places one of the chosen colour, sized for where it is (v2.25).
 function onBox(x0,y0){return boxes.some(b=>x0>=b[0]&&x0<=b[0]+b[2]&&y0>=b[1]&&y0<=b[1]+b[3])}
 // On a goal only in its column, on or above its base; over a loader anywhere in its box (v2.37).
-function spotAt(x0,y0){return (cur.spots||[]).find(s=>s.length>8?x0>=s[6]&&x0<=s[7]&&y0>=s[1]&&y0<=s[8]:x0>=s[0]&&x0<=s[2]&&y0>=s[1]&&y0<=s[3])}
+function spotAt(x0,y0){return (cur.spots||[]).find(s=>x0>=s[0]&&x0<=s[2]&&y0>=s[1]&&y0<=s[3])}
 function flash(t){const m=$('pMsg');if(!m)return;if(m.dataset.base===undefined)m.dataset.base=m.innerHTML;m.innerHTML='<b>'+t+'</b>';clearTimeout(flash.t);flash.t=setTimeout(()=>{m.innerHTML=m.dataset.base},2600)}
 async function saveFrame(skip){if(!cur||!cur.id)return;back.push(cur.id);if(pm)await api('/api/psave',{id:cur.id,skip,pieces:boxes});else await api('/api/save',{id:cur.id,skip,boxes});nextFrame()}
 window.onkeydown=e=>{if(!inReview||dlg.open)return;if(e.key==='Enter'||e.key===' '){e.preventDefault();saveFrame(false)}else if(/^s$/i.test(e.key))saveFrame(true);
@@ -4340,7 +4382,7 @@ def serve_ui(cfg, port=8765, open_window=True):
                         except Exception:
                             pieces = pieces_from_colour(frame, robots, spots)
                 return self._send(200, {'id': name, 'w': p['w'], 'h': p['h'], 'pieces': [[round(v, 1) for v in b[:4]] + [int(b[4])] for b in pieces],
-                                        'robots': robots, 'spots': [s + [units[k], k] + list(spot_column(k, s) or []) for k, s in enumerate(spots) if s and k < len(units)], 'left': len(P['queue']), 'marked': P['marked']})
+                                        'robots': robots, 'spots': [s + [units[k], k] + list(spot_foot_px(k, s)[:2]) for k, s in enumerate(spots) if s and k < len(units)], 'left': len(P['queue']), 'marked': P['marked']})
             if u.path == '/api/next':
                 c = counts(wait=True)
                 want = urllib.parse.parse_qs(u.query).get('id', [None])[0]
