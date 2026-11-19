@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.33'
+VERSION = '2.35'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -48,16 +48,27 @@ LOOKALIKE = ['0ODQ', '1IL', '8B', '5S', '2Z', '6G']
 def say(*a):
     print(*a, flush=True)
 
-_PROG = {'hold': False}
-def progress(stage='', done=0, total=0, wait=0, minor=False):
+_PROG = {'hold': False, 'all': None}
+_SHARE = None                     # in a tracking worker: how far each match is (v2.34)
+def progress(stage='', done=0, total=0, wait=0, minor=False, sub=''):
     """How far along, for the window's bar and its countdown. A line only the
     window reads (it is started with VEX_UI set); the console never sees it.
     `minor` is something going on behind the main work (the next video coming
     down while this one is tracked) and must not take the bar over."""
-    if not os.environ.get('VEX_UI') or (minor and _PROG['hold']):
+    if not os.environ.get('VEX_UI') or (minor and _PROG['hold'] and not _PROG['all']):
         return
+    # v2.34: while a whole job is running (tracking every match), the bar is
+    # the job's, and a step inside it (a video coming down) is only named
+    # under it. Reported: "the progress bar isnt total progress but progress
+    # of the task it has on hand".
+    if minor and _PROG['all'] and total:
+        _PROG['dl'] = '%s · %d%%' % (stage, 100 * done / total) if done < total else ''
+        if _PROG['hold']:
+            return                                      # shown by the job's own next update
+        a = _PROG['all']
+        stage, done, total, sub = a[0], a[1], a[2], _PROG['dl']
     try:
-        print('@@P ' + json.dumps({'s': stage, 'd': done, 't': total, 'w': wait}), flush=True)
+        print('@@P ' + json.dumps({'s': stage, 'd': done, 't': total, 'w': wait, 'u': sub}), flush=True)
     except Exception:
         pass
 
@@ -1189,7 +1200,7 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
             return None, 'past the end of the video', 0
         video.seek(start)
         att, robot_looks, clock_at, checked, kept, next_keep, misses, pin_at = [], 0, -1e9, False, 0, start + 6, 0, -1e9
-        before, auto_kept, next_auto = [], 0, start + LEAD + 5
+        before, auto_kept, next_auto, share_at = [], 0, start + LEAD + 5, -1e9
         auto_room = [AUTO_MAX - auto_count()] if harvest else [0]
         spot_at, spots = -1e9, None
         # The stream's own score (v2.31), a check and never the truth: live
@@ -1254,6 +1265,9 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
             away = cam['view'] is False
             if away:
                 cam['away'] += step / video.fps
+            if t >= share_at + 2:
+                share_at = t
+                share_set(job.get('id'), min(0.98, (t - start) / max(1.0, end - start)))
             every = eyes.detect(frame, PROPOSE)
             cut = learn.get('conf', CONF)
             boxes = [b for b in every if b[4] >= cut and robot_like(b)]
@@ -1706,6 +1720,15 @@ def key_moment(boxes, goals):
                 return True
     return False
 
+def share_set(key, frac):
+    """How far through one match this worker is, for the job's bar."""
+    if _SHARE is None or key is None:
+        return
+    try:
+        _SHARE[str(key)] = float(frac)
+    except Exception:
+        pass
+
 def make_follow(video, quad, t):
     """A CamFollow for one video: from the picture the field was marked on
     (`t`, seconds into the stream, saved by the website from v149), or, for a
@@ -1725,8 +1748,9 @@ def make_follow(video, quad, t):
 
 def work_chunk(args):
     """One worker: a run of consecutive matches from one video."""
-    global _EYES
-    cfg, ev, path, jobs, spacing = args
+    global _EYES, _SHARE
+    cfg, ev, path, jobs, spacing = args[:5]
+    _SHARE = args[5] if len(args) > 5 else None
     site = Site(cfg)
     if _EYES is None:
         _EYES = Eyes(quiet=True, threads=max(1, (os.cpu_count() or 8) // max(1, int(cfg.get('workers', 4)))))
@@ -1778,6 +1802,7 @@ def work_chunk(args):
                 rec, why, shift = track_match(video, _EYES, job, shift, spacing, True, learn, quads[job['vid']], looks, follows.get(job['vid']))
             except Exception as e:
                 rec, why = None, 'error: ' + str(e)
+            share_set(job.get('id'), 1.0)
             # Asking the vision model and sending the recording do not need the
             # video or the finder, so they go on behind while the next match is
             # tracked: the model's twenty seconds a match cost no time at all.
@@ -2179,6 +2204,16 @@ def do_jobs(cfg):
             fetched[vid] = None
     ahead = None
     done_all = 0
+    # One bar for the whole job (v2.34): matches, counted in fractions as each
+    # worker gets through each one; a video coming down is named under it.
+    import multiprocessing
+    mgr = multiprocessing.Manager()
+    _PROG['all'] = ('Tracking matches', 0, left)
+    def job_bar(sub=''):
+        _PROG['all'] = ('Tracking matches', done_all, left)
+        dl = _PROG.get('dl') or ''
+        progress('Tracking matches', done_all, left, sub=' · '.join(x for x in (sub, ('next video: ' + dl) if dl and _PROG['hold'] else dl) if x))
+    job_bar('Getting the first video')
     for n, (vid, pairs) in enumerate(order, 1):
         say('\nVideo %d of %d (%s): %d matches' % (n, len(order), vid, len(pairs)))
         if ahead and ahead[0] == vid:
@@ -2198,32 +2233,42 @@ def do_jobs(cfg):
             say('  no video, skipped. If you have the file, choose "Use a video file I already have" and point it at this stream.')
             totals['no'] += len(pairs)
             done_all += len(pairs)
-            progress('Tracking matches', done_all, left)
+            job_bar()
             continue
         by_ev = {}
         for ev, j in pairs:
             by_ev.setdefault(ev, []).append(j)
-        chunks = []
+        chunks, share = [], mgr.dict()
         for ev, jobs in by_ev.items():
             jobs.sort(key=lambda j: j['off'])
             sp = spacing_of(jobs)
             size = max(4, math.ceil(len(jobs) / workers))
             for i in range(0, len(jobs), size):
-                chunks.append((cfg, ev, path, jobs[i:i + size], sp))
-        done = 0
+                chunks.append((cfg, ev, path, jobs[i:i + size], sp, share))
+        done, base = 0, done_all
         _PROG['hold'] = True
-        progress('Tracking matches', done_all, left)
+        sub = 'Video %d of %d' % (n, len(order))
+        job_bar(sub)
+        from concurrent.futures import wait as fwait, FIRST_COMPLETED
         with ProcessPoolExecutor(max_workers=min(workers, len(chunks))) as pool:
-            for fut in as_completed([pool.submit(work_chunk, c) for c in chunks]):
+            pending = set(pool.submit(work_chunk, c) for c in chunks)
+            while pending:
+                ready, pending = fwait(pending, timeout=1.5, return_when=FIRST_COMPLETED)
+                # Between batches: each match as far as its worker has got.
                 try:
+                    part = sum(share.values())
+                except Exception:
+                    part = 0
+                done_all = max(done_all, min(base + len(pairs) - 0.01, base + part))
+                job_bar(sub)
+                for fut in ready:
+                  try:
                     results = fut.result()
-                except Exception as e:
+                  except Exception as e:
                     say('  a worker stopped:', str(e)[:200])
                     continue
-                for res in results:
+                  for res in results:
                     done += 1
-                    done_all += 1
-                    progress('Tracking matches', done_all, left)
                     totals['ok' if res['ok'] else 'no'] += 1
                     totals['plates'] += res['plates']
                     totals['clock'] += res['clock']
@@ -2233,6 +2278,8 @@ def do_jobs(cfg):
                     say('  %3d/%d  %-22s %s' % (done, len(pairs), str(res['name'])[:22],
                         ('saved · %d looks · %d plates · %d pin sightings · clock %d%s · %.0fs' % (res['looks'], res['plates'], res.get('pins', 0), res['clock'], (' · vision model: %d robot looks' % res['think']) if cfg.get('_think_ok') else '', res['sec']) + cam_note(res.get('cam'))) if res['ok'] else 'not saved: ' + res['why']))
         _PROG['hold'] = False
+        done_all = base + len(pairs)
+        job_bar('Video %d of %d done' % (n, len(order)) if n < len(order) else '')
         if not cfg.get('keep_videos') and path.startswith(DIRS['videos']):
             for junk in (path, path + '.have.json'):
                 try:
@@ -2240,6 +2287,11 @@ def do_jobs(cfg):
                 except OSError:
                     pass
     mins = (time.time() - t_all) / 60
+    _PROG['all'], _PROG['dl'] = None, ''
+    try:
+        mgr.shutdown()
+    except Exception:
+        pass
     say('\nDone in %.1f minutes: %d matches saved to the website, %d not. %d plates read, the clock read %d times.%s' % (mins, totals['ok'], totals['no'], totals['plates'], totals['clock'], ' Video was decoded on the graphics card.' if totals.get('hw') else ''))
     say('Now open the Robot tracker box on the website (any event). It brings these in and builds the reports by itself.')
     say('Frames were kept for training as it went: review them when you have a few minutes.')
@@ -2823,6 +2875,26 @@ def pieces_from_colour(frame, robots, spots=None):
     k = W / frame.shape[1]
     out = [[round((b[0] - b[2] / 2) / k, 1), round((b[1] - b[3]) / k, 1), round(b[2] / k, 1), round(b[3] / k, 1), b[5] - 1] for b in blobs]
     return [b for b in out if in_spots(b, spots) >= 0] if spots is not None else out
+
+def pieces_why(site=None):
+    """Why there may be nothing to mark pins and cups on (v2.35): frames are
+    marked only once their robots are reviewed, and only from streams whose
+    field is marked on the website. → reviewed frames, and the streams that
+    have reviewed frames but no field mark, most frames first."""
+    reviewed, unmarked = 0, {}
+    if not os.path.isdir(LABELS):
+        return {'reviewed': 0, 'unmarked': []}
+    for n in os.listdir(LABELS):
+        if not n.endswith('.json'):
+            continue
+        lab = lab_read(n[:-5])
+        if lab.get('skip') or 'boxes' not in lab:
+            continue
+        reviewed += 1
+        vid = n[:-5].rsplit('_', 1)[0]
+        if quad_for(vid, site) is None:
+            unmarked[vid] = unmarked.get(vid, 0) + 1
+    return {'reviewed': reviewed, 'unmarked': sorted(unmarked.items(), key=lambda kv: -kv[1])[:5]}
 
 def pieces_ready():
     """A trained pin and cup finder that beat the colour finder, on this computer."""
@@ -3558,6 +3630,7 @@ UI_HTML = r"""<!doctype html><html lang="en"><meta charset="utf-8"><meta name="v
  .keys{color:var(--dim);font-size:13px}
  dialog{background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:14px;padding:20px;min-width:340px} dialog::backdrop{background:#000a}
  dialog label{display:block;margin:12px 0 4px;color:var(--dim);font-size:13px} dialog .row{display:flex;gap:10px;justify-content:flex-end;margin-top:18px}
+.warn{color:#ffb86b}.dim{color:#8b93a7}
 </style>
 <header><h1>VEX Trainer</h1><span class="site" id="site"></span><span class="sp"></span>
  <span class="pill" id="keyPill">…</span><button class="ghost" onclick="openSettings()">Settings</button></header>
@@ -3596,6 +3669,7 @@ UI_HTML = r"""<!doctype html><html lang="en"><meta charset="utf-8"><meta name="v
  <div class="row"><button class="ghost" onclick="dlg.close()">Cancel</button><button onclick="saveSettings()">Save</button></div></dialog>
 <script>
 const T=new URLSearchParams(location.search).get('t')||'',$=id=>document.getElementById(id),dlg=$('dlg');
+const esc=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const api=async(path,body)=>{const r=await fetch(path,{method:body?'POST':'GET',headers:{'X-Token':T,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});return r.json()};
 // The review screen never sits as an empty black box: it says what went wrong.
 function revTrouble(t){$('revLeft').innerHTML='<span style="color:#ff8a8a">'+t+'</span> <button class="ghost" onclick="nextFrame()">Try again</button>'}
@@ -3620,8 +3694,10 @@ function paint(){
  $('bRev').disabled=!st.waiting;
  const Pc=st.pieces||{marked:0,left:0,need:60},PL=Pc.last;
  $('pcsN').innerHTML='Pins &amp; cups: '+Pc.marked+' of '+(Pc.marked<Pc.need?Pc.need:Math.max(150,Math.ceil((Pc.marked+1)/100)*100))+' marked'+(Pc.marked<Pc.need?' · '+(Pc.need-Pc.marked)+' more and it can train':'')+
-  (PL?'<br>'+(PL.use?'Trained finder in use':'Colour finder in use')+' · pin halves '+(PL.use?PL.new:PL.colour)+(PL.use?' (colours: '+PL.colour+')':'')+' · cups '+PL.cups:'');
- $('bPcs').disabled=!Pc.left;
+  (PL?'<br>'+(PL.use?'Trained finder in use':'Colour finder in use')+' · pin halves '+(PL.use?PL.new:PL.colour)+(PL.use?' (colours: '+PL.colour+')':'')+' · cups '+PL.cups:'')+
+  // v2.35: when there is nothing to mark, say why. Reported: the button greyed out, nothing said.
+  (Pc.counted===false?'<br><span class="dim">Counting the frames…</span>':!Pc.left&&Pc.why?'<br><span class="warn">'+(!Pc.why.reviewed?'Nothing to mark yet: pins and cups are marked on frames whose robots you have reviewed. Review some robot frames first.':Pc.why.unmarked&&Pc.why.unmarked.length?'Nothing to mark yet: your reviewed frames come from streams whose field is not marked on the website. In the Jumper, open a match from '+(Pc.why.unmarked.length===1?'this stream':'these streams')+', pause on the whole field and press <b>Mark the field</b>: '+Pc.why.unmarked.map(u=>esc(u[0])+' ('+u[1]+' frame'+(u[1]===1?'':'s')+')').join(', ')+'.':'Every reviewed frame from a marked stream is done. Review more robot frames to get more.')+'</span>':'');
+ $('bPcs').disabled=Pc.counted!==false&&!Pc.left;
  $('trackN').textContent=st.task==='track'?'Running':' ';
  const need=Math.max(0,150-st.gold);
  const L=st.last,since=L?Math.max(0,st.gold-L.frames):0;
@@ -3638,8 +3714,8 @@ function paint(){
  // Nothing to measure yet → a moving stripe; waiting for work → no bar at all.
  if(P&&P.total){const pct=Math.min(100,100*P.done/P.total),mb=/Downloading/.test(P.stage);
   box.className='bar';$('bar').style.width=pct+'%';
-  $('now').textContent=P.stage;
-  eta.innerHTML='<span>'+(mb?Math.round(P.done/1e6)+' of '+Math.round(P.total/1e6)+' MB':Math.round(P.done)+' of '+Math.round(P.total))+' · '+Math.floor(pct)+'%</span><span>'+left(P.left)+'</span>';}
+  $('now').textContent=P.stage+(P.sub?' · '+P.sub:'');
+  eta.innerHTML='<span>'+(mb?Math.round(P.done/1e6)+' of '+Math.round(P.total/1e6)+' MB':Math.floor(P.done)+' of '+Math.round(P.total)+(/match/i.test(P.stage)?' matches':''))+' · '+Math.floor(pct)+'%</span><span>'+left(P.left)+'</span>';}
  else if(P&&P.stage){box.className='bar idle';$('now').textContent=P.stage;eta.innerHTML='<span>Nothing to do right now</span><span>checks again in '+P.wait+' s</span>';}
  else{box.className=st.busy?'bar busy':'bar idle';$('bar').style.width='0';eta.innerHTML='';
   $('now').textContent=st.busy?(names[st.task]||'Working')+' · '+last:(last||'Ready.');}
@@ -3736,6 +3812,7 @@ class Job:
         try:
             d = json.loads(body)
             stage, done, total, wait = str(d.get('s') or ''), float(d.get('d') or 0), float(d.get('t') or 0), float(d.get('w') or 0)
+            sub = str(d.get('u') or '')[:120]
         except Exception:
             return
         now = time.time()
@@ -3748,7 +3825,7 @@ class Job:
             left = 0
         elif done > first[1] and now - first[0] >= 2:
             left = (total - done) * (now - first[0]) / (done - first[1])
-        self.prog = {'s': stage, 'd': done, 't': total, 'ends': None if left is None else now + left}
+        self.prog = {'s': stage, 'd': done, 't': total, 'u': sub, 'ends': None if left is None else now + left}
 
     def progress(self):
         """→ what the window shows: stage, share done, seconds left (None while it cannot say yet)."""
@@ -3758,7 +3835,7 @@ class Job:
         now = time.time()
         if 'wait_until' in p:
             return {'stage': p['s'], 'wait': max(0, int(round(p['wait_until'] - now)))}
-        return {'stage': p['s'], 'done': p['d'], 'total': p['t'], 'left': None if p['ends'] is None else max(0, int(round(p['ends'] - now)))}
+        return {'stage': p['s'], 'done': p['d'], 'total': p['t'], 'sub': p.get('u', ''), 'left': None if p['ends'] is None else max(0, int(round(p['ends'] - now)))}
 
     def lines(self):
         with self.lock:
@@ -3841,12 +3918,13 @@ def serve_ui(cfg, port=8765, open_window=True):
             later('review', count_review)
         return queue_cache
 
-    pcache = {'at': 0, 'queue': [], 'marked': 0}
+    pcache = {'at': 0, 'queue': [], 'marked': 0, 'why': None}
     plock = threading.Lock()
     def count_pieces():
         with plock:
             q = pieces_queue(qsite())
-            pcache.update(at=time.time(), queue=q, marked=len(pieces_marked()))
+            why = pieces_why(qsite()) if not q else {'reviewed': 0, 'unmarked': []}
+            pcache.update(at=time.time(), queue=q, marked=len(pieces_marked()), why=why)
 
     def pcounts(wait=False):
         if wait and not pcache['at']:
@@ -3938,7 +4016,7 @@ def serve_ui(cfg, port=8765, open_window=True):
                 c, P = counts(), pcounts()
                 return self._send(200, {'version': VERSION, 'site': cfg['site'], 'key': bool(cfg.get('key')), 'busy': job.busy(), 'task': job.task if job.busy() else '',
                                         'log': job.lines(), 'progress': job.progress(), 'waiting': len(c['queue']), 'done': c['done'], 'gold': c['gold'], 'workers': cfg.get('workers', 4),
-                                        'keep': bool(cfg.get('keep_videos')), 'think': bool(cfg.get('think')), 'pieces': {'marked': P['marked'], 'left': len(P['queue']), 'need': PIECE_NEED, 'last': last_pieces()}, 'speed': cfg.get('max_mbps', 0), 'last': last_train()})
+                                        'keep': bool(cfg.get('keep_videos')), 'think': bool(cfg.get('think')), 'pieces': {'marked': P['marked'], 'left': len(P['queue']), 'counted': bool(P['at']), 'why': P.get('why'), 'need': PIECE_NEED, 'last': last_pieces()}, 'speed': cfg.get('max_mbps', 0), 'last': last_train()})
             if u.path == '/api/pnext':
                 P = pcounts(wait=True)
                 want = urllib.parse.parse_qs(u.query).get('id', [None])[0]

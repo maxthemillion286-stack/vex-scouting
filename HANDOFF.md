@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v157**. Everything green: 107 test files.
+Current release: **v158**. Everything green: 108 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,25 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v158 (app 2.34) — one bar for the whole job.** Reported: the bar showed
+the step on hand (a video's download 0–100%, then tracking moving only when
+a worker's whole batch came in). `do_jobs` sets `_PROG['all']` (matches
+done of all to do) before the first download; `progress(minor=True)` keeps
+a download as `_PROG['dl']` and reports it as `u` (the step) under the job's
+bar instead of replacing it. Workers get a `multiprocessing.Manager` dict
+(one per video) through the chunk args; `track_match` writes each match's
+fraction every 2 s of video (`share_set`, ≤ 0.98, 1.0 when done) and the
+loop waits with `concurrent.futures.wait(timeout=1.5)` to update the bar from
+the sum. The window shows "stage · step" and "N of M matches". Checks:
+desktop/dev/bar.py (9, the real loop with stand-in workers), t147.
+App 2.35, same release: reported "cant click cups and pins" (the button greyed
+out, 0 of 60). It is enabled only when `pieces_queue` has a frame, which
+needs reviewed robot frames from streams whose field is marked.
+`pieces_why` (computed with the count when the queue is empty) gives the
+reviewed count and the streams with reviewed frames but no field mark; the
+window says which, or "Counting the frames…" (button not greyed while
+counting). Owner's cause not confirmed. Checks: desktop/dev/window.py (20).
 
 **v157 — the accuracy test.** Tracker panel: "Mark robots here" (on a
 tracked match paused in the player: `vtMarkTime` for the moment, then four

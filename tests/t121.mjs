@@ -104,7 +104,7 @@ const game = (where) => {
 }
 // ── the app: a bar that measures, and a countdown ──
 {
-  ok('the work says how far along it is', /def progress\(stage='', done=0, total=0, wait=0, minor=False\):/.test(app) && /progress\('Tracking matches', done_all, left\)/.test(app) && /progress\('Training', rounds\['n'\], total_rounds\)/.test(app) && /progress\('Reading the video'/.test(app));
+  ok('the work says how far along it is', /def progress\(stage='', done=0, total=0, wait=0, minor=False(, sub='')?\):/.test(app) && /progress\('Tracking matches', done_all, left(, sub=[^)]*)?/.test(app) && /progress\('Training', rounds\['n'\], total_rounds\)/.test(app) && /progress\('Reading the video'/.test(app));
   ok('a download behind the tracking does not take the bar', /minor and _PROG\['hold'\]/.test(app) && /progress\('Downloading the video', done, total, minor=True\)/.test(app));
   ok('the time left comes from the pace so far', /left = \(total - done\) \* \(now - first\[0\]\) \/ \(done - first\[1\]\)/.test(app) && /'progress': job\.progress\(\)/.test(app));
   ok('those lines never reach the log', /if line\.startswith\('@@P '\):\s+self\.note\(line\[4:\]\)\s+continue/.test(app));
