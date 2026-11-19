@@ -3714,7 +3714,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v156';
+const APP_BUILD = 'v157';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -9632,6 +9632,9 @@ async function vtRender(note) {
     ${appRow}
     <div class="rw-hint"><strong>Field positions.</strong> For toggle, role and route details the tracker needs the field's four corners in this stream. Open a match in the player above (▶), pause on a view of the whole field, then:</div>
     <div class="rw-playall"><button class="btn btn-secondary" onclick="vtMarkField()">Mark the field</button></div>
+    <div class="rw-hint"><strong>Accuracy test.</strong> To see how well the tracker does: play a tracked match above, pause, and click where each robot really is. Mark a moment every five seconds or so through two or three matches.</div>
+    <div class="rw-playall"><button class="btn btn-secondary" onclick="vtAccMark()">Mark robots here</button> <button class="btn btn-secondary" onclick="vtAccShow()">Score the tracker</button></div>
+    <div id="vtAccOut"></div>
     <div class="rw-hint">Chrome will ask what to share: choose <strong>This tab</strong>.</div>
   </div>`;
 }
@@ -9751,7 +9754,7 @@ function vtSlots(frames) {
     // taking whichever box is nearer.
     for (const tr of live) {
       const mine = lookOf(tr), major = tr.cv[1] > tr.cv[2] ? 1 : tr.cv[2] > tr.cv[1] ? 2 : 0, ahead = vtAhead(tr, f.t);
-      const gate = 0.12 + 0.3 * Math.min(3, f.t - tr.t);
+      const gate = VT_TRACK.gate0 + VT_TRACK.gateK * Math.min(3, f.t - tr.t);
       f.pts.forEach((p, k) => {
         // Near where it should be, looking the same, and of the colour this
         // track has mostly been: when two robots meet, each keeps its own track.
@@ -9774,7 +9777,7 @@ function vtSlots(frames) {
       for (const [k, o] of owner) {
         const c = major(tr), p = f.pts[k];
         if (!c || major(o) !== c || (p.c && p.c !== c)) continue;
-        if (Math.hypot(o.x - tr.x, o.y - tr.y) > 0.12 || d(vtAhead(tr, f.t), p) > 0.12 + 0.3 * Math.min(3, f.t - tr.t)) continue;
+        if (Math.hypot(o.x - tr.x, o.y - tr.y) > 0.12 || d(vtAhead(tr, f.t), p) > VT_TRACK.gate0 + VT_TRACK.gateK * Math.min(3, f.t - tr.t)) continue;
         shared.add(k); taken.add(tr); tr.sh = tr.sh || f.t; tr.x = p.x; tr.y = p.y; tr.t = f.t;
         break;
       }
@@ -9793,7 +9796,7 @@ function vtSlots(frames) {
         f.weak.forEach((p, k) => {
           if (c && p.c && p.c !== c) return;
           const dd = d(ahead, p);
-          if (dd <= 0.06 + 0.5 * VT_VMAX * Math.min(1, f.t - tr.t)) wp.push([dd, tr, k]);
+          if (dd <= VT_TRACK.weak0 + 0.5 * VT_VMAX * Math.min(1, f.t - tr.t)) wp.push([dd, tr, k]);
         });
       }
       wp.sort((a, b) => a[0] - b[0]);
@@ -9850,7 +9853,7 @@ function vtSlots(frames) {
   // teleporting is left out: it was something else.
   const slotTracks = { 1: [[], []], 2: [[], []] };
   const team = tr => { const a = tr.pv[tr.c === 1 ? 1 : 3], b = tr.pv[tr.c === 1 ? 2 : 4]; return a + b >= 2 && Math.max(a, b) >= 2 * Math.min(a, b) + 1 ? (a > b ? 1 : 2) : 0; };
-  const jump = (a, b) => { if (!a || !b) return 0; const gap = Math.max(0, b.t - a.t), dist = Math.hypot(b.x - a.x, b.y - a.y); return Math.max(0, dist - (0.1 + VT_VMAX * gap)); };
+  const jump = (a, b) => { if (!a || !b) return 0; const gap = Math.max(0, b.t - a.t), dist = Math.hypot(b.x - a.x, b.y - a.y); return Math.max(0, dist - (VT_TRACK.slack + VT_VMAX * gap)); };
   for (const c of [1, 2]) {
     const mine = all.filter(tr => tr.c === c && tr.pts.length >= 3)
       .sort((a, b) => (!!team(b) - !!team(a)) || (b.t1 - b.t0) - (a.t1 - a.t0));
@@ -9898,7 +9901,7 @@ function vtSlots(frames) {
         if (dt > 0.5) continue;
         // Wobble is small; a robot driving off is not: a look far from this
         // one counts for little, so a stop, a turn or a quick move stays sharp.
-        const dd = Math.hypot(q.x - p.x, q.y - p.y), w = (1 - dt) * Math.exp(-((dd / 0.03) ** 2));
+        const dd = Math.hypot(q.x - p.x, q.y - p.y), w = (1 - dt) * Math.exp(-((dd / VT_TRACK.smooth) ** 2));
         sx += w * q.x; sy += w * q.y; sw += w;
       }
       return sw ? [sx / sw, sy / sw] : [p.x, p.y];
@@ -9929,6 +9932,13 @@ function vtTrackFrom(pts) {
 // How fast a robot can really go, in field widths a second: the fastest
 // normal drive, 600 rpm on 2.75 in wheels, is 7.2 ft/s on a 12 ft field.
 const VT_VMAX = 0.6;
+// How far the tracker lets things be (v157), in field widths: one place, so
+// the accuracy test can try others (vtTune). gate0 + gateK·gap: how far from
+// where it should be a box may be and still be the same robot; weak0: the
+// same for an unsure box; slack: what a join between two pieces of a robot's
+// path may need beyond driving at full speed; smooth: wobble below about
+// this much is smoothed away.
+const VT_TRACK = { gate0: 0.12, gateK: 0.3, weak0: 0.06, slack: 0.1, smooth: 0.03 };
 // Where a track should be at time t: its last place plus its speed, for up to
 // a second ahead (past that, a robot has likely stopped or turned).
 function vtAhead(tr, t) {
@@ -11222,6 +11232,157 @@ function vtFieldSvg(heat, paths, replay) {
     ${load}${goals}${tog}${lines}${play}</svg>`;
 }
 const VT_FIELD_KEY = 'Its drivers stand on the left. Green: its alliance’s goals and loaders. Grey dots: the opponents’ goals. Rings: neutral goals. Yellow bars: toggles.';
+
+// ── The accuracy test (v157) ───────────────────────────────────────────────
+// Asked for: measure the tracker against a person, then let it tune itself.
+// On a tracked match, paused in the player: click where each of the four
+// robots stands (where its wheels meet the floor), or "Not in view". The
+// clicks go through the same field mapping as the tracker's own positions,
+// so the two are compared like for like. Every five seconds or so through a
+// match is plenty; two or three matches give a real number.
+const VT_TRUTH_KEY = 'vt:truth';
+const vtTruthAll = async () => (await idbGet(VT_TRUTH_KEY)) || {};
+function vtSeekEmbed(t) {
+  const fr = document.querySelector('#rwPlayer .rw-embed iframe');
+  if (!fr || !fr.contentWindow) return false;
+  const say = (func, args) => { try { fr.contentWindow.postMessage(JSON.stringify({ event: 'command', func, args }), 'https://www.youtube.com'); } catch (e) {} };
+  say('seekTo', [t, true]); say('pauseVideo', []);
+  return true;
+}
+async function vtAccMark() {
+  const ctx = window._rwCtx, host = document.querySelector('#rwPlayer .rw-embed');
+  if (!ctx || !ctx.playing || !host) { vtRender('Open a tracked match in the player first (press ▶ on one) and pause it, then press Mark robots here.'); return; }
+  const m = ctx.matches.find(x => String(x.id) === String(ctx.playing.matchId)), cal = m && rwCalForMatch(m, ctx.cal);
+  if (!cal || !cal.videoId) return;
+  const ev = String(ctx.eventId), id = String(ctx.playing.matchId), vid = String(cal.videoId);
+  let rec = await idbGet(`vt:m:${ev}:${id}`);
+  if (!rec) { try { const r = await vtApi('GET', `?event=${encodeURIComponent(ev)}&match=${encodeURIComponent(id)}`); rec = r.ok && r.body && r.body.rec && Array.isArray(r.body.rec.f) ? r.body.rec : null; } catch (e) {} }
+  if (!rec) { vtRender('This match has not been tracked yet, so there is nothing to test. Pick a match that has.'); return; }
+  const quad = await vtFieldGet(vid);
+  if (!quad || !quad.q) { vtRender('Mark the field on this stream first: the test compares places on the field.'); return; }
+  const t = await vtMarkTime(vid);
+  if (t == null) { vtRender('Could not read where the player is paused. Press ▶ once, pause again, and try once more.'); return; }
+  const names = [...(rec.red || []).slice(0, 2).map(n => ['red', n]), ...(rec.blue || []).slice(0, 2).map(n => ['blue', n])];
+  const old = document.getElementById('vtMark'); if (old) old.remove();
+  const lay = document.createElement('div');
+  lay.id = 'vtMark'; lay.className = 'vt-mark';
+  lay.innerHTML = `<div class="vt-mark-say"></div><svg class="vt-mark-svg" viewBox="0 0 1000 1000" preserveAspectRatio="none"></svg>`;
+  host.style.position = 'relative';
+  host.appendChild(lay);
+  const say = lay.querySelector('.vt-mark-say'), svg = lay.querySelector('svg'), pts = [];
+  const ask = () => {
+    if (pts.length >= names.length) return done();
+    const [side, n] = names[pts.length];
+    say.innerHTML = `Click where <b style="color:${side === 'red' ? '#ff6b6b' : '#5aa9ff'}">${esc(n)}</b> (${side}) stands: where its wheels meet the floor. <button class="set-link" id="vtAccGone">Not in view</button> <button class="set-link" id="vtAccStop">Stop</button>`;
+    say.querySelector('#vtAccGone').onclick = ev2 => { ev2.stopPropagation(); pts.push(null); ask(); };
+    say.querySelector('#vtAccStop').onclick = ev2 => { ev2.stopPropagation(); lay.remove(); };
+  };
+  lay.onclick = ev2 => {
+    if (pts.length >= names.length) return;
+    const r = lay.getBoundingClientRect(), x = (ev2.clientX - r.left) / r.width, y = (ev2.clientY - r.top) / r.height;
+    pts.push([Math.round(x * 10000) / 10000, Math.round(y * 10000) / 10000]);
+    const side = names[pts.length - 1][0];
+    svg.insertAdjacentHTML('beforeend', `<circle cx="${(x * 1000).toFixed(0)}" cy="${(y * 1000).toFixed(0)}" r="9" style="fill:${side === 'red' ? '#ff6b6b' : '#5aa9ff'}"/>`);
+    ask();
+  };
+  const done = async () => {
+    const all = await vtTruthAll(), key = ev + ':' + id;
+    const rows = (all[key] && all[key].s) || [];
+    rows.push({ t, p: pts });
+    all[key] = { vid, s: rows.filter((r, k, a) => a.findIndex(q => Math.abs(q.t - r.t) < 0.2) === k).slice(-200) };
+    await idbSet(VT_TRUTH_KEY, all);
+    say.innerHTML = `Saved: ${all[key].s.length} moment${all[key].s.length === 1 ? '' : 's'} marked in this match. <button class="set-link" id="vtAccNext">Next: 5 s on</button> <button class="set-link" id="vtAccDone">Done</button>`;
+    lay.onclick = e3 => e3.stopPropagation();
+    say.querySelector('#vtAccDone').onclick = e3 => { e3.stopPropagation(); lay.remove(); vtAccShow(); };
+    say.querySelector('#vtAccNext').onclick = e3 => { e3.stopPropagation(); lay.remove(); vtSeekEmbed(t + 5); setTimeout(vtAccMark, 900); };
+  };
+  ask();
+}
+// How the tracker does against the marks. For each marked moment, each
+// alliance's two tracked robots are paired with the two marked ones the way
+// that fits best. found: a marked robot with a tracked one within 0.1 of the
+// field (about 1.2 ft); err: how far off, in feet; swaps: the pairing changed
+// from one moment to the next (the tracker swapped two robots).
+function vtAccuracy(rec, quad, samples) {
+  const F = vtFrames(rec, quad, null);
+  if (!F.ok || !F.field) return null;
+  const out = vtSlots(F.frames), toField = vtHomography(quad.q);
+  let n = 0, found = 0, errs = [], swaps = 0, chances = 0;
+  const last = { 1: null, 2: null };
+  for (const smp of samples) {
+    const t = smp.t - (rec.off || 0);
+    let row = null, bd = 0.6;
+    for (const r of out) { const dd = Math.abs(r.t - t); if (dd < bd) { bd = dd; row = r; } }
+    for (const c of [1, 2]) {
+      const truth = [smp.p[c === 1 ? 0 : 2], smp.p[c === 1 ? 1 : 3]].map(p => p ? toField(p[0], p[1]) : null);
+      const mine = row ? [row.s[c][0], row.s[c][1]].map(p => p && p.seen ? [p.x, p.y] : null) : [null, null];
+      const dist = (a, b) => a && b ? Math.hypot(a[0] - b[0], a[1] - b[1]) : Infinity;
+      const cost = k => [0, 1].reduce((acc, i) => acc + Math.min(1, dist(truth[i], mine[k === 0 ? i : 1 - i])), 0);
+      const pick = cost(0) <= cost(1) ? 0 : 1;
+      for (let i = 0; i < 2; i++) {
+        if (!truth[i]) continue;
+        n++;
+        const d = dist(truth[i], mine[pick === 0 ? i : 1 - i]);
+        if (d <= 0.1) { found++; errs.push(d * 12); }
+      }
+      if (truth[0] && truth[1] && mine[0] && mine[1] && Math.abs(cost(0) - cost(1)) > 0.1) {
+        if (last[c] !== null) { chances++; if (last[c] !== pick) swaps++; }
+        last[c] = pick;
+      }
+    }
+  }
+  return n ? { n, found: found / n, err: errs.length ? vtMedian(errs) : null, swaps, chances } : null;
+}
+// One number to tune for: robots found, less a little for each swap.
+const vtAccValue = a => a.found - 0.02 * a.swaps;
+// Tries the tracker's settings one at a time, a little up and down, keeping
+// whatever does better on every marked match together, until nothing helps.
+function vtTune(items) {
+  const keep = { ...VT_TRACK }, score = () => { let v = 0, w = 0; for (const it of items) { const a = vtAccuracy(it.rec, it.quad, it.samples); if (a) { v += vtAccValue(a) * a.n; w += a.n; } } return w ? v / w : -1; };
+  let best = score(), cur = { ...VT_TRACK };
+  const start = best;
+  try {
+    for (let round = 0; round < 3; round++) {
+      let better = false;
+      for (const k of Object.keys(cur)) for (const f of [0.6, 0.8, 1.25, 1.6]) {
+        Object.assign(VT_TRACK, cur, { [k]: cur[k] * f });
+        const v = score();
+        if (v > best + 0.002) { best = v; cur = { ...VT_TRACK }; better = true; }
+      }
+      if (!better) break;
+    }
+  } finally { Object.assign(VT_TRACK, keep); }
+  return { start, best, settings: cur };
+}
+async function vtAccShow() {
+  const host = document.getElementById('vtAccOut');
+  if (!host) return;
+  const all = await vtTruthAll(), keys = Object.keys(all).filter(k => all[k].s && all[k].s.length);
+  if (!keys.length) { host.innerHTML = '<div class="rw-hint">Nothing marked yet.</div>'; return; }
+  host.innerHTML = '<div class="rw-hint">Scoring…</div>';
+  const items = [];
+  for (const key of keys) {
+    const cut = key.indexOf(':'), ev = key.slice(0, cut), id = key.slice(cut + 1);
+    let rec = await idbGet(`vt:m:${ev}:${id}`);
+    if (!rec) { try { const r = await vtApi('GET', `?event=${encodeURIComponent(ev)}&match=${encodeURIComponent(id)}`); rec = r.ok && r.body && r.body.rec && Array.isArray(r.body.rec.f) ? r.body.rec : null; } catch (e) {} }
+    const quad = rec && await vtFieldGet(all[key].vid);
+    if (rec && quad && quad.q) items.push({ key, rec, quad, samples: all[key].s });
+  }
+  const per = items.map(it => ({ it, a: vtAccuracy(it.rec, it.quad, it.samples) })).filter(x => x.a);
+  if (!per.length) { host.innerHTML = '<div class="rw-hint">The marked matches could not be read back (tracked recording or field mark missing).</div>'; return; }
+  const sum = per.reduce((o, { a }) => ({ n: o.n + a.n, found: o.found + a.found * a.n, swaps: o.swaps + a.swaps }), { n: 0, found: 0, swaps: 0 });
+  const errs = per.map(x => x.a.err).filter(v => v !== null);
+  const robots = sum.n, pct = Math.round(100 * sum.found / robots);
+  let tuned = '';
+  if (robots >= 40) {
+    const T = vtTune(items);
+    const gain = Math.round(100 * (T.best - T.start));
+    tuned = gain >= 1
+      ? `<div class="rw-hint"><strong>Better settings found:</strong> about ${gain} more in every 100 robots found on these marks. Send this line to Claude to make them the default for everyone: <code>${esc(JSON.stringify(Object.fromEntries(Object.entries(T.settings).map(([k, v]) => [k, +v.toFixed(3)]))))}</code></div>`
+      : '<div class="rw-hint">The current settings are already the best it could find for these marks.</div>';
+  } else tuned = `<div class="rw-hint">Mark ${40 - robots} more robots (about ${Math.ceil((40 - robots) / 4)} more moments) and it will also try to tune itself.</div>`;
+  host.innerHTML = `<div class="rw-hint"><strong>Found ${pct}% of ${robots} marked robots</strong> within about a foot (1.2 ft)${errs.length ? `, typically ${vtMedian(errs).toFixed(1)} ft off` : ''}; it swapped two robots ${sum.swaps} time${sum.swaps === 1 ? '' : 's'}. From ${per.length} match${per.length === 1 ? '' : 'es'}.</div>${tuned}`;
+}
 
 // ── Marking the field's corners on a stream ────────────────────────────────
 // Over the Jumper's player, which must be showing the whole field. Four

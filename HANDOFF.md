@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v156**. Everything green: 106 test files.
+Current release: **v157**. Everything green: 107 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,23 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v157 — the accuracy test.** Tracker panel: "Mark robots here" (on a
+tracked match paused in the player: `vtMarkTime` for the moment, then four
+clicks on the video where each robot's wheels meet the floor, red then blue
+in the recording's order, or "Not in view"; "Next: 5 s on" seeks the embed by
+postMessage `seekTo` + `pauseVideo`) and "Score the tracker". Marks live on
+this device in IndexedDB `vt:truth` {ev:id → {vid, s: [{t, p: 4 × [x,y] or
+null]}]}. `vtAccuracy(rec, quad, samples)` runs `vtFrames` + `vtSlots`,
+maps marks through the same `vtHomography`, pairs each alliance's marks with
+its two slots the best way, and gives found (within 0.1 field ≈ 1.2 ft),
+median error in feet, swaps (pairing changed between moments). Tracker
+distances now live in `VT_TRACK` {gate0, gateK, weak0, slack, smooth} (same
+values as before). `vtTune(items)` tries each ×0.6/0.8/1.25/1.6, keeps what
+raises found − 0.02·swaps over all marks, up to 3 rounds, restores
+`VT_TRACK`, and the page shows the better settings as a line to send back
+(only from ≥ 40 marked robots); they are not applied by themselves. Tests:
+t146.
 
 **v156 (app 2.33) — review screen: blank box, streaks.** Reported with
 screenshots: an empty black 300×150 box, then a 300×150 box of yellow
