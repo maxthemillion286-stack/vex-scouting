@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v146**. Everything green: 96 test files.
+Current release: **v147**. Everything green: 97 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,23 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v147 (app 2.27) — the app window froze.** Reported: "the app is kind of
+frozen i cant really click into settings or anything". `quad_for` did not
+remember a video with no field marked, so `pieces_queue` asked the website
+about it once per saved frame, and `/api/state` (polled every second with
+`setInterval`, not waiting for the answer) recomputed that every 20 s in the
+request thread; asks piled up past the browser's six connections per host and
+clicks queued behind them. Now: unmarked videos are cached like marked ones
+(10 min), a website error keeps what was known and backs off, `pieces_queue`
+asks once per video, review/pin counts are worked out on a background thread
+(`later`, one at a time) and the status returns what is counted already
+(`wait=True` only for the review screens' first list), the window's poll
+waits for each answer (`tick`), and a pin frame just marked leaves the list
+at once. Training starts from YOLO11 (`newest_yolo`: yolo11n for robots,
+yolo11s for pins, falls back to YOLOv8; ultralytics < 8.3 is upgraded);
+ONNX output is still [1, 4+classes, 8400], so the website reads it unchanged.
+Checks: desktop/dev/window.py (13), t136.
 
 **v146 — "it just says its not timed yet now".** The My team table read
 summaries from before v145 (only the report ran `vtSumsRefresh`); now

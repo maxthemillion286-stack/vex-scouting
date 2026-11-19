@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.26'
+VERSION = '2.27'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -1395,7 +1395,7 @@ def work_chunk(args):
                     fld = (site.get('?field=' + job['vid']) or {}).get('field') or {}
                     q = fld.get('q')
                     quads[job['vid']] = q if isinstance(q, list) and len(q) == 8 else None
-                    _QUADS[job['vid']] = {'q': quads[job['vid']], 'g': fld.get('g'), 'l': fld.get('l')} if quads[job['vid']] else None
+                    _QUADS[job['vid']] = {'q': quads[job['vid']], 'g': fld.get('g'), 'l': fld.get('l'), 'at': time.time()}
                 looks = int(cfg.get('think_looks') or THINK_LOOKS) if cfg.get('think') and cfg.get('_think_ok') else 0
                 rec, why, shift = track_match(video, _EYES, job, shift, spacing, True, learn, quads[job['vid']], looks)
             except Exception as e:
@@ -2296,35 +2296,44 @@ def in_spots(b, boxes):
             return k
     return -1
 
-_QUADS = {}
+_QUADS, _QUADS_LOADED = {}, []
 def placed_for(vid):
     """The goals and loaders as dragged into place on the website, or None."""
     f = _QUADS.get(vid)
     return f if isinstance(f, dict) and f.get('g') else None
 
 def quad_for(vid, site=None):
-    """The field mark of a video, as the website has it (kept on disk once fetched)."""
+    """The field mark of a video, as the website has it (kept on disk once fetched).
+
+    v2.27: a video with no mark is remembered as having none, for ten minutes,
+    like one with a mark. It used to be asked about again every time, once for
+    each saved frame of it, and the window's status check did that every
+    second, so the checks piled up and the window stopped answering clicks
+    (reported: "the app is kind of frozen i cant really click into settings")."""
     path = os.path.join(DIRS['data'], 'quads.json')
-    if not _QUADS:
+    if not _QUADS_LOADED:
+        _QUADS_LOADED.append(1)
         try:
             with open(path) as f:
                 _QUADS.update(json.load(f))
         except Exception:
             pass
     f = _QUADS.get(vid, 0)
-    # Fetched again after ten minutes when the website can be asked: the goals
-    # may have been dragged into place since.
-    if f != 0 and (site is None or (isinstance(f, dict) and time.time() - f.get('at', 0) < 600)):
-        return f.get('q') if isinstance(f, dict) else f
-    if site is None:
-        return None
+    have = f.get('q') if isinstance(f, dict) else (f if isinstance(f, list) else None)
+    fresh = isinstance(f, dict) and time.time() - f.get('at', 0) < 600
+    if site is None or fresh:
+        return have
     try:
-        fld = (site.get('?field=' + vid) or {}).get('field') or {}
+        r = site.get('?field=' + vid) or {}
     except Exception:
-        return None
+        r = {'error': 'unreachable'}
+    if r.get('error'):                                # the website did not answer: keep what we had, ask again later
+        _QUADS[vid] = dict(f if isinstance(f, dict) else {'q': have}, at=time.time())
+        return have
+    fld = r.get('field') or {}
     q = fld.get('q')
     q = q if isinstance(q, list) and len(q) == 8 else None
-    _QUADS[vid] = {'q': q, 'g': fld.get('g'), 'l': fld.get('l'), 'at': time.time()} if q else None
+    _QUADS[vid] = {'q': q, 'g': fld.get('g') if q else None, 'l': fld.get('l') if q else None, 'at': time.time()}
     try:
         os.makedirs(DIRS['data'], exist_ok=True)
         with open(path, 'w') as f:
@@ -2398,7 +2407,7 @@ def pieces_queue(site=None):
     Only frames whose video has its field marked: the spots come from that."""
     if not os.path.isdir(LABELS):
         return []
-    by = {}
+    by, marked = {}, {}
     for n in sorted(os.listdir(LABELS), key=lambda n: hashlib.md5(n.encode()).hexdigest()):
         if not n.endswith('.json'):
             continue
@@ -2407,7 +2416,9 @@ def pieces_queue(site=None):
         if lab.get('skip') or 'pieces' in lab or lab.get('pskip') or not os.path.exists(os.path.join(FRAMES, name + '.jpg')):
             continue
         vid = name.rsplit('_', 1)[0]
-        if quad_for(vid, site) is None:
+        if vid not in marked:
+            marked[vid] = quad_for(vid, site) is not None
+        if not marked[vid]:
             continue
         by.setdefault(vid, []).append(name)
     out, lists = [], list(by.values())
@@ -2562,7 +2573,7 @@ def do_train_pieces(cfg):
         progress('Training the pin & cup finder', rounds['n'], total_rounds)
     # A bigger model than the robot finder: it looks at the spots cut out and
     # enlarged, where a pin is a good part of the picture.
-    model = YOLO(str(cfg.get('piece_model') or 'yolov8s.pt'))
+    model = newest_yolo(YOLO, str(cfg.get('piece_model') or 'yolo11s.pt'))
     try:
         model.add_callback('on_fit_epoch_end', each_round)
     except Exception:
@@ -2739,6 +2750,14 @@ def ensure_training_tools():
     try:
         import torch, ultralytics  # noqa
         if torch.cuda.is_available():
+            # YOLO11 needs ultralytics 8.3 or newer.
+            try:
+                major, minor = (int(x) for x in ultralytics.__version__.split('.')[:2])
+                if (major, minor) < (8, 3):
+                    say('Updating the training tools for YOLO11…')
+                    pip('ultralytics', '--upgrade')
+            except Exception:
+                pass
             return True
         say('The training tools are installed but cannot see the graphics card; reinstalling the graphics-card build…')
     except ImportError:
@@ -2750,6 +2769,18 @@ def ensure_training_tools():
     if not pip('ultralytics', 'onnx', 'onnxslim'):
         return False
     return True
+
+def newest_yolo(YOLO, name):
+    """The model training starts from. v2.27: YOLO11 (what the best trackers
+    we looked at use), a little more accurate than YOLOv8 for the same size
+    and speed, and its answers come in the same shape, so the website reads
+    it as before. Falls back to YOLOv8 if the installed tools are too old."""
+    try:
+        return YOLO(name)
+    except Exception as e:
+        old = name.replace('yolo11', 'yolov8')
+        say('  YOLO11 could not be loaded (%s); starting from %s instead.' % (str(e)[:80], old))
+        return YOLO(old)
 
 def do_train(cfg):
     gold = reviewed()
@@ -2773,7 +2804,7 @@ def do_train(cfg):
         say('The graphics card is not being used (PyTorch cannot see it), so this will be slow.')
     tag = 'u' + time.strftime('%y%m%d%H%M')
     runs = os.path.join(DIRS['build'], 'runs')
-    model = YOLO('yolov8n.pt')                        # the same size as the website's finder, so it stays fast in a browser
+    model = newest_yolo(YOLO, 'yolo11n.pt')           # the same size as the website's finder, so it stays fast in a browser
     # A line each round, so the window's bar moves and "is it still going?"
     # has an answer. (Asked: "how do i know if it finished training?")
     total_rounds = int(cfg.get('epochs', 80))
@@ -3266,7 +3297,7 @@ function flash(t){const m=$('pMsg');if(!m)return;const old=m.innerHTML;m.innerHT
 async function saveFrame(skip){if(!cur||!cur.id)return;back.push(cur.id);if(pm)await api('/api/psave',{id:cur.id,skip,pieces:boxes});else await api('/api/save',{id:cur.id,skip,boxes});nextFrame()}
 window.onkeydown=e=>{if(!inReview||dlg.open)return;if(e.key==='Enter'||e.key===' '){e.preventDefault();saveFrame(false)}else if(/^s$/i.test(e.key))saveFrame(true);
  else if(pm&&/^[1-4]$/.test(e.key)){pc=+e.key-1;clsBar()}else if(/^z$/i.test(e.key)){if(hist.length){boxes=hist.pop();draw()}}else if(/^b$/i.test(e.key)){if(back.length)nextFrame(back.pop())}else if(e.key==='Escape')closeReview()};
-poll();setInterval(()=>{if(!inReview)poll()},1000);
+let polling=0;async function tick(){if(!inReview&&!polling){polling=1;try{await poll()}finally{polling=0}}setTimeout(tick,1000)}tick();
 </script></html>"""
 
 
@@ -3378,16 +3409,52 @@ def serve_ui(cfg, port=8765, open_window=True):
     job = Job()
     queue_cache = {'at': 0, 'queue': [], 'done': 0, 'gold': 0}
 
-    def counts(force=False):
-        if force or time.time() - queue_cache['at'] > 60:     # ordering a thousand frames takes a moment; not every poll
+    # v2.27: worked out off to one side, never while the window waits. The
+    # window asks for its status every second; when working these out took
+    # longer than that, the asks queued up behind each other and clicks
+    # waited behind them (reported: the window "kind of frozen").
+    working, work_lock = set(), threading.Lock()
+    def later(name, fn):
+        with work_lock:
+            if name in working:
+                return
+            working.add(name)
+        def run():
+            try:
+                fn()
+            except Exception as e:
+                say('  window: could not count the %s frames (%s)' % (name, e))
+            finally:
+                with work_lock:
+                    working.discard(name)
+        threading.Thread(target=run, daemon=True).start()
+
+    count_lock = threading.Lock()
+    def count_review():
+        with count_lock:
             q, done = review_queue()
             queue_cache.update(at=time.time(), queue=q, done=done, gold=len(reviewed()) if done else 0)
+
+    def counts(force=False, wait=False):
+        """`wait`: work it out now if it never has been (the review screen needs the list)."""
+        if force or (wait and not queue_cache['at']):
+            count_review()
+        elif time.time() - queue_cache['at'] > 60:     # ordering a thousand frames takes a moment; not every poll
+            later('review', count_review)
         return queue_cache
 
     pcache = {'at': 0, 'queue': [], 'marked': 0}
-    def pcounts():
-        if time.time() - pcache['at'] > 20:
-            pcache.update(at=time.time(), queue=pieces_queue(qsite()), marked=len(pieces_marked()))
+    plock = threading.Lock()
+    def count_pieces():
+        with plock:
+            q = pieces_queue(qsite())
+            pcache.update(at=time.time(), queue=q, marked=len(pieces_marked()))
+
+    def pcounts(wait=False):
+        if wait and not pcache['at']:
+            count_pieces()
+        elif time.time() - pcache['at'] > 20:
+            later('pins', count_pieces)
         return pcache
 
     pf_holder = {}
@@ -3470,12 +3537,12 @@ def serve_ui(cfg, port=8765, open_window=True):
                 except OSError:
                     return self._send(404, {})
             if u.path == '/api/state':
-                c = counts()
+                c, P = counts(), pcounts()
                 return self._send(200, {'version': VERSION, 'site': cfg['site'], 'key': bool(cfg.get('key')), 'busy': job.busy(), 'task': job.task if job.busy() else '',
                                         'log': job.lines(), 'progress': job.progress(), 'waiting': len(c['queue']), 'done': c['done'], 'gold': c['gold'], 'workers': cfg.get('workers', 4),
-                                        'keep': bool(cfg.get('keep_videos')), 'think': bool(cfg.get('think')), 'pieces': {'marked': pcounts()['marked'], 'left': len(pcounts()['queue']), 'need': PIECE_NEED, 'last': last_pieces()}, 'speed': cfg.get('max_mbps', 0), 'last': last_train()})
+                                        'keep': bool(cfg.get('keep_videos')), 'think': bool(cfg.get('think')), 'pieces': {'marked': P['marked'], 'left': len(P['queue']), 'need': PIECE_NEED, 'last': last_pieces()}, 'speed': cfg.get('max_mbps', 0), 'last': last_train()})
             if u.path == '/api/pnext':
-                P = pcounts()
+                P = pcounts(wait=True)
                 want = urllib.parse.parse_qs(u.query).get('id', [None])[0]
                 if want and re.fullmatch(r'[A-Za-z0-9_-]+', want) and os.path.exists(os.path.join(LABELS, want + '.json')):
                     name = want
@@ -3506,7 +3573,7 @@ def serve_ui(cfg, port=8765, open_window=True):
                 return self._send(200, {'id': name, 'w': p['w'], 'h': p['h'], 'pieces': [[round(v, 1) for v in b[:4]] + [int(b[4])] for b in pieces],
                                         'robots': robots, 'spots': [s + [units[k]] for k, s in enumerate(spots) if s and k < len(units)], 'left': len(P['queue']), 'marked': P['marked']})
             if u.path == '/api/next':
-                c = counts()
+                c = counts(wait=True)
                 want = urllib.parse.parse_qs(u.query).get('id', [None])[0]
                 if want and re.fullmatch(r'[A-Za-z0-9_-]+', want) and os.path.exists(os.path.join(PROPS, want + '.json')):
                     name = want
@@ -3547,7 +3614,7 @@ def serve_ui(cfg, port=8765, open_window=True):
                     return self._send(400, {'error': 'bad id'})
                 boxes = [[float(v) for v in b[:4]] for b in body.get('boxes', []) if len(b) >= 4][:60]
                 lab_write(name, skip=bool(body.get('skip')), boxes=boxes)
-                c = counts()
+                c = counts(wait=True)
                 if name in c['queue']:
                     c['queue'].remove(name)
                     c['done'] += 1
@@ -3561,7 +3628,10 @@ def serve_ui(cfg, port=8765, open_window=True):
                     lab_write(name, pskip=True)
                 else:
                     lab_write(name, pieces=clean_pieces(body.get('pieces')), pskip=False)
-                pcache['at'] = 0
+                if name in pcache['queue']:          # off the list now; counted again properly soon, off to one side
+                    pcache['queue'].remove(name)
+                    pcache['marked'] += 0 if body.get('skip') else 1
+                pcache['at'] = min(pcache['at'], time.time() - 15)
                 return self._send(200, {'ok': True})
             if u.path == '/api/key':
                 key = str(body.get('key', '')).strip()
