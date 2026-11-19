@@ -41,6 +41,10 @@ T._QUADS['vidnofieldX']['at'] -= 601
 T.pieces_queue(site)
 check('asked again after ten minutes (it may have been marked since)', site.n == 2, str(site.n))
 
+# v2.35: why there is nothing to mark pins and cups on
+why = T.pieces_why(site)
+check('it says which streams need their field marked', why['reviewed'] == 40 and why['unmarked'] and why['unmarked'][0] == ('vidnofieldX', 40), str(why))
+
 # a website that does not answer: what was known is kept, and it is not asked every time
 Q = [0.1, 0.8, 0.9, 0.8, 0.8, 0.2, 0.2, 0.2]
 T._QUADS['vidmarkedYY'] = {'q': Q, 'g': None, 'l': None, 'at': time.time() - 601}
@@ -103,6 +107,7 @@ srv2.shutdown()
 ui = T.UI_HTML
 check('the window sizes the picture from the picture', 'img.naturalWidth||cur.w' in ui and "c.style.visibility='hidden'" in ui)
 check('and says it is loading instead of showing a black box', 'Loading the next frame…' in ui)
+check('the pins & cups line says why there is nothing to mark', 'Pc.why.unmarked' in ui and 'Mark the field</b>' in ui and "$('bPcs').disabled=Pc.counted!==false&&!Pc.left" in ui)
 check('the window never sends a new status ask before the last one came back', 'polling' in ui and 'setInterval(()=>{if(!inReview)poll()},1000)' not in ui)
 check('version 2.27 or later', T.VERSION >= '2.27')
 print('window checks: %d ok, %d failing' % (ok, fail))
