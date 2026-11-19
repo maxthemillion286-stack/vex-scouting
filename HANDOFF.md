@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v147**. Everything green: 97 test files.
+Current release: **v148**. Everything green: 98 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,20 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v148 — robots followed by speed and heading.** Asked: "can't it get more
+accurate by predicting trajectory from speed and stuff". `vtSlots` step 1:
+each track keeps a smoothed velocity (`vtTrackAdd`, 0.6/0.4, capped at
+`VT_VMAX` 0.6 field widths/s, reset after a 1.5 s gap) and is looked for at
+`vtAhead` (last place + velocity, up to 1 s ahead) inside the old gate; all
+track–box pairs of a look are sorted by cost and taken cheapest first (was:
+each track in turn by recency). Two same-alliance robots that overlap show as
+one box: the track left without a box follows it too (no point pushed, so it
+stays unseen) for up to 4 s, and neither track's velocity is updated from the
+merged box (`merged`), so they come apart the right way. Step 4: a gap of up
+to 3 s is filled along the line between sightings (unseen), not held at the
+last place. `VT_REMAKE` → 148 so every device remakes summaries. t137 (an X
+crossing with a merged box fails on v147, passes now).
 
 **v147 (app 2.27) — the app window froze.** Reported: "the app is kind of
 frozen i cant really click into settings or anything". `quad_for` did not

@@ -3714,7 +3714,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v147';
+const APP_BUILD = 'v148';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -9731,19 +9731,44 @@ function vtSlots(frames) {
   const live = [], all = [];
   const lookOf = tr => tr.gn ? tr.gs.map(v => v / tr.gn) : null;
   for (const f of frames) {
-    const used = new Set();
-    for (const tr of live.slice().sort((a, b) => b.t - a.t)) {
-      let best = -1, bd = Infinity, bcost = Infinity;
-      const mine = lookOf(tr), major = tr.cv[1] > tr.cv[2] ? 1 : tr.cv[2] > tr.cv[1] ? 2 : 0;
+    const used = new Set(), taken = new Set(), pairs = [];
+    // v148: robots cannot teleport. Each track is looked for where its speed
+    // and heading say it should be now (vtAhead), and every track and box of
+    // the look is paired at once, cheapest pairs first, so when two robots
+    // cross, each keeps going its own way instead of the first one asked
+    // taking whichever box is nearer.
+    for (const tr of live) {
+      const mine = lookOf(tr), major = tr.cv[1] > tr.cv[2] ? 1 : tr.cv[2] > tr.cv[1] ? 2 : 0, ahead = vtAhead(tr, f.t);
+      const gate = 0.12 + 0.3 * Math.min(3, f.t - tr.t);
       f.pts.forEach((p, k) => {
-        if (used.has(k)) return;
-        // Nearest, looking the same, and of the colour this track has mostly
-        // been: when two robots meet, the last two keep each on its own track.
-        const dd = d(tr, p), cost = dd + (mine && p.g ? 0.2 * vtSigDist(mine, p.g) : 0) + (major && p.c && p.c !== major ? 0.1 : 0);
-        if (cost < bcost) { bcost = cost; bd = dd; best = k; }
+        // Near where it should be, looking the same, and of the colour this
+        // track has mostly been: when two robots meet, each keeps its own track.
+        const dd = d(ahead, p);
+        if (dd > gate) return;
+        pairs.push([dd + (mine && p.g ? 0.2 * vtSigDist(mine, p.g) : 0) + (major && p.c && p.c !== major ? 0.1 : 0), tr, k]);
       });
-      if (best >= 0 && bd <= 0.12 + 0.3 * Math.min(3, f.t - tr.t)) { used.add(best); vtTrackAdd(tr, f.pts[best], f.t); }
     }
+    pairs.sort((a, b) => a[0] - b[0] || b[1].t - a[1].t);
+    const owner = new Map();
+    for (const [, tr, k] of pairs) if (!used.has(k) && !taken.has(tr)) { used.add(k); taken.add(tr); owner.set(k, tr); }
+    // Two robots that overlap show up as one box. Both follow it, each keeping
+    // the heading it had before (it says nothing about either's own speed), so
+    // when they come apart each goes on its own way instead of one robot's
+    // track being left behind and the two swapping.
+    // Only robots of one alliance (a box is one colour), and for 4 s at most.
+    const shared = new Set(), major = tr => tr.cv[1] > tr.cv[2] ? 1 : tr.cv[2] > tr.cv[1] ? 2 : 0;
+    for (const tr of live) {
+      if (taken.has(tr) || f.t - tr.t > 1.5 || (tr.sh && f.t - tr.sh > 4)) continue;
+      for (const [k, o] of owner) {
+        const c = major(tr), p = f.pts[k];
+        if (!c || major(o) !== c || (p.c && p.c !== c)) continue;
+        if (Math.hypot(o.x - tr.x, o.y - tr.y) > 0.12 || d(vtAhead(tr, f.t), p) > 0.12 + 0.3 * Math.min(3, f.t - tr.t)) continue;
+        shared.add(k); taken.add(tr); tr.sh = tr.sh || f.t; tr.x = p.x; tr.y = p.y; tr.t = f.t;
+        break;
+      }
+    }
+    for (const [k, tr] of owner) if (!shared.has(k)) tr.sh = 0;     // its own box again
+    for (const [k, tr] of owner) vtTrackAdd(tr, f.pts[k], f.t, shared.has(k));
     f.pts.forEach((p, k) => { if (!used.has(k)) { const tr = { pts: [], cv: [0, 0, 0], pv: [0, 0, 0, 0, 0], gs: new Array(12).fill(0), gn: 0 }; vtTrackAdd(tr, p, f.t); live.push(tr); all.push(tr); } });
     for (let i = live.length - 1; i >= 0; i--) if (f.t - live[i].t > 4) live.splice(i, 1);
   }
@@ -9808,9 +9833,19 @@ function vtSlots(frames) {
       votes[c][i][0] += tr.pv[c === 1 ? 1 : 3]; votes[c][i][1] += tr.pv[c === 1 ? 2 : 4];
     }
     look[c][i] = gn ? gs.map(v => v / gn) : null;
-    // Between sightings a slot holds its last position, marked unseen.
-    let last = null;
-    for (const row of out) { if (row.s[c][i]) last = row.s[c][i]; else if (last && row.t - last.t <= 3) row.s[c][i] = { ...last, seen: false }; }
+    // Between sightings, marked unseen: a gap of up to 3 s is filled along the
+    // straight line from where it was last seen to where it was seen next
+    // (v148; it used to stand still at the last place, then jump); after the
+    // last sighting it holds there for up to 3 s.
+    let last = null, next = null;
+    for (let k = 0; k < out.length; k++) {
+      const row = out[k], here = row.s[c][i];
+      if (here) { last = here; next = null; continue; }
+      if (!last || row.t - last.t > 3) continue;
+      if (!next || next.t < row.t) { next = null; for (let j = k + 1; j < out.length && out[j].t - last.t <= 3; j++) if (out[j].s[c][i]) { next = out[j].s[c][i]; break; } }
+      const f = next ? (row.t - last.t) / Math.max(1e-6, next.t - last.t) : 0;
+      row.s[c][i] = { x: last.x + (next ? (next.x - last.x) * f : 0), y: last.y + (next ? (next.y - last.y) * f : 0), t: last.t, seen: false };
+    }
   }
   out.look = look; out.votes = votes; out.recoloured = all.filter(tr => tr.c && tr.cv[tr.c] < tr.cv[3 - tr.c]).length;
   return out;
@@ -9820,7 +9855,26 @@ function vtTrackFrom(pts) {
   for (const p of pts) vtTrackAdd(tr, p, p.t);
   return tr;
 }
-function vtTrackAdd(tr, p, t) {
+// How fast a robot can really go, in field widths a second (a fast VEX drive
+// is about 6 ft/s on a 12 ft field; a little over for the box's wobble).
+const VT_VMAX = 0.6;
+// Where a track should be at time t: its last place plus its speed, for up to
+// a second ahead (past that, a robot has likely stopped or turned).
+function vtAhead(tr, t) {
+  const dt = Math.max(0, Math.min(1, t - tr.t));
+  return { x: tr.x + (tr.vx || 0) * dt, y: tr.y + (tr.vy || 0) * dt };
+}
+function vtTrackAdd(tr, p, t, merged) {
+  // Speed, smoothed over a few looks and never faster than a robot drives;
+  // after a long gap it starts again from still; kept as it was while the box
+  // is two robots at once (`merged`).
+  const dt = tr.pts.length ? t - tr.t : 0;
+  if (merged) { /* heading kept */ } else if (dt > 0 && dt <= 1.5) {
+    let vx = 0.6 * (tr.vx || 0) + 0.4 * (p.x - tr.x) / dt, vy = 0.6 * (tr.vy || 0) + 0.4 * (p.y - tr.y) / dt;
+    const sp = Math.hypot(vx, vy);
+    if (sp > VT_VMAX) { vx *= VT_VMAX / sp; vy *= VT_VMAX / sp; }
+    tr.vx = vx; tr.vy = vy;
+  } else if (dt > 1.5) { tr.vx = 0; tr.vy = 0; }
   tr.x = p.x; tr.y = p.y; tr.t = t;
   tr.pts.push({ x: p.x, y: p.y, t, c: p.c || 0, who: p.who || 0, g: p.g || null });
   tr.cv[p.c || 0]++;
@@ -10180,7 +10234,7 @@ function vtReportSeen(S) {
 // the recordings are in the shared store too, so whichever device opens a
 // report fetches the ones it needs, makes the summaries again, keeps them, and
 // (with the admin key) shares them.
-const VT_REMAKE = 146;      // v145/146: stacking timed at the goal (vs, vh)      // v136: pins counted on the goals as well (oy, oa, …)
+const VT_REMAKE = 148;      // v148: robots followed by speed and heading; v145/146: stacking timed at the goal (vs, vh)      // v136: pins counted on the goals as well (oy, oa, …)
 const vtStale = s => !!(s && s.ok && (s.rv || 0) < VT_REMAKE);
 const vtRefreshTried = new Set();
 async function vtSumsRefresh(sums, limit) {
