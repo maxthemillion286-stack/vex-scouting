@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v161**. Everything green: 110 test files.
+Current release: **v162**. Everything green: 110 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,11 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v162 — "Points from pins" said what it is.** Asked whether 209 was the
+event's total or a match's: it is per match (`vtCoachPins` divides by
+matches) and an upper bound (every yellow half at 10). Column now "Pin
+points a match (at most)", with the note saying so.
 
 **v161 (app 2.39) — loaders small; goals by the stack, not a column.**
 Reported: loader boxes "ridiculously huge" (they were 0.20 × 0.33 field,
