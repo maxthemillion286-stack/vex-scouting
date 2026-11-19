@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v153**. Everything green: 103 test files.
+Current release: **v154**. Everything green: 104 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,16 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v154 — goal counts by the game's rules.** `vtGoalPath(ser)`: Viterbi over
+counts 0..max+2 (halves, ≤ 30). Emission: reading low costs 0.8 a half (a
+robot in front hides pieces), high 1.0; missing looks cost nothing.
+Transition: hold 0; up 1.2 + 0.4·(d−1) up to `VT_GOAL_UP` 4 a look; down
+3 + (d−1) up to `VT_GOAL_DOWN` 6 (descore). Used for the nine goals in
+`vtSpotCount` (loaders keep the 5-look median: they empty as used) and in
+`vtPinCount` goals mode (baseline = median of the path before the start);
+the field-squares count keeps its median (pins lie loose). 0.5 for low reads
+put stacks a look early; 0.8 does not. `VT_REMAKE` → 154. Tests: t143.
 
 **v153 — lookalikes.** Owner: rebuilds, and the meta robot makes many
 teams look alike; plates are what tell them apart. `vtIdentify` already
