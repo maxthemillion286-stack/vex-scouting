@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v159**. Everything green: 109 test files.
+Current release: **v160**. Everything green: 110 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,29 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v160 (app 2.37–2.38) — pins & cups only on goals and loaders, and boxes
+that fit.** Reported: guesses on loose pieces ("make it so i only have to mark
+towers and loaders"), the yellow boxes off the goals (with a picture), then
+"make it so box sizes are set and i can drag the box over where it should
+be". `spot_column`/`on_spot`/`on_spots`: on a goal a piece must be in its
+column (`COLUMN` 0.44 of the spot width, centred on the foot) and its bottom
+not below the base (+4% of the spot height); a loader is its whole box. Used
+by the colour guesses, `PieceFinder.find_spots` (so tracking's goal counts
+too), training (`pieces_marked`) and clicks (`spotAt`). Goals draw as their
+column. `frame_geom`/`frame_spots`: when the field was marked in the app on a
+saved frame (`fieldrefs.json` {vid: {id, q}}, valid while the stream's mark
+is that q), each other frame is matched to it with `CamFollow` and the mark
+moved; a frame that does not match gets no spots ("not the view the field
+was marked on: skip it"). "Boxes off? Mark the field on this picture" opens
+the field screen on the current frame. Pins mode: boxes are placed at the
+set size on press and dragged into place; a press without moving on a box
+removes it; drag-to-draw is gone. "Move the goals": drag the dotted shapes
+(size kept), "Save goals" → `/api/fmove` → `move_spots` turns the boxes
+into feet (`spot_foot`) and saves the stream's mark on this frame
+(`save_field`, this frame as reference). `flash` messages no longer restore
+each other. Checks: desktop/dev/spots.py (15), browser runs in
+desktop/dev/fieldmark, t149.
 
 **v159 (app 2.36) — mark the field in the app.** Asked: "can i mark the
 field in the app??". Under pins & cups, each stream with reviewed frames but

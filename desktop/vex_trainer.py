@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.36'
+VERSION = '2.38'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -2730,6 +2730,138 @@ def spot_units(W, H, q):
         out.append(round(max(math.hypot(A[0] - M[0], (A[1] - M[1]) / aspect), math.hypot(B[0] - M[0], (B[1] - M[1]) / aspect)) / 0.02 * W, 1))
     return out
 
+COLUMN = 0.44          # a goal's column: this share of its spot's width, centred on the goal (v2.37)
+
+def spot_column(k, sb):
+    """Where a piece must be to be ON goal k (v2.37): in the goal's own column
+    (centred on its foot, a little wider than a pin) and standing on or above
+    its base, not lying on the floor beside or in front of it. Reported:
+    "its automatically marking ones on the loose field though, make it so i
+    only have to mark towers and loaders". → (x0, x1, base y) or None for a
+    loader (a loader is its whole box)."""
+    if k >= N_GOALS or not sb:
+        return None
+    x0, y0, x1, y1 = sb
+    mid, half = (x0 + x1) / 2, COLUMN * (x1 - x0) / 2
+    up, down = SPOTS[k][3], SPOTS[k][4]
+    base = y1 - down / (up + down) * (y1 - y0)
+    return (mid - half, mid + half, base + 0.04 * (y1 - y0))
+
+def on_spot(b, k, sb):
+    """Is box b ([x, y, w, h, …]) a piece on spot k: on the goal (its column,
+    not below its base), or anywhere over the loader?"""
+    if not sb:
+        return False
+    cx, cy = b[0] + b[2] / 2, b[1] + b[3] / 2
+    if not (sb[0] <= cx <= sb[2] and sb[1] <= cy <= sb[3]):
+        return False
+    col = spot_column(k, sb)
+    return col is None or (col[0] <= cx <= col[1] and b[1] + b[3] <= col[2])
+
+_FOLLOW = {}
+def refs_file():
+    return os.path.join(DIRS['data'], 'fieldrefs.json')
+
+def field_ref(vid):
+    """The saved frame a stream's field was marked on in the app, while that
+    mark is still the stream's mark: {'id', 'q'} or None."""
+    try:
+        with open(refs_file()) as f:
+            r = json.load(f).get(vid)
+    except Exception:
+        return None
+    q = quad_for(vid)
+    if not r or not q or [round(v, 3) for v in r.get('q', [])] != [round(v, 3) for v in q]:
+        return None
+    return r if os.path.exists(os.path.join(FRAMES, r['id'] + '.jpg')) else None
+
+def frame_geom(name, frame=None):
+    """The field mark as it sits in one saved frame: (q, placed, W, H), the
+    camera followed from the picture the field was marked on in the app; or
+    None (no mark, no picture, or not that view)."""
+    import cv2
+    vid = name.rsplit('_', 1)[0]
+    q = quad_for(vid)
+    if q is None:
+        return None
+    placed = placed_for(vid)
+    if frame is None:
+        frame = cv2.imread(os.path.join(FRAMES, name + '.jpg'))
+    if frame is None:
+        return None
+    H, W = frame.shape[:2]
+    ref = field_ref(vid)
+    if ref and ref['id'] != name:
+        f = _FOLLOW.get(vid)
+        if not f or f[0] != ref['id']:
+            cf = CamFollow(q)
+            pic = cv2.imread(os.path.join(FRAMES, ref['id'] + '.jpg'))
+            ok_ = pic is not None and cf.set_ref(pic)
+            f = _FOLLOW[vid] = (ref['id'], cf if ok_ else None)
+        if f[1] is not None:
+            Hm = f[1].look(frame)
+            if Hm is None:
+                return None
+            q, placed = f[1].quad_now(Hm), f[1].placed_now(placed, Hm)
+    return q, placed, W, H
+
+def spot_foot(k, sb, W, H):
+    """Where a spot box stands (its goal's or loader's foot), as picture fractions."""
+    up, down = SPOTS[k][3], SPOTS[k][4]
+    return [round(((sb[0] + sb[2]) / 2) / W, 4), round((sb[3] - down / (up + down) * (sb[3] - sb[1])) / H, 4)]
+
+def move_spots(cfg, body):
+    """Goals and loaders dragged into place on one frame (v2.38). Asked: "make
+    it so box sizes are set and i can drag the box over where it should be".
+    Saved as the stream's field mark, on this picture, so every other frame
+    follows the camera from it. → (ok, why not)."""
+    name = str(body.get('id', ''))
+    if not re.fullmatch(r'[A-Za-z0-9_-]+', name):
+        return False, 'bad frame'
+    geo = frame_geom(name)
+    if not geo:
+        return False, 'the field is not marked for this stream yet'
+    q, placed, W, H = geo
+    feet = [list(p) for p in (first_spots(q) or [])]
+    if placed and isinstance(placed.get('g'), list) and len(placed['g']) == 18:
+        for k in range(9):
+            feet[k] = placed['g'][2 * k:2 * k + 2]
+    if placed and isinstance(placed.get('l'), list) and len(placed['l']) == 8:
+        for k in range(4):
+            feet[9 + k] = placed['l'][2 * k:2 * k + 2]
+    for row in body.get('spots') or []:
+        try:
+            k, x0, y0, x1, y1 = int(row[0]), float(row[1]), float(row[2]), float(row[3]), float(row[4])
+        except (TypeError, ValueError, IndexError):
+            continue
+        if 0 <= k < len(SPOTS) and x1 > x0 and y1 > y0:
+            feet[k] = spot_foot(k, [x0, y0, x1, y1], W, H)
+    if len(feet) != len(SPOTS):
+        return False, 'the field mark is not usable'
+    return save_field(cfg, {'vid': name.rsplit('_', 1)[0], 'id': name, 'q': q, 'g': [v for p in feet[:9] for v in p], 'l': [v for p in feet[9:] for v in p],
+                            't': (json.load(open(os.path.join(PROPS, name + '.json'))) if os.path.exists(os.path.join(PROPS, name + '.json')) else {}).get('t')})
+
+def frame_spots(name, frame=None, W=None, H=None):
+    """The goals and loaders in one saved frame (v2.37). The field is marked
+    on one picture; the camera of a stream pans and zooms, and boxes drawn
+    from the mark alone land off the goals on frames from other moments
+    (reported, with a picture: "yellow boxes also arent correct"). When the
+    field was marked on a saved frame here, every other frame of the stream
+    is matched to that picture (as tracking follows the camera) and the mark
+    moved with it. → spot boxes, or [] (no mark, or not this view)."""
+    geo = frame_geom(name, frame)
+    if not geo:
+        return []                                       # no mark, or not the view the field was marked on
+    q, placed, W, H = geo
+    return spot_boxes(W, H, q, placed) or []
+
+def on_spots(b, boxes):
+    """→ the spot box b is a piece on, or -1."""
+    for k, sb in enumerate(boxes or []):
+        if on_spot(b, k, sb):
+            return k
+    return -1
+
 def in_spots(b, boxes):
     """Is a box's middle inside one of the spots? → that spot's index, or -1."""
     cx, cy = b[0] + b[2] / 2, b[1] + b[3] / 2
@@ -2839,8 +2971,10 @@ def pieces_marked():
         q = quad_for(name.rsplit('_', 1)[0])
         if q is None:
             continue
-        sb = spot_boxes(p['w'], p['h'], q, placed_for(name.rsplit('_', 1)[0]))
-        out.append((name, p['w'], p['h'], lab.get('boxes', []), [b for b in clean_pieces(lab['pieces']) if in_spots(b, sb) >= 0], sb))
+        sb = frame_spots(name)
+        if not sb:
+            continue
+        out.append((name, p['w'], p['h'], lab.get('boxes', []), [b for b in clean_pieces(lab['pieces']) if on_spots(b, sb) >= 0], sb))
     return out
 
 def pieces_queue(site=None):
@@ -2876,7 +3010,7 @@ def pieces_from_colour(frame, robots, spots=None):
     W, H, blobs = pin_blobs(frame, robots)
     k = W / frame.shape[1]
     out = [[round((b[0] - b[2] / 2) / k, 1), round((b[1] - b[3]) / k, 1), round(b[2] / k, 1), round(b[3] / k, 1), b[5] - 1] for b in blobs]
-    return [b for b in out if in_spots(b, spots) >= 0] if spots is not None else out
+    return [b for b in out if on_spots(b, spots) >= 0] if spots is not None else out
 
 def pieces_why(site=None):
     """Why there may be nothing to mark pins and cups on (v2.35): frames are
@@ -2898,7 +3032,7 @@ def pieces_why(site=None):
             unmarked[vid] = unmarked.get(vid, 0) + 1
     return {'reviewed': reviewed, 'unmarked': sorted(unmarked.items(), key=lambda kv: -kv[1])[:5]}
 
-def field_frame(vid):
+def field_frame(vid, want=None):
     """The picture to mark a stream's field on: of this stream's saved
     frames, a reviewed one with the most robots (a wide view), else any."""
     import cv2
@@ -2906,6 +3040,8 @@ def field_frame(vid):
         return None
     best = None
     for n in os.listdir(FRAMES):
+        if want and n != want + '.jpg':
+            continue
         if not (n.startswith(vid + '_') and n.endswith('.jpg')):
             continue
         name = n[:-4]
@@ -2956,6 +3092,17 @@ def save_field(cfg, body):
     if not (r and r.get('ok')):
         return False, 'the website said: ' + str((r or {}).get('error') or 'no answer')
     _QUADS[vid] = {'q': field['q'], 'g': field['g'], 'l': field['l'], 't': field.get('t'), 'at': time.time()}
+    fid = str(body.get('id', ''))
+    if re.fullmatch(r'[A-Za-z0-9_-]+', fid) and os.path.exists(os.path.join(FRAMES, fid + '.jpg')):
+        try:
+            with open(refs_file()) as f:
+                refs = json.load(f)
+        except Exception:
+            refs = {}
+        refs[vid] = {'id': fid, 'q': field['q']}
+        with open(refs_file(), 'w') as f:
+            json.dump(refs, f)
+        _FOLLOW.pop(vid, None)
     try:
         with open(os.path.join(DIRS['data'], 'quads.json'), 'w') as f:
             json.dump(_QUADS, f)
@@ -3183,7 +3330,9 @@ class PieceFinder:
                 continue
             x0, y0, x1, y1 = sb
             for b in self.find(frame[y0:y1, x0:x1]):
-                out.append([b[0] + x0, b[1] + y0, b[2], b[3], b[4], b[5], k])
+                fb = [b[0] + x0, b[1] + y0, b[2], b[3], b[4], b[5], k]
+                if on_spot(fb, k, sb):                   # on the goal, not loose beside it (v2.37)
+                    out.append(fb)
         return out
 
     def spot_counts(self, frame, spots):
@@ -3723,9 +3872,11 @@ UI_HTML = r"""<!doctype html><html lang="en"><meta charset="utf-8"><meta name="v
 <main id="rev">
  <div class="top"><button class="ghost" onclick="closeReview()">← Back</button><b id="revLeft"></b><span class="sp"></span>
   <span class="keys" id="rKeys"><kbd>click a box</kbd>remove <kbd>drag</kbd>add a robot <kbd>Enter</kbd>save, next <kbd>S</kbd>not a field view <kbd>Z</kbd>undo <kbd>B</kbd>back one</span>
-  <span class="keys" id="pKeys" style="display:none"><span id="pCls"></span> <kbd>click</kbd>place one <kbd>click a box</kbd>remove <kbd>drag</kbd>exact box <kbd>wheel</kbd>zoom <kbd>Enter</kbd>save <kbd>Z</kbd>undo <kbd>B</kbd>back</span>
+  <span class="keys" id="pKeys" style="display:none"><span id="pCls"></span> <kbd>click</kbd>place one <kbd>drag a box</kbd>move it <kbd>click a box</kbd>remove <kbd>wheel</kbd>zoom <kbd>Enter</kbd>save <kbd>Z</kbd>undo <kbd>B</kbd>back</span>
+  <button class="ghost" id="pMove" style="display:none" onclick="moveGoals()">Move the goals</button>
+  <button class="ghost" id="pRemark" style="display:none" onclick="if(cur&&cur.id)openField(cur.id.replace(/_[^_]*$/,''),cur.id)">Boxes off? Mark the field on this picture</button>
   <button class="ghost" onclick="saveFrame(true)">Skip</button><button onclick="saveFrame(false)">Save, next</button></div>
- <div id="cw" style="overflow:auto;max-height:calc(100vh - 210px)"><canvas id="c"></canvas></div><div class="hint" id="pMsg" style="display:none">Pre-drawn boxes are the colour finder's guesses. Pick a colour (or cup) above or with <kbd>1</kbd>–<kbd>4</kbd>, then <b>click the middle of each pin half</b> of that colour (a red-and-yellow pin is two clicks, one per colour) and the middle of each cup. Click a box to remove it. Only inside the <b>dotted yellow boxes</b>: each stands on a goal or over a loader. Mark every pin half and cup you can see in them, including ones half hidden; nothing else on the field matters. Scroll the mouse wheel over the picture to zoom; drag for an exact box.</div><div class="hint" id="revMsg">Green boxes are what the finder thinks are robots. Box every robot you can see, even partly hidden ones, and nothing else. <b>Two robots touching get one box each:</b> if one green box covers both, click it away and draw two, split at the gap between their drivebases.</div>
+ <div id="cw" style="overflow:auto;max-height:calc(100vh - 210px)"><canvas id="c"></canvas></div><div class="hint" id="pMsg" style="display:none">Pre-drawn boxes are the colour finder's guesses. Pick a colour (or cup) above or with <kbd>1</kbd>–<kbd>4</kbd>, then <b>click the middle of each pin half</b> of that colour (a red-and-yellow pin is two clicks, one per colour) and the middle of each cup. Click a box to remove it. Only on the goals and loaders: each goal is a <b>dotted yellow column</b> (only pieces stacked on it count, not loose ones on the floor beside it), each loader a dotted box. Mark every pin half and cup you can see on them, including ones half hidden. If the dotted shapes are not on the goals, press <b>Boxes off? Mark the field on this picture</b>: every other frame of the stream then follows the camera from it. Scroll the mouse wheel over the picture to zoom; drag for an exact box.</div><div class="hint" id="revMsg">Green boxes are what the finder thinks are robots. Box every robot you can see, even partly hidden ones, and nothing else. <b>Two robots touching get one box each:</b> if one green box covers both, click it away and draw two, split at the gap between their drivebases.</div>
 </main>
 <main id="fld">
  <div class="top"><button class="ghost" onclick="closeField()">← Back</button><b id="fSay"></b><span class="sp"></span>
@@ -3821,12 +3972,14 @@ function openReview(p){pm=!!p;back=[];setZoom(1);inReview=true;$('home').style.d
  $('rKeys').style.display=pm?'none':'';$('pKeys').style.display=pm?'':'none';$('pMsg').style.display=pm?'':'none';$('revMsg').style.display=pm?'none':'';if(pm)clsBar();nextFrame()}
 // Marking the field in the app (v2.36). Asked: "can i mark the field in the app??"
 let F=null;const fc=$('fc'),fx=fc.getContext('2d');
-async function openField(vid){let r;try{r=await api('/api/fframe?vid='+encodeURIComponent(vid))}catch(e){r={error:e.message}}
- $('home').style.display='none';$('fld').style.display='block';inReview=true;
+async function openField(vid,id){let r;try{r=await api('/api/fframe?vid='+encodeURIComponent(vid)+(id?'&id='+encodeURIComponent(id):''))}catch(e){r={error:e.message}}
+ F0=$('rev').style.display==='block'?{back:true}:null;
+ $('home').style.display='none';$('rev').style.display='none';$('fld').style.display='block';inReview=true;
  if(r.error){$('fSay').textContent=r.error;return}
  F={vid,id:r.id,t:r.t,pts:[],spots:null,drag:-1,img:new Image()};$('fSave').disabled=true;
  F.img.onload=()=>{fc.width=F.img.naturalWidth;fc.height=F.img.naturalHeight;drawField()};F.img.src='/img/'+r.id+'.jpg?t='+T;fieldSay()}
-function closeField(){inReview=false;F=null;$('fld').style.display='none';$('home').style.display='block';poll()}
+let F0=null;
+function closeField(){F=null;$('fld').style.display='none';if(F0&&F0.back){F0=null;$('rev').style.display='block';inReview=true;nextFrame(cur&&cur.id)}else{inReview=false;$('home').style.display='block';poll()}}
 function resetField(){if(!F)return;F.pts=[];F.spots=null;$('fSave').disabled=true;fieldSay();drawField()}
 function fieldSay(){$('fSay').textContent=!F?'':F.spots?'Drag each circle onto its real goal or loader, then Save':'Click corner '+(F.pts.length+1)+' of 4'}
 function fpos(e){const r=fc.getBoundingClientRect();return[(e.clientX-r.left)*fc.width/r.width,(e.clientY-r.top)*fc.height/r.height]}
@@ -3843,36 +3996,62 @@ fc.onmousedown=async e=>{if(!F)return;const[px,py]=fpos(e);
 fc.onmousemove=e=>{if(!F||F.drag<0)return;const[px,py]=fpos(e);F.spots[F.drag]=[Math.min(1,Math.max(0,px/fc.width)),Math.min(1,Math.max(0,py/fc.height))];drawField()};
 window.addEventListener('mouseup',()=>{if(F)F.drag=-1});
 async function saveField(){if(!F||!F.spots)return;$('fSave').disabled=true;$('fSay').textContent='Saving…';
- const q=F.pts.flatMap(p=>[p[0]/fc.width,p[1]/fc.height]),r=await api('/api/fsave',{vid:F.vid,q,g:F.spots.slice(0,9).flat(),l:F.spots.slice(9).flat(),t:F.t});
+ const q=F.pts.flatMap(p=>[p[0]/fc.width,p[1]/fc.height]),r=await api('/api/fsave',{vid:F.vid,id:F.id,q,g:F.spots.slice(0,9).flat(),l:F.spots.slice(9).flat(),t:F.t});
  if(r.error){$('fSay').textContent='Not saved: '+r.error;$('fSave').disabled=false;return}
  $('fSay').textContent='Saved to the website. Pins and cups can now be marked on this stream\'s frames.';setTimeout(closeField,1800)}
 function closeReview(){inReview=false;$('rev').style.display='none';$('home').style.display='block';poll()}
-async function nextFrame(id){if(pm)return nextPieces(id);$('revLeft').textContent='Loading the next frame…';c.style.visibility='hidden';try{cur=await api('/api/next'+(id?'?id='+id:''))}catch(e){revTrouble('The app did not answer ('+e.message+').');return}
+async function nextFrame(id){$('pRemark').style.display='none';$('pMove').style.display='none';gm=false;if(pm)return nextPieces(id);$('revLeft').textContent='Loading the next frame…';c.style.visibility='hidden';try{cur=await api('/api/next'+(id?'?id='+id:''))}catch(e){revTrouble('The app did not answer ('+e.message+').');return}
  if(cur.error){revTrouble('Could not load a frame: '+cur.error);return}if(!cur.id){closeReview();return}
  const g=cur.gold||0,goal=g<150?150:g<300?300:Math.ceil((g+1)/150)*150;$('revLeft').textContent=g+' of '+goal+' done'+(g<150?' · '+(150-g)+' to go until it can train':' · enough to train; stop whenever you like');boxes=(cur.boxes||[]).map(b=>b.slice(0,4));hist=[];loadFrame()}
 async function nextPieces(id){$('revLeft').textContent='Loading the next frame…';c.style.visibility='hidden';try{cur=await api('/api/pnext'+(id?'?id='+id:''))}catch(e){revTrouble('The app did not answer ('+e.message+').');return}
  if(cur.error){revTrouble('Could not load a frame: '+cur.error);return}if(!cur.id){closeReview();return}
  const m=cur.marked||0,goal=m<60?60:m<150?150:Math.ceil((m+1)/100)*100;$('revLeft').textContent=m+' of '+goal+' marked'+(m<60?' · '+(60-m)+' to go until it can train':' · enough to train; more makes it better');
+ $('pRemark').style.display='';$('pMove').style.display=(cur.spots||[]).length?'':'none';gm=false;$('pMove').textContent='Move the goals';
+ if(!(cur.spots||[]).length)$('revLeft').textContent='This picture is not the view the field was marked on. Skip it (S), or mark the field on it.';
  boxes=(cur.pieces||[]).map(b=>b.slice(0,5));hist=[];loadFrame()}
 function draw(){x.drawImage(img,0,0);
  if(pm){x.lineWidth=Math.max(1,c.width/1400);x.setLineDash([6,6]);x.strokeStyle='#ffffff55';for(const r of cur.robots||[])x.strokeRect(r[0],r[1],r[2],r[3]);x.setLineDash([]);
   x.lineWidth=Math.max(1.5,c.width/1100);for(const b of boxes){x.strokeStyle=PCOL[b[4]]||'#fff';x.strokeRect(b[0],b[1],b[2],b[3])}
-  x.setLineDash([3,4]);x.lineWidth=Math.max(1.5,c.width/900);x.strokeStyle='#ffd23f';for(const s of cur.spots||[])x.strokeRect(s[0],s[1],s[2]-s[0],s[3]-s[1]);x.setLineDash([]);
+  x.setLineDash([3,4]);x.lineWidth=Math.max(1.5,c.width/900);x.strokeStyle='#ffd23f';if(gm){x.setLineDash([]);x.lineWidth=Math.max(2,c.width/500)}for(const s of cur.spots||[]){if(s.length>8)x.strokeRect(s[6],s[1],s[7]-s[6],s[8]-s[1]);else x.strokeRect(s[0],s[1],s[2]-s[0],s[3]-s[1]);if(gm){x.fillStyle='#ffd23f';x.beginPath();x.arc((s[0]+s[2])/2,s.length>8?s[8]:s[3],Math.max(4,c.width/250),0,7);x.fill()}}x.setLineDash([]);
   if(drag&&drag.w){x.strokeStyle=PCOL[pc];x.strokeRect(drag.x,drag.y,drag.w,drag.h)}return}
  x.lineWidth=Math.max(2,c.width/450);for(const b of boxes){x.strokeStyle='#39ff88';x.strokeRect(b[0],b[1],b[2],b[3])}
  if(drag&&drag.w){x.strokeStyle='#ffd23f';x.strokeRect(drag.x,drag.y,drag.w,drag.h)}}
 function pos(e){const r=c.getBoundingClientRect();return[(e.clientX-r.left)*c.width/r.width,(e.clientY-r.top)*c.height/r.height]}
-c.onmousedown=e=>{const[px,py]=pos(e);drag={x0:px,y0:py,x:px,y:py,w:0,h:0}};
-c.onmousemove=e=>{if(!drag)return;const[px,py]=pos(e);drag.x=Math.min(px,drag.x0);drag.y=Math.min(py,drag.y0);drag.w=Math.abs(px-drag.x0);drag.h=Math.abs(py-drag.y0);draw()};
-window.onmouseup=()=>{if(!drag)return;const d=drag;drag=null;hist.push(boxes.map(b=>b.slice()));
+// Pins & cups (v2.38): a box is a set size for where it is; press on a box and
+// drag to move it, press on a goal or loader to put a new one there and drag
+// it into place; a press without moving on a box removes it. "Move the
+// goals": drag a goal's or loader's dotted shape (its size stays) onto the
+// real one, then Save goals.
+let gm=false;
+async function moveGoals(){if(!cur)return;if(!gm){gm=true;$('pMove').textContent='Save goals';flash('Drag each dotted shape onto its real goal or loader, then press Save goals.');draw();return}
+ const r=await api('/api/fmove',{id:cur.id,spots:(cur.spots||[]).map(s=>[s[5],s[0],s[1],s[2],s[3]])});
+ if(r.error){flash('Not saved: '+r.error);return}gm=false;$('pMove').textContent='Move the goals';flash('Saved. The other frames of this stream follow the camera from this one.');nextFrame(cur.id)}
+function sizedBox(px,py,s){const u=s[4]/3658,w=(pc===3?95:70)*u,h=(pc===3?165:95)*u;return[px-w/2,py-h/2,w,h,pc]}
+function boxAt(px,py){let k=-1,a=1e12;boxes.forEach((b,i)=>{if(px>=b[0]&&px<=b[0]+b[2]&&py>=b[1]&&py<=b[1]+b[3]&&b[2]*b[3]<a){a=b[2]*b[3];k=i}});return k}
+function spotIdx(px,py){return (cur.spots||[]).findIndex(s=>px>=s[0]&&px<=s[2]&&py>=s[1]&&py<=s[3])}
+c.onmousedown=e=>{const[px,py]=pos(e);
+ if(pm&&gm){const k=spotIdx(px,py);if(k>=0)drag={mode:'goal',k,lx:px,ly:py};return}
+ if(pm){const k=boxAt(px,py);hist.push(boxes.map(b=>b.slice()));
+  if(k>=0){drag={mode:'box',k,lx:px,ly:py,x0:px,y0:py,moved:false};return}
+  const s=spotAt(px,py);if(!s){hist.pop();flash('Only on a goal (inside its dotted column) or over a loader. Loose pieces on the floor are not marked.');return}
+  boxes.push(sizedBox(px,py,s));drag={mode:'box',k:boxes.length-1,lx:px,ly:py,x0:px,y0:py,moved:true,fresh:true};draw();return}
+ drag={x0:px,y0:py,x:px,y:py,w:0,h:0}};
+c.onmousemove=e=>{if(!drag)return;const[px,py]=pos(e);
+ if(drag.mode==='goal'){const s=cur.spots[drag.k],dx=px-drag.lx,dy=py-drag.ly;for(const i of [0,2,6,7])if(s[i]!==undefined)s[i]+=dx;for(const i of [1,3,8])if(s[i]!==undefined)s[i]+=dy;drag.lx=px;drag.ly=py;draw();return}
+ if(drag.mode==='box'){const b=boxes[drag.k],dx=px-drag.lx,dy=py-drag.ly;b[0]+=dx;b[1]+=dy;drag.lx=px;drag.ly=py;if(Math.hypot(px-drag.x0,py-drag.y0)>3)drag.moved=true;draw();return}drag.x=Math.min(px,drag.x0);drag.y=Math.min(py,drag.y0);drag.w=Math.abs(px-drag.x0);drag.h=Math.abs(py-drag.y0);draw()};
+window.onmouseup=()=>{if(!drag)return;const d=drag;drag=null;
+ if(d.mode==='goal')return;
+ if(d.mode==='box'){const b=boxes[d.k];if(!d.moved){boxes.splice(d.k,1)}else if(b&&!spotAt(b[0]+b[2]/2,b[1]+b[3]/2)){boxes.splice(d.k,1);flash('Only on a goal (inside its dotted column) or over a loader.')}draw();return}
+ hist.push(boxes.map(b=>b.slice()));
  if(pm&&d.w>=6&&d.h>=6)boxes.push([d.x,d.y,d.w,d.h,pc]);
- else if(pm&&!onBox(d.x0,d.y0)){const s=spotAt(d.x0,d.y0);if(s){const u=s[4]/3658,w=(pc===3?95:70)*u,h=(pc===3?165:95)*u;boxes.push([d.x0-w/2,d.y0-h/2,w,h,pc])}else{hist.pop();flash('Click inside a dotted box: only goals and loaders count.')}}
+ else if(pm&&!onBox(d.x0,d.y0)){const s=spotAt(d.x0,d.y0);if(s){const u=s[4]/3658,w=(pc===3?95:70)*u,h=(pc===3?165:95)*u;boxes.push([d.x0-w/2,d.y0-h/2,w,h,pc])}else{hist.pop();flash('Only on a goal (inside its dotted column) or over a loader. Loose pieces on the floor are not marked.')}}
  else if(!pm&&d.w>8&&d.h>8)boxes.push([d.x,d.y,d.w,d.h]);
  else{let k=-1,a=1e12;boxes.forEach((b,i)=>{if(d.x0>=b[0]&&d.x0<=b[0]+b[2]&&d.y0>=b[1]&&d.y0<=b[1]+b[3]&&b[2]*b[3]<a){a=b[2]*b[3];k=i}});if(k>=0)boxes.splice(k,1);else hist.pop()}draw()};
 // Pins & cups: a click places one of the chosen colour, sized for where it is (v2.25).
 function onBox(x0,y0){return boxes.some(b=>x0>=b[0]&&x0<=b[0]+b[2]&&y0>=b[1]&&y0<=b[1]+b[3])}
-function spotAt(x0,y0){return (cur.spots||[]).find(s=>x0>=s[0]&&x0<=s[2]&&y0>=s[1]&&y0<=s[3])}
-function flash(t){const m=$('pMsg');if(!m)return;const old=m.innerHTML;m.innerHTML='<b>'+t+'</b>';setTimeout(()=>{m.innerHTML=old},1600)}
+// On a goal only in its column, on or above its base; over a loader anywhere in its box (v2.37).
+function spotAt(x0,y0){return (cur.spots||[]).find(s=>s.length>8?x0>=s[6]&&x0<=s[7]&&y0>=s[1]&&y0<=s[8]:x0>=s[0]&&x0<=s[2]&&y0>=s[1]&&y0<=s[3])}
+function flash(t){const m=$('pMsg');if(!m)return;if(m.dataset.base===undefined)m.dataset.base=m.innerHTML;m.innerHTML='<b>'+t+'</b>';clearTimeout(flash.t);flash.t=setTimeout(()=>{m.innerHTML=m.dataset.base},2600)}
 async function saveFrame(skip){if(!cur||!cur.id)return;back.push(cur.id);if(pm)await api('/api/psave',{id:cur.id,skip,pieces:boxes});else await api('/api/save',{id:cur.id,skip,boxes});nextFrame()}
 window.onkeydown=e=>{if(!inReview||dlg.open)return;if(e.key==='Enter'||e.key===' '){e.preventDefault();saveFrame(false)}else if(/^s$/i.test(e.key))saveFrame(true);
  else if(pm&&/^[1-4]$/.test(e.key)){pc=+e.key-1;clsBar()}else if(/^z$/i.test(e.key)){if(hist.length){boxes=hist.pop();draw()}}else if(/^b$/i.test(e.key)){if(back.length)nextFrame(back.pop())}else if(e.key==='Escape')closeReview()};
@@ -4123,10 +4302,11 @@ def serve_ui(cfg, port=8765, open_window=True):
                                         'log': job.lines(), 'progress': job.progress(), 'waiting': len(c['queue']), 'done': c['done'], 'gold': c['gold'], 'workers': cfg.get('workers', 4),
                                         'keep': bool(cfg.get('keep_videos')), 'think': bool(cfg.get('think')), 'pieces': {'marked': P['marked'], 'left': len(P['queue']), 'counted': bool(P['at']), 'why': P.get('why'), 'need': PIECE_NEED, 'last': last_pieces()}, 'speed': cfg.get('max_mbps', 0), 'last': last_train()})
             if u.path == '/api/fframe':
-                vid = urllib.parse.parse_qs(u.query).get('vid', [''])[0]
+                qs_ = urllib.parse.parse_qs(u.query)
+                vid, want = qs_.get('vid', [''])[0], qs_.get('id', [''])[0]
                 if not re.fullmatch(r'[A-Za-z0-9_-]{6,20}', vid):
                     return self._send(400, {'error': 'bad stream'})
-                pick = field_frame(vid)
+                pick = field_frame(vid, want if re.fullmatch(r'[A-Za-z0-9_-]+', want or '') else None)
                 if not pick:
                     return self._send(200, {'error': 'No saved picture from this stream on this computer. Mark it on the website instead.'})
                 return self._send(200, pick)
@@ -4145,7 +4325,7 @@ def serve_ui(cfg, port=8765, open_window=True):
                 robots = lab.get('boxes', [])
                 vid = name.rsplit('_', 1)[0]
                 q = quad_for(vid, qsite())
-                spots = spot_boxes(p['w'], p['h'], q, placed_for(vid)) or []
+                spots = frame_spots(name)
                 units = spot_units(p['w'], p['h'], q) or []
                 if 'pieces' in lab:                      # going back: what was saved
                     pieces = clean_pieces(lab['pieces'])
@@ -4160,7 +4340,7 @@ def serve_ui(cfg, port=8765, open_window=True):
                         except Exception:
                             pieces = pieces_from_colour(frame, robots, spots)
                 return self._send(200, {'id': name, 'w': p['w'], 'h': p['h'], 'pieces': [[round(v, 1) for v in b[:4]] + [int(b[4])] for b in pieces],
-                                        'robots': robots, 'spots': [s + [units[k]] for k, s in enumerate(spots) if s and k < len(units)], 'left': len(P['queue']), 'marked': P['marked']})
+                                        'robots': robots, 'spots': [s + [units[k], k] + list(spot_column(k, s) or []) for k, s in enumerate(spots) if s and k < len(units)], 'left': len(P['queue']), 'marked': P['marked']})
             if u.path == '/api/next':
                 c = counts(wait=True)
                 want = urllib.parse.parse_qs(u.query).get('id', [None])[0]
@@ -4225,6 +4405,9 @@ def serve_ui(cfg, port=8765, open_window=True):
                     return self._send(400, {'error': 'bad corners'})
                 sp = first_spots(q)
                 return self._send(200, {'spots': sp} if sp else {'error': 'Those four points do not make a field. Start again.'})
+            if u.path == '/api/fmove':
+                ok_, why_ = move_spots(cfg, body)
+                return self._send(200, {'ok': True} if ok_ else {'error': why_})
             if u.path == '/api/fsave':
                 ok_, why_ = save_field(cfg, body)
                 if ok_:

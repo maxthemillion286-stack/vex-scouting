@@ -7,7 +7,7 @@ const ok = (name, cond, detail) => { if (cond) { pass++; console.log('  ok   ' +
 const app = fs.readFileSync('../desktop/vex_trainer.py', 'utf8'), src = fs.readFileSync('../src/index.html', 'utf8');
 console.log('t148 — v159');
 ok('a button for each stream that needs it, under pins & cups', /onclick="openField\(/.test(app) && /Mark the field: /.test(app));
-ok('on one of that stream\'s saved frames, a reviewed wide one first', /def field_frame\(vid\):/.test(app) && /score = \(0 if lab\.get\('skip'\) else 1, len\(/.test(app));
+ok('on one of that stream\'s saved frames, a reviewed wide one first', /def field_frame\(vid(, want=None)?\):/.test(app) && /score = \(0 if lab\.get\('skip'\) else 1, len\(/.test(app));
 ok('four corners, then the goals and loaders to drag', /def first_spots\(q\):/.test(app) && /F\.spots\.forEach\(\(p,k\)=>/.test(app) && /fc\.onmousemove=/.test(app));
 ok('saved to the website like a mark made there, with the moment it shows', /def save_field\(cfg, body\):/.test(app) && /r = Site\(cfg\)\.post\(\{'field': field\}\)/.test(app) && /field\['t'\] = round\(float\(t\), 1\)/.test(app));
 ok('frames now keep the moment they were taken', /p\['t'\] = round\(float\(at\), 1\)/.test(app) && /keep_frame\(frame, every, job\['vid'\], hard, steady, at=t\)/.test(app));

@@ -24,7 +24,7 @@ print(srv.url, flush=True)
 for _ in range(80):
     time.sleep(0.5)
     if posted:
-        time.sleep(3); break
+        time.sleep(float(sys.argv[2]) if len(sys.argv) > 2 else 3); break
 print('POSTED', json.dumps(posted), flush=True)
 print('QUAD', json.dumps(T._QUADS.get('Ab3dEfGh1Jk')), flush=True)
 srv.shutdown()
