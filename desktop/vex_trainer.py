@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.39'
+VERSION = '2.40'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -1221,6 +1221,7 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
         # is dropped (the marked picture may simply not be found).
         cam = {'H': None, 'Hinv': None, 'at': -1e9, 'fails': 0, 'view': None, 'checks': 0, 'found': 0, 'moves': 0, 'away': 0.0}
         cur_quad, cur_placed, was_cut, last_n = quad, placed_for(job['vid']), False, 0
+        field_inv = [None, None]
         # v2.30: looks never come less often than LOOKS_PER_SEC; at the moments
         # that decide things (a robot at a goal, two robots touching) they
         # come twice as often, BURST_PER_SEC, for BURST_HOLD seconds after.
@@ -1273,6 +1274,10 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
             every = eyes.detect(frame, PROPOSE)
             cut = learn.get('conf', CONF)
             boxes = [b for b in every if b[4] >= cut and robot_like(b)]
+            if cur_quad and not away:                   # standing off the field: a person, not a robot (v2.40)
+                if field_inv[0] is not cur_quad:
+                    field_inv[:] = [cur_quad, field_inverse(cur_quad)]
+                boxes = [b for b in boxes if on_field(b, field_inv[1], w, h)]
             last_n = len(boxes)
             # v2.29: up to three boxes the finder was less sure of, not on top
             # of a sure one, kept marked as unsure (below `cf`). The website
@@ -1282,6 +1287,8 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
             cf = max(2, jround(cut * 100))
             unsure = sorted((b for b in every if PROPOSE <= b[4] < cut and robot_like(b) and all(iou(b, k) < 0.3 for k in boxes)), key=lambda b: -b[4])[:3]
             unsure = [b[:4] + [min(b[4], (cf - 1) / 100)] + b[5:] for b in unsure]
+            if cur_quad and not away and field_inv[1] is not None:
+                unsure = [b for b in unsure if on_field(b, field_inv[1], w, h)]
             rec['cf'] = cf
             rec['h'] = jround(h * SIZE / w)
             for b, tr in attend(att, boxes, t, w, reads):
@@ -1704,6 +1711,33 @@ def cam_note(cam):
         bits.append('%d s off the field left out' % cam['away'])
     return ' · camera: ' + ', '.join(bits)
 
+def field_inverse(q):
+    """Picture fractions → field units (0..1 inside), for four corners in any
+    order (the same order as quad_fwd). → a function, or None."""
+    import cv2, numpy as np
+    cx, cy = (q[0] + q[2] + q[4] + q[6]) / 4, (q[1] + q[3] + q[5] + q[7]) / 4
+    pts = sorted(((q[i], q[i + 1]) for i in range(0, 8, 2)), key=lambda t: math.atan2(t[1] - cy, t[0] - cx))
+    try:
+        M = cv2.getPerspectiveTransform(np.float32(pts), np.float32([[0, 0], [1, 0], [1, 1], [0, 1]]))
+    except Exception:
+        return None
+    def inv(x, y):
+        d = M[2][0] * x + M[2][1] * y + M[2][2]
+        return (M[0][0] * x + M[0][1] * y + M[0][2]) / d, (M[1][0] * x + M[1][1] * y + M[1][2]) / d
+    return inv
+
+FIELD_MARGIN = 0.06       # how far outside the field's edge a robot's wheels can be seen to stand (8-9 in)
+
+def on_field(b, inv, W, H):
+    """Does box b stand on the field? Its bottom middle, mapped through the
+    field mark, must be inside the field (with a little margin). People, refs
+    and signs stand around it, never on it (v2.40; reported: "its selecting
+    like people sometimes still")."""
+    if inv is None:
+        return True
+    u, v = inv((b[0] + b[2] / 2) / W, (b[1] + b[3]) / H)
+    return -FIELD_MARGIN <= u <= 1 + FIELD_MARGIN and -FIELD_MARGIN <= v <= 1 + FIELD_MARGIN
+
 def key_moment(boxes, goals):
     """A moment worth looking at more often: a robot standing at a goal (its
     foot within a goal's own size of it), or two robots touching (closer than
@@ -1730,6 +1764,197 @@ def share_set(key, frac):
         _SHARE[str(key)] = float(frac)
     except Exception:
         pass
+
+# ── the vision model as a reviewer and a field finder (v2.40) ─────────────
+# Asked: "build as much and utilize as much as you can with it as long as its
+# reasonable". It is far too slow to look at every box of every look (a
+# second or more a question), so it is used where a person's time goes: it
+# reviews saved frames (is each box a robot? any robot without a box?), and
+# finds the field's corners, goals and loaders on a picture for the person to
+# check. Coordinates from Qwen3-VL come as 0-1000 of the picture (pixels of
+# the picture sent are taken too, if a model gives those).
+VLM_WHAT = ['robot', 'person', 'referee or staff', 'field element or game piece', 'sign or screen', 'other']
+
+def vlm_ask(cfg, prompt, schema, jpeg, tokens=400):
+    """One question with one picture, answered as JSON to the schema. → dict or None."""
+    body = {'model': think_model(cfg), 'stream': False, 'keep_alive': '10m', 'format': schema,
+            'options': {'temperature': 0, 'num_predict': tokens},
+            'messages': [{'role': 'user', 'content': prompt, 'images': [base64.b64encode(jpeg).decode('ascii')]}]}
+    if not _THINK['plain']:
+        body['think'] = False
+    try:
+        try:
+            r = ollama_call('/api/chat', body, timeout=240)
+        except urllib.error.HTTPError as e:
+            if e.code == 400 and 'think' in body:
+                _THINK['plain'] = True
+                del body['think']
+                r = ollama_call('/api/chat', body, timeout=240)
+            else:
+                raise
+        got = json.loads((r.get('message') or {}).get('content') or '{}')
+        return got if isinstance(got, dict) else None
+    except Exception:
+        return None
+
+def vlm_point(v, W, H):
+    """A model's [x, y] (0-1000, or pixels of the W×H picture sent) → fractions."""
+    try:
+        x, y = float(v[0]), float(v[1])
+    except (TypeError, ValueError, IndexError):
+        return None
+    if x > 1000 or y > 1000:
+        return [x / W, y / H]
+    return [x / 1000, y / 1000]
+
+def vlm_review_frame(cfg, name):
+    """The model's look at one saved frame: what each of the finder's boxes is,
+    and robots on the field without a box. Kept in the frame's notes (`vlm`).
+    → the notes, or None."""
+    import cv2
+    frame = cv2.imread(os.path.join(FRAMES, name + '.jpg'))
+    try:
+        with open(os.path.join(PROPS, name + '.json')) as f:
+            p = json.load(f)
+    except Exception:
+        return None
+    if frame is None:
+        return None
+    boxes = [b for b in p.get('boxes', []) if b[4] >= 0.35][:8]
+    jpeg, n = think_picture(frame, [list(b[:4]) + [b[4], 0, None, 0] for b in boxes]) if boxes else (None, 0)
+    if not boxes:
+        ok_, buf = cv2.imencode('.jpg', cv2.resize(frame, (1280, int(round(frame.shape[0] * 1280 / frame.shape[1])))), [cv2.IMWRITE_JPEG_QUALITY, 90])
+        jpeg = buf.tobytes() if ok_ else None
+    if not jpeg:
+        return None
+    prompt = ('One frame of a VEX V5 Robotics Competition match, seen from the side of the field. '
+              + ('%d things are outlined in white and numbered; under the frame each is shown again, enlarged. ' % n if n else 'Nothing is outlined. ')
+              + 'A robot is a machine of metal, wheels and motors, about the size of a small suitcase, ON the grey field floor inside the walls, '
+              'with red or blue licence plates. People, referees, drivers holding controllers, signs, screens, the walls, goals and game pieces are not robots.\n'
+              + ('For each numbered outline say what it is, from the list. ' if n else '')
+              + 'Then give "missed": a box [x0, y0, x1, y1] (x and y from 0 to 1000 across and down the whole picture) for every robot ON the field, in the top part, that has NO outline. '
+              'An empty list if there is none. Never put a person in "missed".')
+    schema = {'type': 'object', 'required': ['outlined', 'missed'], 'properties': {
+        'outlined': {'type': 'array', 'minItems': n, 'maxItems': n, 'items': {'type': 'object', 'required': ['n', 'what'], 'properties': {
+            'n': {'type': 'integer', 'minimum': 1, 'maximum': max(1, n)}, 'what': {'type': 'string', 'enum': VLM_WHAT}}}},
+        'missed': {'type': 'array', 'maxItems': 6, 'items': {'type': 'array', 'minItems': 4, 'maxItems': 4, 'items': {'type': 'number'}}}}}
+    got = vlm_ask(cfg, prompt, schema, jpeg, 120 + 30 * n)
+    if not got:
+        return None
+    H, W = frame.shape[:2]
+    pic_h = int(round(H * 1280 / W))                   # the frame's part of the picture sent (the enlargements are under it)
+    sent_h = pic_h + (320 if n else 0)
+    what = ['?'] * n
+    for o in got.get('outlined') or []:
+        try:
+            k = int(o.get('n')) - 1
+        except (TypeError, ValueError):
+            continue
+        if 0 <= k < n and o.get('what') in VLM_WHAT:
+            what[k] = o['what']
+    missed = []
+    for m in (got.get('missed') or [])[:6]:
+        a, b = vlm_point(m[:2], 1280, sent_h), vlm_point(m[2:4], 1280, sent_h)
+        if not a or not b:
+            continue
+        a, b = [a[0], a[1] * sent_h / pic_h], [b[0], b[1] * sent_h / pic_h]     # down the frame, not the whole picture
+        if min(a[1], b[1]) >= 1:
+            continue
+        x0, y0, x1, y1 = min(a[0], b[0]) * W, min(a[1], b[1]) * H, max(a[0], b[0]) * W, max(a[1], b[1]) * H
+        if 8 < x1 - x0 < W * 0.5 and 8 < y1 - y0 < H * 0.6 and all(iou([x0, y0, x1 - x0, y1 - y0], bb) < 0.3 for bb in boxes):
+            missed.append([round(x0, 1), round(y0, 1), round(x1 - x0, 1), round(y1 - y0, 1)])
+    notes = {'boxes': [[round(v, 1) for v in b[:4]] for b in boxes], 'what': what, 'missed': missed, 'at': int(time.time())}
+    p['vlm'] = notes
+    with open(os.path.join(PROPS, name + '.json'), 'w') as f:
+        json.dump(p, f)
+    return notes
+
+def vlm_verdict(notes):
+    """From the model's notes: the robots it would keep, and whether it agrees
+    with the finder outright (every box a robot, none missed, 1 to 6 robots)."""
+    keep = [b for b, w in zip(notes.get('boxes', []), notes.get('what', [])) if w == 'robot'] + notes.get('missed', [])
+    agree = bool(notes.get('boxes')) and all(w == 'robot' for w in notes.get('what', [])) and not notes.get('missed') and 1 <= len(keep) <= 6
+    return keep, agree
+
+def do_vreview(cfg, limit=400):
+    """The vision model goes through the frames waiting for review. Where it
+    and the finder agree outright, the frame is labelled (trained on, never
+    graded on, like the tracker's own certain frames); where they do not, its
+    view is waiting in review: boxes it says are not robots taken away, robots
+    it says were missed added, and those frames come first."""
+    if not ensure_think(cfg):
+        say('The vision model is not ready, so it cannot review.')
+        return
+    q, _ = review_queue()
+    todo = [n for n in q if 'vlm' not in (json.load(open(os.path.join(PROPS, n + '.json'))) if os.path.exists(os.path.join(PROPS, n + '.json')) else {})][:limit]
+    say('\nThe vision model is reviewing %d frames (about %d minutes).' % (len(todo), max(1, round(len(todo) * 4 / 60))))
+    agreed = changed = failed = 0
+    for i, name in enumerate(todo):
+        progress('The vision model is reviewing frames', i, len(todo))
+        notes = vlm_review_frame(cfg, name)
+        if not notes:
+            failed += 1
+            if failed >= 5 and failed > i // 2:
+                say('  the vision model is not answering; stopped.')
+                break
+            continue
+        keep, agree = vlm_verdict(notes)
+        if agree:
+            lab_write(name, skip=False, boxes=keep, by='vlm')
+            agreed += 1
+        else:
+            changed += 1
+        if (i + 1) % 25 == 0:
+            say('  %d looked at: %d agreed with the finder and were labelled, %d left for you with its changes.' % (i + 1, agreed, changed))
+    progress('The vision model is reviewing frames', len(todo), len(todo))
+    say('Done: %d frames labelled where the model and the finder agreed; %d left for you, with what the model thinks already applied.' % (agreed, changed))
+
+def vlm_find_field(cfg, name):
+    """The field's corners, goals and loaders on one saved frame, as the
+    model sees them, for the person to check. → {'pts': 4 × [x, y] pixels,
+    'spots': 13 × [x, y] fractions} or {'error'}."""
+    import cv2
+    if not ensure_think(cfg):
+        return {'error': 'Turn on the vision model in Settings first (it is fetched once).'}
+    frame = cv2.imread(os.path.join(FRAMES, name + '.jpg'))
+    if frame is None:
+        return {'error': 'no picture'}
+    H, W = frame.shape[:2]
+    ph = int(round(H * 1280 / W))
+    ok_, buf = cv2.imencode('.jpg', cv2.resize(frame, (1280, ph)), [cv2.IMWRITE_JPEG_QUALITY, 92])
+    prompt = ('One frame of a VEX V5 Robotics Competition match (the game Override): a square field of grey foam tiles inside low white walls. '
+              'Give, as [x, y] points with x and y from 0 to 1000 across and down the whole picture:\n'
+              '- corners: the four corners of the field floor, where the walls meet the floor (all four, even if one must be estimated);\n'
+              '- goals: the bottom centre of each goal standing on the floor (cone-shaped stands that pins are stacked on; there are nine);\n'
+              '- loaders: the bottom of each match loader (holders at the corners by the walls; there are four).\n'
+              'Leave out what you cannot see. Never give a robot or a person.')
+    pt = {'type': 'array', 'minItems': 2, 'maxItems': 2, 'items': {'type': 'number'}}
+    schema = {'type': 'object', 'required': ['corners', 'goals', 'loaders'], 'properties': {
+        'corners': {'type': 'array', 'minItems': 4, 'maxItems': 4, 'items': pt},
+        'goals': {'type': 'array', 'maxItems': 9, 'items': pt}, 'loaders': {'type': 'array', 'maxItems': 4, 'items': pt}}}
+    got = vlm_ask(cfg, prompt, schema, buf.tobytes(), 500)
+    if not got:
+        return {'error': 'The vision model did not answer. Is Ollama running?'}
+    corners = [vlm_point(c, 1280, ph) for c in got.get('corners') or []]
+    corners = [c for c in corners if c]
+    if len(corners) != 4:
+        return {'error': 'It could not find the four corners. Click them yourself.'}
+    q = [v for c in corners for v in c]
+    first = first_spots(q)
+    if not first:
+        return {'error': 'Its corners do not make a field. Click them yourself.'}
+    spots = [list(p) for p in first]
+    # Each slot takes the nearest point the model gave, nearest pairs first.
+    for lo, hi, key in ((0, N_GOALS, 'goals'), (N_GOALS, len(SPOTS), 'loaders')):
+        found = [p for p in (vlm_point(g, 1280, ph) for g in got.get(key) or []) if p]
+        pairs = sorted((math.hypot(f[0] - spots[k][0], f[1] - spots[k][1]), k, j) for k in range(lo, hi) for j, f in enumerate(found))
+        used_k, used_j = set(), set()
+        for d, k, j in pairs:
+            if k in used_k or j in used_j or d > 0.15:
+                continue
+            used_k.add(k); used_j.add(j)
+            spots[k] = [round(found[j][0], 4), round(found[j][1], 4)]
+    return {'pts': [[c[0] * W, c[1] * H] for c in corners], 'spots': spots}
 
 def make_follow(video, quad, t):
     """A CamFollow for one video: from the picture the field was marked on
@@ -2530,7 +2755,8 @@ def review_queue():
             continue
         if p.get('auto'):                             # kept only to train on: nothing to ask
             continue
-        todo.append((-p.get('hard', 0), hashlib.md5(name.encode()).hexdigest(), name, vid, layout_of(p)))
+        # The vision model disagreed with the finder here: the most to teach, first.
+        todo.append((-p.get('hard', 0) - (100 if p.get('vlm') and not vlm_verdict(p['vlm'])[1] else 0), hashlib.md5(name.encode()).hexdigest(), name, vid, layout_of(p)))
     todo.sort()
     fresh, alike = {}, []
     for _, _, name, vid, lay in todo:
@@ -2639,7 +2865,9 @@ def do_review(cfg, port=8765, open_browser=True):
 
 
 # ── menu: train ─────────────────────────────────────────────────────────────
-def reviewed():
+def reviewed(vlm=False):
+    """Frames a person reviewed (or, with vlm=True, the ones the vision model
+    labelled where it and the finder agreed: trained on, never graded on)."""
     out = []
     if not os.path.isdir(LABELS):
         return out
@@ -2652,7 +2880,7 @@ def reviewed():
                 p = json.load(f)
         except Exception:
             continue
-        if lab.get('skip') or not os.path.exists(os.path.join(FRAMES, name + '.jpg')):
+        if lab.get('skip') or not os.path.exists(os.path.join(FRAMES, name + '.jpg')) or (lab.get('by') == 'vlm') != vlm:
             continue
         out.append((name, p['w'], p['h'], lab.get('boxes', [])))
     return out
@@ -3412,6 +3640,12 @@ def build_dataset():
         put(name, w, h, boxes, part)
         counts[part] += 1
         names.add(name)
+    # Labelled by the vision model where it and the finder agreed (v2.40):
+    # trained on, up to three times as many as a person reviewed, never graded on.
+    for name, w, h, boxes in reviewed(vlm=True)[:3 * max(1, counts['train'])]:
+        put(name, w, h, boxes, 'train')
+        counts['vlm'] = counts.get('vlm', 0) + 1
+        names.add(name)
     pseudo = []
     for n in os.listdir(PROPS):
         name = n[:-5]
@@ -3902,6 +4136,7 @@ UI_HTML = r"""<!doctype html><html lang="en"><meta charset="utf-8"><meta name="v
    <div class="n" id="trackN">&nbsp;</div><button id="bTrack" onclick="start('track')">Start tracking</button></div>
   <div class="card"><h2>2 · Review</h2><p>Fix the boxes on 150 frames, the hardest first. You never need to do them all.</p>
    <div class="n" id="revN">&nbsp;</div><button id="bRev" onclick="openReview(false)">Review robots</button>
+   <button class="ghost" id="bVrev" style="margin-top:6px" onclick="start('vreview')" title="The vision model looks at the waiting frames first: frames where it and the finder agree are done for you, the rest come to you with its changes">Let the vision model review first</button>
    <div class="n" id="pcsN" style="margin-top:10px">&nbsp;</div><button class="ghost" id="bPcs" onclick="openReview(true)">Mark pins &amp; cups</button></div>
   <div class="card"><h2>3 · Train</h2><p>Makes a better robot finder and publishes it only if it wins.</p>
    <div class="n" id="trainN">&nbsp;</div><button id="bTrain" onclick="start('train')">Train</button></div>
@@ -3922,7 +4157,7 @@ UI_HTML = r"""<!doctype html><html lang="en"><meta charset="utf-8"><meta name="v
 </main>
 <main id="fld">
  <div class="top"><button class="ghost" onclick="closeField()">← Back</button><b id="fSay"></b><span class="sp"></span>
-  <button class="ghost" onclick="resetField()">Start again</button><button id="fSave" onclick="saveField()" disabled>Save to the website</button></div>
+  <button class="ghost" id="fFind" onclick="findField()">Find it for me</button><button class="ghost" onclick="resetField()">Start again</button><button id="fSave" onclick="saveField()" disabled>Save to the website</button></div>
  <canvas id="fc"></canvas>
  <div class="hint">Marked once per stream, on a picture of the whole field. Click the four corners of the field (any order), then drag each circle onto the bottom of its real one: <b style="color:#ffe14a">yellow</b> on the nine goals, <b style="color:#ff6bd6">pink</b> on the four match loaders. It is saved to the website, the same as marking it there.</div>
 </main>
@@ -3969,6 +4204,7 @@ function paint(){
   // v2.35: when there is nothing to mark, say why. Reported: the button greyed out, nothing said.
   (Pc.counted===false?'<br><span class="dim">Counting the frames…</span>':!Pc.left&&Pc.why?'<br><span class="warn">'+(!Pc.why.reviewed?'Nothing to mark yet: pins and cups are marked on frames whose robots you have reviewed. Review some robot frames first.':Pc.why.unmarked&&Pc.why.unmarked.length?'Nothing to mark yet: your reviewed frames come from '+(Pc.why.unmarked.length===1?'a stream':'streams')+' whose field is not marked. Mark it here, once a stream:</span><br>'+Pc.why.unmarked.map(u=>'<button class="ghost" style="margin:4px 6px 0 0" onclick="openField(\''+esc(u[0])+'\')">Mark the field: '+esc(u[0])+' ('+u[1]+' frame'+(u[1]===1?'':'s')+')</button>').join('')+'<span>':'Every reviewed frame from a marked stream is done. Review more robot frames to get more.')+'</span>':''));
  $('bPcs').disabled=Pc.counted!==false&&!Pc.left;
+ $('bVrev').disabled=st.busy||!st.think;$('bVrev').title=st.think?'The vision model looks at the waiting frames first: frames where it and the finder agree are done for you, the rest come to you with its changes':'Turn on the vision model in Settings first';
  $('trackN').textContent=st.task==='track'?'Running':' ';
  const need=Math.max(0,150-st.gold);
  const L=st.last,since=L?Math.max(0,st.gold-L.frames):0;
@@ -3978,7 +4214,7 @@ function paint(){
  const pNeed=Math.max(0,((st.pieces||{}).need||60)-((st.pieces||{}).marked||0));
  for(const b of ['bTrack','bTrain','bAdd'])$(b).disabled=st.busy||(b==='bTrain'&&need>0&&pNeed>0)||(b==='bTrack'&&!st.key);
  $('bStop').style.display=st.busy?'':'none';
- const names={think:'Getting the vision model ready',track:'Tracking',train:'Training',add:'Learning from a video',unpublish:'Removing the finder'};
+ const names={vreview:'The vision model is reviewing',think:'Getting the vision model ready',track:'Tracking',train:'Training',add:'Learning from a video',unpublish:'Removing the finder'};
  const last=(st.log.filter(l=>l.trim()).pop()||'').trim();
  const P=st.busy?st.progress:null,box=$('barBox'),eta=$('eta');
  // A real bar: how much is done, and how long is left at the pace so far.
@@ -4022,6 +4258,11 @@ async function openField(vid,id){let r;try{r=await api('/api/fframe?vid='+encode
  F.img.onload=()=>{fc.width=F.img.naturalWidth;fc.height=F.img.naturalHeight;drawField()};F.img.src='/img/'+r.id+'.jpg?t='+T;fieldSay()}
 let F0=null;
 function closeField(){F=null;$('fld').style.display='none';if(F0&&F0.back){F0=null;$('rev').style.display='block';inReview=true;nextFrame(cur&&cur.id)}else{inReview=false;$('home').style.display='block';poll()}}
+// The vision model finds the corners, goals and loaders (v2.40); the person checks them and drags any that are off.
+async function findField(){if(!F)return;$('fFind').disabled=true;$('fSay').textContent='The vision model is looking (up to a minute)…';
+ let r;try{r=await api('/api/ffind',{id:F.id})}catch(e){r={error:e.message}}$('fFind').disabled=false;
+ if(!F)return;if(r.error){$('fSay').textContent=r.error;return}
+ F.pts=r.pts;F.spots=r.spots;$('fSave').disabled=false;$('fSay').textContent='Found. Check every circle: drag any that are not on their goal or loader, then Save';drawField()}
 function resetField(){if(!F)return;F.pts=[];F.spots=null;$('fSave').disabled=true;fieldSay();drawField()}
 function fieldSay(){$('fSay').textContent=!F?'':F.spots?'Drag each circle onto its real goal or loader, then Save':'Click corner '+(F.pts.length+1)+' of 4'}
 function fpos(e){const r=fc.getBoundingClientRect();return[(e.clientX-r.left)*fc.width/r.width,(e.clientY-r.top)*fc.height/r.height]}
@@ -4044,6 +4285,7 @@ async function saveField(){if(!F||!F.spots)return;$('fSave').disabled=true;$('fS
 function closeReview(){inReview=false;$('rev').style.display='none';$('home').style.display='block';poll()}
 async function nextFrame(id){$('pRemark').style.display='none';$('pMove').style.display='none';gm=false;if(pm)return nextPieces(id);$('revLeft').textContent='Loading the next frame…';c.style.visibility='hidden';try{cur=await api('/api/next'+(id?'?id='+id:''))}catch(e){revTrouble('The app did not answer ('+e.message+').');return}
  if(cur.error){revTrouble('Could not load a frame: '+cur.error);return}if(!cur.id){closeReview();return}
+ if(cur.vlm)setTimeout(()=>{const v=cur.vlm,bits=[];if(v.removed&&v.removed.length)bits.push('took away '+v.removed.length+' ('+v.removed.join(', ')+')');if(v.added)bits.push('added '+v.added+' it thinks the finder missed');if(bits.length)$('revLeft').textContent+=' · The vision model '+bits.join(' and ')+'. Check them.'},0);
  const g=cur.gold||0,goal=g<150?150:g<300?300:Math.ceil((g+1)/150)*150;$('revLeft').textContent=g+' of '+goal+' done'+(g<150?' · '+(150-g)+' to go until it can train':' · enough to train; stop whenever you like');boxes=(cur.boxes||[]).map(b=>b.slice(0,4));hist=[];loadFrame()}
 async function nextPieces(id){$('revLeft').textContent='Loading the next frame…';c.style.visibility='hidden';try{cur=await api('/api/pnext'+(id?'?id='+id:''))}catch(e){revTrouble('The app did not answer ('+e.message+').');return}
  if(cur.error){revTrouble('Could not load a frame: '+cur.error);return}if(!cur.id){closeReview();return}
@@ -4405,11 +4647,16 @@ def serve_ui(cfg, port=8765, open_window=True):
                 if pic is not None:
                     p['h'], p['w'] = pic.shape[:2]
                 boxes = [b for b in p['boxes'] if b[4] >= 0.35]
+                said = None
+                if p.get('vlm'):                         # what the vision model thought, already applied (v2.40)
+                    keep, _ = vlm_verdict(p['vlm'])
+                    gone = [w for w in p['vlm'].get('what', []) if w != 'robot' and w != '?']
+                    boxes, said = [b[:4] + [1.0] for b in keep], {'removed': gone, 'added': len(p['vlm'].get('missed', []))}
                 lab = os.path.join(LABELS, name + '.json')
                 if os.path.exists(lab):                  # going back: show what was saved
                     with open(lab) as f:
                         boxes = json.load(f).get('boxes', boxes)
-                return self._send(200, {'id': name, 'w': p['w'], 'h': p['h'], 'boxes': boxes, 'left': len(c['queue']), 'done': c['done'], 'gold': c['gold']})
+                return self._send(200, {'id': name, 'w': p['w'], 'h': p['h'], 'boxes': boxes, 'vlm': said, 'left': len(c['queue']), 'done': c['done'], 'gold': c['gold']})
             self._send(404, {})
         def do_POST(self):
             try:
@@ -4441,6 +4688,13 @@ def serve_ui(cfg, port=8765, open_window=True):
                     c['done'] += 1
                     c['gold'] += 0 if body.get('skip') else 1
                 return self._send(200, {'ok': True})
+            if u.path == '/api/ffind':
+                name = str(body.get('id', ''))
+                if not re.fullmatch(r'[A-Za-z0-9_-]+', name):
+                    return self._send(400, {'error': 'bad frame'})
+                if not cfg.get('think'):
+                    return self._send(200, {'error': 'Turn on the vision model in Settings first.'})
+                return self._send(200, vlm_find_field(cfg, name))
             if u.path == '/api/fspots':
                 q = body.get('q')
                 if not (isinstance(q, list) and len(q) == 8 and all(isinstance(v, (int, float)) for v in q)):
@@ -4513,6 +4767,10 @@ def serve_ui(cfg, port=8765, open_window=True):
                     args = ['--train']
                 elif task == 'unpublish':
                     args = ['--unpublish']
+                elif task == 'vreview':
+                    if not cfg.get('think'):
+                        return self._send(200, {'error': 'Turn on the vision model in Settings first.'})
+                    args = ['--vreview']
                 elif task == 'add':
                     src = str(body.get('src', '')).strip()
                     if not src:
@@ -4634,6 +4892,8 @@ def main():
             train_auto(cfg)
         elif args[0] == '--unpublish':
             unpublish(cfg)
+        elif args[0] == '--vreview':
+            do_vreview(cfg)
         elif args[0] == '--think-setup':
             say('The vision model is ready. It will be used the next time matches are tracked.' if ensure_think(cfg) else 'The vision model is not ready; tracking goes on without it.')
         else:
