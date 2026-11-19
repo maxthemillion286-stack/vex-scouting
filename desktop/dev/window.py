@@ -82,7 +82,27 @@ check('only one count runs at a time, however often the status is asked', True)
 srv.shutdown()
 T.pieces_queue, T.review_queue = real_pq, real_rq
 
+# The review screen: a garbled picture is set aside, a good one is sized by the picture itself.
+import cv2, numpy as np
+T.pieces_queue, T.review_queue = real_pq, real_rq
+good = cv2.imread(sys.argv[1]) if len(sys.argv) > 1 else np.random.default_rng(2).integers(0, 255, (360, 640, 3), dtype=np.uint8)
+bad = good.copy(); bad[good.shape[0] // 3:] = bad[good.shape[0] // 3:good.shape[0] // 3 + 1]; bad[good.shape[0] // 3:, ::7] = 40
+T.keep_frame(bad, [[10, 10, 50, 50, 0.4, 1, None, 0]], 'vidbrokenAA', 3)
+check('a garbled picture is never kept for review', not any(n.startswith('vidbrokenAA') for n in os.listdir(T.PROPS)))
+T.keep_frame(good, [[10, 10, 50, 50, 0.4, 1, None, 0]], 'vidgoodBBBB', 3)
+name = [n[:-5] for n in os.listdir(T.PROPS) if n.startswith('vidgoodBBBB')][0]
+pp = json.load(open(os.path.join(T.PROPS, name + '.json'))); pp['w'] = None; json.dump(pp, open(os.path.join(T.PROPS, name + '.json'), 'w'))
+cv2.imwrite(os.path.join(T.FRAMES, 'vidbrokenCC_x1.jpg'), bad); json.dump({'w': 640, 'h': 360, 'hard': 9, 'boxes': []}, open(os.path.join(T.PROPS, 'vidbrokenCC_x1.json'), 'w'))
+srv2 = T.serve_ui({'site': 'http://127.0.0.1:1', 'key': '', 'workers': 2}, port=18766, open_window=False)
+req = urllib.request.Request(srv2.url.split('/?')[0] + '/api/next', headers={'X-Token': srv2.token})
+with urllib.request.urlopen(req, timeout=20) as r:
+    nx = json.loads(r.read().decode())
+check('one already garbled is set aside and the next one comes', nx.get('id') == name and T.lab_read('vidbrokenCC_x1').get('broken'), str(nx.get('id')))
+check('with the picture\'s own size, whatever was saved beside it', nx.get('w') == good.shape[1] and nx.get('h') == good.shape[0], str((nx.get('w'), nx.get('h'))))
+srv2.shutdown()
 ui = T.UI_HTML
+check('the window sizes the picture from the picture', 'img.naturalWidth||cur.w' in ui and "c.style.visibility='hidden'" in ui)
+check('and says it is loading instead of showing a black box', 'Loading the next frame…' in ui)
 check('the window never sends a new status ask before the last one came back', 'polling' in ui and 'setInterval(()=>{if(!inReview)poll()},1000)' not in ui)
 check('version 2.27 or later', T.VERSION >= '2.27')
 print('window checks: %d ok, %d failing' % (ok, fail))

@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v155**. Everything green: 105 test files.
+Current release: **v156**. Everything green: 106 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,20 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v156 (app 2.33) — review screen: blank box, streaks.** Reported with
+screenshots: an empty black 300×150 box, then a 300×150 box of yellow
+streaks with a green box. 300×150 is a canvas left at its default size
+(`c.width = cur.w` with a missing/invalid saved size) showing the picture's
+corner. Now `loadFrame` sizes the canvas from `img.naturalWidth/Height`
+(boxes, robots and spots rescaled if the saved width differs), hides the
+canvas until the picture is drawn, and the counter says "Loading the next
+frame…" while `/api/next` works. `looks_broken(frame)` (> 25% of rows the
+same as the row above while not flat: a decoder smear) is skipped in
+tracking and `keep_frame`; `/api/next` sets an already-saved garbled frame
+aside (`broken: True`, up to 40 in a row) and reports the picture's real
+size. Not reproduced on the owner's frames. Checks: desktop/dev/window.py
+(18), t145.
 
 **v155 (app 2.32) — frames the tracker labels itself.** Pseudo-labels
 already joined training (4 boxes ≥ 0.6, ≤ 2× reviewed, never in val). Now
