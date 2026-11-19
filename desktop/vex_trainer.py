@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.31'
+VERSION = '2.32'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -972,8 +972,10 @@ def attend(att, boxes, t, w, n):
 
 
 # ── frames kept for training ────────────────────────────────────────────────
-def keep_frame(frame, boxes, tag, hard):
-    """Save a picture with the finder's suggestions, for review later."""
+def keep_frame(frame, boxes, tag, hard, steady=None, auto=False):
+    """Save a picture with the finder's suggestions, for review later.
+    `steady`: the four robots in it were where the look before put them (v2.32);
+    `auto`: kept only to train on, never asked about in review."""
     import cv2
     for d in (FRAMES, PROPS, LABELS):
         os.makedirs(d, exist_ok=True)
@@ -984,7 +986,32 @@ def keep_frame(frame, boxes, tag, hard):
     cv2.imwrite(path, frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
     h, w = frame.shape[:2]
     with open(os.path.join(PROPS, name + '.json'), 'w') as f:
-        json.dump({'w': w, 'h': h, 'hard': hard, 'boxes': [[round(b[0], 1), round(b[1], 1), round(b[2], 1), round(b[3], 1), round(b[4], 3)] for b in boxes]}, f)
+        p = {'w': w, 'h': h, 'hard': hard, 'boxes': [[round(b[0], 1), round(b[1], 1), round(b[2], 1), round(b[3], 1), round(b[4], 3)] for b in boxes]}
+        if steady is not None:
+            p['steady'] = 1 if steady else 0
+        if auto:
+            p['auto'] = 1
+        json.dump(p, f)
+
+AUTO_PER_MATCH, AUTO_GAP, AUTO_MAX = 6, 15, 1500
+
+def steady_four(boxes, before, unsure, w):
+    """A look the tracker is certain of (v2.32): exactly four sure robots, two
+    of each colour, nothing unsure about, and each robot within 3% of the
+    picture's width of where it was a look ago, much the same size."""
+    if len(boxes) != 4 or unsure or sorted(b[5] for b in boxes) != [1, 1, 2, 2] or len(before) != 4:
+        return False
+    for b in boxes:
+        cx, cy = b[0] + b[2] / 2, b[1] + b[3] / 2
+        if not any(abs(cx - (a[0] + a[2] / 2)) < 0.03 * w and abs(cy - (a[1] + a[3] / 2)) < 0.03 * w and 0.75 < b[2] / max(1, a[2]) < 1.33 for a in before):
+            return False
+    return True
+
+def auto_count():
+    try:
+        return sum(1 for n in os.listdir(PROPS) if n.endswith('.json') and '"auto": 1' in open(os.path.join(PROPS, n)).read(200))
+    except Exception:
+        return 0
 
 def hardness(boxes):
     """How much a person's look would teach: unsure boxes, or not four robots."""
@@ -1147,6 +1174,8 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
             return None, 'past the end of the video', 0
         video.seek(start)
         att, robot_looks, clock_at, checked, kept, next_keep, misses, pin_at = [], 0, -1e9, False, 0, start + 6, 0, -1e9
+        before, auto_kept, next_auto = [], 0, start + LEAD + 5
+        auto_room = [AUTO_MAX - auto_count()] if harvest else [0]
         spot_at, spots = -1e9, None
         # The stream's own score (v2.31), a check and never the truth: live
         # scorers make mistakes and some events show none. Read every second
@@ -1310,12 +1339,21 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
                 if not tried_find and job.get('round') == 2:
                     redo = t
                 break
+            steady = steady_four(boxes, before, unsure, w)
+            before = boxes
             if harvest and kept < 10 and t >= next_keep and every:
                 hard = hardness(every)
                 if hard or kept < 4:
-                    keep_frame(frame, every, job['vid'], hard)
+                    keep_frame(frame, every, job['vid'], hard, steady)
                     kept += 1
                     next_keep = t + (6 if hard else 14)
+            # Frames to train on that nobody has to look at (v2.32): only looks
+            # the tracker is certain of, spread through the match.
+            if harvest and steady and not away and auto_kept < AUTO_PER_MATCH and t >= next_auto and auto_room[0] > 0:
+                keep_frame(frame, boxes, job['vid'], 0, True, auto=True)
+                auto_kept += 1
+                auto_room[0] -= 1
+                next_auto = t + AUTO_GAP
         if redo is not None:
             tried_find = True
             found = find_match(video, eyes, job, spacing, redo)
@@ -2419,6 +2457,8 @@ def review_queue():
         if name in done:
             seen.append((vid, layout_of(p)))
             continue
+        if p.get('auto'):                             # kept only to train on: nothing to ask
+            continue
         todo.append((-p.get('hard', 0), hashlib.md5(name.encode()).hexdigest(), name, vid, layout_of(p)))
     todo.sort()
     fresh, alike = {}, []
@@ -3035,9 +3075,12 @@ def build_dataset():
                 p = json.load(f)
         except Exception:
             continue
-        if len(p['boxes']) == 4 and all(b[4] >= 0.6 for b in p['boxes']):
-            pseudo.append((name, p['w'], p['h'], p['boxes']))
+        # v2.32: a frame the tracker marked as not steady (its robots were not
+        # where the look before had them) is not trusted to train on.
+        if len(p['boxes']) == 4 and all(b[4] >= 0.6 for b in p['boxes']) and p.get('steady', 1):
+            pseudo.append((0 if p.get('steady') else 1, name, p['w'], p['h'], p['boxes']))
     random.Random(7).shuffle(pseudo)
+    pseudo = [x[1:] for x in sorted(pseudo, key=lambda x: x[0])]      # steady ones first
     for name, w, h, boxes in pseudo[:2 * max(1, counts['train'])]:
         put(name, w, h, boxes, 'train')
         counts['pseudo'] += 1
