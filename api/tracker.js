@@ -94,7 +94,9 @@ export function validRec(rec) {
     if (!Array.isArray(fr) || fr.length > 2 + per * 40 || !fr.every(v => Number.isInteger(v) && v > -100000 && v < 100000)) return 'bad frame';
     if (fr.length < 2 || fr.length !== 2 + per * fr[1]) return 'bad frame length';
   }
-  const allowed = ['v', 'name', 'round', 'num', 'red', 'blue', 'rs', 'bs', 'vid', 'off', 'rate', 'w', 'h', 'model', 'at', 'f', 'wide', 'tm', 'pn', 'pw', 'ph', 'tg', 'vo', 'cu', 'pf', 'gs', 'cf'];
+  const allowed = ['v', 'name', 'round', 'num', 'red', 'blue', 'rs', 'bs', 'vid', 'off', 'rate', 'w', 'h', 'model', 'at', 'f', 'wide', 'tm', 'pn', 'pw', 'ph', 'tg', 'vo', 'cu', 'pf', 'gs', 'cf', 'sc'];
+  // The stream's own score as read (v152): [tenths, red, blue] a look, -1 unreadable. A check, never the truth.
+  if (rec.sc != null && !(Array.isArray(rec.sc) && rec.sc.length <= 1200 && rec.sc.length % 3 === 0 && rec.sc.every(v => Number.isInteger(v) && v >= -1 && v < 100000))) return 'bad score';
   // The finder's threshold when it was recorded (v150): boxes below it are unsure ones.
   if (rec.cf != null && !(Number.isInteger(rec.cf) && rec.cf >= 1 && rec.cf <= 100)) return 'bad threshold';
   // Pins and cups on each goal and loader: [tenths, then 13 spots × (red, blue, yellow halves, cups)].

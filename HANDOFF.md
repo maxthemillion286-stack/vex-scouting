@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v151**. Everything green: 101 test files.
+Current release: **v152**. Everything green: 102 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,22 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v152 (app 2.31) — the stream's score, as a check.** Owner: live scorers
+make mistakes and some events show none. App: while `learn['score']` is
+unknown and the job has official finals (not a tie), every 3 s all numbers on
+screen (`score_text`, 1–3 digits) are kept by place; at the end
+`score_spots` takes the places that showed red's and blue's official finals
+in the last 40 s → `learn['score']` (per video chunk only, never uploaded)
+and that match's readings. With a place known, `number_at` reads both every
+second → `rec.sc` [tenths, red, blue] (−1 unreadable; server validates). A
+match whose last 40 readings miss the official finals forgets the place.
+Website: `vtScoreFlow` believes a value read twice running, rejects the match
+if > 30% unreadable or the held value near the end ≠ official `rs/bs`, and
+gives net points in autonomous and each driver third → alliance fields
+`sa/s1/s2/s3`, top-level `sl: 1`. Report: "When its alliance scores" (≥ 3
+such matches). Not used to change pin counts. `VT_REMAKE` → 152. Checks:
+desktop/dev/score.py (8), t141.
 
 **v151 (app 2.30) — more looks at key moments.** Asked to keep the usual
 rate and still see fast teams better. `LOOKS_PER_SEC` 6 stays the least;

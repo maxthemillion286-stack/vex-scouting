@@ -3714,7 +3714,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v151';
+const APP_BUILD = 'v152';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -10019,6 +10019,27 @@ function vtPhases(bins, wide, clock) {
   return { start, driver, end: Math.min(bins[bins.length - 1].t, driver + 105), clock: !!byClock };
 }
 // One match → its summary.
+// The stream's own score, read by the app every second (rec.sc: [tenths,
+// red, blue], -1 unreadable). Live scorers make mistakes, fix them later, and
+// some events show no score at all, so it is only used when it ENDED on the
+// official final for both alliances; even then a single reading never
+// counts: each value must hold for two readings running. → for red and blue,
+// [autonomous, driver thirds 1–3] points gained, or null.
+function vtScoreFlow(rec, ph) {
+  const a = rec && rec.sc;
+  if (!Array.isArray(a) || a.length < 30 || rec.rs == null || rec.bs == null || !ph) return null;
+  const rows = [];
+  for (let i = 0; i + 2 < a.length; i += 3) rows.push({ t: a[i] / 10, v: [a[i + 1], a[i + 2]] });
+  // A value is believed once it is read twice running; until then the last believed one stands.
+  const held = [0, 1].map(k => { let cur = null, prev = null; return rows.map(r => { const v = r.v[k]; if (v >= 0 && v === prev) cur = v; prev = v; return cur; }); });
+  const end = ph.end, near = rows.map((r, i) => i).filter(i => rows[i].t >= end - 15 && rows[i].t <= end + 25);
+  const final = k => { const vs = near.map(i => held[k][i]).filter(v => v != null); return vs.length ? vs[vs.length - 1] : null; };
+  const unread = rows.filter(r => r.v[0] < 0 || r.v[1] < 0).length / rows.length;
+  if (unread > 0.3 || final(0) !== rec.rs || final(1) !== rec.bs) return null;
+  const at = (k, t) => { let v = 0; for (let i = 0; i < rows.length && rows[i].t <= t; i++) if (held[k][i] != null) v = held[k][i]; return v; };
+  const d = (ph.end - ph.driver) / 3, marks = [ph.start, ph.driver, ph.driver + d, ph.driver + 2 * d, ph.end + 5];
+  return [0, 1].map(k => [0, 1, 2, 3].map(j => at(k, marks[j + 1]) - at(k, marks[j])));
+}
 function vtSummarise(rec, quad, learn) {
   const F = vtFrames(rec, quad, learn);
   // vid and of (where the match is in which video) are what a clip is cut from.
@@ -10128,6 +10149,11 @@ function vtSummarise(rec, quad, learn) {
   const A = side(1), Z = side(2);
   const { ra: Ra, rb: Rb, ...Rall } = A, { ra: Ba, rb: Bb, ...Ball } = Z;
   vtSeenJoin(F.acts, slotted, { 1: [Ra, Rb], 2: [Ba, Bb] });
+  // When the points came (v152), from the stream's own score, only when it
+  // ended on the official final: sa in autonomous, s1–s3 in each third of
+  // driver control (net, so a descore counts against).
+  const flow = vtScoreFlow(rec, ph);
+  if (flow) for (const [o, k] of [[Rall, 0], [Ball, 1]]) { o.sa = flow[k][0]; o.s1 = flow[k][1]; o.s2 = flow[k][2]; o.s3 = flow[k][3]; }
   // The game's own measures, only where the field is known.
   if (F.field && axis) {
     try {
@@ -10200,7 +10226,7 @@ function vtSummarise(rec, quad, learn) {
   if (F.field && axis && rec.tg && rec.tg.length) {
     try { const at = vtToggleAuto(rec, ph); if (at) { Ra.tga = Rb.tga = at[1]; Ba.tga = Bb.tga = at[2]; } } catch (e) {}
   }
-  return { ...base, ok: 1, rv: VT_REMAKE, lps: Math.round(lps * 10) / 10, st: ph.start, dr: ph.driver, ck: ph.clock ? 1 : 0, ...pins, R: Rall, B: Ball, Ra, Rb, Ba, Bb };
+  return { ...base, ok: 1, rv: VT_REMAKE, lps: Math.round(lps * 10) / 10, st: ph.start, dr: ph.driver, ck: ph.clock ? 1 : 0, ...(flow ? { sl: 1 } : {}), ...pins, R: Rall, B: Ball, Ra, Rb, Ba, Bb };
 }
 
 // ── Keeping summaries: on the device, and shared ───────────────────────────
@@ -10305,7 +10331,7 @@ function vtReportSeen(S) {
 // the recordings are in the shared store too, so whichever device opens a
 // report fetches the ones it needs, makes the summaries again, keeps them, and
 // (with the admin key) shares them.
-const VT_REMAKE = 150;      // v150: unsure boxes carry on missing robots, whole-match slots, smoothed; v148: robots followed by speed and heading; v145/146: stacking timed at the goal (vs, vh)      // v136: pins counted on the goals as well (oy, oa, …)
+const VT_REMAKE = 152;      // v152: when the points came, from the stream's score; v150: unsure boxes carry on missing robots, whole-match slots, smoothed; v148: robots followed by speed and heading; v145/146: stacking timed at the goal (vs, vh)      // v136: pins counted on the goals as well (oy, oa, …)
 const vtStale = s => !!(s && s.ok && (s.rv || 0) < VT_REMAKE);
 const vtRefreshTried = new Set();
 async function vtSumsRefresh(sums, limit) {
@@ -10508,7 +10534,10 @@ function vtReport(number, sums) {
     if (pinLine.avg > pinLine.other * 1.25 && pinLine.avg - pinLine.other >= 1) pinGood.push(`Stacks more yellow than the robots it faces (${pinLine.avg.toFixed(1)} halves a match to their ${pinLine.other.toFixed(1)}).`);
     else if (pinLine.avg < pinLine.other * 0.75 && pinLine.other - pinLine.avg >= 1) pinWeak.push(`Stacks less yellow than the robots it faces (${pinLine.avg.toFixed(1)} halves a match to their ${pinLine.other.toFixed(1)}).`);
   }
-  return { n, total, own: isOwn, how: rows.how, picked: rows.own.length, wins: W.length, losses: L.length, vis: vtAvg(col(rows.mine, 'vis')), game, autoFacts, seen: isOwn ? vtSeenOf(rows.own) : null, pins: pinLine,
+  // When its alliance's points come (v152), from streams whose live score ended on the official final.
+  const fl = rows.mine.filter(r => r.sa != null && r.s1 != null && r.s2 != null && r.s3 != null);
+  const flow = fl.length >= 3 ? { n: fl.length, v: ['sa', 's1', 's2', 's3'].map(k => vtAvg(col(fl, k))) } : null;
+  return { n, total, own: isOwn, how: rows.how, picked: rows.own.length, wins: W.length, losses: L.length, vis: vtAvg(col(rows.mine, 'vis')), game, autoFacts, seen: isOwn ? vtSeenOf(rows.own) : null, pins: pinLine, flow,
     lines: { good: pinGood.concat(game.strong, good), weak: pinWeak.concat(game.weak), auto, habits, lose: lose.slice(0, 3).map(x => x.text), use } };
 }
 // The autonomous, in words and (only for a routine it really repeats) as a replay.
@@ -10538,6 +10567,15 @@ function vtReportRole(G) {
     <div class="vr-cap">Share of driver control. ${T.n ? `The other ${vtPct(rest)} is driving, loading and midfield.` : 'Goal time appears in a moment: its older matches are being read again.'} Its own toggle is the one on its drivers’ wall.</div>
     ${G.toggles.length ? `<ul class="vr-list">${G.toggles.map(t => `<li>${esc(t)}</li>`).join('')}</ul>` : ''}</div>`;
 }
+// When the points come, in autonomous and each third of driver control.
+function vtReportFlow(F) {
+  if (!F) return '';
+  const names = ['Autonomous', 'Driver, first third', 'Driver, middle third', 'Driver, last third'];
+  const top = Math.max(1, ...F.v.map(v => Math.abs(v || 0)));
+  const bars = names.map((name, k) => { const v = F.v[k] || 0; return `<div class="vr-time-row"><span>${name}</span><b><i style="width:${Math.round(100 * Math.max(0, v) / top)}%"></i></b><em>${v >= 0 ? '' : '−'}${Math.abs(Math.round(v))} pts</em></div>`; }).join('');
+  return `<div class="vr-sec"><div class="vr-h">When its alliance scores</div><div class="vr-time">${bars}</div>
+    <div class="vr-cap">Points its alliance gained in each part of the match, net (a descore counts against), averaged over ${F.n} matches. Read from the stream's live score, and only from matches where it ended on the official final, since live scoring can be wrong.</div></div>`;
+}
 function vtReportHtml(number, rep) {
   const sec = (title, items, empty) => `<div class="vr-sec"><div class="vr-h">${title}</div>${items.length
     ? `<ul class="vr-list">${items.map(t => `<li>${esc(t)}</li>`).join('')}</ul>` : `<div class="vr-none">${empty}</div>`}</div>`;
@@ -10564,6 +10602,7 @@ function vtReportHtml(number, rep) {
       ${vtReportAuto(rep, L)}
       ${rep.pins && rep.pins.text ? `<div class="vr-sec"><div class="vr-h">Scoring, in full</div><ul class="vr-list"><li>${esc(rep.pins.text)}</li></ul></div>` : ''}
       ${rep.game && rep.game.n >= 3 ? vtReportRole(rep.game) : ''}
+      ${vtReportFlow(rep.flow)}
       ${vtReportSeen(rep.seen)}
       ${rep.game && rep.game.n >= 3 ? `<div class="vr-sec"><div class="vr-h">Where it plays</div>${rep.game.where && rep.game.where[0] ? `<ul class="vr-list"><li>${esc(rep.game.where[0])}</li></ul>` : ''}${vtFieldSvg(rep.game.heat, null)}<div class="vr-cap">Driver control. Colour marks where it is more than usual; places it only drives through stay dark. ${VT_FIELD_KEY}</div></div>` : ''}
       ${sec('Does repeatedly', L.habits, 'No habit shows up in seven matches out of ten.')}
