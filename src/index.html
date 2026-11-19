@@ -3714,7 +3714,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v148';
+const APP_BUILD = 'v149';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -4512,7 +4512,8 @@ function rwEmbedSrc(cal, seconds) {
           : `https://player.vimeo.com/video/${cal.videoId}?autoplay=1`);
     return `${base}#t=${seconds}s`;
   }
-  return `https://www.youtube.com/embed/${cal.videoId}?start=${seconds}&autoplay=1`;
+  // enablejsapi: so Mark the field can ask it which moment it is paused on (v149).
+  return `https://www.youtube.com/embed/${cal.videoId}?start=${seconds}&autoplay=1&enablejsapi=1`;
 }
 
 function rwWatchUrl(cal, seconds) {
@@ -10743,10 +10744,34 @@ async function vtFieldGet(vid) {
   try { const r = await vtApi('GET', '?field=' + encodeURIComponent(vid)); if (r.ok && r.body.field && Array.isArray(r.body.field.q)) { all[vid] = r.body.field; await idbSet(VT_FIELDS_KEY, all); return all[vid]; } } catch (e) {}
   return all[vid] || null;
 }
+// v149: which moment of the stream the field was marked on, so the tracking
+// app can find that picture again and follow the camera from it (pans, zooms,
+// close-ups). Asked of the paused YouTube player by message (its iframe API
+// answers "infoDelivery" with currentTime); null if it does not answer.
+function vtMarkTime(vid) {
+  return new Promise(res => {
+    const fr = document.querySelector('#rwPlayer .rw-embed iframe');
+    if (!fr || !fr.contentWindow || !/^https:\/\/www\.youtube\.com\/embed\//.test(fr.src || '') || (vid && (fr.src || '').indexOf('/embed/' + vid) < 0)) return res(null);
+    let done = false;
+    const end = v => { if (done) return; done = true; window.removeEventListener('message', on); res(v); };
+    const on = ev => {
+      if (ev.origin !== 'https://www.youtube.com' || ev.source !== fr.contentWindow) return;
+      let d = null; try { d = typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data; } catch (e) { return; }
+      const t = d && d.event === 'infoDelivery' && d.info ? d.info.currentTime : null;
+      if (typeof t === 'number' && t > 0) end(Math.round(t * 10) / 10);
+    };
+    window.addEventListener('message', on);
+    try { fr.contentWindow.postMessage(JSON.stringify({ event: 'listening', id: 'vtMark', channel: 'widget' }), 'https://www.youtube.com'); } catch (e) {}
+    setTimeout(() => end(null), 1500);
+  });
+}
 async function vtFieldSet(vid, q, by, spots) {
   const all = await vtFieldsLocal(), r4 = v => Math.round(v * 10000) / 10000;
   const prev = all[vid] || {};
   all[vid] = { q: q.map(r4), by, at: Date.now() };
+  // The goals are dragged on the same paused picture as the corners: one time for both.
+  const mt = by === 'click' ? (spots && prev.t != null ? prev.t : await vtMarkTime(vid)) : null;
+  if (mt != null) all[vid].t = mt;
   // Where each goal and loader really is in the picture, as placed by hand
   // (v141): g = 9 goals, l = 4 loaders, picture fractions, in VT_SPOTS_RAW's
   // order. Kept when only the corners are marked again.
@@ -10755,7 +10780,7 @@ async function vtFieldSet(vid, q, by, spots) {
   if (sp && Array.isArray(sp.l) && sp.l.length === 8) all[vid].l = sp.l.map(r4);
   await idbSet(VT_FIELDS_KEY, all);
   const pass = vtPass();
-  if (pass && by === 'click') { try { await vtApi('POST', '', { passcode: pass, field: { vid, q: all[vid].q, by, ...(all[vid].g ? { g: all[vid].g } : {}), ...(all[vid].l ? { l: all[vid].l } : {}) } }); } catch (e) {} }
+  if (pass && by === 'click') { try { await vtApi('POST', '', { passcode: pass, field: { vid, q: all[vid].q, by, ...(all[vid].g ? { g: all[vid].g } : {}), ...(all[vid].l ? { l: all[vid].l } : {}), ...(all[vid].t != null ? { t: all[vid].t } : {}) } }); } catch (e) {} }
   return all[vid];
 }
 

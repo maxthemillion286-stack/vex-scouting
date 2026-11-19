@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.27'
+VERSION = '2.28'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -741,6 +741,137 @@ class Eyes:
         return timer_text(got[0]) if got and got[1] >= 0.5 else None
 
 
+class CamFollow:
+    """Follows the camera, so a pan or zoom does not move the field (v2.28).
+
+    The field is marked once per stream, on one picture of it. Every second
+    the tracker finds that picture's fixed features again (the field's walls,
+    goals and posts, ORB corners with RANSAC, robots moving across them
+    ignored) and works out how the camera has moved since. Every box and pin
+    it records is then put back into the marked picture, so the website's one
+    field mark fits the whole match, and the goals and toggles are looked for
+    where they now are. When the picture is not the field at all (a close-up,
+    a replay, a crowd shot) for three seconds running, robots are not
+    recorded until it is back: a close-up's robots are not on the field mark.
+
+    Asked for: "what are they doing that we aren't" — the best tracker finds
+    the field every frame, "even when the camera pans".
+    """
+    WIDTH, NEED, MOVE = 640, 30, 0.004
+
+    def __init__(self, quad):
+        import cv2
+        self.cv2, self.quad = cv2, quad
+        self.orb = cv2.ORB_create(2500, fastThreshold=10)
+        self.bf = cv2.BFMatcher(cv2.NORM_HAMMING)
+        self.ref, self.kp, self.des = None, None, None
+
+    def _gray(self, frame):
+        h, w = frame.shape[:2]
+        g = self.cv2.cvtColor(self.cv2.resize(frame, (self.WIDTH, max(2, round(h * self.WIDTH / w))), interpolation=self.cv2.INTER_AREA), self.cv2.COLOR_BGR2GRAY)
+        return g
+
+    def set_ref(self, frame):
+        """The picture the field was marked on. → True when it has enough to follow."""
+        import numpy as np
+        g = self._gray(frame)
+        h, w = g.shape
+        # Only the field and what stands on it: its corners, and the same again
+        # a quarter of the field's height higher (goals and posts stand up);
+        # never the stream's own overlays, which stay still while the field moves.
+        q = np.array(self.quad, dtype=np.float32).reshape(4, 2) * [w, h]
+        tall = (q[:, 1].max() - q[:, 1].min()) * 0.25
+        mask = np.zeros((h, w), np.uint8)
+        hull = self.cv2.convexHull(np.vstack([q, q - [0, tall]]).astype(np.int32))
+        self.cv2.fillConvexPoly(mask, hull, 255)
+        kp, des = self.orb.detectAndCompute(g, mask)
+        if des is None or len(kp) < 80:
+            return False
+        self.ref, self.kp, self.des, self.size = g, kp, des, (w, h)
+        return True
+
+    def look(self, frame):
+        """How the camera has moved since the marked picture: a 3×3 matrix
+        from marked-picture fractions to this picture's, or None when this is
+        not that view."""
+        import numpy as np
+        if self.des is None:
+            return None
+        g = self._gray(frame)
+        h, w = g.shape
+        kp, des = self.orb.detectAndCompute(g, None)
+        if des is None or len(kp) < self.NEED:
+            return None
+        good = []
+        for m in self.bf.knnMatch(self.des, des, k=2):
+            if len(m) == 2 and m[0].distance < 0.75 * m[1].distance:
+                good.append(m[0])
+        if len(good) < self.NEED:
+            return None
+        a = np.float32([self.kp[m.queryIdx].pt for m in good]) / [self.size[0], self.size[1]]
+        b = np.float32([kp[m.trainIdx].pt for m in good]) / [w, h]
+        H, inl = self.cv2.findHomography(a, b, self.cv2.RANSAC, 3.0 / self.WIDTH)
+        if H is None or inl is None:
+            return None
+        n = int(inl.sum())
+        if n < self.NEED or n < 0.3 * len(good):
+            return None
+        # A real camera move keeps the field about the same size and the right way round.
+        q0 = np.float32(self.quad).reshape(4, 2)
+        q1 = self.cv2.perspectiveTransform(q0.reshape(1, 4, 2), H).reshape(4, 2)
+        area = lambda q: abs(self.cv2.contourArea(q.astype(np.float32)))
+        if not (0.4 < area(q1) / max(1e-6, area(q0)) < 2.5) or not self.cv2.isContourConvex(self.cv2.convexHull(q1).astype(np.float32)):
+            return None
+        return H
+
+    def quad_now(self, H):
+        import numpy as np
+        return [round(float(v), 4) for v in self.cv2.perspectiveTransform(np.float32(self.quad).reshape(1, 4, 2), H).reshape(-1)]
+
+    def placed_now(self, placed, H):
+        """The dragged goals and loaders, where they are in this picture."""
+        import numpy as np
+        if not placed:
+            return None
+        out = dict(placed)
+        for k in ('g', 'l'):
+            if isinstance(placed.get(k), list) and placed[k]:
+                out[k] = [round(float(v), 4) for v in self.cv2.perspectiveTransform(np.float32(placed[k]).reshape(1, -1, 2), H).reshape(-1)]
+        return out
+
+
+def back_to_marked(Hinv, W, H, x, y):
+    """A point of this W×H picture, in the marked picture's pixels (same size),
+    and how much bigger things are there (the zoom at that point)."""
+    def go(px, py):
+        u, v = px / W, py / H
+        d = Hinv[2][0] * u + Hinv[2][1] * v + Hinv[2][2]
+        return (Hinv[0][0] * u + Hinv[0][1] * v + Hinv[0][2]) / d * W, (Hinv[1][0] * u + Hinv[1][1] * v + Hinv[1][2]) / d * H
+    X, Y = go(x, y)
+    X1, Y1 = go(x + 10, y)
+    X2, Y2 = go(x, y + 10)
+    return X, Y, max(0.2, min(5.0, math.sqrt(abs((X1 - X) * (Y2 - Y) - (X2 - X) * (Y1 - Y))) / 10))
+
+def boxes_to_marked(boxes, Hinv, W, H):
+    """Robot boxes [x, y, w, h, …] moved into the marked picture, by where they stand (bottom middle)."""
+    out = []
+    for b in boxes:
+        X, Y, z = back_to_marked(Hinv, W, H, b[0] + b[2] / 2, b[1] + b[3])
+        nb = list(b)
+        nb[2], nb[3] = b[2] * z, b[3] * z
+        nb[0], nb[1] = X - nb[2] / 2, Y - nb[3]
+        out.append(nb)
+    return out
+
+def blobs_to_marked(blobs, Hinv, W, H):
+    """Pin patches [x, bottom y, w, h, area, colour] moved into the marked picture."""
+    out = []
+    for x, y, w, h, area, c in blobs:
+        X, Y, z = back_to_marked(Hinv, W, H, x, y)
+        out.append([jround(X), jround(Y), max(1, jround(w * z)), max(1, jround(h * z)), max(1, jround(area * z * z)), c])
+    return out
+
+
 class CutWatch:
     """Is the picture in the middle of changing to something else?
 
@@ -959,8 +1090,11 @@ def find_match(video, eyes, job, spacing, around):
     return None
 
 
-def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None, quad=None, think=None):
-    """Watch one match. → (recording or None, why, shift found)"""
+def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None, quad=None, think=None, follow=None):
+    """Watch one match. → (recording or None, why, shift found)
+
+    `follow`: a CamFollow for this video (v2.28), or None to take the field
+    mark as it is for the whole match."""
     learn = learn if learn is not None else {}
     four = [(job['red'] + ['', ''])[0], (job['red'] + ['', ''])[1], (job['blue'] + ['', ''])[0], (job['blue'] + ['', ''])[1]]
     off0 = job['off']
@@ -990,15 +1124,51 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
         think_at = start + (10 if wide else LEAD + 20)
         cuts = CutWatch()
         redo = None
+        # Following the camera: Hcur says how it has moved since the marked
+        # picture (None: not yet known); `view` is False while the picture is
+        # not the field. Until it has been found once in this match, nothing
+        # is dropped (the marked picture may simply not be found).
+        cam = {'H': None, 'Hinv': None, 'at': -1e9, 'fails': 0, 'view': None, 'checks': 0, 'found': 0, 'moves': 0, 'away': 0.0}
+        cur_quad, cur_placed, was_cut, last_n = quad, placed_for(job['vid']), False, 0
         while True:
             t, frame = video.read_at_step(step)
             if frame is None or t >= end:
                 break
             h, w = frame.shape[:2]
             if cuts.changing(frame, t):                 # mid-cut or mid-fade: not a picture of anything
+                was_cut = True
                 continue
+            if follow is not None and quad and (t >= cam['at'] + 1 or was_cut):
+                by_cut = was_cut
+                cam['at'], was_cut = t, False
+                if follow.des is None and t >= start + 3 and last_n >= 3:
+                    follow.set_ref(frame)                # no marked picture to go by: the first wide look (3+ robots) stands in for it
+                Hn = follow.look(frame)
+                cam['checks'] += 1
+                if Hn is not None:
+                    cam['found'] += 1
+                    cam['fails'] = 0
+                    nq = follow.quad_now(Hn)
+                    if cam['H'] is None or cam['view'] is False or max(abs(a - b) for a, b in zip(nq, cur_quad)) > CamFollow.MOVE:
+                        if cam['H'] is not None and cam['view'] is not False:
+                            cam['moves'] += 1
+                        import numpy as np
+                        cam['H'], cam['Hinv'] = Hn, np.linalg.inv(Hn).tolist()
+                        cur_quad, cur_placed, spots = nq, follow.placed_now(placed_for(job['vid']), Hn), None
+                    cam['view'] = True
+                else:
+                    cam['fails'] += 1
+                    # Straight after a cut one look says it (the stream went to
+                    # another picture); otherwise three in a row, as a robot
+                    # driving across the camera can hide the field for a moment.
+                    if cam['view'] and (cam['fails'] >= 3 or by_cut):
+                        cam['view'] = False
+            away = cam['view'] is False
+            if away:
+                cam['away'] += step / video.fps
             every = eyes.detect(frame, PROPOSE)
             boxes = [b for b in every if b[4] >= learn.get('conf', CONF) and robot_like(b)]
+            last_n = len(boxes)
             rec['h'] = jround(h * SIZE / w)
             for b, tr in attend(att, boxes, t, w, reads):
                 tr['tries'] += 1
@@ -1008,8 +1178,11 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
                     b[7] = who
                     b[5] = 1 if who <= 2 else 2
                     tr['hits'] += 1
-            rec['f'].append(pack_frame(t - rec['off'], boxes, w))
-            if think and t >= think_at and len(shots) < think and 2 <= len(boxes) <= 6 and sum(1 for b in boxes if b[5]) >= 2:
+            # Recorded where they stand in the marked picture; nothing while
+            # the picture is not the field.
+            put = [] if away else (boxes_to_marked(boxes, cam['Hinv'], w, h) if cam['Hinv'] else boxes)
+            rec['f'].append(pack_frame(t - rec['off'], put, w))
+            if think and not away and t >= think_at and len(shots) < think and 2 <= len(boxes) <= 6 and sum(1 for b in boxes if b[5]) >= 2:
                 jpeg, n = think_picture(frame, boxes)
                 if jpeg:
                     shots.append((rec['f'][-1], jpeg, n))
@@ -1021,17 +1194,21 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
                 pin_at = t
                 pw, ph_, blobs = pin_blobs(frame, boxes)
                 rec['pw'], rec['ph'] = pw, ph_
+                if away:
+                    blobs = []
+                elif cam['Hinv']:
+                    blobs = blobs_to_marked(blobs, cam['Hinv'], pw, ph_)
                 rec['pn'] += [jround((t - rec['off']) * 10), len(blobs)] + [v for bl in blobs for v in bl]
-                if quad and len(rec['tg']) < 1800:      # the toggles, where the field's corners put them
-                    tg = toggle_look(frame, quad)
+                if quad and not away and len(rec['tg']) < 1800:      # the toggles, where the field's corners now put them
+                    tg = toggle_look(frame, cur_quad)
                     if tg:
                         rec['tg'] += [jround((t - rec['off']) * 10)] + tg
             # Pins and cups on each goal and in each loader, every second, once
             # the trained finder is in use and the field is marked.
-            if eyes.pieces is not None and quad and t >= spot_at + 1 and len(rec['gs']) < 24000:
+            if eyes.pieces is not None and quad and not away and t >= spot_at + 1 and len(rec['gs']) < 24000:
                 spot_at = t
                 if spots is None:
-                    spots = spot_boxes(frame.shape[1], frame.shape[0], quad, placed_for(job['vid'])) or []
+                    spots = spot_boxes(frame.shape[1], frame.shape[0], cur_quad, cur_placed) or []
                 if spots:
                     rec['gs'] += [jround((t - rec['off']) * 10)] + [v for c in eyes.pieces.spot_counts(frame, spots) for v in c]
             # The match clock: from its known place every second, else searched for every five.
@@ -1085,6 +1262,8 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
         keep = len(rec['f']) / 2000
         rec['f'] = [rec['f'][int(i * keep)] for i in range(2000)]
     rec['_shots'] = shots if think else []
+    rec['_cam'] = {k: cam[k] for k in ('checks', 'found', 'moves')}
+    rec['_cam']['away'] = round(cam['away'])
     return rec, 'ok', (rec['off'] - off0) if wide else shift
 
 
@@ -1348,6 +1527,36 @@ def spacing_of(jobs):
 
 
 _EYES = None
+def cam_note(cam):
+    """For the log: how following the camera went in one match."""
+    if not cam or not cam.get('checks'):
+        return ''
+    if not cam.get('found'):
+        return ' · camera: the marked picture was not found (mark the field again on a clear wide shot)'
+    bits = ['followed %d%% of the time' % round(100 * cam['found'] / cam['checks'])]
+    if cam.get('moves'):
+        bits.append('%d camera moves' % cam['moves'])
+    if cam.get('away'):
+        bits.append('%d s off the field left out' % cam['away'])
+    return ' · camera: ' + ', '.join(bits)
+
+def make_follow(video, quad, t):
+    """A CamFollow for one video: from the picture the field was marked on
+    (`t`, seconds into the stream, saved by the website from v149), or, for a
+    mark saved before then, from the first clear look of the first match."""
+    try:
+        f = CamFollow(quad)
+    except Exception:
+        return None
+    if isinstance(t, (int, float)) and t >= 0:
+        try:
+            fr = video.frame_at(float(t))
+            if fr is not None:
+                f.set_ref(fr)
+        except Exception:
+            pass
+    return f
+
 def work_chunk(args):
     """One worker: a run of consecutive matches from one video."""
     global _EYES
@@ -1358,6 +1567,7 @@ def work_chunk(args):
     video = Video(path, hw=bool(cfg.get('hw_decode', True)))
     out, shift, learn = [], 0, {}
     quads = {}                                        # the field's corners for each video, as marked on the website
+    follows = {}                                      # and the camera, followed from the picture they were marked on
     from concurrent.futures import ThreadPoolExecutor
     behind, pending = ThreadPoolExecutor(max_workers=1), []
 
@@ -1366,6 +1576,7 @@ def work_chunk(args):
             saved = None
             if rec is not None:
                 shots = rec.pop('_shots', [])
+                cam = rec.pop('_cam', None)
                 if shots:
                     try:
                         think_match(rec, shots, job, cfg)
@@ -1383,7 +1594,7 @@ def work_chunk(args):
                     pins += rec['pn'][i + 1]
                     i += 2 + 6 * rec['pn'][i + 1]
             return {'id': job['id'], 'name': job.get('name'), 'ok': bool(saved), 'why': why, 'sec': sec, 'hw': hw,
-                    'looks': len(rec['f']) if rec else 0, 'plates': plates, 'pins': pins, 'clock': len(rec['tm']) // 2 if rec else 0, 'think': len(rec.get('vo', [])) // 5 if rec else 0}
+                    'looks': len(rec['f']) if rec else 0, 'plates': plates, 'pins': pins, 'clock': len(rec['tm']) // 2 if rec else 0, 'think': len(rec.get('vo', [])) // 5 if rec else 0, 'cam': cam if rec else None}
         except Exception as e:
             return {'id': job['id'], 'name': job.get('name'), 'ok': False, 'why': 'error: ' + str(e), 'sec': sec, 'hw': hw, 'looks': 0, 'plates': 0, 'pins': 0, 'clock': 0, 'think': 0}
 
@@ -1395,9 +1606,10 @@ def work_chunk(args):
                     fld = (site.get('?field=' + job['vid']) or {}).get('field') or {}
                     q = fld.get('q')
                     quads[job['vid']] = q if isinstance(q, list) and len(q) == 8 else None
-                    _QUADS[job['vid']] = {'q': quads[job['vid']], 'g': fld.get('g'), 'l': fld.get('l'), 'at': time.time()}
+                    _QUADS[job['vid']] = {'q': quads[job['vid']], 'g': fld.get('g'), 'l': fld.get('l'), 't': fld.get('t'), 'at': time.time()}
+                    follows[job['vid']] = make_follow(video, quads[job['vid']], fld.get('t')) if quads[job['vid']] and cfg.get('follow', True) else None
                 looks = int(cfg.get('think_looks') or THINK_LOOKS) if cfg.get('think') and cfg.get('_think_ok') else 0
-                rec, why, shift = track_match(video, _EYES, job, shift, spacing, True, learn, quads[job['vid']], looks)
+                rec, why, shift = track_match(video, _EYES, job, shift, spacing, True, learn, quads[job['vid']], looks, follows.get(job['vid']))
             except Exception as e:
                 rec, why = None, 'error: ' + str(e)
             # Asking the vision model and sending the recording do not need the
@@ -1777,6 +1989,14 @@ def do_jobs(cfg):
     def windows_of(vid):
         # Each match with room either side: the Jumper's place for it can be a minute or two out.
         ws = sorted((max(0, j['off'] - 120), j['off'] + WINDOW_WIDE + 120) for _, j in todo[vid])
+        # And the few seconds the field was marked on, to follow the camera from.
+        try:
+            quad_for(vid, site)
+            mt = (_QUADS.get(vid) or {}).get('t') if isinstance(_QUADS.get(vid), dict) else None
+            if isinstance(mt, (int, float)) and mt >= 0:
+                ws = sorted(ws + [(max(0, mt - 3), mt + 3)])
+        except Exception:
+            pass
         merged = []
         for a, b in ws:
             if merged and a <= merged[-1][1]:
@@ -1845,7 +2065,7 @@ def do_jobs(cfg):
                     totals['think'] += res.get('think', 0)
                     totals['hw'] = totals.get('hw') or res.get('hw')
                     say('  %3d/%d  %-22s %s' % (done, len(pairs), str(res['name'])[:22],
-                        ('saved · %d looks · %d plates · %d pin sightings · clock %d%s · %.0fs' % (res['looks'], res['plates'], res.get('pins', 0), res['clock'], (' · vision model: %d robot looks' % res['think']) if cfg.get('_think_ok') else '', res['sec'])) if res['ok'] else 'not saved: ' + res['why']))
+                        ('saved · %d looks · %d plates · %d pin sightings · clock %d%s · %.0fs' % (res['looks'], res['plates'], res.get('pins', 0), res['clock'], (' · vision model: %d robot looks' % res['think']) if cfg.get('_think_ok') else '', res['sec']) + cam_note(res.get('cam'))) if res['ok'] else 'not saved: ' + res['why']))
         _PROG['hold'] = False
         if not cfg.get('keep_videos') and path.startswith(DIRS['videos']):
             for junk in (path, path + '.have.json'):
@@ -2333,7 +2553,7 @@ def quad_for(vid, site=None):
     fld = r.get('field') or {}
     q = fld.get('q')
     q = q if isinstance(q, list) and len(q) == 8 else None
-    _QUADS[vid] = {'q': q, 'g': fld.get('g') if q else None, 'l': fld.get('l') if q else None, 'at': time.time()}
+    _QUADS[vid] = {'q': q, 'g': fld.get('g') if q else None, 'l': fld.get('l') if q else None, 't': fld.get('t') if q else None, 'at': time.time()}
     try:
         os.makedirs(DIRS['data'], exist_ok=True)
         with open(path, 'w') as f:
