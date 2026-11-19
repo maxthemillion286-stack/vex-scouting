@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v152**. Everything green: 102 test files.
+Current release: **v153**. Everything green: 103 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,16 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v153 — lookalikes.** Owner: rebuilds, and the meta robot makes many
+teams look alike; plates are what tell them apart. `vtIdentify` already
+named by look only within one event and only where no plate (or vision
+read) settled the match. Now each entry also keeps the looks of the robots it
+faced (`crowd`); a look pick is made only if the chosen robot's distance to
+the team's look is below the 10th percentile of the crowd's (≥ 6 of them).
+t142's meta event (opponents sharing the look) was named wrong — the
+partner, in 6 of 6 — before this; now nothing is named there, and plates
+still name it. Tests: t142.
 
 **v152 (app 2.31) — the stream's score, as a check.** Owner: live scorers
 make mistakes and some events show none. App: while `learn['score']` is
