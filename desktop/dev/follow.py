@@ -103,6 +103,8 @@ class FakeEyes:
         for k, (u, v) in enumerate([(0.3, 0.45), (0.35, 0.65), (0.62, 0.45), (0.66, 0.65)]):
             p = cv2.perspectiveTransform(np.float32([[[u, v]]]), Ht)[0, 0]
             out.append([p[0] * W0 - 40, p[1] * H0 - 70, 80, 70, 0.9, 1 if k < 2 else 2, None, 0])
+        out.append([600, 200, 80, 70, 0.33, 1, None, 0])      # one the finder is unsure of
+        out.append([out[0][0] + 5, out[0][1] + 5, 80, 70, 0.3, 1, None, 0])   # and a faint copy of a sure one
         return out
     def plate(self, *a): return 0
     def scan(self, *a): return []
@@ -136,8 +138,11 @@ if rec:
     check('robots that did not move are recorded in the same place before and after the pan',
           before and after and math.hypot(first(before)[0] - first(after)[0], first(before)[1] - first(after)[1]) < 0.01, '%s %s' % (first(before), first(after)))
     check('no robots are recorded during the close-up', not feet(81.5, 89))
+    weak = [fr[2 + 10 * i + 4] for fr in rec['f'] for i in range(fr[1]) if fr[2 + 10 * i + 4] < rec.get('cf', 0)]
+    check('unsure boxes are kept, marked below the threshold', rec.get('cf') == 45 and weak and all(c <= 44 for c in weak), str(rec.get('cf')))
+    check('but not one lying on top of a sure box', max(fr[1] for fr in rec['f']) == 5, str(max(fr[1] for fr in rec['f'])))
     check('nothing the website does not know is sent', not any(k.startswith('_') for k in rec if k != '_shots'))
 
-check('version 2.28', T.VERSION == '2.28')
+check('version 2.28 or later', T.VERSION >= '2.28')
 print('follow checks: %d ok, %d failing' % (ok, fail))
 sys.exit(1 if fail else 0)

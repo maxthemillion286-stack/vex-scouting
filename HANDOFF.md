@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v149**. Everything green: 99 test files.
+Current release: **v150**. Everything green: 100 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,23 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v150 (app 2.29) — unsure boxes, whole-match slots, smoothing.** App:
+up to 3 boxes with PROPOSE ≤ conf < threshold, robot-like, not IoU ≥ 0.3 on
+a sure box, are recorded with conf capped below `rec.cf` (the threshold ×100;
+server validates 1–100). Plates are not read on them; the app's "both
+alliances seen" counts skip them. Website: `vtSure(rec, fr, o)`; `vtFrames`
+puts unsure boxes in `f.weak`; `vtRecStats`, `vtLearnFrom` (scenery) and the
+backfill skip them. `vtSlots` second pass (ByteTrack): a track missing ≤ 2 s
+may take a weak box within 0.06 + 0.3·dt of `vtAhead`, colour matching; weak
+boxes never start a track. Step 3: plate-anchored tracks first, then longest;
+slot cost = look + 3 × teleport excess (distance beyond 0.1 + VT_VMAX·gap to
+the pieces before/after) + 2 for a plate conflict; a piece < 3 s, no plate,
+whose best slot still needs > 0.25 of teleporting is dropped. Step 4: seen
+points smoothed ±0.5 s, weight (1−dt)·exp(−(d/0.03)²) so wobble goes and
+real moves stay sharp (a plain window blurred t113's instant park).
+`VT_VMAX` comment now 600 rpm × 2.75 in = 7.2 ft/s. `VT_REMAKE` → 150.
+Tests: t139; desktop/dev/follow.py (33).
 
 **v149 (app 2.28) — the tracker follows the camera.** The field was marked
 once per stream, so a pan, zoom or close-up moved robots, pins, toggles and

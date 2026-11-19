@@ -94,7 +94,9 @@ export function validRec(rec) {
     if (!Array.isArray(fr) || fr.length > 2 + per * 40 || !fr.every(v => Number.isInteger(v) && v > -100000 && v < 100000)) return 'bad frame';
     if (fr.length < 2 || fr.length !== 2 + per * fr[1]) return 'bad frame length';
   }
-  const allowed = ['v', 'name', 'round', 'num', 'red', 'blue', 'rs', 'bs', 'vid', 'off', 'rate', 'w', 'h', 'model', 'at', 'f', 'wide', 'tm', 'pn', 'pw', 'ph', 'tg', 'vo', 'cu', 'pf', 'gs'];
+  const allowed = ['v', 'name', 'round', 'num', 'red', 'blue', 'rs', 'bs', 'vid', 'off', 'rate', 'w', 'h', 'model', 'at', 'f', 'wide', 'tm', 'pn', 'pw', 'ph', 'tg', 'vo', 'cu', 'pf', 'gs', 'cf'];
+  // The finder's threshold when it was recorded (v150): boxes below it are unsure ones.
+  if (rec.cf != null && !(Number.isInteger(rec.cf) && rec.cf >= 1 && rec.cf <= 100)) return 'bad threshold';
   // Pins and cups on each goal and loader: [tenths, then 13 spots × (red, blue, yellow halves, cups)].
   if (rec.gs != null && !(Array.isArray(rec.gs) && rec.gs.length <= 24000 && rec.gs.length % 53 === 0 && rec.gs.every(v => Number.isInteger(v) && v >= -1 && v < 100000))) return 'bad goal counts';
   // Cups the trained finder saw: [tenths, how many, then x, bottom y, w, h each]; pf = 1 when pins came from it.

@@ -3714,7 +3714,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v149';
+const APP_BUILD = 'v150';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -8357,6 +8357,9 @@ function vtMatchLabel(text) {
 const VT_WINDOW_WIDE = 330;     // seconds watched after a re-sync: from the name appearing to the match ending
 // Stored boxes come in two shapes: six numbers (v1) or ten (v2: + look, + plate).
 const vtStride = rec => (rec && rec.v === 2) ? 10 : 6;
+// A box the finder was sure of (v150): recordings may also hold unsure ones,
+// below their threshold `cf`, used only to carry on a robot that went missing.
+const vtSure = (rec, fr, o) => !(rec && rec.cf > 0 && fr[o + 4] < rec.cf);
 // One frame as integers: [tenths of a second from the match's position, k, then
 // k × (x, y, w, h, confidence %, colour)], coordinates at a 640-wide frame.
 function vtPackFrame(t, boxes, srcW) {
@@ -8384,10 +8387,11 @@ function vtRecStats(rec) {
   const N = vtStride(rec);
   for (const fr of (rec && rec.f) || []) {
     let r = false, b = false;
-    for (let i = 0; i < fr[1]; i++) { const c = fr[2 + N * i + 5]; if (c === 1) r = true; else if (c === 2) b = true; }
+    let n = 0;
+    for (let i = 0; i < fr[1]; i++) { if (!vtSure(rec, fr, 2 + N * i)) continue; n++; const c = fr[2 + N * i + 5]; if (c === 1) r = true; else if (c === 2) b = true; }
     if (r) red++; if (b) blue++;
     if (r || b) withRobot++;
-    boxes += fr[1];
+    boxes += n;
   }
   return { frames: ((rec && rec.f) || []).length, withRobot, red, blue, perFrame: withRobot ? boxes / withRobot : 0 };
 }
@@ -9183,6 +9187,7 @@ function vtLearnFrom(rec, L) {
     withBox++;
     const seen = new Set();
     for (let i = 0; i < fr[1]; i++) {
+      if (!vtSure(rec, fr, 2 + N * i)) continue;
       const o = 2 + N * i, k = Math.round((fr[o] + fr[o + 2] / 2) / VT_SIZE * 24) + ':' + Math.round((fr[o + 1] + fr[o + 3] / 2) / H * 14);
       let c = cells.get(k); if (!c) cells.set(k, c = { n: 0, plates: 0, g: new Array(12).fill(0), gn: 0 });
       if (!seen.has(k)) { seen.add(k); c.n++; }
@@ -9689,18 +9694,24 @@ function vtFrames(rec, quad, learn) {
   // frame, found again by that frame's time and the box's corner.
   const said = new Map(), acts = [];
   for (let i = 0, a = rec.vo || []; i + 4 < a.length; i += 5) said.set(a[i] + '|' + a[i + 1] + '|' + a[i + 2], [a[i + 3], a[i + 4]]);
+  // v150: boxes the finder was unsure of (below the recording's threshold
+  // `cf`) are kept apart, in `weak`: they never start a track or count for
+  // anything themselves, and are only used to carry on a robot that just went
+  // missing, right where it should be (ByteTrack's second pass).
+  const cut = rec.cf > 0 ? rec.cf : 0;
   for (const fr of rec.f || []) {
-    const pts = [];
+    const pts = [], weak = [];
     for (let i = 0; i < fr[1]; i++) {
       const o = 2 + N * i;
       // Learned scenery: something boxed in the same spot match after match.
       if (scenery.length && vtOnStill(scenery, (fr[o] + fr[o + 2] / 2) / VT_SIZE, (fr[o + 1] + fr[o + 3] / 2) / H)) continue;
+      if (cut && fr[o + 4] < cut) { weak.push({ x: (fr[o] + fr[o + 2] / 2) / VT_SIZE, y: (fr[o + 1] + fr[o + 3]) / H, c: fr[o + 5], g: N === 10 ? vtSigUnpack(fr[o + 6], fr[o + 7], fr[o + 8]) : null, who: 0, weak: true }); continue; }
       pts.push({ x: (fr[o] + fr[o + 2] / 2) / VT_SIZE, y: (fr[o + 1] + fr[o + 3]) / H, c: fr[o + 5],
         g: N === 10 ? vtSigUnpack(fr[o + 6], fr[o + 7], fr[o + 8]) : null, who: N === 10 ? fr[o + 9] : 0 });
       const v = said.size ? said.get(fr[0] + '|' + fr[o] + '|' + fr[o + 1]) : null;
       if (v) acts.push({ t: fr[0] / 10, p: pts[pts.length - 1], act: v[0], who: v[1] });
     }
-    raw.push({ t: fr[0] / 10, pts });
+    raw.push(weak.length ? { t: fr[0] / 10, pts, weak } : { t: fr[0] / 10, pts });
   }
   const xs = [], ys = [];
   for (const f of raw) for (const p of f.pts) if (p.c) { xs.push(p.x); ys.push(p.y); }
@@ -9708,14 +9719,14 @@ function vtFrames(rec, quad, learn) {
   // With the field's corners known, a position is a place on the real field.
   const toField = quad && quad.q ? vtHomography(quad.q) : null;
   if (toField) {
-    for (const f of raw) for (const p of f.pts) { const [u, v] = toField(p.x, p.y); p.x = Math.max(-0.15, Math.min(1.15, u)); p.y = Math.max(-0.15, Math.min(1.15, v)); }
+    for (const f of raw) for (const p of f.weak ? f.pts.concat(f.weak) : f.pts) { const [u, v] = toField(p.x, p.y); p.x = Math.max(-0.15, Math.min(1.15, u)); p.y = Math.max(-0.15, Math.min(1.15, v)); }
     return { frames: raw, ok: true, field: true, acts };
   }
   xs.sort((a, b) => a - b); ys.sort((a, b) => a - b);
   const q = (a, f) => a[Math.min(a.length - 1, Math.max(0, Math.round(f * (a.length - 1))))];
   const x0 = q(xs, 0.02), x1 = q(xs, 0.98), y0 = q(ys, 0.02), y1 = q(ys, 0.98);
   const w = Math.max(0.05, x1 - x0), h = Math.max(0.05, y1 - y0);
-  for (const f of raw) for (const p of f.pts) { p.x = (p.x - x0) / w; p.y = (p.y - y0) / h; }
+  for (const f of raw) for (const p of f.weak ? f.pts.concat(f.weak) : f.pts) { p.x = (p.x - x0) / w; p.y = (p.y - y0) / h; }
   return { frames: raw, ok: true, acts };
 }
 // Two slots per alliance. Each look, an alliance's boxes are matched to its
@@ -9770,6 +9781,24 @@ function vtSlots(frames) {
     }
     for (const [k, tr] of owner) if (!shared.has(k)) tr.sh = 0;     // its own box again
     for (const [k, tr] of owner) vtTrackAdd(tr, f.pts[k], f.t, shared.has(k));
+    // Second pass (v150, ByteTrack's idea): a robot that went missing in the
+    // last 2 s may carry on with a box the finder was unsure of, but only one
+    // close to where its speed says it is now and of its colour. Half hidden
+    // behind a goal or blurred, a real robot is often found only faintly.
+    if (f.weak) {
+      const wp = [], wu = new Set();
+      for (const tr of live) {
+        if (taken.has(tr) || f.t - tr.t > 2) continue;
+        const ahead = vtAhead(tr, f.t), c = major(tr);
+        f.weak.forEach((p, k) => {
+          if (c && p.c && p.c !== c) return;
+          const dd = d(ahead, p);
+          if (dd <= 0.06 + 0.5 * VT_VMAX * Math.min(1, f.t - tr.t)) wp.push([dd, tr, k]);
+        });
+      }
+      wp.sort((a, b) => a[0] - b[0]);
+      for (const [, tr, k] of wp) if (!wu.has(k) && !taken.has(tr)) { wu.add(k); taken.add(tr); vtTrackAdd(tr, f.weak[k], f.t); }
+    }
     f.pts.forEach((p, k) => { if (!used.has(k)) { const tr = { pts: [], cv: [0, 0, 0], pv: [0, 0, 0, 0, 0], gs: new Array(12).fill(0), gn: 0 }; vtTrackAdd(tr, p, f.t); live.push(tr); all.push(tr); } });
     for (let i = live.length - 1; i >= 0; i--) if (f.t - live[i].t > 4) live.splice(i, 1);
   }
@@ -9811,15 +9840,37 @@ function vtSlots(frames) {
     }
   }
   // ── 3. Two slots a side, built from tracks that do not overlap ───────────
+  // v150: with the whole match in hand, each piece is placed knowing what
+  // comes before and after it in a slot. Tracks whose plates were read go in
+  // first, so the slots are anchored to real teams; then the rest, longest
+  // first. A slot is worse for a piece the further its robot would have had
+  // to drive, faster than a robot can, to get from the piece before to this
+  // one (and from this one to the piece after), and much worse if their
+  // plates name different teams. A short piece that fits neither slot without
+  // teleporting is left out: it was something else.
   const slotTracks = { 1: [[], []], 2: [[], []] };
+  const team = tr => { const a = tr.pv[tr.c === 1 ? 1 : 3], b = tr.pv[tr.c === 1 ? 2 : 4]; return a + b >= 2 && Math.max(a, b) >= 2 * Math.min(a, b) + 1 ? (a > b ? 1 : 2) : 0; };
+  const jump = (a, b) => { if (!a || !b) return 0; const gap = Math.max(0, b.t - a.t), dist = Math.hypot(b.x - a.x, b.y - a.y); return Math.max(0, dist - (0.1 + VT_VMAX * gap)); };
   for (const c of [1, 2]) {
-    const mine = all.filter(tr => tr.c === c && tr.pts.length >= 3).sort((a, b) => (b.t1 - b.t0) - (a.t1 - a.t0));   // longest first
+    const mine = all.filter(tr => tr.c === c && tr.pts.length >= 3)
+      .sort((a, b) => (!!team(b) - !!team(a)) || (b.t1 - b.t0) - (a.t1 - a.t0));
     for (const tr of mine) {
       const free = [0, 1].filter(i => slotTracks[c][i].every(u => tr.t0 >= u.t1 - 0.5 || tr.t1 <= u.t0 + 0.5));
       if (!free.length) continue;                       // a third thing in view at the same time
-      // Of the free slots, the one whose robot looks most like this one.
-      const cost = i => { const u = slotTracks[c][i]; if (!u.length) return 0.3; const g = lookOf(tr); return vtAvg(u.map(x => vtSigDist(lookOf(x), g))); };
-      slotTracks[c][free.sort((a, b) => cost(a) - cost(b))[0]].push(tr);
+      const cost = i => {
+        const u = slotTracks[c][i];
+        tr.tele = 0;
+        if (!u.length) return 0.3;
+        const g = lookOf(tr), look = vtAvg(u.map(x => vtSigDist(lookOf(x), g)));
+        const before = u.filter(x => x.t1 <= tr.t0 + 0.5).sort((a, b) => b.t1 - a.t1)[0], after = u.filter(x => x.t0 >= tr.t1 - 0.5).sort((a, b) => a.t0 - b.t0)[0];
+        const tele = jump(before && before.pts[before.pts.length - 1], tr.pts[0]) + jump(tr.pts[tr.pts.length - 1], after && after.pts[0]);
+        const mt = team(tr), st = u.map(team).find(Boolean) || 0;
+        tr.tele = tele;
+        return look + 3 * tele + (mt && st && mt !== st ? 2 : 0);
+      };
+      const best = free.map(i => [cost(i), tr.tele, i]).sort((a, b) => a[0] - b[0])[0];
+      if (tr.t1 - tr.t0 < 3 && !team(tr) && best[1] > 0.25 && slotTracks[c][best[2]].length) continue;
+      slotTracks[c][best[2]].push(tr);
     }
   }
   // ── 4. Back to one row per look: where each slot was ─────────────────────
@@ -9834,6 +9885,25 @@ function vtSlots(frames) {
       votes[c][i][0] += tr.pv[c === 1 ? 1 : 3]; votes[c][i][1] += tr.pv[c === 1 ? 2 : 4];
     }
     look[c][i] = gn ? gs.map(v => v / gn) : null;
+    // Smoothed both ways (v150): each seen place is the weighted mean of the
+    // looks half a second either side, nearer ones (in time and place)
+    // counting more, so a box's wobble is taken out without the path lagging
+    // behind the robot.
+    const seenK = [];
+    for (let k = 0; k < out.length; k++) if (out[k].s[c][i]) seenK.push(k);
+    const sm = seenK.map((k, j) => {
+      const p = out[k].s[c][i]; let sx = 0, sy = 0, sw = 0;
+      for (let m = Math.max(0, j - 3); m <= Math.min(seenK.length - 1, j + 3); m++) {
+        const q = out[seenK[m]].s[c][i], dt = Math.abs(q.t - p.t);
+        if (dt > 0.5) continue;
+        // Wobble is small; a robot driving off is not: a look far from this
+        // one counts for little, so a stop, a turn or a quick move stays sharp.
+        const dd = Math.hypot(q.x - p.x, q.y - p.y), w = (1 - dt) * Math.exp(-((dd / 0.03) ** 2));
+        sx += w * q.x; sy += w * q.y; sw += w;
+      }
+      return sw ? [sx / sw, sy / sw] : [p.x, p.y];
+    });
+    seenK.forEach((k, j) => { out[k].s[c][i] = { ...out[k].s[c][i], x: sm[j][0], y: sm[j][1] }; });
     // Between sightings, marked unseen: a gap of up to 3 s is filled along the
     // straight line from where it was last seen to where it was seen next
     // (v148; it used to stand still at the last place, then jump); after the
@@ -9856,8 +9926,8 @@ function vtTrackFrom(pts) {
   for (const p of pts) vtTrackAdd(tr, p, p.t);
   return tr;
 }
-// How fast a robot can really go, in field widths a second (a fast VEX drive
-// is about 6 ft/s on a 12 ft field; a little over for the box's wobble).
+// How fast a robot can really go, in field widths a second: the fastest
+// normal drive, 600 rpm on 2.75 in wheels, is 7.2 ft/s on a 12 ft field.
 const VT_VMAX = 0.6;
 // Where a track should be at time t: its last place plus its speed, for up to
 // a second ahead (past that, a robot has likely stopped or turned).
@@ -10167,7 +10237,7 @@ async function vtBackfill(ev, force) {
     for (const id of ids.slice(0, 30)) {
       const rec = await idbGet(`vt:m:${ev}:${id}`); if (!rec) continue;
       const N = vtStride(rec), H = rec.h || 360;
-      for (const fr of rec.f) for (let k = 0; k < fr[1]; k++) { const o = 2 + N * k; if (fr[o + 5]) pts.push([(fr[o] + fr[o + 2] / 2) / VT_SIZE, (fr[o + 1] + fr[o + 3]) / H]); }
+      for (const fr of rec.f) for (let k = 0; k < fr[1]; k++) { const o = 2 + N * k; if (fr[o + 5] && vtSure(rec, fr, o)) pts.push([(fr[o] + fr[o + 2] / 2) / VT_SIZE, (fr[o + 1] + fr[o + 3]) / H]); }
     }
     const q = vtQuadGuess(pts);
     if (q) fields[vid] = await vtFieldSet(vid, q, 'auto');
@@ -10235,7 +10305,7 @@ function vtReportSeen(S) {
 // the recordings are in the shared store too, so whichever device opens a
 // report fetches the ones it needs, makes the summaries again, keeps them, and
 // (with the admin key) shares them.
-const VT_REMAKE = 148;      // v148: robots followed by speed and heading; v145/146: stacking timed at the goal (vs, vh)      // v136: pins counted on the goals as well (oy, oa, …)
+const VT_REMAKE = 150;      // v150: unsure boxes carry on missing robots, whole-match slots, smoothed; v148: robots followed by speed and heading; v145/146: stacking timed at the goal (vs, vh)      // v136: pins counted on the goals as well (oy, oa, …)
 const vtStale = s => !!(s && s.ok && (s.rv || 0) < VT_REMAKE);
 const vtRefreshTried = new Set();
 async function vtSumsRefresh(sums, limit) {
