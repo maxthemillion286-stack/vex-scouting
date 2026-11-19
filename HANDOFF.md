@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v150**. Everything green: 100 test files.
+Current release: **v151**. Everything green: 101 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,17 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v151 (app 2.30) — more looks at key moments.** Asked to keep the usual
+rate and still see fast teams better. `LOOKS_PER_SEC` 6 stays the least;
+after a look where `key_moment` holds (a robot's foot within a goal box's own
+size of a goal — goals from `spot_boxes(cur_quad, cur_placed)[:9]` — or two
+robot boxes closer than a quarter of the smaller's width) the step drops to
+`ceil(fps / BURST_PER_SEC)` (12 → 10 a second at 30 fps) for `BURST_HOLD`
+1.5 s. Looks off the base clock (`next_base`) are marked `extra` and dropped
+first, evenly, when a recording is over the 2000-look ceiling. The website
+needs nothing: every look carries its time. Checks: desktop/dev/burst.py (11),
+t140.
 
 **v150 (app 2.29) — unsure boxes, whole-match slots, smoothing.** App:
 up to 3 boxes with PROPOSE ≤ conf < threshold, robot-like, not IoU ≥ 0.3 on

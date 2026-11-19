@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.29'
+VERSION = '2.30'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -37,7 +37,8 @@ DEFAULT_SITE = 'https://vex-scouting-by-max.vercel.app'
 SIZE = 640
 CONF, IOU = 0.45, 0.5            # the website's VT_CONF, VT_IOU
 PROPOSE = 0.25                   # boxes this sure are kept as suggestions for review
-LOOKS_PER_SEC = 6                # looks per second of VIDEO (the website manages about 3)
+LOOKS_PER_SEC = 6                # looks per second of VIDEO (the website manages about 3); never fewer
+BURST_PER_SEC, BURST_HOLD = 12, 1.5   # at a goal or robots touching: twice as often, for 1.5 s after
 LEAD, WINDOW, WINDOW_WIDE = 3, 150, 330
 GIVE_UP_SEC, MIN_FRAMES = 25, 30
 LOOKALIKE = ['0ODQ', '1IL', '8B', '5S', '2Z', '6G']
@@ -1130,8 +1131,16 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
         # is dropped (the marked picture may simply not be found).
         cam = {'H': None, 'Hinv': None, 'at': -1e9, 'fails': 0, 'view': None, 'checks': 0, 'found': 0, 'moves': 0, 'away': 0.0}
         cur_quad, cur_placed, was_cut, last_n = quad, placed_for(job['vid']), False, 0
+        # v2.30: looks never come less often than LOOKS_PER_SEC; at the moments
+        # that decide things (a robot at a goal, two robots touching) they
+        # come twice as often, BURST_PER_SEC, for BURST_HOLD seconds after.
+        # The extra looks are the first to go if a match is over the
+        # website's ceiling.
+        burst_step = max(1, int(math.ceil(video.fps / BURST_PER_SEC - 1e-9)))
+        burst_until, next_base, extra, goal_boxes = -1e9, None, set(), None
+        now_step = step
         while True:
-            t, frame = video.read_at_step(step)
+            t, frame = video.read_at_step(now_step)
             if frame is None or t >= end:
                 break
             h, w = frame.shape[:2]
@@ -1154,7 +1163,7 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
                             cam['moves'] += 1
                         import numpy as np
                         cam['H'], cam['Hinv'] = Hn, np.linalg.inv(Hn).tolist()
-                        cur_quad, cur_placed, spots = nq, follow.placed_now(placed_for(job['vid']), Hn), None
+                        cur_quad, cur_placed, spots, goal_boxes = nq, follow.placed_now(placed_for(job['vid']), Hn), None, None
                     cam['view'] = True
                 else:
                     cam['fails'] += 1
@@ -1191,7 +1200,16 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
             # Recorded where they stand in the marked picture; nothing while
             # the picture is not the field.
             put = [] if away else (boxes_to_marked(boxes + unsure, cam['Hinv'], w, h) if cam['Hinv'] else boxes + unsure)
+            if next_base is None or t >= next_base - 0.5 / video.fps:
+                next_base = (next_base if next_base is not None and t - next_base < 1 else t) + 1 / LOOKS_PER_SEC
+            else:
+                extra.add(len(rec['f']))                 # a look only a key moment asked for
             rec['f'].append(pack_frame(t - rec['off'], put, w))
+            if goal_boxes is None:
+                goal_boxes = (spot_boxes(w, h, cur_quad, cur_placed) or [])[:9] if cur_quad else []
+            if not away and key_moment(boxes, goal_boxes):
+                burst_until = t + BURST_HOLD
+            now_step = burst_step if t < burst_until else step
             if think and not away and t >= think_at and len(shots) < think and 2 <= len(boxes) <= 6 and sum(1 for b in boxes if b[5]) >= 2:
                 jpeg, n = think_picture(frame, boxes)
                 if jpeg:
@@ -1269,7 +1287,12 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
     blue = sum(1 for fr in rec['f'] if any(fr[2 + 10 * i + 5] == 2 and sure(fr, i) for i in range(fr[1])))
     if with_robot < MIN_FRAMES or red < 10 or blue < 10:
         return None, 'robots of both alliances were not seen (a break, a slate, or the wrong place)', 0
-    if len(rec['f']) > 2000:                         # the website's ceiling
+    if len(rec['f']) > 2000 and extra:               # the website's ceiling: extra looks go first, evenly
+        over = min(len(extra), len(rec['f']) - 2000)
+        ex = sorted(extra)
+        drop = set(ex[int(i * len(ex) / over)] for i in range(over)) if over else set()
+        rec['f'] = [fr for k, fr in enumerate(rec['f']) if k not in drop]
+    if len(rec['f']) > 2000:                         # still over: evenly
         keep = len(rec['f']) / 2000
         rec['f'] = [rec['f'][int(i * keep)] for i in range(2000)]
     rec['_shots'] = shots if think else []
@@ -1550,6 +1573,24 @@ def cam_note(cam):
     if cam.get('away'):
         bits.append('%d s off the field left out' % cam['away'])
     return ' · camera: ' + ', '.join(bits)
+
+def key_moment(boxes, goals):
+    """A moment worth looking at more often: a robot standing at a goal (its
+    foot within a goal's own size of it), or two robots touching (closer than
+    a quarter of the smaller's width)."""
+    for b in boxes:
+        fx, fy = b[0] + b[2] / 2, b[1] + b[3]
+        for g in goals:
+            if g and g[0] - (g[2] - g[0]) <= fx <= g[2] + (g[2] - g[0]) and g[1] - (g[3] - g[1]) <= fy <= g[3] + (g[3] - g[1]):
+                return True
+    for i in range(len(boxes)):
+        a = boxes[i]
+        for b in boxes[i + 1:]:
+            gx = max(0, max(a[0], b[0]) - min(a[0] + a[2], b[0] + b[2]))
+            gy = max(0, max(a[1], b[1]) - min(a[1] + a[3], b[1] + b[3]))
+            if max(gx, gy) < 0.25 * min(a[2], b[2]):
+                return True
+    return False
 
 def make_follow(video, quad, t):
     """A CamFollow for one video: from the picture the field was marked on
