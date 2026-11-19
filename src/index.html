@@ -3714,7 +3714,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v163';
+const APP_BUILD = 'v164';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -9691,6 +9691,7 @@ const VT_SUMS_KEY = 'vt:sums';
 
 // Boxes → frames of points in field units (0..1 across the area robots used).
 // A robot's position is the middle of the bottom edge of its box: its wheels.
+const VT_FIELD_MARGIN = 0.06;   // how far off the field's edge a robot's wheels can be seen to stand (the app's FIELD_MARGIN)
 function vtFrames(rec, quad, learn) {
   const H = rec.h || 360, raw = [], N = vtStride(rec), scenery = vtStillKnown(learn);
   // v133: what the vision model on the tracking computer said of a robot in a
@@ -9722,7 +9723,10 @@ function vtFrames(rec, quad, learn) {
   // With the field's corners known, a position is a place on the real field.
   const toField = quad && quad.q ? vtHomography(quad.q) : null;
   if (toField) {
-    for (const f of raw) for (const p of f.weak ? f.pts.concat(f.weak) : f.pts) { const [u, v] = toField(p.x, p.y); p.x = Math.max(-0.15, Math.min(1.15, u)); p.y = Math.max(-0.15, Math.min(1.15, v)); }
+    // v164: a box whose wheels stand off the field is a person, a ref or a
+    // sign, never a robot (reported: "its selecting like people sometimes").
+    const M = VT_FIELD_MARGIN, onField = p => { const [u, v] = toField(p.x, p.y); p.x = u; p.y = v; return u >= -M && u <= 1 + M && v >= -M && v <= 1 + M; };
+    for (const f of raw) { f.pts = f.pts.filter(onField); if (f.weak) f.weak = f.weak.filter(onField); }
     return { frames: raw, ok: true, field: true, acts };
   }
   xs.sort((a, b) => a - b); ys.sort((a, b) => a - b);
@@ -10341,7 +10345,7 @@ function vtReportSeen(S) {
 // the recordings are in the shared store too, so whichever device opens a
 // report fetches the ones it needs, makes the summaries again, keeps them, and
 // (with the admin key) shares them.
-const VT_REMAKE = 154;      // v154: goal counts by the game's rules; v152: when the points came, from the stream's score; v150: unsure boxes carry on missing robots, whole-match slots, smoothed; v148: robots followed by speed and heading; v145/146: stacking timed at the goal (vs, vh)      // v136: pins counted on the goals as well (oy, oa, …)
+const VT_REMAKE = 164;      // v164: boxes standing off the field dropped; v154: goal counts by the game's rules; v152: when the points came, from the stream's score; v150: unsure boxes carry on missing robots, whole-match slots, smoothed; v148: robots followed by speed and heading; v145/146: stacking timed at the goal (vs, vh)      // v136: pins counted on the goals as well (oy, oa, …)
 const vtStale = s => !!(s && s.ok && (s.rv || 0) < VT_REMAKE);
 const vtRefreshTried = new Set();
 async function vtSumsRefresh(sums, limit) {

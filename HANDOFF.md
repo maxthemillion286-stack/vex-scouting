@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v163**. Everything green: 110 test files.
+Current release: **v164**. Everything green: 111 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,27 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v164 (app 2.40) — the vision model put to work; people off the field.**
+Asked what the vision model does and to "utilize as much as you can with it
+as long as its reasonable", and about people being boxed as robots. Off the
+field: `field_inverse`/`on_field` drop boxes whose bottom middle maps outside
+the field (± `FIELD_MARGIN` 0.06) in tracking when the field is marked;
+`vtFrames` does the same for every recording (`VT_FIELD_MARGIN`,
+`VT_REMAKE` → 164). The vision model (too slow for every box, a second or
+more a question): `do_vreview` (button "Let the vision model review first",
+task `--vreview`) asks per waiting frame (`vlm_review_frame`, numbered
+picture as `think_picture`) what each box is (`VLM_WHAT`) and for boxes of
+robots without one ("missed", 0–1000 of the whole picture, scaled back to
+the frame); notes kept in the frame's props `vlm`. `vlm_verdict`: all
+robots, none missed, 1–6 → labelled `by: 'vlm'` (trained on, ≤ 3× human,
+never in val; `reviewed()` is human only). Otherwise review opens with its
+changes applied (`/api/next` → `vlm: {removed, added}`), and those frames
+come first in the queue. `vlm_find_field` ("Find it for me" on the field
+screen, `/api/ffind`): corners, goal and loader feet as points; each slot
+takes the nearest point (≤ 0.15) from the drawing's guess. Only the plumbing
+is tested (desktop/dev/vlm.py, 23, a stand-in Ollama); the real model's
+accuracy at this is unknown. Tests: t150.
 
 **v163 — Points a match.** Asked: "can it be the average of what the teams
 score per match". The My team column is now its alliance's official score,
