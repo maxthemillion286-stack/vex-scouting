@@ -68,16 +68,16 @@ const long = 'This sentence is the point. ' + 'And this is the further explanati
   ok('named, not numbered', /Cypress/.test(rows[0].cells[0].textContent) && /Bay Area Fall Classic/.test(rows[1].cells[0].textContent) && !/Event 6/.test(host.textContent), rows.map(r => r.cells[0].textContent).join(' | '));
   ok('newest first, with its date', /Nov/.test(rows[0].cells[0].textContent) && /Oct/.test(rows[1].cells[0].textContent));
   ok('an event name cannot inject markup', !host.querySelector('.vt-coach-table b'));
-  ok('the columns are the ones asked for', [...host.querySelectorAll('.vt-coach-table th')].map(h => h.textContent).join('|') === 'Event|Matches|Autonomous|Goes for|Pins a match|Pin points a match (at most)|5 pins stacked in');
+  ok('the columns are the ones asked for', [...host.querySelectorAll('.vt-coach-table th')].map(h => h.textContent).join('|') === 'Event|Matches|Autonomous|Goes for|Pins a match|Points a match|5 pins stacked in');
   ok('autonomous is counts or says it has none yet (v131)', /not counted yet|pin/.test(rows[0].cells[2].textContent), rows[0].cells[2].textContent);
   ok('with no pins counted, it says so rather than showing a zero', /not counted yet/.test(rows[0].cells[4].textContent) && /not counted yet/.test(rows[0].cells[6].textContent));
   ok('and says what is needed for them', /Mark the field/.test(host.querySelector('#vtCoachWhy').textContent));
   ok('a row that is the alliance says so in words, not an asterisk', /alliance/.test(rows[0].cells[1].textContent) && !/\*/.test(host.querySelector('.vt-coach-table').textContent));
   ok('the introduction is one short line', host.querySelector('.rw-hint').textContent.length < 80);
   const why = host.querySelector('details.vs-why');
-  ok('what the columns mean is behind an arrow, in plain words', why && !why.open && /What these mean/.test(why.querySelector('summary').textContent) && why.querySelectorAll('p').length === 8 && /10 for each yellow half and 5 for each half of your own colour/.test(why.textContent) && /a half hidden inside a cup does not score/.test(why.textContent));
+  ok('what the columns mean is behind an arrow, in plain words', why && !why.open && /What these mean/.test(why.querySelector('summary').textContent) && why.querySelectorAll('p').length === 8 && /the official score of its alliance, averaged over its tracked matches/.test(why.textContent) && /a half hidden inside a cup does not score/.test(why.textContent));
   ok('on a phone each event is a card, so nothing scrolls sideways', /@media \(max-width: 600px\) \{\s+\.vt-coach-table, \.vt-coach-table tbody, \.vt-coach-table tr \{ display: block; width: 100%; \}/.test(idx) && /\.vt-coach-table thead \{ display: none; \}/.test(idx));
-  ok('and every number carries its own label there', [...rows[0].cells].slice(1).map(c => c.getAttribute('data-label')).join('|') === 'Matches|Autonomous|Goes for|Pins a match|Pin points a match (at most)|5 pins stacked in' && /td\[data-label\]::before \{ content: attr\(data-label\);/.test(idx));
+  ok('and every number carries its own label there', [...rows[0].cells].slice(1).map(c => c.getAttribute('data-label')).join('|') === 'Matches|Autonomous|Goes for|Pins a match|Points a match|5 pins stacked in' && /td\[data-label\]::before \{ content: attr\(data-label\);/.test(idx));
   ok('the columns have room', /\.vt-coach-table th, \.vt-coach-table td \{ padding: 8px 14px 8px 0;/.test(idx));
   // An event that cannot be looked up still shows.
   win.eval(`vsEventRecord = async () => { throw new Error('offline'); };`);
@@ -118,7 +118,7 @@ const long = 'This sentence is the point. ' + 'And this is the further explanati
   await f('vtCoachFill')('66449A');
   const cells = [...doc.querySelectorAll('#vtCoach .vt-coach-table tbody tr')][0].cells;
   ok('pins a match are shown, with whether they were checked', /^7\.0not checked yet$/.test(cells[4].textContent), cells[4].textContent);
-  ok('points from pins are shown', cells[5].textContent === '130', cells[5].textContent);
+  ok('points a match are its alliance\'s official scores, averaged (v163, asked for in place of pin points)', /^\d+its alliance, official, \d+ match/.test(cells[5].textContent), cells[5].textContent);
   ok('time to five pins is shown', cells[6].textContent === '48 s', cells[6].textContent);
   ok('which pins it goes for is shown', /^Mostly yellow pins \(86% of what it scores\)$/.test(cells[3].textContent), cells[3].textContent);
   const St = f('vtPinStyle');

@@ -3714,7 +3714,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v162';
+const APP_BUILD = 'v163';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -10683,18 +10683,18 @@ async function vtCoachFill(number) {
     return `<tr><td class="vt-coach-ev">${esc(name)}${when ? `<span>${esc(when)}</span>` : ''}</td><td data-label="Matches">${(own ? r.own : r.mine).length}${own ? '' : '<span>alliance</span>'}</td>
       <td data-label="Autonomous" class="vt-coach-mid">${auto ? esc(auto) : none}</td>
       <td data-label="Goes for" class="vt-coach-mid">${P ? (P.style ? esc(P.style.text) : 'too few pins to say') : none}</td>
-      <td data-label="Pins a match">${P ? P.pins.toFixed(1) + `<span>${chk.ok ? `checked: ±${vtPct(chk.err)}` : 'not checked yet'}</span>` : none}</td><td data-label="Pin points a match (at most)">${P ? Math.round(P.points) : none}</td>
+      <td data-label="Pins a match">${P ? P.pins.toFixed(1) + `<span>${chk.ok ? `checked: ±${vtPct(chk.err)}` : 'not checked yet'}</span>` : none}</td><td data-label="Points a match">${(() => { const v = r.mine.map(x => x.pts).filter(x => typeof x === 'number'); return v.length ? Math.round(vtAvg(v)) + `<span>its alliance, official, ${v.length} match${v.length === 1 ? '' : 'es'}</span>` : none; })()}</td>
       <td data-label="5 pins stacked in">${P ? (P.t5 !== null ? Math.round(P.t5) + ' s' + (P.timed ? `<span>a pin every ${P.perPin.toFixed(1)} s at the goal</span>` : '') : `not timed yet<span>${[...m.values()].some(vtStale) ? 'its matches are being read again' : 'too few pins seen being stacked'}</span>`) : none}</td></tr>`;
   }).join('');
   host.innerHTML = `<div class="detail-block"><div class="detail-block-label">Your robot, as the tracker sees it</div>
     <div class="rw-hint">What a team scouting ${esc(num)} would see, event by event.</div>
-    <div class="cmp-wrap"><table class="cmp-table vt-coach-table"><thead><tr><th>Event</th><th>Matches</th><th>Autonomous</th><th>Goes for</th><th>Pins a match</th><th>Pin points a match (at most)</th><th>5 pins stacked in</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>
+    <div class="cmp-wrap"><table class="cmp-table vt-coach-table"><thead><tr><th>Event</th><th>Matches</th><th>Autonomous</th><th>Goes for</th><th>Pins a match</th><th>Points a match</th><th>5 pins stacked in</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>
     ${anyPins ? '' : `<div class="vt-note" id="vtCoachWhy">Pins are not counted for these matches yet. Counting needs two things: the match tracked since pin counting was added, and <strong>Mark the field</strong> done once on its stream (Jumper, open a match, Robot tracker box).</div>`}
     <details class="vs-why"><summary>What these mean</summary><div>
       <p><strong>Autonomous:</strong> pins your robot sets down in the first 15 seconds, and how many toggles your alliance has turned to its colour when they end. The tracker cannot tell which of the two robots turned a toggle.</p>
       <p><strong>Goes for:</strong> whether the pins your robot sets down are mostly yellow, mostly your own colour, or both.</p>
       <p><strong>Pins a match:</strong> pins your robot moved and set down, counted from the video. Two halves make a pin. Only halves that can be seen are counted, which is also the rule: a half hidden inside a cup does not score. Cups themselves are not counted.</p>
-      <p><strong>Pin points a match (at most):</strong> an average per match, not a total for the event. 10 for each yellow half and 5 for each half of your own colour. Yellow only scores for the alliance holding that toggle, so this is the most those pins could be worth, not what they scored.</p>
+      <p><strong>Points a match:</strong> the official score of its alliance, averaged over its tracked matches at that event. VEX scores are an alliance's, so this includes its partner's points. Asked for in place of an estimate from pins.</p>
       <p><strong>5 pins stacked in:</strong> how long five pins take you at the goal: the time your robot spends at a goal on the visits that added pins, over the pins added. Driving between goals is not counted.</p>
       <p><strong>checked:</strong> the pin counts were compared with the official scores of those matches and corrected to fit; ± is how far a typical match was off. "Not checked yet" means fewer than four scored matches had pins counted.</p>
       <p>These are estimates read off a stream, not a referee's count.</p>
