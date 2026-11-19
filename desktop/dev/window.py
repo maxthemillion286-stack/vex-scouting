@@ -107,7 +107,7 @@ srv2.shutdown()
 ui = T.UI_HTML
 check('the window sizes the picture from the picture', 'img.naturalWidth||cur.w' in ui and "c.style.visibility='hidden'" in ui)
 check('and says it is loading instead of showing a black box', 'Loading the next frame…' in ui)
-check('the pins & cups line says why there is nothing to mark', 'Pc.why.unmarked' in ui and 'Mark the field</b>' in ui and "$('bPcs').disabled=Pc.counted!==false&&!Pc.left" in ui)
+check('the pins & cups line says why there is nothing to mark', 'Pc.why.unmarked' in ui and 'openField(' in ui and "$('bPcs').disabled=Pc.counted!==false&&!Pc.left" in ui)
 check('the window never sends a new status ask before the last one came back', 'polling' in ui and 'setInterval(()=>{if(!inReview)poll()},1000)' not in ui)
 check('version 2.27 or later', T.VERSION >= '2.27')
 print('window checks: %d ok, %d failing' % (ok, fail))
