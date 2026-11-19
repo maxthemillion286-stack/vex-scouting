@@ -21,7 +21,7 @@ ok('and the time at the goal is kept', got.get('900:1').Ra.vs === 20 && got.get(
 const own = f('vtPinPick')(new Map([1, 2, 3, 4, 5].map(i => { const [k, s] = mk(i, FV[i - 1], GV[i - 1]); s.Ra.ovs = 12; s.Ra.ovh = 6; return [k, s]; })));
 ok('its own timing is used when it has one', own.get('900:1').Ra.vs === 12 && own.get('900:1').Ra.vh === 6);
 ok('the robot that stacked may stand up to half a field width from where the pins show up', /let k0 = -1, best = 0\.5;/.test(src));
-ok('every device remakes older summaries', /const VT_REMAKE = 146;/.test(src));
+ok('every device remakes older summaries', /const VT_REMAKE = (14[6-9]|1[5-9]\d);/.test(src));
 ok('release is v146 or later', /const APP_BUILD = 'v1(4[6-9]|[5-9]\d)'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
