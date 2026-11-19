@@ -54,19 +54,24 @@ err = max(abs(mid(p)[0] / W0 - w[0]) for p, w in zip(pan_spots[:9], want)) if pa
 check('on a frame after the camera moved, the goals move with it', pan_spots and err < 0.01, 'off by %.3f of the width' % err)
 check('without following they would have been off', max(abs(mid(a)[0] - mid(b)[0]) / W0 for a, b in zip(ref_spots[:9], ref_spots[:9])) == 0 and max(abs(mid(p)[0] / W0 - mid(r)[0] / W0) for p, r in zip(pan_spots[:9], ref_spots[:9])) > 0.03)
 check('a close-up is not the field: no goals drawn on it', T.frame_spots(vid + '_close') == [])
-# On a goal: its column, on or above its base. Not loose beside or in front of it.
+# On a goal: touching its base or the stack on it, however it leans; not loose beside it.
 sb = ref_spots[8]
-x0, x1, base = T.spot_column(8, sb)
-cx, w_ = (x0 + x1) / 2, 14
-check('a pin stacked on the goal counts', T.on_spot([cx - w_ / 2, base - 60, w_, 20], 8, sb))
-check('a loose pin beside the goal does not', not T.on_spot([sb[0] + 1, base - 20, w_, 18], 8, sb))
-check('nor one lying in front of it', not T.on_spot([cx - w_ / 2, base + 2, w_, 12], 8, sb))
+fx, fy, u = T.spot_foot_px(8, sb)
+pw, ph = 0.023 * u, 0.03 * u
+lean = [[fx - pw / 2 + i * 0.5 * ph, fy - (i + 1) * ph, pw, ph, 2] for i in range(7)]
+upright = [[fx - pw / 2, fy - (i + 1) * ph, pw, ph, 0] for i in range(4)]
+loose = [[fx + 0.08 * u, fy - 0.01 * u, pw, ph * 0.6, 2], [fx - 0.09 * u, fy - 0.15 * u, pw, ph, 0]]
+got = T.stacked(lean + loose, 8, sb)
+check('a stack leaning over counts, all of it', all(any(b is g for g in got) for b in lean))
+check('an upright stack counts', len(T.stacked(upright, 8, sb)) == 4)
+check('loose pieces in the box beside it do not', not any(any(b is g for g in got) for b in loose))
 lb = ref_spots[9]
-check('anything over a loader counts', lb is None or T.on_spot([(lb[0] + lb[2]) / 2 - 5, (lb[1] + lb[3]) / 2 - 5, 10, 10], 9, lb))
+check('anything over a loader counts', lb is None or len(T.stacked([[(lb[0] + lb[2]) / 2 - 5, (lb[1] + lb[3]) / 2 - 5, 10, 10, 2]], 9, lb)) == 1)
+check('a loader box is small (under a third of a goal box wide)', lb is None or (lb[2] - lb[0]) < (sb[2] - sb[0]) / 3 + 1, str((lb, sb)))
 # The colour finder's guesses: only on goals and loaders.
 guesses = T.pieces_from_colour(img, [], ref_spots)
-check('the colour guesses are only pieces on goals or loaders', all(T.on_spots(b, ref_spots) >= 0 for b in guesses))
-check('fewer than everything coloured inside the old wide boxes', len(guesses) <= len([b for b in T.pieces_from_colour(img, []) if T.in_spots(b, ref_spots) >= 0]))
+check('the colour guesses are only pieces on goals or loaders', all(any(b in T.stacked(guesses, k, sp) for k, sp in enumerate(ref_spots) if sp) for b in guesses))
+check('fewer than everything coloured inside the boxes', len(guesses) <= len([b for b in T.pieces_from_colour(img, []) if T.in_spots(b, ref_spots) >= 0]))
 # v2.38: a goal dragged on a frame, its size kept, saved for the stream.
 pan = T.frame_spots(vid + '_pan')
 moved_box = [8] + [pan[8][0] + 40, pan[8][1], pan[8][2] + 40, pan[8][3]]
@@ -76,6 +81,6 @@ check('with that frame as the picture the others follow', T.field_ref(vid) and T
 after = T.frame_spots(vid + '_pan')
 check('the goal is now where it was dragged, the same size', abs(((after[8][0] + after[8][2]) / 2) - ((moved_box[1] + moved_box[3]) / 2)) < 2 and abs((after[8][2] - after[8][0]) - (pan[8][2] - pan[8][0])) < 3, str((after[8], moved_box)))
 check('the goals not dragged stay where they were', all(abs(a[0] - b[0]) < 3 for a, b in zip(after[:8], pan[:8])))
-check('app 2.38 or later', T.VERSION >= '2.38')
+check('app 2.39 or later', T.VERSION >= '2.39')
 print('spot checks: %d ok, %d failing' % (ok, fail))
 sys.exit(1 if fail else 0)

@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v160**. Everything green: 110 test files.
+Current release: **v161**. Everything green: 110 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,21 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v161 (app 2.39) — loaders small; goals by the stack, not a column.**
+Reported: loader boxes "ridiculously huge" (they were 0.20 × 0.33 field,
+2.4 × 4 ft) → `SPOTS` loaders (0.035, 0.12, 0.025). Then, with a picture of a
+tall stack leaning out of its column: "not gonna work". The column (v160)
+is gone from counting: goal boxes are wider (half-width 0.11, centre 0.12)
+and `stacked(pieces, k, sb)` keeps pieces touching the goal's base (0.09
+field square at the foot) and then any touching one already kept (gap 0.025
+field), so a stack is followed however it leans and loose pieces apart from
+it are left out; loaders keep everything in their box. Used by the colour
+guesses (`keep_stacked`) and `PieceFinder.find_spots` (tracking counts).
+Training keeps every piece the person marked inside a box. The review draws
+goal boxes faintly with a dot at the foot (`spot_foot_px`), clicks land
+anywhere in a box. `spot_column`/`on_spot` remain but are not used for
+counting. Checks: desktop/dev/spots.py (16), t149.
 
 **v160 (app 2.37–2.38) — pins & cups only on goals and loaders, and boxes
 that fit.** Reported: guesses on loose pieces ("make it so i only have to mark

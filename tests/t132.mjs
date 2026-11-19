@@ -8,7 +8,7 @@ console.log('t132 — v143');
 ok('a click in a dotted box places one of the chosen kind, centred on the click', /else if\(pm&&!onBox\(d\.x0,d\.y0\)\)\{const s=spotAt\(d\.x0,d\.y0\);if\(s\)\{const u=s\[4\]\/3658,w=\(pc===3\?95:70\)\*u,h=\(pc===3\?165:95\)\*u;boxes\.push\(\[d\.x0-w\/2,d\.y0-h\/2,w,h,pc\]\)/.test(app));
 ok('sized for where it is: pixels per field width at each spot', /def spot_units\(W, H, q\):/.test(app) && /'spots': \[s \+ \[units\[k\]/.test(app));
 ok('a click on a box still removes it; dragging a box moves it (v2.38: sizes are set)', /if\(!d\.moved\)\{boxes\.splice\(d\.k,1\)\}/.test(app) && /drag=\{mode:'box',k,lx:px,ly:py/.test(app));
-ok('a click outside every dotted box says why nothing happened', /(Click inside a dotted box: only goals and loaders count|Only on a goal \(inside its dotted column\) or over a loader)\./.test(app));
+ok('a click outside every dotted box says why nothing happened', /(Click inside a dotted box: only goals and loaders count|Only on a goal \(inside its dotted column\) or over a loader|Only on a goal or loader \(inside a dotted box\))\./.test(app));
 ok('the help says to pick a colour and click', /click the middle of each pin half/.test(app) && /<kbd>click<\/kbd>place one/.test(app));
 ok('release is v143 or later', /const APP_BUILD = 'v1(4[3-9]|[5-9]\d)'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
