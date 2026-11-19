@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.40'
+VERSION = '2.41'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -4118,7 +4118,8 @@ UI_HTML = r"""<!doctype html><html lang="en"><meta charset="utf-8"><meta name="v
  #rev,#fld{display:none} #fld .top{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px} #fld .top .sp{flex:1}
  #fld canvas{max-width:100%;max-height:calc(100vh - 210px);background:#000;border-radius:10px;cursor:crosshair;display:block;margin:0 auto}
  #rev .top{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px} #rev .top .sp{flex:1}
- .pc{border:2px solid transparent;border-radius:7px;padding:2px 8px;margin-right:4px;cursor:pointer;font-size:13px} .pc.on{border-color:#fff}
+ .pc{border:2px solid transparent;border-radius:9px;padding:8px 16px;margin-right:8px;cursor:pointer;font-size:15px;font-weight:600;display:inline-block} .pc.on{border-color:#fff}
+ .pbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:-2px 0 12px} .pbar .sp{flex:1} .fixlink{color:#8b93a7;font-size:13px} .phelp{display:inline} .phelp summary{display:inline;cursor:pointer;color:#8b93a7}
  #rev canvas{max-width:100%;max-height:calc(100vh - 210px);background:#000;border-radius:10px;cursor:crosshair;display:block;margin:0 auto}
  kbd{background:#252b38;border-radius:5px;padding:1px 7px;font:12.5px ui-monospace,Consolas,monospace;margin-right:3px}
  .keys{color:var(--dim);font-size:13px}
@@ -4149,11 +4150,12 @@ UI_HTML = r"""<!doctype html><html lang="en"><meta charset="utf-8"><meta name="v
 <main id="rev">
  <div class="top"><button class="ghost" onclick="closeReview()">← Back</button><b id="revLeft"></b><span class="sp"></span>
   <span class="keys" id="rKeys"><kbd>click a box</kbd>remove <kbd>drag</kbd>add a robot <kbd>Enter</kbd>save, next <kbd>S</kbd>not a field view <kbd>Z</kbd>undo <kbd>B</kbd>back one</span>
-  <span class="keys" id="pKeys" style="display:none"><span id="pCls"></span> <kbd>click</kbd>place one <kbd>drag a box</kbd>move it <kbd>click a box</kbd>remove <kbd>wheel</kbd>zoom <kbd>Enter</kbd>save <kbd>Z</kbd>undo <kbd>B</kbd>back</span>
-  <button class="ghost" id="pMove" style="display:none" onclick="moveGoals()">Move the goals</button>
-  <button class="ghost" id="pRemark" style="display:none" onclick="if(cur&&cur.id)openField(cur.id.replace(/_[^_]*$/,''),cur.id)">Boxes off? Mark the field on this picture</button>
   <button class="ghost" onclick="saveFrame(true)">Skip</button><button onclick="saveFrame(false)">Save, next</button></div>
- <div id="cw" style="overflow:auto;max-height:calc(100vh - 210px)"><canvas id="c"></canvas></div><div class="hint" id="pMsg" style="display:none">Pre-drawn boxes are the colour finder's guesses. Pick a colour (or cup) above or with <kbd>1</kbd>–<kbd>4</kbd>, then <b>click the middle of each pin half</b> of that colour (a red-and-yellow pin is two clicks, one per colour) and the middle of each cup. Click a box to remove it. Only on the goals and loaders: each goal and loader is a dotted box, with a dot where the goal stands. Mark only pieces stacked on the goal (however the stack leans), never loose ones lying on the floor in the box. Mark every pin half and cup you can see on them, including ones half hidden. If the dotted shapes are not on the goals, press <b>Boxes off? Mark the field on this picture</b>: every other frame of the stream then follows the camera from it. Scroll the mouse wheel over the picture to zoom; drag for an exact box.</div><div class="hint" id="revMsg">Green boxes are what the finder thinks are robots. Box every robot you can see, even partly hidden ones, and nothing else. <b>Two robots touching get one box each:</b> if one green box covers both, click it away and draw two, split at the gap between their drivebases.</div>
+ <div class="pbar" id="pBar" style="display:none"><span id="pCls"></span><span class="sp"></span>
+  <a href="#" class="fixlink" onclick="event.preventDefault();$('pFix').style.display=$('pFix').style.display==='none'?'':'none'">Boxes in the wrong place?</a>
+  <span id="pFix" style="display:none"><button class="ghost" id="pMove" style="display:none" onclick="moveGoals()">Move the goals</button>
+  <button class="ghost" id="pRemark" style="display:none" onclick="if(cur&&cur.id)openField(cur.id.replace(/_[^_]*$/,''),cur.id)">Mark the field on this picture</button></span></div>
+ <div id="cw" style="overflow:auto;max-height:calc(100vh - 210px)"><canvas id="c"></canvas></div><div class="hint" id="pMsg" style="display:none">Pick a colour, then <b>click each piece stacked on a goal or sitting in a loader</b>. Click a piece again to remove it. Scroll to zoom. <details class="phelp"><summary>Help</summary>A pin is two halves: a red-and-yellow pin is two clicks, one per colour. Click the middle of each half, and the middle of each cup. Mark every one you can see on a goal (however the stack leans) or in a loader, even half hidden; never loose pieces lying on the floor. Boxes already drawn are guesses: click away wrong ones, drag a box to move it. Keys: <kbd>1</kbd>–<kbd>4</kbd> colour, <kbd>Enter</kbd> save, <kbd>Z</kbd> undo, <kbd>B</kbd> back. If the faint goal boxes are not on the goals, use <b>Boxes in the wrong place?</b>: the other frames of the stream then follow the camera from this one.</details></div><div class="hint" id="revMsg">Green boxes are what the finder thinks are robots. Box every robot you can see, even partly hidden ones, and nothing else. <b>Two robots touching get one box each:</b> if one green box covers both, click it away and draw two, split at the gap between their drivebases.</div>
 </main>
 <main id="fld">
  <div class="top"><button class="ghost" onclick="closeField()">← Back</button><b id="fSay"></b><span class="sp"></span>
@@ -4243,11 +4245,11 @@ async function saveSettings(){await api('/api/settings',{workers:+$('sWorkers').
 const c=$('c'),x=c.getContext('2d');let cur=null,img=new Image(),boxes=[],hist=[],drag=null,back=[],pm=false,pc=2,zoom=1;
 // Pins & cups: one class for each half's colour, one for cups.
 const PN=['red half','blue half','yellow half','cup'],PCOL=['#ff4d4d','#4da3ff','#ffd23f','#e8e8e8'];
-function clsBar(){$('pCls').innerHTML=PN.map((n,i)=>'<span class="pc'+(i===pc?' on':'')+'" style="background:'+PCOL[i]+'33;color:'+PCOL[i]+'" onclick="pc='+i+';clsBar()"><kbd>'+(i+1)+'</kbd>'+n+'</span>').join('')}
+function clsBar(){$('pCls').innerHTML=PN.map((n,i)=>'<span class="pc'+(i===pc?' on':'')+'" style="background:'+PCOL[i]+'33;color:'+PCOL[i]+'" onclick="pc='+i+';clsBar()" title="key '+(i+1)+'">'+n[0].toUpperCase()+n.slice(1)+'</span>').join('')}
 function setZoom(z){zoom=Math.max(1,Math.min(6,z));if(zoom===1){c.style.maxWidth='100%';c.style.maxHeight='calc(100vh - 210px)';c.style.width=''}else{c.style.maxWidth='none';c.style.maxHeight='none';c.style.width=($('cw').clientWidth*zoom)+'px'}}
 c.addEventListener('wheel',e=>{if(!pm)return;e.preventDefault();const r=c.getBoundingClientRect(),fx=(e.clientX-r.left)/r.width,fy=(e.clientY-r.top)/r.height,w=$('cw');setZoom(zoom*(e.deltaY<0?1.25:0.8));const r2=c.getBoundingClientRect();w.scrollLeft+=r2.width*fx-(e.clientX-r.left)-(r2.left-r.left);w.scrollTop+=r2.height*fy-(e.clientY-r.top)-(r2.top-r.top)},{passive:false});
 function openReview(p){pm=!!p;back=[];setZoom(1);inReview=true;$('home').style.display='none';$('rev').style.display='block';
- $('rKeys').style.display=pm?'none':'';$('pKeys').style.display=pm?'':'none';$('pMsg').style.display=pm?'':'none';$('revMsg').style.display=pm?'none':'';if(pm)clsBar();nextFrame()}
+ $('rKeys').style.display=pm?'none':'';$('pBar').style.display=pm?'flex':'none';$('pMsg').style.display=pm?'':'none';$('revMsg').style.display=pm?'none':'';if(pm)clsBar();nextFrame()}
 // Marking the field in the app (v2.36). Asked: "can i mark the field in the app??"
 let F=null;const fc=$('fc'),fx=fc.getContext('2d');
 async function openField(vid,id){let r;try{r=await api('/api/fframe?vid='+encodeURIComponent(vid)+(id?'&id='+encodeURIComponent(id):''))}catch(e){r={error:e.message}}
@@ -4291,12 +4293,13 @@ async function nextPieces(id){$('revLeft').textContent='Loading the next frame�
  if(cur.error){revTrouble('Could not load a frame: '+cur.error);return}if(!cur.id){closeReview();return}
  const m=cur.marked||0,goal=m<60?60:m<150?150:Math.ceil((m+1)/100)*100;$('revLeft').textContent=m+' of '+goal+' marked'+(m<60?' · '+(60-m)+' to go until it can train':' · enough to train; more makes it better');
  $('pRemark').style.display='';$('pMove').style.display=(cur.spots||[]).length?'':'none';gm=false;$('pMove').textContent='Move the goals';
- if(!(cur.spots||[]).length)$('revLeft').textContent='This picture is not the view the field was marked on. Skip it (S), or mark the field on it.';
+ $('pFix').style.display=(cur.spots||[]).length?'none':'';
+ if(!(cur.spots||[]).length)$('revLeft').textContent='Not the view the field was marked on: Skip it, or mark the field on it.';
  boxes=(cur.pieces||[]).map(b=>b.slice(0,5));hist=[];loadFrame()}
 function draw(){x.drawImage(img,0,0);
- if(pm){x.lineWidth=Math.max(1,c.width/1400);x.setLineDash([6,6]);x.strokeStyle='#ffffff55';for(const r of cur.robots||[])x.strokeRect(r[0],r[1],r[2],r[3]);x.setLineDash([]);
+ if(pm){x.lineWidth=Math.max(1,c.width/1400);x.setLineDash([]);
   x.lineWidth=Math.max(1.5,c.width/1100);for(const b of boxes){x.strokeStyle=PCOL[b[4]]||'#fff';x.strokeRect(b[0],b[1],b[2],b[3])}
-  x.setLineDash([3,4]);x.lineWidth=Math.max(1.5,c.width/900);x.strokeStyle='#ffd23f';if(gm){x.setLineDash([]);x.lineWidth=Math.max(2,c.width/500)}for(const s of cur.spots||[]){x.globalAlpha=s[5]<9&&!gm?0.45:1;x.strokeRect(s[0],s[1],s[2]-s[0],s[3]-s[1]);x.globalAlpha=1;if(s.length>7){x.fillStyle='#ffd23f';x.beginPath();x.arc(s[6],s[7],Math.max(3,c.width/(gm?250:400)),0,7);x.fill()}}x.setLineDash([]);
+  x.setLineDash([3,4]);x.lineWidth=Math.max(1.5,c.width/900);x.strokeStyle='#ffd23f';if(gm){x.setLineDash([]);x.lineWidth=Math.max(2,c.width/500)}for(const s of cur.spots||[]){x.globalAlpha=gm?1:0.3;x.strokeRect(s[0],s[1],s[2]-s[0],s[3]-s[1]);x.globalAlpha=1;if(gm&&s.length>7){x.fillStyle='#ffd23f';x.beginPath();x.arc(s[6],s[7],Math.max(3,c.width/(gm?250:400)),0,7);x.fill()}}x.setLineDash([]);
   if(drag&&drag.w){x.strokeStyle=PCOL[pc];x.strokeRect(drag.x,drag.y,drag.w,drag.h)}return}
  x.lineWidth=Math.max(2,c.width/450);for(const b of boxes){x.strokeStyle='#39ff88';x.strokeRect(b[0],b[1],b[2],b[3])}
  if(drag&&drag.w){x.strokeStyle='#ffd23f';x.strokeRect(drag.x,drag.y,drag.w,drag.h)}}

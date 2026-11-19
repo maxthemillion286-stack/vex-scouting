@@ -9,7 +9,7 @@ ok('a click in a dotted box places one of the chosen kind, centred on the click'
 ok('sized for where it is: pixels per field width at each spot', /def spot_units\(W, H, q\):/.test(app) && /'spots': \[s \+ \[units\[k\]/.test(app));
 ok('a click on a box still removes it; dragging a box moves it (v2.38: sizes are set)', /if\(!d\.moved\)\{boxes\.splice\(d\.k,1\)\}/.test(app) && /drag=\{mode:'box',k,lx:px,ly:py/.test(app));
 ok('a click outside every dotted box says why nothing happened', /(Click inside a dotted box: only goals and loaders count|Only on a goal \(inside its dotted column\) or over a loader|Only on a goal or loader \(inside a dotted box\))\./.test(app));
-ok('the help says to pick a colour and click', /click the middle of each pin half/.test(app) && /<kbd>click<\/kbd>place one/.test(app));
+ok('the help says to pick a colour and click (v165: one line, the rest behind Help)', /Pick a colour, then <b>click each piece stacked on a goal or sitting in a loader<\/b>/.test(app) && /<summary>Help<\/summary>/.test(app));
 ok('release is v143 or later', /const APP_BUILD = 'v1(4[3-9]|[5-9]\d)'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
