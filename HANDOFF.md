@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v158**. Everything green: 108 test files.
+Current release: **v159**. Everything green: 109 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,19 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v159 (app 2.36) — mark the field in the app.** Asked: "can i mark the
+field in the app??". Under pins & cups, each stream with reviewed frames but
+no field mark gets a "Mark the field: <vid>" button → screen `#fld`:
+`/api/fframe` picks the stream's saved frame (reviewed, most boxes);
+four clicks; `/api/fspots` returns the 13 starting spots (`first_spots`:
+`quad_fwd` of `SPOTS`); circles dragged; `/api/fsave` → `save_field` posts
+{field: {vid, q, g, l, t}} with the admin key, exactly as the website does,
+and updates `_QUADS`/quads.json. Frames now store `t` (stream seconds) so a
+mark made on one gives camera-follow its picture. The pins & cups line is
+written with `setHtml` (only when changed): rebuilding it every second lost
+clicks on its buttons. Checks: desktop/dev/fieldmark (end to end in
+Chromium against a stand-in website), t148.
 
 **v158 (app 2.34) — one bar for the whole job.** Reported: the bar showed
 the step on hand (a video's download 0–100%, then tracking moving only when

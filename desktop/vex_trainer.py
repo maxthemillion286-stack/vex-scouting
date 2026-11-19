@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.35'
+VERSION = '2.36'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -996,7 +996,7 @@ def looks_broken(frame):
     busy = g[1:].std(axis=1) > 8
     return bool((same & busy).mean() > 0.25)
 
-def keep_frame(frame, boxes, tag, hard, steady=None, auto=False):
+def keep_frame(frame, boxes, tag, hard, steady=None, auto=False, at=None):
     """Save a picture with the finder's suggestions, for review later.
     `steady`: the four robots in it were where the look before put them (v2.32);
     `auto`: kept only to train on, never asked about in review."""
@@ -1017,6 +1017,8 @@ def keep_frame(frame, boxes, tag, hard, steady=None, auto=False):
             p['steady'] = 1 if steady else 0
         if auto:
             p['auto'] = 1
+        if at is not None:
+            p['t'] = round(float(at), 1)            # seconds into the stream (v2.36): marking the field on it then lets the camera be followed
         json.dump(p, f)
 
 AUTO_PER_MATCH, AUTO_GAP, AUTO_MAX = 6, 15, 1500
@@ -1375,13 +1377,13 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
             if harvest and kept < 10 and t >= next_keep and every:
                 hard = hardness(every)
                 if hard or kept < 4:
-                    keep_frame(frame, every, job['vid'], hard, steady)
+                    keep_frame(frame, every, job['vid'], hard, steady, at=t)
                     kept += 1
                     next_keep = t + (6 if hard else 14)
             # Frames to train on that nobody has to look at (v2.32): only looks
             # the tracker is certain of, spread through the match.
             if harvest and steady and not away and auto_kept < AUTO_PER_MATCH and t >= next_auto and auto_room[0] > 0:
-                keep_frame(frame, boxes, job['vid'], 0, True, auto=True)
+                keep_frame(frame, boxes, job['vid'], 0, True, auto=True, at=t)
                 auto_kept += 1
                 auto_room[0] -= 1
                 next_auto = t + AUTO_GAP
@@ -2896,6 +2898,71 @@ def pieces_why(site=None):
             unmarked[vid] = unmarked.get(vid, 0) + 1
     return {'reviewed': reviewed, 'unmarked': sorted(unmarked.items(), key=lambda kv: -kv[1])[:5]}
 
+def field_frame(vid):
+    """The picture to mark a stream's field on: of this stream's saved
+    frames, a reviewed one with the most robots (a wide view), else any."""
+    import cv2
+    if not os.path.isdir(FRAMES):
+        return None
+    best = None
+    for n in os.listdir(FRAMES):
+        if not (n.startswith(vid + '_') and n.endswith('.jpg')):
+            continue
+        name = n[:-4]
+        lab = lab_read(name)
+        try:
+            with open(os.path.join(PROPS, name + '.json')) as f:
+                p = json.load(f)
+        except Exception:
+            p = {}
+        score = (0 if lab.get('skip') else 1, len(lab.get('boxes') or p.get('boxes') or []))
+        if best is None or score > best[0]:
+            best = (score, name, p)
+    if not best:
+        return None
+    pic = cv2.imread(os.path.join(FRAMES, best[1] + '.jpg'))
+    if pic is None:
+        return None
+    out = {'id': best[1], 'w': pic.shape[1], 'h': pic.shape[0]}
+    if isinstance(best[2].get('t'), (int, float)):
+        out['t'] = best[2]['t']
+    return out
+
+def first_spots(q):
+    """Where the goals and loaders start, from the four corners (the
+    manual's drawing): picture fractions, to be dragged onto the real ones."""
+    fwd = quad_fwd(q)
+    if not fwd:
+        return None
+    return [[round(min(0.99, max(0.01, v)), 4) for v in fwd(u, v_)] for u, v_, *_ in SPOTS]
+
+def save_field(cfg, body):
+    """A field marked in the app, saved to the website like one marked
+    there. → (ok, why not)."""
+    vid = str(body.get('vid', ''))
+    if not re.fullmatch(r'[A-Za-z0-9_-]{6,20}', vid):
+        return False, 'bad stream'
+    num = lambda a, n: isinstance(a, list) and len(a) == n and all(isinstance(v, (int, float)) and -0.5 <= v <= 1.5 for v in a)
+    q, g, l = body.get('q'), body.get('g'), body.get('l')
+    if not (num(q, 8) and num(g, 18) and num(l, 8)):
+        return False, 'the corners, goals and loaders were not all there'
+    if not cfg.get('key'):
+        return False, 'save the admin key in Settings first'
+    field = {'vid': vid, 'q': [round(v, 4) for v in q], 'g': [round(v, 4) for v in g], 'l': [round(v, 4) for v in l]}
+    t = body.get('t')
+    if isinstance(t, (int, float)) and 0 <= t <= 200000:
+        field['t'] = round(float(t), 1)
+    r = Site(cfg).post({'field': field})
+    if not (r and r.get('ok')):
+        return False, 'the website said: ' + str((r or {}).get('error') or 'no answer')
+    _QUADS[vid] = {'q': field['q'], 'g': field['g'], 'l': field['l'], 't': field.get('t'), 'at': time.time()}
+    try:
+        with open(os.path.join(DIRS['data'], 'quads.json'), 'w') as f:
+            json.dump(_QUADS, f)
+    except Exception:
+        pass
+    return True, ''
+
 def pieces_ready():
     """A trained pin and cup finder that beat the colour finder, on this computer."""
     try:
@@ -3623,7 +3690,9 @@ UI_HTML = r"""<!doctype html><html lang="en"><meta charset="utf-8"><meta name="v
  .hint{color:var(--dim);font-size:13px;margin-top:10px}
  details.more{margin-top:14px} details.more>summary{cursor:pointer;color:var(--dim);font-size:13px} details.more .add{margin-top:10px} .panel details.more{margin-top:4px}
  #key{display:none;margin-bottom:16px;border-color:#4a3d1a;background:#1d1a12} #key .row{display:flex;gap:10px;margin-top:10px} #key input{flex:1}
- #rev{display:none} #rev .top{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px} #rev .top .sp{flex:1}
+ #rev,#fld{display:none} #fld .top{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px} #fld .top .sp{flex:1}
+ #fld canvas{max-width:100%;max-height:calc(100vh - 210px);background:#000;border-radius:10px;cursor:crosshair;display:block;margin:0 auto}
+ #rev .top{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px} #rev .top .sp{flex:1}
  .pc{border:2px solid transparent;border-radius:7px;padding:2px 8px;margin-right:4px;cursor:pointer;font-size:13px} .pc.on{border-color:#fff}
  #rev canvas{max-width:100%;max-height:calc(100vh - 210px);background:#000;border-radius:10px;cursor:crosshair;display:block;margin:0 auto}
  kbd{background:#252b38;border-radius:5px;padding:1px 7px;font:12.5px ui-monospace,Consolas,monospace;margin-right:3px}
@@ -3658,6 +3727,12 @@ UI_HTML = r"""<!doctype html><html lang="en"><meta charset="utf-8"><meta name="v
   <button class="ghost" onclick="saveFrame(true)">Skip</button><button onclick="saveFrame(false)">Save, next</button></div>
  <div id="cw" style="overflow:auto;max-height:calc(100vh - 210px)"><canvas id="c"></canvas></div><div class="hint" id="pMsg" style="display:none">Pre-drawn boxes are the colour finder's guesses. Pick a colour (or cup) above or with <kbd>1</kbd>–<kbd>4</kbd>, then <b>click the middle of each pin half</b> of that colour (a red-and-yellow pin is two clicks, one per colour) and the middle of each cup. Click a box to remove it. Only inside the <b>dotted yellow boxes</b>: each stands on a goal or over a loader. Mark every pin half and cup you can see in them, including ones half hidden; nothing else on the field matters. Scroll the mouse wheel over the picture to zoom; drag for an exact box.</div><div class="hint" id="revMsg">Green boxes are what the finder thinks are robots. Box every robot you can see, even partly hidden ones, and nothing else. <b>Two robots touching get one box each:</b> if one green box covers both, click it away and draw two, split at the gap between their drivebases.</div>
 </main>
+<main id="fld">
+ <div class="top"><button class="ghost" onclick="closeField()">← Back</button><b id="fSay"></b><span class="sp"></span>
+  <button class="ghost" onclick="resetField()">Start again</button><button id="fSave" onclick="saveField()" disabled>Save to the website</button></div>
+ <canvas id="fc"></canvas>
+ <div class="hint">Marked once per stream, on a picture of the whole field. Click the four corners of the field (any order), then drag each circle onto the bottom of its real one: <b style="color:#ffe14a">yellow</b> on the nine goals, <b style="color:#ff6bd6">pink</b> on the four match loaders. It is saved to the website, the same as marking it there.</div>
+</main>
 <dialog id="dlg"><b>Settings</b>
  <label>Matches watched at once (4 to 8 suits an 8-core processor)</label><input id="sWorkers" type="number" min="1" max="16" style="width:100%">
  <label>Download speed</label><select id="sSpeed" style="width:100%"><option value="0">Full speed (uses the whole connection)</option><option value="40">Fast, leaves some room (40 MB/s)</option><option value="15">Gentle, fine for gaming (15 MB/s)</option><option value="5">Very gentle (5 MB/s)</option></select>
@@ -3685,6 +3760,9 @@ function loadFrame(){const want=cur.id;img=new Image();c.style.visibility='hidde
  img.src='/img/'+cur.id+'.jpg?t='+T}
 let st=null,inReview=false;
 async function poll(){try{st=await api('/api/state');paint()}catch(e){$('now').textContent='The program behind this window has stopped. Close this and run VEX_Trainer.bat again.'}}
+// Redrawn only when it changed: the window repaints every second, and a
+// button rebuilt between pressing and letting go loses the click (v2.36).
+function setHtml(id,h){const e=$(id);if(e&&e.innerHTML!==h&&e.dataset.h!==h){e.innerHTML=h;e.dataset.h=h}}
 function paint(){
  $('site').textContent=st.site.replace(/^https?:\/\//,'');
  $('keyPill').textContent=st.key?'Admin key saved':'No admin key';$('keyPill').className='pill '+(st.key?'ok':'bad');
@@ -3693,10 +3771,10 @@ function paint(){
  $('revN').textContent=st.gold+' of '+goal+' done'+(st.gold<150?' · '+(150-st.gold)+' more and it can train':st.gold<300?' · it can train now; 300 is better':' · plenty; more still helps');
  $('bRev').disabled=!st.waiting;
  const Pc=st.pieces||{marked:0,left:0,need:60},PL=Pc.last;
- $('pcsN').innerHTML='Pins &amp; cups: '+Pc.marked+' of '+(Pc.marked<Pc.need?Pc.need:Math.max(150,Math.ceil((Pc.marked+1)/100)*100))+' marked'+(Pc.marked<Pc.need?' · '+(Pc.need-Pc.marked)+' more and it can train':'')+
+ setHtml('pcsN','Pins &amp; cups: '+Pc.marked+' of '+(Pc.marked<Pc.need?Pc.need:Math.max(150,Math.ceil((Pc.marked+1)/100)*100))+' marked'+(Pc.marked<Pc.need?' · '+(Pc.need-Pc.marked)+' more and it can train':'')+
   (PL?'<br>'+(PL.use?'Trained finder in use':'Colour finder in use')+' · pin halves '+(PL.use?PL.new:PL.colour)+(PL.use?' (colours: '+PL.colour+')':'')+' · cups '+PL.cups:'')+
   // v2.35: when there is nothing to mark, say why. Reported: the button greyed out, nothing said.
-  (Pc.counted===false?'<br><span class="dim">Counting the frames…</span>':!Pc.left&&Pc.why?'<br><span class="warn">'+(!Pc.why.reviewed?'Nothing to mark yet: pins and cups are marked on frames whose robots you have reviewed. Review some robot frames first.':Pc.why.unmarked&&Pc.why.unmarked.length?'Nothing to mark yet: your reviewed frames come from streams whose field is not marked on the website. In the Jumper, open a match from '+(Pc.why.unmarked.length===1?'this stream':'these streams')+', pause on the whole field and press <b>Mark the field</b>: '+Pc.why.unmarked.map(u=>esc(u[0])+' ('+u[1]+' frame'+(u[1]===1?'':'s')+')').join(', ')+'.':'Every reviewed frame from a marked stream is done. Review more robot frames to get more.')+'</span>':'');
+  (Pc.counted===false?'<br><span class="dim">Counting the frames…</span>':!Pc.left&&Pc.why?'<br><span class="warn">'+(!Pc.why.reviewed?'Nothing to mark yet: pins and cups are marked on frames whose robots you have reviewed. Review some robot frames first.':Pc.why.unmarked&&Pc.why.unmarked.length?'Nothing to mark yet: your reviewed frames come from '+(Pc.why.unmarked.length===1?'a stream':'streams')+' whose field is not marked. Mark it here, once a stream:</span><br>'+Pc.why.unmarked.map(u=>'<button class="ghost" style="margin:4px 6px 0 0" onclick="openField(\''+esc(u[0])+'\')">Mark the field: '+esc(u[0])+' ('+u[1]+' frame'+(u[1]===1?'':'s')+')</button>').join('')+'<span>':'Every reviewed frame from a marked stream is done. Review more robot frames to get more.')+'</span>':''));
  $('bPcs').disabled=Pc.counted!==false&&!Pc.left;
  $('trackN').textContent=st.task==='track'?'Running':' ';
  const need=Math.max(0,150-st.gold);
@@ -3741,6 +3819,33 @@ function setZoom(z){zoom=Math.max(1,Math.min(6,z));if(zoom===1){c.style.maxWidth
 c.addEventListener('wheel',e=>{if(!pm)return;e.preventDefault();const r=c.getBoundingClientRect(),fx=(e.clientX-r.left)/r.width,fy=(e.clientY-r.top)/r.height,w=$('cw');setZoom(zoom*(e.deltaY<0?1.25:0.8));const r2=c.getBoundingClientRect();w.scrollLeft+=r2.width*fx-(e.clientX-r.left)-(r2.left-r.left);w.scrollTop+=r2.height*fy-(e.clientY-r.top)-(r2.top-r.top)},{passive:false});
 function openReview(p){pm=!!p;back=[];setZoom(1);inReview=true;$('home').style.display='none';$('rev').style.display='block';
  $('rKeys').style.display=pm?'none':'';$('pKeys').style.display=pm?'':'none';$('pMsg').style.display=pm?'':'none';$('revMsg').style.display=pm?'none':'';if(pm)clsBar();nextFrame()}
+// Marking the field in the app (v2.36). Asked: "can i mark the field in the app??"
+let F=null;const fc=$('fc'),fx=fc.getContext('2d');
+async function openField(vid){let r;try{r=await api('/api/fframe?vid='+encodeURIComponent(vid))}catch(e){r={error:e.message}}
+ $('home').style.display='none';$('fld').style.display='block';inReview=true;
+ if(r.error){$('fSay').textContent=r.error;return}
+ F={vid,id:r.id,t:r.t,pts:[],spots:null,drag:-1,img:new Image()};$('fSave').disabled=true;
+ F.img.onload=()=>{fc.width=F.img.naturalWidth;fc.height=F.img.naturalHeight;drawField()};F.img.src='/img/'+r.id+'.jpg?t='+T;fieldSay()}
+function closeField(){inReview=false;F=null;$('fld').style.display='none';$('home').style.display='block';poll()}
+function resetField(){if(!F)return;F.pts=[];F.spots=null;$('fSave').disabled=true;fieldSay();drawField()}
+function fieldSay(){$('fSay').textContent=!F?'':F.spots?'Drag each circle onto its real goal or loader, then Save':'Click corner '+(F.pts.length+1)+' of 4'}
+function fpos(e){const r=fc.getBoundingClientRect();return[(e.clientX-r.left)*fc.width/r.width,(e.clientY-r.top)*fc.height/r.height]}
+function drawField(){if(!F||!F.img.complete)return;fx.drawImage(F.img,0,0);const R=Math.max(8,fc.width/90);fx.lineWidth=Math.max(2,fc.width/500);
+ if(F.pts.length>=2){fx.strokeStyle='#fff';fx.beginPath();const P=F.spots?orderPts(F.pts):F.pts;P.forEach((p,i)=>i?fx.lineTo(p[0],p[1]):fx.moveTo(p[0],p[1]));if(P.length===4)fx.closePath();fx.stroke()}
+ for(const p of F.pts){fx.fillStyle='#fff';fx.beginPath();fx.arc(p[0],p[1],R*0.6,0,7);fx.fill()}
+ if(F.spots)F.spots.forEach((p,k)=>{fx.strokeStyle=k<9?'#ffe14a':'#ff6bd6';fx.fillStyle='rgba(0,0,0,.35)';fx.beginPath();fx.arc(p[0]*fc.width,p[1]*fc.height,R,0,7);fx.fill();fx.stroke();
+  fx.fillStyle='#fff';fx.font='bold '+Math.round(R*1.1)+'px sans-serif';fx.textAlign='center';fx.textBaseline='middle';fx.fillText(k<9?String(k+1):'L',p[0]*fc.width,p[1]*fc.height)})}
+function orderPts(P){const cx=P.reduce((a,p)=>a+p[0],0)/P.length,cy=P.reduce((a,p)=>a+p[1],0)/P.length;return P.slice().sort((a,b)=>Math.atan2(a[1]-cy,a[0]-cx)-Math.atan2(b[1]-cy,b[0]-cx))}
+fc.onmousedown=async e=>{if(!F)return;const[px,py]=fpos(e);
+ if(!F.spots){if(F.pts.length>=4)return;F.pts.push([px,py]);fieldSay();drawField();
+  if(F.pts.length===4){const q=F.pts.flatMap(p=>[p[0]/fc.width,p[1]/fc.height]);const r=await api('/api/fspots',{q});if(r.error){$('fSay').textContent=r.error;F.pts=[];drawField();return}F.spots=r.spots;$('fSave').disabled=false;fieldSay();drawField()}return}
+ let best=-1,bd=Math.max(14,fc.width/60);F.spots.forEach((p,k)=>{const d=Math.hypot(p[0]*fc.width-px,p[1]*fc.height-py);if(d<bd){bd=d;best=k}});F.drag=best};
+fc.onmousemove=e=>{if(!F||F.drag<0)return;const[px,py]=fpos(e);F.spots[F.drag]=[Math.min(1,Math.max(0,px/fc.width)),Math.min(1,Math.max(0,py/fc.height))];drawField()};
+window.addEventListener('mouseup',()=>{if(F)F.drag=-1});
+async function saveField(){if(!F||!F.spots)return;$('fSave').disabled=true;$('fSay').textContent='Saving…';
+ const q=F.pts.flatMap(p=>[p[0]/fc.width,p[1]/fc.height]),r=await api('/api/fsave',{vid:F.vid,q,g:F.spots.slice(0,9).flat(),l:F.spots.slice(9).flat(),t:F.t});
+ if(r.error){$('fSay').textContent='Not saved: '+r.error;$('fSave').disabled=false;return}
+ $('fSay').textContent='Saved to the website. Pins and cups can now be marked on this stream\'s frames.';setTimeout(closeField,1800)}
 function closeReview(){inReview=false;$('rev').style.display='none';$('home').style.display='block';poll()}
 async function nextFrame(id){if(pm)return nextPieces(id);$('revLeft').textContent='Loading the next frame…';c.style.visibility='hidden';try{cur=await api('/api/next'+(id?'?id='+id:''))}catch(e){revTrouble('The app did not answer ('+e.message+').');return}
  if(cur.error){revTrouble('Could not load a frame: '+cur.error);return}if(!cur.id){closeReview();return}
@@ -4017,6 +4122,14 @@ def serve_ui(cfg, port=8765, open_window=True):
                 return self._send(200, {'version': VERSION, 'site': cfg['site'], 'key': bool(cfg.get('key')), 'busy': job.busy(), 'task': job.task if job.busy() else '',
                                         'log': job.lines(), 'progress': job.progress(), 'waiting': len(c['queue']), 'done': c['done'], 'gold': c['gold'], 'workers': cfg.get('workers', 4),
                                         'keep': bool(cfg.get('keep_videos')), 'think': bool(cfg.get('think')), 'pieces': {'marked': P['marked'], 'left': len(P['queue']), 'counted': bool(P['at']), 'why': P.get('why'), 'need': PIECE_NEED, 'last': last_pieces()}, 'speed': cfg.get('max_mbps', 0), 'last': last_train()})
+            if u.path == '/api/fframe':
+                vid = urllib.parse.parse_qs(u.query).get('vid', [''])[0]
+                if not re.fullmatch(r'[A-Za-z0-9_-]{6,20}', vid):
+                    return self._send(400, {'error': 'bad stream'})
+                pick = field_frame(vid)
+                if not pick:
+                    return self._send(200, {'error': 'No saved picture from this stream on this computer. Mark it on the website instead.'})
+                return self._send(200, pick)
             if u.path == '/api/pnext':
                 P = pcounts(wait=True)
                 want = urllib.parse.parse_qs(u.query).get('id', [None])[0]
@@ -4106,6 +4219,17 @@ def serve_ui(cfg, port=8765, open_window=True):
                     c['done'] += 1
                     c['gold'] += 0 if body.get('skip') else 1
                 return self._send(200, {'ok': True})
+            if u.path == '/api/fspots':
+                q = body.get('q')
+                if not (isinstance(q, list) and len(q) == 8 and all(isinstance(v, (int, float)) for v in q)):
+                    return self._send(400, {'error': 'bad corners'})
+                sp = first_spots(q)
+                return self._send(200, {'spots': sp} if sp else {'error': 'Those four points do not make a field. Start again.'})
+            if u.path == '/api/fsave':
+                ok_, why_ = save_field(cfg, body)
+                if ok_:
+                    pcache['at'] = min(pcache['at'], time.time() - 21)      # counted again, off to one side
+                return self._send(200, {'ok': True} if ok_ else {'error': why_})
             if u.path == '/api/psave':
                 name = str(body.get('id', ''))
                 if not re.fullmatch(r'[A-Za-z0-9_-]+', name) or not os.path.exists(os.path.join(LABELS, name + '.json')):
