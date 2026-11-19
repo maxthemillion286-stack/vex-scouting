@@ -66,7 +66,7 @@ ok('every device remakes older summaries', /const VT_REMAKE = 1(4\d|[5-9]\d);/.t
 ok('the app looks only at goal and loader spots', /SPOTS = \[/.test(app) && /def spot_boxes\(W, H, q(, placed=None)?\):/.test(app) && /def find_spots\(self, frame, spots\):/.test(app));
 ok('the same 13 spots, in the same order, on both sides', (() => { const m = [...app.slice(app.indexOf('SPOTS = ['), app.indexOf('N_GOALS')).matchAll(/\((0\.\d+), (0\.\d+), 0\.\d+, 0\.\d+, 0\.\d+\)/g)].map(x => [+x[1], +x[2]]); const w = f('VT_SPOTS_RAW'); return m.length === 13 && m.every((p, k) => p[0] === w[k][0] && p[1] === w[k][1]); })());
 ok('it trains on the spots cut out and enlarged', /cv2\.imwrite\(os\.path\.join\(root, 'images', part, stem \+ '\.jpg'\), frame\[y0:y1, x0:x1\]/.test(app) && /PIECE_SIZE, PIECE_NEED, PIECE_CONF = 320, 60/.test(app));
-ok('it counts every second once in use', /if eyes\.pieces is not None and quad and t >= spot_at \+ 1/.test(app) && /rec\['gs'\] \+= /.test(app));
+ok('it counts every second once in use', /if eyes\.pieces is not None and quad and (not away and )?t >= spot_at \+ 1/.test(app) && /rec\['gs'\] \+= /.test(app));
 ok('review shows the spots and only asks for what is in them', /strokeStyle='#ffd23f';for\(const s of cur\.spots/.test(app) && /pieces_from_colour\(frame, robots, spots\)/.test(app));
 ok('release is v140 or later', /const APP_BUILD = 'v1[4-9]\d'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);

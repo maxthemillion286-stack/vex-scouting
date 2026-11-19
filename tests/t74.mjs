@@ -160,7 +160,7 @@ ok('no invented timestamp is appended', !/[#?&]t=/.test(watch(vexCal, 1200)),
   'a made-up deep-link format would silently open at zero');
 
 // YouTube and Vimeo must be untouched by all of this.
-ok('YouTube still embeds with a start', embed({ platform: 'youtube', videoId: 'abc' }, 90) === 'https://www.youtube.com/embed/abc?start=90&autoplay=1');
+ok('YouTube still embeds with a start', embed({ platform: 'youtube', videoId: 'abc' }, 90) === 'https://www.youtube.com/embed/abc?start=90&autoplay=1&enablejsapi=1');
 ok('Vimeo still embeds with #t=', /#t=90s$/.test(embed({ platform: 'vimeo', videoId: '123', hash: 'h' }, 90)));
 ok('YouTube watch links still carry the time', /&t=90s$/.test(watch({ platform: 'youtube', videoId: 'abc' }, 90)));
 

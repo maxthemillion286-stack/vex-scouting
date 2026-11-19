@@ -7,7 +7,7 @@ const ok = (name, cond, detail) => { if (cond) { pass++; console.log('  ok   ' +
 const app = fs.readFileSync('../desktop/vex_trainer.py', 'utf8'), src = fs.readFileSync('../src/index.html', 'utf8');
 console.log('t136 — v147');
 ok('app version 2.27 or later', /VERSION = '2\.(2[7-9]|[3-9]\d)'/.test(app));
-ok('a video with no field marked is remembered as unmarked, not asked about again each time', /_QUADS\[vid\] = \{'q': q, 'g': fld\.get\('g'\) if q else None, 'l': fld\.get\('l'\) if q else None, 'at': time\.time\(\)\}/.test(app) && /fresh = isinstance\(f, dict\) and time\.time\(\) - f\.get\('at', 0\) < 600/.test(app));
+ok('a video with no field marked is remembered as unmarked, not asked about again each time', /_QUADS\[vid\] = \{'q': q, 'g': fld\.get\('g'\) if q else None, 'l': fld\.get\('l'\) if q else None, ('t': fld\.get\('t'\) if q else None, )?'at': time\.time\(\)\}/.test(app) && /fresh = isinstance\(f, dict\) and time\.time\(\) - f\.get\('at', 0\) < 600/.test(app));
 ok('when the website does not answer, what was known is kept', /if r\.get\('error'\):[^\n]*\n\s+_QUADS\[vid\] = dict\(/.test(app));
 ok('the pin list asks once per video, not once per frame', /if vid not in marked:\s+marked\[vid\] = quad_for\(vid, site\) is not None/.test(app));
 ok('counting happens off to one side, one at a time', /def later\(name, fn\):/.test(app) && /later\('review', count_review\)/.test(app) && /later\('pins', count_pieces\)/.test(app));

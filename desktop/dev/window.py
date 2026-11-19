@@ -84,6 +84,6 @@ T.pieces_queue, T.review_queue = real_pq, real_rq
 
 ui = T.UI_HTML
 check('the window never sends a new status ask before the last one came back', 'polling' in ui and 'setInterval(()=>{if(!inReview)poll()},1000)' not in ui)
-check('version 2.27', T.VERSION == '2.27')
+check('version 2.27 or later', T.VERSION >= '2.27')
 print('window checks: %d ok, %d failing' % (ok, fail))
 sys.exit(1 if fail else 0)

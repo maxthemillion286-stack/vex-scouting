@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v148**. Everything green: 98 test files.
+Current release: **v149**. Everything green: 99 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,30 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v149 (app 2.28) — the tracker follows the camera.** The field was marked
+once per stream, so a pan, zoom or close-up moved robots, pins, toggles and
+goal spots off the mark. Website: Mark the field saves `t`, the moment of the
+stream it was marked on (`vtMarkTime`: the match embed now has
+`enablejsapi=1` and is asked by postMessage, `infoDelivery.currentTime`);
+dragging goals keeps it; the server validates and stores `t` (0–200000 s).
+App: `windows_of` also fetches t±3 s; `make_follow` builds a `CamFollow` from
+the frame at t (or, for marks without t, the first look with 3+ robots).
+Every second and after each cut, `look()` matches ORB features of the marked
+picture (masked to the field and a quarter of its height above, never the
+overlays) against the frame, RANSAC homography, sanity on area/convexity.
+`H` changes only when the quad moves > `MOVE` 0.004. Robot boxes
+(`boxes_to_marked`, by bottom-middle, size scaled by local zoom) and pin blobs
+(`blobs_to_marked`) are recorded in the marked picture's coordinates, so the
+website needs no change; toggles and goal spots are read at `cur_quad` /
+`cur_placed` (the mark moved by H). When the field is not found 3 checks
+running, or once straight after a cut, nothing is recorded (`away`) until it
+is back; nothing is dropped before the field has been found once. The log
+line says "camera: followed N% …, K camera moves, S s off the field left out".
+`cfg['follow']` (default on) turns it off. Checks: desktop/dev/follow.py
+(31, on a real stream frame: four pans/zooms within 0.6%, box feet within
+0.6%, close-up and noise rejected, a stand-in match with a pan and a
+close-up), t138. Not yet seen on a real stream with real camera moves.
 
 **v148 — robots followed by speed and heading.** Asked: "can't it get more
 accurate by predicting trajectory from speed and stuff". `vtSlots` step 1:
