@@ -3714,7 +3714,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v152';
+const APP_BUILD = 'v153';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -10390,7 +10390,8 @@ function vtIdentify(number, sums) {
     const a = s[side + 'a'], b = s[side + 'b'];
     const own = k === 0 ? 'wa' : 'wb', other = k === 0 ? 'wb' : 'wa';
     const forA = (a[own] || 0) + (b[other] || 0), forB = (b[own] || 0) + (a[other] || 0);
-    const e = { key, a, b, partner: list[1 - k] || '', la: vtLookOf(a), lb: vtLookOf(b), pick: null };
+    const oside = side === 'R' ? 'B' : 'R';
+    const e = { key, a, b, partner: list[1 - k] || '', la: vtLookOf(a), lb: vtLookOf(b), pick: null, crowd: [vtLookOf(s[oside + 'a']), vtLookOf(s[oside + 'b'])].filter(Boolean) };
     if (Math.max(forA, forB) >= 2 && Math.max(forA, forB) >= 2 * Math.min(forA, forB) + 1) { e.pick = forA > forB ? 'a' : 'b'; picks.set(key, { slot: e.pick, how: 'plate', margin: 1 }); }
     else {
       // No plate read by the reader: the vision model's reads, held to a
@@ -10424,7 +10425,19 @@ function vtIdentify(number, sums) {
     // The look has to separate the two robots by a real margin, on average
     // and in the match in question. Two robots that look alike are left alone.
     if (vtAvg(margins) < VT_LOOK_MARGIN) continue;
-    open.forEach((e, i) => { if (margins[i] >= VT_LOOK_MARGIN * 0.75) picks.set(e.key, { slot: choice.get(e.key), how: 'look', margin: margins[i] }); });
+    // v153: lookalikes across the event. Many teams build the same meta
+    // robot, so a look that separates this robot from its partner may still
+    // be shared by half the robots it plays against. The robots it faced at
+    // this event are the crowd: the look names it only where the chosen robot
+    // is closer to its look than nine in ten of them. A plate is still what
+    // settles a match; the look only fills in matches where none was read.
+    const crowd = list.flatMap(e => e.crowd).map(g => vtSigDist(g, proto)).sort((x, y) => x - y);
+    const q10 = crowd.length >= 6 ? crowd[Math.floor(crowd.length * 0.1)] : Infinity;
+    open.forEach((e, i) => {
+      if (margins[i] < VT_LOOK_MARGIN * 0.75) return;
+      if (vtSigDist(e['l' + choice.get(e.key)], proto) >= q10) return;     // looks like the crowd: not named by its look
+      picks.set(e.key, { slot: choice.get(e.key), how: 'look', margin: margins[i] });
+    });
   }
   return picks;
 }
