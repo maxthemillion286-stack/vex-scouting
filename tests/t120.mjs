@@ -127,7 +127,7 @@ const long = 'This sentence is the point. ' + 'And this is the further explanati
   ok('a couple of pins is too few to call a habit', St(2, 1) === null && St(0, 0) === null);
   const Bf = f('vtBrief')('66449A', sums);
   ok('the briefing\'s strategy line leads with it', /^Mostly yellow pins/.test(Bf.strat) && Bf.style === 'yellow', Bf.strat);
-  ok('autonomous says what it set down', /^1\.0 pin/.test(cells[2].textContent), cells[2].textContent);
+  ok('autonomous says what it set down', /^(About 1 pin|1 pin every time|Usually 1 pin)\b/.test(cells[2].textContent), cells[2].textContent);
   ok('the note about missing pins is gone', !doc.getElementById('vtCoachWhy'));
 }
 // ── v129: the official score checks the pin counts ──

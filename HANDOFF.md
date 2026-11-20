@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v172**. Everything green: 119 test files.
+Current release: **v173**. Everything green: 120 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,13 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v173 — autonomous in whole numbers.** Reported: "how can autons have .5
+pins its always a whole number". `vtAutoFacts` keeps each match's count
+(`F.each`, `F.togs`, own-robot rows only); `vtUsual` gives the count it scored
+most often (tie: nearer the average) and the range: "Usually 5 pins (4–5)",
+"4 pins every time", or "About N pins" for alliance rows. Same for toggles,
+in the table and the report. Check: t159 (t121 updated).
 
 **v172 — the tracker table fits.** Reported: "get rid of scroll bar at
 bottom". The grey lines under each number were `nowrap`, so the table ran
