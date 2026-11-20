@@ -12,7 +12,8 @@
 //   GET  ?status=1               → { db, passcode }   what is configured
 //   GET  ?event=ID               → { ids: [...] }     matches already tracked
 //   GET  ?event=ID&match=MID     → { rec }            one match's tracks
-//   GET  ?team=66449A            → { sums }           every tracked match of a team, summarised
+//   GET  ?team=66449A            → { sums, recs }     every tracked match of a team, summarised; recs: every recording of it (v171)
+//   GET  ?event=ID&pending=1     → { ids }            recordings there with no summary yet (v171)
 //   POST { passcode, check }     → { ok }             is this passcode right
 //   POST { passcode, ev, id, rec } → { ok }           save one match
 //   GET  ?jobs=1 | ?jobs=EV      → { events } | { list }   work for the desktop app
@@ -332,7 +333,12 @@ export default async function handler(req, res) {
         const sums = {};
         // Upstash answers a hash as [field, value, field, value, …].
         for (let i = 0; Array.isArray(flat) && i + 1 < flat.length; i += 2) { try { sums[String(flat[i])] = JSON.parse(flat[i + 1]); } catch (e) {} }
-        return res.status(200).json({ db: true, sums });
+        // v171: every recording of the team, summarised or not. A recording the
+        // app sent stays without a summary until a website makes one; the
+        // team's page now makes it itself, so "watched" counts all of them.
+        let recs = [];
+        try { const [m] = await redis(E, [['SMEMBERS', `vt:trec:${team}`]]); recs = (m || []).map(String).filter(k => /^\d+:\d+$/.test(k)); } catch (e) {}
+        return res.status(200).json({ db: true, sums, recs });
       }
       const ev = digits(q.event);
       if (!ev) return res.status(400).json({ error: 'event must be a number' });
@@ -345,6 +351,11 @@ export default async function handler(req, res) {
         let rec = null;
         try { rec = JSON.parse(raw); } catch (e) {}
         return res.status(200).json({ rec });
+      }
+      if (q.pending !== undefined) {
+        const [ids, summed] = await redis(E, [['SMEMBERS', `vt:ev2:${ev}`], ['HKEYS', `vt:s:${ev}`]]);
+        const have = new Set((summed || []).map(String));
+        return res.status(200).json({ db: true, ids: (ids || []).map(String).filter(v => digits(v) && !have.has(v)) });
       }
       // Only recordings that can tell robots apart count as done; a match
       // tracked before that is offered again.
@@ -460,13 +471,14 @@ export default async function handler(req, res) {
         if (text.length > MAX_REC_BYTES) return res.status(413).json({ error: 'record too large' });
         cmds.push(['SET', `vt:m:${ev}:${id}`, text], ['SADD', `vt:ev:${ev}`, id]);
         if (body.rec.v === 2) cmds.push(['SADD', `vt:ev2:${ev}`, id]);
+        for (const t of (body.rec.red || []).concat(body.rec.blue || [])) if (teamKey(t)) cmds.push(['SADD', `vt:trec:${teamKey(t)}`, `${ev}:${id}`]);
       }
       if (body.sum !== undefined) {
         const bad = validSum(body.sum);
         if (bad) return res.status(400).json({ error: bad });
         const text = JSON.stringify(body.sum);
         cmds.push(['HSET', `vt:s:${ev}`, id, text]);
-        for (const t of body.sum.red.concat(body.sum.blue)) cmds.push(['HSET', `vt:team:${t}`, `${ev}:${id}`, text]);
+        for (const t of body.sum.red.concat(body.sum.blue)) cmds.push(['HSET', `vt:team:${t}`, `${ev}:${id}`, text], ['SADD', `vt:trec:${t}`, `${ev}:${id}`]);
       }
       if (!cmds.length) return res.status(400).json({ error: 'nothing to save' });
       await redis(E, cmds);
