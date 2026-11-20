@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v169**. Everything green: 116 test files.
+Current release: **v170**. Everything green: 117 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,18 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v170 (app 2.45) — review asks less; the tracker's table on phones.**
+Reported: "why does it have me review so many frames still?" `review_queue`
+leaves out frames the finder was plainly sure of (hard 0, steady not 0, 1–6
+boxes ≥ 0.35 all ≥ 0.6, vision model not against): counted in `_SURE`, shown
+as "N it was sure about are not asked". After a tracking run with the vision
+model on, `do_vreview(limit=200)` runs by itself (`vreview_after`). The robot
+finder trains from `TRAIN_MIN` 100 reviewed frames (was 150; grading still
+on reviewed frames only). Reported: the "as the tracker sees it" table was
+not on phones: it was only on Home (hidden on phones). `vtCoachFill(number,
+hostId)` now also fills `#vtCoachCard` on every team's scout card ("Your
+robot" for your own team). Checks: desktop/dev/reviewq.py (7), t156.
 
 **v169 (app 2.44) — robots' fingerprints.** `ensure_embedder` makes
 models/embed.onnx once from YOLO11's ImageNet classifier (yolo11n-cls.pt,

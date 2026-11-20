@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.44'
+VERSION = '2.45'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -2978,6 +2978,12 @@ def same_layout(a, b, tol=0.06):
         left.pop(k)
     return True
 
+_SURE = [0]           # frames the last count left out because the finder was plainly sure of them
+# Frames a person must review before the robot finder trains (v2.45: 100, was
+# 150, now that frames the finder was sure of are no longer asked about; they
+# and the vision model's labels train it too, and grading stays on these).
+TRAIN_MIN = 100
+
 def review_queue():
     """Frames not yet reviewed: the ones that teach most first, and no two
     alike in a row.
@@ -2992,6 +2998,7 @@ def review_queue():
     """
     if not os.path.isdir(PROPS):
         return [], 0
+    _SURE[0] = 0
     done = set(n[:-5] for n in os.listdir(LABELS)) if os.path.isdir(LABELS) else set()
     todo, seen = [], []
     for n in os.listdir(PROPS):
@@ -3008,6 +3015,16 @@ def review_queue():
             seen.append((vid, layout_of(p)))
             continue
         if p.get('auto'):                             # kept only to train on: nothing to ask
+            continue
+        # v2.45: a frame the finder was plainly sure of is not asked about
+        # (reported: "why does it have me review so many frames still?"):
+        # nothing it doubted, every box confident, one to six robots, the
+        # tracker not unsure of it, the vision model not against it. Training
+        # already uses such frames by themselves.
+        sure_boxes = [b for b in p.get('boxes', []) if b[4] >= 0.35]
+        if (not p.get('hard', 0) and p.get('steady', 1) != 0 and 1 <= len(sure_boxes) <= 6 and all(b[4] >= 0.6 for b in sure_boxes)
+                and not (p.get('vlm') and not vlm_verdict(p['vlm'])[1])):
+            _SURE[0] += 1
             continue
         # The vision model disagreed with the finder here: the most to teach, first.
         todo.append((-p.get('hard', 0) - (100 if p.get('vlm') and not vlm_verdict(p['vlm'])[1] else 0), hashlib.md5(name.encode()).hexdigest(), name, vid, layout_of(p)))
@@ -4173,8 +4190,8 @@ def do_train(cfg):
     gold = reviewed()
     val = [g for g in gold if is_val(g[0])]
     say('\n%d reviewed frames (%d held back for testing).' % (len(gold), len(val)))
-    if len(gold) < 150:
-        say('That is too few to train on: review at least 150, and 300 or more to expect a real improvement.')
+    if len(gold) < TRAIN_MIN:
+        say('That is too few to train on: review at least %d, and 300 or more to expect a real improvement.' % TRAIN_MIN)
         return
     if len(val) < 20:
         say('Too few test frames yet to measure a new finder fairly; review some more.')
@@ -4402,6 +4419,12 @@ def track_all(cfg, loop=True):
                 quiet = False
                 n = do_jobs(cfg)
                 sync_review(cfg)
+                # The vision model looks at the new frames first, by itself (v2.45).
+                if n and cfg.get('think') and cfg.get('vreview_after', True):
+                    try:
+                        do_vreview(cfg, limit=200)
+                    except Exception as e:
+                        say('  the vision model could not review (%s)' % str(e)[:100])
                 if not n:
                     events = []                       # nothing could be done with what is there: wait, do not spin
             if not events and not quiet:
@@ -4465,9 +4488,9 @@ def add_source(cfg, src):
 def train_auto(cfg):
     """Train, measure, and publish only if the new finder is better."""
     sync_review(cfg)                                  # corrections made on a phone count too
-    robots_ok, pieces_ok = len(reviewed()) >= 150, len(pieces_marked()) >= PIECE_NEED
+    robots_ok, pieces_ok = len(reviewed()) >= TRAIN_MIN, len(pieces_marked()) >= PIECE_NEED
     if not robots_ok and not pieces_ok:
-        say('Nothing to train yet: review 150 frames for robots, or mark pins & cups on %d.' % PIECE_NEED)
+        say('Nothing to train yet: review %d frames for robots, or mark pins & cups on %d.' % (TRAIN_MIN, PIECE_NEED))
         return
     if pieces_ok:
         try:
@@ -4570,7 +4593,7 @@ UI_HTML = r"""<!doctype html><html lang="en"><meta charset="utf-8"><meta name="v
  <div class="cards">
   <div class="card"><h2>1 · Track</h2><p>Watches the matches the website sent. Starts by itself.</p>
    <div class="n" id="trackN">&nbsp;</div><button id="bTrack" onclick="start('track')">Start tracking</button></div>
-  <div class="card"><h2>2 · Review</h2><p>Fix the boxes on 150 frames, the hardest first. You never need to do them all.</p>
+  <div class="card"><h2>2 · Review</h2><p>Only frames the finder is unsure about, the hardest first. You never need to do them all.</p>
    <div class="n" id="revN">&nbsp;</div><button id="bRev" onclick="openReview(false)">Review robots</button>
    <button class="ghost" id="bVrev" style="margin-top:6px" onclick="start('vreview')" title="The vision model looks at the waiting frames first: frames where it and the finder agree are done for you, the rest come to you with its changes">Let the vision model review first</button>
    <div class="n" id="pcsN" style="margin-top:10px">&nbsp;</div><button class="ghost" id="bPcs" onclick="openReview(true)">Mark pins &amp; cups</button></div>
@@ -4632,8 +4655,8 @@ function paint(){
  $('site').textContent=st.site.replace(/^https?:\/\//,'');
  $('keyPill').textContent=st.key?'Admin key saved':'No admin key';$('keyPill').className='pill '+(st.key?'ok':'bad');
  $('key').style.display=st.key?'none':'block';
- const goal=st.gold<150?150:st.gold<300?300:Math.ceil((st.gold+1)/150)*150;
- $('revN').textContent=st.gold+' of '+goal+' done'+(st.gold<150?' · '+(150-st.gold)+' more and it can train':st.gold<300?' · it can train now; 300 is better':' · plenty; more still helps');
+ const goal=st.gold<100?100:st.gold<300?300:Math.ceil((st.gold+1)/150)*150;
+ $('revN').textContent=st.gold+' of '+goal+' done'+(st.gold<100?' · '+(100-st.gold)+' more and it can train':st.gold<300?' · it can train now; 300 is better':' · plenty; more still helps')+(st.sure?' · '+st.sure+' it was sure about are not asked':'');
  $('bRev').disabled=!st.waiting;
  const Pc=st.pieces||{marked:0,left:0,need:60},PL=Pc.last;
  setHtml('pcsN','Pins &amp; cups: '+Pc.marked+' of '+(Pc.marked<Pc.need?Pc.need:Math.max(150,Math.ceil((Pc.marked+1)/100)*100))+' marked'+(Pc.marked<Pc.need?' · '+(Pc.need-Pc.marked)+' more and it can train':'')+
@@ -5028,7 +5051,7 @@ def serve_ui(cfg, port=8765, open_window=True):
             if u.path == '/api/state':
                 c, P = counts(), pcounts()
                 return self._send(200, {'version': VERSION, 'site': cfg['site'], 'key': bool(cfg.get('key')), 'busy': job.busy(), 'task': job.task if job.busy() else '',
-                                        'log': job.lines(), 'progress': job.progress(), 'waiting': len(c['queue']), 'done': c['done'], 'gold': c['gold'], 'workers': cfg.get('workers', 4),
+                                        'log': job.lines(), 'progress': job.progress(), 'waiting': len(c['queue']), 'sure': _SURE[0], 'done': c['done'], 'gold': c['gold'], 'workers': cfg.get('workers', 4),
                                         'keep': bool(cfg.get('keep_videos')), 'think': bool(cfg.get('think')), 'pieces': {'marked': P['marked'], 'left': len(P['queue']), 'counted': bool(P['at']), 'why': P.get('why'), 'guess': guess_source()[0], 'helper': helper_info().get('marks', 0), 'need': PIECE_NEED, 'last': last_pieces()}, 'speed': cfg.get('max_mbps', 0), 'last': last_train()})
             if u.path == '/api/fframe':
                 qs_ = urllib.parse.parse_qs(u.query)
