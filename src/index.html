@@ -3722,7 +3722,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v173';
+const APP_BUILD = 'v174';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -10386,20 +10386,43 @@ function vtReportSeen(S) {
 const VT_REMAKE = 169;      // v169: robots' fingerprints joined; v168: positions through the camera's lens; v164: boxes standing off the field dropped; v154: goal counts by the game's rules; v152: when the points came, from the stream's score; v150: unsure boxes carry on missing robots, whole-match slots, smoothed; v148: robots followed by speed and heading; v145/146: stacking timed at the goal (vs, vh)      // v136: pins counted on the goals as well (oy, oa, …)
 const vtStale = s => !!(s && s.ok && (s.rv || 0) < VT_REMAKE);
 const vtRefreshTried = new Set();
+// v174: reported "i met all the fixes and it didnt fix": the field was marked
+// on the streams afterwards, but a summary is made with the field mark of its
+// stream at the time, and nothing made it again when the mark came later (only
+// an event's Track robots box did, for matches that device had). A summary
+// whose stream has been marked (or marked again) since is now made again here
+// too, so pins appear on the team page once the field is marked.
+const vtFieldMemo = new Map();
+async function vtFieldNow(vid) {
+  const m = vtFieldMemo.get(vid);
+  if (m && Date.now() - m.at < 60000) return m.f;
+  const f = await vtFieldGet(vid).catch(() => null);
+  vtFieldMemo.set(vid, { f, at: Date.now() });
+  return f;
+}
+async function vtFieldStale(sums) {
+  const vids = [...new Set([...sums.values()].map(s => s && s.ok && s.vid).filter(Boolean))], marks = new Map();
+  await sim_pool(vids, async v => { marks.set(v, vtQuadMark(await vtFieldNow(v))); }, 4);
+  const out = new Map();
+  for (const [k, s] of sums) if (s && s.ok && s.vid && marks.has(s.vid) && marks.get(s.vid) && (s.fq || 0) !== marks.get(s.vid)) out.set(k, marks.get(s.vid));
+  return out;
+}
 async function vtSumsRefresh(sums, limit) {
-  const stale = [...sums].filter(([k, s]) => vtStale(s) && !vtRefreshTried.has(k)).slice(0, limit || 40);
+  const moved = await vtFieldStale(sums).catch(() => new Map());
+  const tag = k => k + '@' + (moved.get(k) || 0);
+  const stale = [...sums].filter(([k, s]) => (vtStale(s) || moved.has(k)) && !vtRefreshTried.has(tag(k))).slice(0, limit || 40);
   if (!stale.length) return 0;
   const local = await vtSumsLocal(), pass = vtPass();
   let made = 0;
   await sim_pool(stale, async ([key, old]) => {
-    vtRefreshTried.add(key);
+    vtRefreshTried.add(tag(key));
     try {
       const cut = key.indexOf(':'), ev = key.slice(0, cut), id = key.slice(cut + 1);
       let rec = await idbGet(`vt:m:${ev}:${id}`);
       if (!rec) { const r = await vtApi('GET', `?event=${encodeURIComponent(ev)}&match=${encodeURIComponent(id)}`); rec = r.ok && r.body && r.body.rec && Array.isArray(r.body.rec.f) ? r.body.rec : null; }
       if (!rec) return;
       const vid = rec.vid || old.vid || '';
-      const sum = vtSummarise(rec, vid ? await vtFieldGet(vid) : null, vid ? await vtLearnGet(vid) : null);
+      const sum = vtSummarise(rec, vid ? await vtFieldNow(vid) : null, vid ? await vtLearnGet(vid) : null);
       if (!sum || !sum.ok) return;
       sums.set(key, sum); local[key] = sum; made++;
       if (pass) vtApi('POST', '', { passcode: pass, ev: String(ev), id: String(id), sum }).catch(() => {});
@@ -10760,7 +10783,7 @@ async function vtCoachFill(number, hostId) {
   // Older matches read again here as well (v146): the table showed "not timed
   // yet" while its summaries were from before the timing existed, because only
   // the report remade them.
-  if (!host.dataset.fresh && [...sums.values()].some(vtStale)) {
+  if (!host.dataset.fresh) {
     host.dataset.fresh = '1';
     vtSumsRefresh(sums).then(n => { delete host.dataset.fresh; if (n) { vtManyMemo && vtManyMemo.clear && vtManyMemo.clear(); vtCoachFill(num, id); } }).catch(() => { delete host.dataset.fresh; });
   }
@@ -10904,7 +10927,7 @@ async function vtReportFill(number) {
   if (rep.lines) rep.brief = vtBrief(num, sums);
   host.innerHTML = sums.size ? vtReportHtml(num, rep) : (vsIsPhone() ? '' : vtReportHtml(num, rep));
   // Older matches read again, here, and the report shown once more with them.
-  if (!host.dataset.fresh && [...sums.values()].some(vtStale)) {
+  if (!host.dataset.fresh) {
     host.dataset.fresh = '1';
     vtSumsRefresh(sums).then(n => { delete host.dataset.fresh; if (n && host.dataset.team === num) vtReportFill(num); }).catch(() => { delete host.dataset.fresh; });
   }
@@ -11011,11 +11034,13 @@ async function vtFieldGet(vid) {
     // The lens is worked out later, by the app (v168): asked for once a visit
     // while this copy has none, and taken only for the same corners.
     const mine = all[vid];
-    if (mine.k === undefined && !vtLensAsked.has(vid)) {
+    if (!vtLensAsked.has(vid)) {
       vtLensAsked.add(vid);
       try {
         const r = await vtApi('GET', '?field=' + encodeURIComponent(vid)), f = r.ok && r.body && r.body.field;
         if (f && typeof f.k === 'number' && Array.isArray(f.q) && f.q.every((v, i) => Math.abs(v - mine.q[i]) < 1e-3)) { mine.k = f.k; mine.ka = f.ka; await idbSet(VT_FIELDS_KEY, all); }
+        // v174: marked again elsewhere (in the app, say): the shared mark is the newer one.
+        else if (f && Array.isArray(f.q) && f.q.length >= 8 && Array.isArray(f.g) && !f.q.slice(0, 8).every((v, i) => Math.abs(v - mine.q[i]) < 1e-3)) { all[vid] = { ...f, by: 'click' }; await idbSet(VT_FIELDS_KEY, all); return all[vid]; }
       } catch (e) {}
     }
     return all[vid];

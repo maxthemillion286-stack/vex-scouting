@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v173**. Everything green: 120 test files.
+Current release: **v174**. Everything green: 121 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,16 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v174 — marking the field later counts.** Reported: "i met all the fixes
+and it didnt fix". Summaries carry the field mark they were made with (`fq`);
+only `vtBackfill` (an event's Track robots box, local matches) made them again
+when a mark came later. `vtSumsRefresh` now also remakes summaries whose
+stream's current mark differs (`vtFieldStale`, fields memoised 60 s in
+`vtFieldNow`), and the table and report call it every time. `vtFieldGet`: a
+local clicked mark is replaced by a different shared one (marked in the app).
+Goal counts (`rec.gs`) still need the match tracked again after marking; pins
+from colour (`rec.pn`) do not. Check: t160.
 
 **v173 — autonomous in whole numbers.** Reported: "how can autons have .5
 pins its always a whole number". `vtAutoFacts` keeps each match's count
