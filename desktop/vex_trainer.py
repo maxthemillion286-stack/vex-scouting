@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.46'
+VERSION = '2.47'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -2105,6 +2105,316 @@ def do_vreview(cfg, limit=400):
             say('  %d looked at: %d agreed with the finder and were labelled, %d left for you with its changes.' % (i + 1, agreed, changed))
     progress('The vision model is reviewing frames', len(todo), len(todo))
     say('Done: %d frames labelled where the model and the finder agreed; %d left for you, with what the model thinks already applied.' % (agreed, changed))
+
+# ── the field finder: trained on your own field marks (v2.47) ─────────────
+# Reported: "finding the field for me feature doesnt actually find the field
+# for me or mark goals automatically", then "fix the automatically finding
+# field and goal locations itll make my life very easier". The vision model
+# places points roughly at best, and a finder built by hand from colours and
+# edges was tried and was not good enough: the side walls' grey insides look
+# like floor, and dark goal bases are lost among wheels and shadows. So the
+# field is learned the way robots are: a small keypoint model (YOLO11 pose),
+# trained on the saved frames of every stream whose field is marked. Each
+# frame's answer is the stream's mark, moved with the camera (the following
+# tracking uses), so one marked stream gives dozens of examples. It answers
+# with the field's four corners and every goal and loader, and gets better
+# with every stream marked.
+FIELD_KP = 4 + 13                         # corners, nine goals, four loaders
+FIELD_SIZE = 640
+FIELD_START, FIELD_EVERY = 3, 2           # trained once 3 streams are marked, again after every 2 more
+FIELD_PER_STREAM = 60
+FIELD_ROUNDS = 80
+
+def field_file():
+    return os.path.join(DIRS['models'], 'field_finder.onnx')
+
+def field_info():
+    try:
+        with open(os.path.join(DIRS['models'], 'field_finder.json')) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def field_points(q, placed=None):
+    """The 17 points of a field mark, as picture fractions: corners (0,0),
+    (1,0), (1,1), (0,1) of the field square, then the goals' and loaders' feet
+    (dragged into place where they were, else where the corners put them)."""
+    fwd = quad_fwd(q)
+    if not fwd:
+        return None
+    pts = [list(fwd(u, v)) for u, v in ((0, 0), (1, 0), (1, 1), (0, 1))]
+    feet = [list(p) for p in (first_spots(q) or [])]
+    if len(feet) != len(SPOTS):
+        return None
+    if placed and isinstance(placed.get('g'), list) and len(placed['g']) == 18:
+        for k in range(9):
+            feet[k] = placed['g'][2 * k:2 * k + 2]
+    if placed and isinstance(placed.get('l'), list) and len(placed['l']) == 8:
+        for k in range(4):
+            feet[9 + k] = placed['l'][2 * k:2 * k + 2]
+    return [[float(a), float(b)] for a, b in pts + feet]
+
+def field_streams():
+    """Streams with a field mark and saved frames here: {vid: [frame names]}."""
+    out = {}
+    try:
+        names = sorted(n[:-4] for n in os.listdir(FRAMES) if n.endswith('.jpg'))
+    except Exception:
+        names = []
+    for n in names:
+        vid = n.rsplit('_', 1)[0]
+        if vid not in out:
+            out[vid] = [] if quad_for(vid) else None
+        if out[vid] is not None:
+            out[vid].append(n)
+    return {v: ns for v, ns in out.items() if ns}
+
+def field_examples(per=FIELD_PER_STREAM):
+    """Frames with the field's 17 points: [(name, points)]. Where the field
+    was marked on a frame here, every frame follows the camera from it (and
+    frames it cannot match are left out); where it was marked on the website,
+    frames are kept only while the picture is the same view as the stream's
+    first saved frame (a fixed camera), as the mark holds there."""
+    import cv2
+    out = []
+    for vid, names in field_streams().items():
+        step = max(1, len(names) // per)
+        pick = names[::step][:per]
+        q, placed = quad_for(vid), placed_for(vid)
+        if field_ref(vid):
+            for n in pick:
+                geo = frame_geom(n)
+                if geo:
+                    pts = field_points(geo[0], geo[1])
+                    if pts:
+                        out.append((n, pts))
+            continue
+        pts0 = field_points(q, placed)
+        if not pts0:
+            continue
+        cf = CamFollow(q)
+        first = cv2.imread(os.path.join(FRAMES, pick[0] + '.jpg'))
+        if first is None or not cf.set_ref(first):
+            continue
+        for n in pick:
+            if n != pick[0]:
+                fr = cv2.imread(os.path.join(FRAMES, n + '.jpg'))
+                Hm = cf.look(fr) if fr is not None else None
+                if Hm is None:
+                    continue
+                nq = cf.quad_now(Hm)
+                if max(abs(a - b) for a, b in zip(nq, q[:8])) > 0.015:
+                    continue
+            out.append((n, pts0))
+    return out
+
+def build_field_dataset(examples):
+    """A keypoint dataset: one box (the field) with its 17 points a picture.
+    Whole streams are held back for testing, so the test is a stream it never saw."""
+    root = os.path.join(DIRS['build'], 'field_dataset')
+    shutil.rmtree(root, ignore_errors=True)
+    for part in ('train', 'val'):
+        os.makedirs(os.path.join(root, 'images', part))
+        os.makedirs(os.path.join(root, 'labels', part))
+    vids = sorted(set(n.rsplit('_', 1)[0] for n, _ in examples))
+    held = set(v for v in vids if is_val(v)) if len(vids) >= 4 else set()
+    if len(vids) >= 4 and not held:
+        held = {vids[-1]}
+    if held and len(held) >= len(vids):
+        held = {vids[-1]}
+    counts = {'train': 0, 'val': 0}
+    for n, pts in examples:
+        vid = n.rsplit('_', 1)[0]
+        part = 'val' if (vid in held or (not held and is_val(n))) else 'train'
+        src = os.path.join(FRAMES, n + '.jpg')
+        if not os.path.exists(src):
+            continue
+        cs = pts[:4]
+        x0 = min(max(0.0, min(p[0] for p in cs)), 1.0); x1 = max(min(1.0, max(p[0] for p in cs)), 0.0)
+        y0 = min(max(0.0, min(p[1] for p in cs)), 1.0); y1 = max(min(1.0, max(p[1] for p in cs)), 0.0)
+        if x1 - x0 < 0.05 or y1 - y0 < 0.05:
+            continue
+        shutil.copyfile(src, os.path.join(root, 'images', part, n + '.jpg'))
+        kp = []
+        for x, y in pts:
+            kp += ['%.6f' % x, '%.6f' % y, '2'] if (0 <= x <= 1 and 0 <= y <= 1) else ['0', '0', '0']
+        with open(os.path.join(root, 'labels', part, n + '.txt'), 'w') as f:
+            f.write('0 %.6f %.6f %.6f %.6f %s\n' % ((x0 + x1) / 2, (y0 + y1) / 2, x1 - x0, y1 - y0, ' '.join(kp)))
+        counts[part] += 1
+    with open(os.path.join(root, 'data.yaml'), 'w') as f:
+        f.write('path: %s\ntrain: images/train\nval: images/%s\nkpt_shape: [%d, 3]\nnames:\n  0: field\n' % (root.replace('\\', '/'), 'val' if counts['val'] else 'train', FIELD_KP))
+    return root, counts, sorted(held)
+
+_FSTAT = {'at': 0, 'v': None}
+def field_status():
+    """For the window: streams marked, and the finder's state. Counted at most every 30 s."""
+    if _FSTAT['v'] is None or time.time() - _FSTAT['at'] > 30:
+        info = field_info()
+        _FSTAT['v'] = {'streams': len(field_streams()), 'need': FIELD_START, 'ready': os.path.exists(field_file()),
+                       'on': info.get('streams', 0), 'when': info.get('when', ''), 'corners': info.get('corners'), 'goals': info.get('goals')}
+        _FSTAT['at'] = time.time()
+    return _FSTAT['v']
+
+def field_due():
+    """Is it time to train the field finder (again)?"""
+    n = len(field_streams())
+    info = field_info()
+    return n >= FIELD_START and (not info or n - int(info.get('streams', 0)) >= FIELD_EVERY)
+
+class FieldFinder:
+    """The trained field finder. find(frame) → (17 points as fractions, each
+    point's confidence, the field's confidence) or None."""
+    def __init__(self, path=None, prov=None):
+        import onnxruntime as ort, numpy as np
+        self.np = np
+        have = ort.get_available_providers()
+        prov = prov or [p for p in ('DmlExecutionProvider', 'CUDAExecutionProvider') if p in have] + ['CPUExecutionProvider']
+        self.s = ort.InferenceSession(path or field_file(), providers=prov)
+        self.inp = self.s.get_inputs()[0].name
+
+    def find(self, frame):
+        import cv2
+        np = self.np
+        H, W = frame.shape[:2]
+        r = FIELD_SIZE / max(W, H)
+        nw, nh = int(round(W * r)), int(round(H * r))
+        px, py = (FIELD_SIZE - nw) // 2, (FIELD_SIZE - nh) // 2
+        sq = np.full((FIELD_SIZE, FIELD_SIZE, 3), 114, np.uint8)
+        sq[py:py + nh, px:px + nw] = cv2.resize(frame, (nw, nh), interpolation=cv2.INTER_AREA)
+        x = np.ascontiguousarray(sq[:, :, ::-1].transpose(2, 0, 1)[None]).astype(np.float32) / 255.0
+        out = self.s.run(None, {self.inp: x})[0][0]           # (5 + 17*3, anchors)
+        if out.shape[0] != 5 + 3 * FIELD_KP:
+            return None
+        j = int(np.argmax(out[4]))
+        conf = float(out[4, j])
+        k = out[5:, j].reshape(FIELD_KP, 3)
+        pts = [[float((k[i, 0] - px) / r / W), float((k[i, 1] - py) / r / H)] for i in range(FIELD_KP)]
+        return pts, [float(v) for v in k[:, 2]], conf
+
+def do_field_finder(cfg, auto=False):
+    """Train the field finder on every marked stream's saved frames.
+    `auto`: started by itself after a field was saved; only with a graphics card."""
+    streams = field_streams()
+    if len(streams) < FIELD_START:
+        say('The field finder is trained once the field is marked on %d streams with saved frames (%d so far).' % (FIELD_START, len(streams)))
+        return
+    if not ensure_training_tools():
+        return
+    import torch
+    from ultralytics import YOLO
+    gpu = torch.cuda.is_available()
+    if auto and not gpu:
+        say('The field finder is not trained by itself without a graphics card (it would take hours on the processor). Use "Train the field finder" when the computer is free.')
+        return
+    say('\nThe field finder: gathering frames of the %d marked streams…' % len(streams))
+    ex = field_examples()
+    root, counts, held = build_field_dataset(ex)
+    if counts['train'] < 20:
+        say('Only %d frames could be used (the camera could not be matched on the rest); mark the field on more streams.' % counts['train'])
+        return
+    say('  %d frames to learn from; %d held back to test it%s.' % (counts['train'], counts['val'], (' (from %d stream%s it never sees)' % (len(held), '' if len(held) == 1 else 's')) if held else ''))
+    tag = 'f' + time.strftime('%y%m%d%H%M')
+    runs = os.path.join(DIRS['build'], 'runs')
+    rounds = int(cfg.get('field_rounds') or (FIELD_ROUNDS if gpu else 25))
+    def each_round(trainer):
+        progress('Training the field finder', int(getattr(trainer, 'epoch', 0)) + 1, rounds)
+    model = newest_yolo(YOLO, 'yolo11n-pose.pt')
+    try:
+        model.add_callback('on_fit_epoch_end', each_round)
+    except Exception:
+        pass
+    if not gpu:
+        say('  No graphics card for training: a shorter run on the processor (slow; better with a card).')
+    # No left-right flips: the corners are named by where they lie in the picture.
+    model.train(data=os.path.join(root, 'data.yaml'), epochs=rounds, imgsz=FIELD_SIZE, batch=16 if gpu else 8, device=0 if gpu else 'cpu',
+                workers=2, patience=20, project=runs, name=tag, exist_ok=True, verbose=False, plots=False,
+                fliplr=0.0, mosaic=0.0, degrees=3, translate=0.15, scale=0.35, hsv_h=0.02, hsv_s=0.5, hsv_v=0.4)
+    onnx_path = YOLO(os.path.join(runs, tag, 'weights', 'best.pt')).export(format='onnx', imgsz=FIELD_SIZE, opset=12, simplify=True, dynamic=False)
+    import onnxruntime as ort
+    shape = list(ort.InferenceSession(onnx_path, providers=['CPUExecutionProvider']).get_outputs()[0].shape)
+    if shape[:2] != [1, 5 + 3 * FIELD_KP]:
+        say('The field finder came out in an unexpected shape (%s); not used.' % shape)
+        return
+    # How far off it is on the test frames, in % of the picture's width.
+    err = field_error(onnx_path, [e for e in ex if os.path.exists(os.path.join(root, 'images', 'val', e[0] + '.jpg'))])
+    tmp = field_file() + '.tmp'
+    shutil.copyfile(onnx_path, tmp)
+    os.replace(tmp, field_file())
+    info = {'streams': len(streams), 'frames': counts['train'], 'test': counts['val'], 'held': held, 'when': time.strftime('%b %d, %H:%M'), 'tag': tag}
+    if err:
+        info.update(err)
+    with open(os.path.join(DIRS['models'], 'field_finder.json'), 'w') as f:
+        json.dump(info, f)
+    say('The field finder is ready (trained on %d streams).%s Use "Find it for me" when marking a field.' % (
+        len(streams), (' On frames it never trained on, its corners are off by %.1f%% of the picture\'s width and its goals by %.1f%%, on average.' % (err['corners'], err['goals'])) if err else ''))
+
+def field_error(path, examples):
+    """Average distance of its corners and goals from the marks, % of width."""
+    import cv2
+    if not examples:
+        return None
+    ff = FieldFinder(path, prov=['CPUExecutionProvider'])
+    c, g = [], []
+    for n, pts in examples[:200]:
+        fr = cv2.imread(os.path.join(FRAMES, n + '.jpg'))
+        got = ff.find(fr) if fr is not None else None
+        if not got:
+            continue
+        H, W = fr.shape[:2]
+        d = [math.hypot(a[0] - b[0], (a[1] - b[1]) * H / W) for a, b in zip(got[0], pts)]
+        c += [v for v, p in zip(d[:4], pts[:4]) if 0 <= p[0] <= 1 and 0 <= p[1] <= 1]
+        g += [v for v, p in zip(d[4:4 + N_GOALS], pts[4:4 + N_GOALS]) if 0 <= p[0] <= 1 and 0 <= p[1] <= 1]
+    if not c:
+        return None
+    return {'corners': round(100 * sum(c) / len(c), 1), 'goals': round(100 * sum(g) / max(1, len(g)), 1)}
+
+def trained_find_field(frame):
+    """The field from the trained finder → {'q', 'spots', 'conf'} or None."""
+    if not os.path.exists(field_file()):
+        return None
+    try:
+        got = FieldFinder().find(frame)
+    except Exception:
+        return None
+    if not got or got[2] < 0.3:
+        return None
+    pts, kc, conf = got
+    q = [v for p in pts[:4] for v in p]
+    first = first_spots(q)
+    if not first:
+        return None
+    spots = [list(p) for p in first]
+    for k in range(len(SPOTS)):
+        x, y = pts[4 + k]
+        if kc[4 + k] >= 0.5 and 0 <= x <= 1 and 0 <= y <= 1:
+            spots[k] = [round(x, 4), round(y, 4)]
+    return {'q': [round(v, 4) for v in q], 'spots': spots, 'conf': conf}
+
+def find_field(cfg, name):
+    """'Find it for me': the trained field finder first; the vision model if
+    there is none yet (or it could not see the field). → {'pts', 'spots', 'how'} or {'error'}."""
+    import cv2
+    frame = cv2.imread(os.path.join(FRAMES, name + '.jpg'))
+    if frame is None:
+        return {'error': 'no picture'}
+    H, W = frame.shape[:2]
+    t = trained_find_field(frame)
+    if t:
+        q = t['q']
+        return {'pts': [[q[i] * W, q[i + 1] * H] for i in range(0, 8, 2)], 'spots': t['spots'], 'how': 'field finder'}
+    n = len(field_streams())
+    have = os.path.exists(field_file())
+    if cfg.get('think'):
+        v = vlm_find_field(cfg, name)
+        if v.get('pts'):
+            v['how'] = 'vision model'
+            return v
+        if not have:
+            v['error'] = (v.get('error') or '') + (' The field finder learns from your marks: it is trained once %d streams are marked (%d so far).' % (FIELD_START, n))
+        return v
+    if have:
+        return {'error': 'The field finder could not see the field in this picture. Try a frame showing the whole field, or click the corners yourself.'}
+    return {'error': 'The field finder learns from your marks: it is trained once the field is marked on %d streams (%d so far). Until then, click the four corners.' % (FIELD_START, n)}
 
 def vlm_find_field(cfg, name):
     """The field's corners, goals and loaders on one saved frame, as the
@@ -4690,7 +5000,8 @@ UI_HTML = r"""<!doctype html><html lang="en"><meta charset="utf-8"><meta name="v
    <button class="ghost" id="bVrev" style="margin-top:6px" onclick="start('vreview')" title="The vision model looks at the waiting frames first: frames where it and the finder agree are done for you, the rest come to you with its changes">Let the vision model review first</button>
    <div class="n" id="pcsN" style="margin-top:10px">&nbsp;</div><button class="ghost" id="bPcs" onclick="openReview(true)">Mark pins &amp; cups</button></div>
   <div class="card"><h2>3 · Train</h2><p>Makes a better robot finder and publishes it only if it wins.</p>
-   <div class="n" id="trainN">&nbsp;</div><button id="bTrain" onclick="start('train')">Train</button></div>
+   <div class="n" id="trainN">&nbsp;</div><button id="bTrain" onclick="start('train')">Train</button>
+   <div class="n" id="fieldN" style="margin-top:10px">&nbsp;</div><button class="ghost" id="bField" onclick="start('field')">Train the field finder</button></div>
  </div>
  <details class="more"><summary>More: learn from another video</summary><div class="add"><input id="src" placeholder="Optional: paste a stream link (recorded or live) or a video file's path to learn from it" autocomplete="off" onkeydown="if(event.key==='Enter'&&!$('bAdd').disabled)start('add')"><button class="ghost" id="bAdd" onclick="start('add')">Learn from this</button></div></details>
  <div class="panel"><div class="now"><b id="now">Ready.</b><button class="stop" id="bStop" style="display:none" onclick="stopJob()">Stop</button></div>
@@ -4761,6 +5072,7 @@ function paint(){
  $('trackN').textContent=st.task==='track'?'Running':' ';
  const need=Math.max(0,150-st.gold);
  const L=st.last,since=L?Math.max(0,st.gold-L.frames):0;
+ {const Fd=st.field||{};$('fieldN').innerHTML=st.task==='field'?'The field finder is training: the bar below shows how far along.':Fd.ready?('Field finder: trained on '+Fd.on+' streams ('+Fd.when+')'+(Fd.corners!=null?' · off by about '+Fd.corners+'% on streams it never saw':'')+(Fd.streams>Fd.on?' · '+(Fd.streams-Fd.on)+' more marked since':'')):('Field finder: learns from your field marks · '+Fd.streams+' of '+Fd.need+' streams marked');$('bField').disabled=!!st.busy||(Fd.streams||0)<(Fd.need||3)}
  $('trainN').innerHTML=st.task==='train'?'Training now. The bar below shows how far along.':need?(((st.pieces||{}).marked||0)>=((st.pieces||{}).need||60)?'Ready to train the pin &amp; cup finder. Robots: review '+need+' more frames first':'Review '+need+' more frames first'):!L?(st.gold+' reviewed frames ready'):
   ('<b>'+(L.published?'Finished and published':'Finished, not published (it was no better)')+'</b>'+(L.when?' · '+L.when:'')+'<br>Trained on '+L.frames+' frames you reviewed'+(L.auto?' + '+L.auto+' it was sure of':'')+(L.rounds?', '+L.rounds+' rounds':'')+
    '<br>Score: new '+L.new+' vs old '+L.old+(since?'<br>'+since+' more reviewed since then':''));
@@ -4808,14 +5120,14 @@ async function openField(vid,id){let r;try{r=await api('/api/fframe?vid='+encode
  $('home').style.display='none';$('rev').style.display='none';$('fld').style.display='block';inReview=true;
  if(r.error){$('fSay').textContent=r.error;return}
  F={vid,id:r.id,t:r.t,pts:[],spots:null,drag:-1,img:new Image()};$('fSave').disabled=true;
- F.img.onload=()=>{fc.width=F.img.naturalWidth;fc.height=F.img.naturalHeight;drawField()};F.img.src='/img/'+r.id+'.jpg?t='+T;fieldSay()}
+ F.img.onload=()=>{fc.width=F.img.naturalWidth;fc.height=F.img.naturalHeight;drawField();if(r.auto)findField()};F.img.src='/img/'+r.id+'.jpg?t='+T;fieldSay()}
 let F0=null;
 function closeField(){F=null;$('fld').style.display='none';if(F0&&F0.back){F0=null;$('rev').style.display='block';inReview=true;nextFrame(cur&&cur.id)}else{inReview=false;$('home').style.display='block';poll()}}
-// The vision model finds the corners, goals and loaders (v2.40); the person checks them and drags any that are off.
-async function findField(){if(!F)return;$('fFind').disabled=true;$('fSay').textContent='The vision model is looking (up to a minute)…';
+// The field finder trained on your marks (v2.47), else the vision model (v2.40), finds the corners, goals and loaders; the person checks them and drags any that are off.
+async function findField(){if(!F)return;$('fFind').disabled=true;$('fSay').textContent='Looking for the field…';
  let r;try{r=await api('/api/ffind',{id:F.id})}catch(e){r={error:e.message}}$('fFind').disabled=false;
  if(!F)return;if(r.error){$('fSay').textContent=r.error;return}
- F.pts=r.pts;F.spots=r.spots;$('fSave').disabled=false;$('fSay').textContent='Found. Check every circle: drag any that are not on their goal or loader, then Save';drawField()}
+ F.pts=r.pts;F.spots=r.spots;$('fSave').disabled=false;$('fSay').textContent='Found by the '+(r.how||'vision model')+'. Check the outline and every circle: drag any that are off, then Save';drawField()}
 function resetField(){if(!F)return;F.pts=[];F.spots=null;$('fSave').disabled=true;fieldSay();drawField()}
 function fieldSay(){$('fSay').textContent=!F?'':F.spots?'Drag each circle onto its real goal or loader, then Save':'Click corner '+(F.pts.length+1)+' of 4'}
 function fpos(e){const r=fc.getBoundingClientRect();return[(e.clientX-r.left)*fc.width/r.width,(e.clientY-r.top)*fc.height/r.height]}
@@ -4834,7 +5146,7 @@ window.addEventListener('mouseup',()=>{if(F)F.drag=-1});
 async function saveField(){if(!F||!F.spots)return;$('fSave').disabled=true;$('fSay').textContent='Saving…';
  const q=F.pts.flatMap(p=>[p[0]/fc.width,p[1]/fc.height]),r=await api('/api/fsave',{vid:F.vid,id:F.id,q,g:F.spots.slice(0,9).flat(),l:F.spots.slice(9).flat(),t:F.t});
  if(r.error){$('fSay').textContent='Not saved: '+r.error;$('fSave').disabled=false;return}
- $('fSay').textContent='Saved to the website. Pins and cups can now be marked on this stream\'s frames.';setTimeout(closeField,1800)}
+ $('fSay').textContent='Saved to the website. Pins and cups can now be marked on this stream\'s frames.'+(r.learning?' The field finder is learning from your marks now.':'');setTimeout(closeField,r.learning?3000:1800)}
 function closeReview(){inReview=false;$('rev').style.display='none';$('home').style.display='block';poll()}
 async function nextFrame(id){$('pRemark').style.display='none';$('pMove').style.display='none';gm=false;if(pm)return nextPieces(id);$('revLeft').textContent='Loading the next frame…';c.style.visibility='hidden';try{cur=await api('/api/next'+(id?'?id='+id:''))}catch(e){revTrouble('The app did not answer ('+e.message+').');return}
  if(cur.error){revTrouble('Could not load a frame: '+cur.error);return}if(!cur.id){closeReview();return}
@@ -5144,7 +5456,7 @@ def serve_ui(cfg, port=8765, open_window=True):
                 c, P = counts(), pcounts()
                 return self._send(200, {'version': VERSION, 'site': cfg['site'], 'key': bool(cfg.get('key')), 'busy': job.busy(), 'task': job.task if job.busy() else '',
                                         'log': job.lines(), 'progress': job.progress(), 'waiting': len(c['queue']), 'sure': _SURE[0], 'done': c['done'], 'gold': c['gold'], 'workers': cfg.get('workers', 4),
-                                        'keep': bool(cfg.get('keep_videos')), 'think': bool(cfg.get('think')), 'pieces': {'marked': P['marked'], 'left': len(P['queue']), 'counted': bool(P['at']), 'why': P.get('why'), 'guess': guess_source()[0], 'helper': helper_info().get('marks', 0), 'need': PIECE_NEED, 'last': last_pieces()}, 'speed': cfg.get('max_mbps', 0), 'last': last_train()})
+                                        'keep': bool(cfg.get('keep_videos')), 'think': bool(cfg.get('think')), 'pieces': {'marked': P['marked'], 'left': len(P['queue']), 'counted': bool(P['at']), 'why': P.get('why'), 'guess': guess_source()[0], 'helper': helper_info().get('marks', 0), 'need': PIECE_NEED, 'last': last_pieces()}, 'speed': cfg.get('max_mbps', 0), 'last': last_train(), 'field': field_status()})
             if u.path == '/api/fframe':
                 qs_ = urllib.parse.parse_qs(u.query)
                 vid, want = qs_.get('vid', [''])[0], qs_.get('id', [''])[0]
@@ -5153,6 +5465,8 @@ def serve_ui(cfg, port=8765, open_window=True):
                 pick = field_frame(vid, want if re.fullmatch(r'[A-Za-z0-9_-]+', want or '') else None)
                 if not pick:
                     return self._send(200, {'error': 'No saved picture from this stream on this computer. Mark it on the website instead.'})
+                # With a field finder (v2.47), a stream not yet marked opens with its answer drawn in.
+                pick = dict(pick, auto=os.path.exists(field_file()) and not quad_for(vid))
                 return self._send(200, pick)
             if u.path == '/api/pnext':
                 P = pcounts(wait=True)
@@ -5253,9 +5567,7 @@ def serve_ui(cfg, port=8765, open_window=True):
                 name = str(body.get('id', ''))
                 if not re.fullmatch(r'[A-Za-z0-9_-]+', name):
                     return self._send(400, {'error': 'bad frame'})
-                if not cfg.get('think'):
-                    return self._send(200, {'error': 'Turn on the vision model in Settings first.'})
-                return self._send(200, vlm_find_field(cfg, name))
+                return self._send(200, find_field(cfg, name))
             if u.path == '/api/fspots':
                 q = body.get('q')
                 if not (isinstance(q, list) and len(q) == 8 and all(isinstance(v, (int, float)) for v in q)):
@@ -5267,9 +5579,14 @@ def serve_ui(cfg, port=8765, open_window=True):
                 return self._send(200, {'ok': True} if ok_ else {'error': why_})
             if u.path == '/api/fsave':
                 ok_, why_ = save_field(cfg, body)
+                learning = False
                 if ok_:
                     pcache['at'] = min(pcache['at'], time.time() - 21)      # counted again, off to one side
-                return self._send(200, {'ok': True} if ok_ else {'error': why_})
+                    # Every few streams marked, the field finder learns from them again (v2.47).
+                    if cfg.get('field_auto', True) and not job.busy() and field_due():
+                        job.start('field', ['--field-finder', '--auto'])
+                        learning = True
+                return self._send(200, {'ok': True, 'learning': learning} if ok_ else {'error': why_})
             if u.path == '/api/psave':
                 name = str(body.get('id', ''))
                 if not re.fullmatch(r'[A-Za-z0-9_-]+', name) or not os.path.exists(os.path.join(LABELS, name + '.json')):
@@ -5332,6 +5649,8 @@ def serve_ui(cfg, port=8765, open_window=True):
                     args = ['--train']
                 elif task == 'unpublish':
                     args = ['--unpublish']
+                elif task == 'field':
+                    args = ['--field-finder']
                 elif task == 'vreview':
                     if not cfg.get('think'):
                         return self._send(200, {'error': 'Turn on the vision model in Settings first.'})
@@ -5459,6 +5778,8 @@ def main():
             unpublish(cfg)
         elif args[0] == '--quick-pieces':
             do_quick_pieces(cfg)
+        elif args[0] == '--field-finder':
+            do_field_finder(cfg, auto='--auto' in args)
         elif args[0] == '--vreview':
             do_vreview(cfg)
         elif args[0] == '--think-setup':

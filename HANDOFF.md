@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v176**. Everything green: 123 test files.
+Current release: **v177**. Everything green: 124 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,26 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v177 (app 2.47) — a field finder trained on the owner's marks.** Asked:
+"fix the automatically finding field and goal locations". A hand-built finder
+(floor colour + edge lines, goals snapped to dark bases) was tried on the
+Excalibur frame and dropped: sides landed on the walls' grey insides, goal
+snapping latched onto wheels. Instead a YOLO11-pose model, 1 class, 17
+keypoints (`FIELD_KP`: corners (0,0),(1,0),(1,1),(0,1) via `quad_fwd`, then
+`SPOTS` order, dragged feet where present). `field_examples`: per marked
+stream up to 60 saved frames; with an app-marked ref, `frame_geom` (camera
+followed); website-marked, only frames matching the first frame's view
+(CamFollow within 1.5%). `build_field_dataset` holds back whole streams
+(`is_val(vid)`, at least one when 4+). `do_field_finder` (`--field-finder`;
+`--auto` only with CUDA) trains 80 rounds, no flips/mosaic, exports ONNX
+[1,56,8400], measures `field_error` (% of width) into field_finder.json.
+`FieldFinder.find`: centred letterbox 114, best anchor. `find_field`: trained
+finder (conf ≥ 0.3, points ≥ 0.5 else from corners), else vision model.
+`/api/fframe` returns `auto` for unmarked streams → the field screen runs it
+on open; `/api/fsave` starts training when `field_due()` (3 streams, then
+every 2 more). Train card: "Train the field finder" and its state. Checks:
+desktop/dev/fieldfinder.py (13; 17 with --train), t163.
 
 **v176 (app 2.46) — tracking faster.** Asked: "any way to make the tracking
 process faster … it takes hours upon hours just to get a few streams done".
