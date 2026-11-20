@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.45'
+VERSION = '2.46'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -1308,6 +1308,15 @@ def find_match(video, eyes, job, spacing, around):
     return None
 
 
+# Where a match's time goes (v2.46), so a slow run can say why: reading the
+# video, finding robots, reading plates, following the camera; the rest is
+# everything else in the loop. Asked: "any way to make the tracking process
+# faster … it takes hours upon hours just to get a few streams done".
+_TIME = {}
+_LAST_SPENT = {}
+def _tick(k, t0):
+    _TIME[k] = _TIME.get(k, 0.0) + time.perf_counter() - t0
+
 def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None, quad=None, think=None, follow=None):
     """Watch one match. → (recording or None, why, shift found)
 
@@ -1365,7 +1374,9 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
         burst_until, next_base, extra, goal_boxes = -1e9, None, set(), None
         now_step = step
         while True:
+            _t0 = time.perf_counter()
             t, frame = video.read_at_step(now_step)
+            _tick('video', _t0)
             if frame is None or t >= end:
                 break
             h, w = frame.shape[:2]
@@ -1379,7 +1390,9 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
                 cam['at'], was_cut = t, False
                 if follow.des is None and t >= start + 3 and last_n >= 3:
                     follow.set_ref(frame)                # no marked picture to go by: the first wide look (3+ robots) stands in for it
+                _t0 = time.perf_counter()
                 Hn = follow.look(frame)
+                _tick('camera', _t0)
                 cam['checks'] += 1
                 if Hn is not None:
                     cam['found'] += 1
@@ -1405,7 +1418,9 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
             if t >= share_at + 2:
                 share_at = t
                 share_set(job.get('id'), min(0.98, (t - start) / max(1.0, end - start)))
+            _t0 = time.perf_counter()
             every = eyes.detect(frame, PROPOSE)
+            _tick('robots', _t0)
             cut = learn.get('conf', CONF)
             boxes = [b for b in every if b[4] >= cut and robot_like(b)]
             if cur_quad and not away:                   # standing off the field: a person, not a robot (v2.40)
@@ -1428,7 +1443,9 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
             for b, tr in attend(att, boxes, t, w, reads):
                 tr['tries'] += 1
                 tr['read'] = t
+                _t0 = time.perf_counter()
                 who = eyes.plate(frame, b, four)
+                _tick('plates', _t0)
                 if who:
                     b[7] = who
                     b[5] = 1 if who <= 2 else 2
@@ -1447,7 +1464,10 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
                 emb_at = t
                 try:
                     fr_ = rec['f'][-1]
-                    for i, e_ in enumerate(eyes.embed(frame, boxes[:6])):
+                    _t0 = time.perf_counter()
+                    _em = eyes.embed(frame, boxes[:6])
+                    _tick('fingerprints', _t0)
+                    for i, e_ in enumerate(_em):
                         rec['em'] += [fr_[0], fr_[2 + 10 * i], fr_[3 + 10 * i]] + e_
                 except Exception:
                     pass
@@ -1466,7 +1486,9 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
             # The pins, every two seconds: by colour and size, off the robots.
             if t >= pin_at + 2 and len(rec['pn']) < PIN_MAX_INTS:
                 pin_at = t
+                _t0 = time.perf_counter()
                 pw, ph_, blobs = pin_blobs(frame, boxes)
+                _tick('pins', _t0)
                 rec['pw'], rec['ph'] = pw, ph_
                 if away:
                     blobs = []
@@ -1484,7 +1506,9 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
                 if spots is None:
                     spots = spot_boxes(frame.shape[1], frame.shape[0], cur_quad, cur_placed) or []
                 if spots:
+                    _t0 = time.perf_counter()
                     rec['gs'] += [jround((t - rec['off']) * 10)] + [v for c in eyes.pieces.spot_counts(frame, spots) for v in c]
+                    _tick('pins', _t0)
             if (learn.get('score') or (rs_ is not None and bs_ is not None)) and not away and t >= score_at + (1 if learn.get('score') else 3) and len(rec['sc']) < 1200:
                 score_at = t
                 if learn.get('score'):
@@ -1794,6 +1818,24 @@ def think_ask(cfg, jpeg, four, n):
     except Exception:
         _THINK['failed'] += 1
         return None
+
+def trim_shots(rec, shots):
+    """The vision model is the slowest thing in a match (seconds a picture,
+    and one model for every worker). Where the plates already say who each of
+    the four robots is (two reads or more each), it is asked about two
+    pictures, for what the robots are doing; otherwise about all of them, as
+    its reading of numbers is what tells the robots apart (v2.46)."""
+    if len(shots) <= 2:
+        return shots
+    reads = [0, 0, 0, 0, 0]
+    for fr in rec.get('f', []):
+        for i in range(fr[1]):
+            who = fr[2 + 10 * i + 9] if len(fr) > 2 + 10 * i + 9 else 0
+            if who and 1 <= who <= 4:
+                reads[who] += 1
+    if min(reads[1:]) >= 2:
+        return [shots[0], shots[len(shots) // 2]]
+    return shots
 
 def think_match(rec, shots, job, cfg):
     """What the vision model saw in this match's kept frames, written into the
@@ -2227,17 +2269,20 @@ def work_chunk(args):
     from concurrent.futures import ThreadPoolExecutor
     behind, pending = ThreadPoolExecutor(max_workers=1), []
 
-    def finish(job, rec, why, sec, hw):
+    def finish(job, rec, why, sec, hw, spent=None):
+        spent = dict(spent or {})
         try:
             saved = None
             if rec is not None:
-                shots = rec.pop('_shots', [])
+                shots = trim_shots(rec, rec.pop('_shots', []))
                 cam = rec.pop('_cam', None)
                 if shots:
+                    t0 = time.perf_counter()
                     try:
                         think_match(rec, shots, job, cfg)
                     except Exception:
                         pass
+                    spent['vision model'] = time.perf_counter() - t0
                 r = site.post({'ev': str(ev), 'id': str(job['id']), 'rec': rec})
                 saved = bool(r and r.get('ok'))
                 if not saved:
@@ -2249,10 +2294,10 @@ def work_chunk(args):
                 while i + 1 < len(rec['pn']):
                     pins += rec['pn'][i + 1]
                     i += 2 + 6 * rec['pn'][i + 1]
-            return {'id': job['id'], 'name': job.get('name'), 'ok': bool(saved), 'why': why, 'sec': sec, 'hw': hw,
+            return {'id': job['id'], 'name': job.get('name'), 'ok': bool(saved), 'why': why, 'sec': sec, 'hw': hw, 'spent': spent, 'det': getattr(_EYES, 'backend', ''),
                     'looks': len(rec['f']) if rec else 0, 'plates': plates, 'pins': pins, 'clock': len(rec['tm']) // 2 if rec else 0, 'think': len(rec.get('vo', [])) // 5 if rec else 0, 'cam': cam if rec else None}
         except Exception as e:
-            return {'id': job['id'], 'name': job.get('name'), 'ok': False, 'why': 'error: ' + str(e), 'sec': sec, 'hw': hw, 'looks': 0, 'plates': 0, 'pins': 0, 'clock': 0, 'think': 0}
+            return {'id': job['id'], 'name': job.get('name'), 'ok': False, 'why': 'error: ' + str(e), 'sec': sec, 'hw': hw, 'spent': spent, 'looks': 0, 'plates': 0, 'pins': 0, 'clock': 0, 'think': 0}
 
     try:
         for job in jobs:
@@ -2280,6 +2325,7 @@ def work_chunk(args):
                         except Exception as e:
                             say('  could not work out the lens (%s)' % e)
                 looks = int(cfg.get('think_looks') or THINK_LOOKS) if cfg.get('think') and cfg.get('_think_ok') else 0
+                _TIME.clear()
                 rec, why, shift = track_match(video, _EYES, job, shift, spacing, True, learn, quads[job['vid']], looks, follows.get(job['vid']))
             except Exception as e:
                 rec, why = None, 'error: ' + str(e)
@@ -2287,7 +2333,9 @@ def work_chunk(args):
             # Asking the vision model and sending the recording do not need the
             # video or the finder, so they go on behind while the next match is
             # tracked: the model's twenty seconds a match cost no time at all.
-            pending.append(behind.submit(finish, job, rec, why, time.time() - t0, video.hw))
+            spent = dict(_TIME)
+            spent['other'] = max(0.0, (time.time() - t0) - sum(spent.values()))
+            pending.append(behind.submit(finish, job, rec, why, time.time() - t0, video.hw, spent))
         out = [p.result() for p in pending]
     finally:
         video.close()
@@ -2689,84 +2737,128 @@ def do_jobs(cfg):
     # worker gets through each one; a video coming down is named under it.
     import multiprocessing
     mgr = multiprocessing.Manager()
+    share = mgr.dict()
     _PROG['all'] = ('Tracking matches', 0, left)
     def job_bar(sub=''):
         _PROG['all'] = ('Tracking matches', done_all, left)
         dl = _PROG.get('dl') or ''
         progress('Tracking matches', done_all, left, sub=' · '.join(x for x in (sub, ('next video: ' + dl) if dl and _PROG['hold'] else dl) if x))
     job_bar('Getting the first video')
-    for n, (vid, pairs) in enumerate(order, 1):
-        say('\nVideo %d of %d (%s): %d matches' % (n, len(order), vid, len(pairs)))
-        if ahead and ahead[0] == vid:
-            if ahead[1].is_alive():
-                say('  finishing its download…')
-            ahead[1].join()
-        else:
-            say('  getting the video…')
-            fetch(vid)
-        path = fetched.get(vid)
-        ahead = None
-        if n < len(order):
-            nxt = order[n][0]
-            ahead = (nxt, threading.Thread(target=fetch, args=(nxt,), daemon=True))
-            ahead[1].start()
-        if not path or not os.path.exists(path):
-            say('  no video, skipped. If you have the file, choose "Use a video file I already have" and point it at this stream.')
-            totals['no'] += len(pairs)
-            done_all += len(pairs)
-            job_bar()
-            continue
-        by_ev = {}
-        for ev, j in pairs:
-            by_ev.setdefault(ev, []).append(j)
-        chunks, share = [], mgr.dict()
-        for ev, jobs in by_ev.items():
-            jobs.sort(key=lambda j: j['off'])
-            sp = spacing_of(jobs)
-            size = max(4, math.ceil(len(jobs) / workers))
-            for i in range(0, len(jobs), size):
-                chunks.append((cfg, ev, path, jobs[i:i + size], sp, share))
-        done, base = 0, done_all
-        _PROG['hold'] = True
-        sub = 'Video %d of %d' % (n, len(order))
-        job_bar(sub)
-        from concurrent.futures import wait as fwait, FIRST_COMPLETED
-        with ProcessPoolExecutor(max_workers=min(workers, len(chunks))) as pool:
-            pending = set(pool.submit(work_chunk, c) for c in chunks)
-            while pending:
-                ready, pending = fwait(pending, timeout=1.5, return_when=FIRST_COMPLETED)
-                # Between batches: each match as far as its worker has got.
-                try:
-                    part = sum(share.values())
-                except Exception:
-                    part = 0
-                done_all = max(done_all, min(base + len(pairs) - 0.01, base + part))
-                job_bar(sub)
-                for fut in ready:
-                  try:
-                    results = fut.result()
-                  except Exception as e:
-                    say('  a worker stopped:', str(e)[:200])
-                    continue
-                  for res in results:
-                    done += 1
-                    totals['ok' if res['ok'] else 'no'] += 1
-                    totals['plates'] += res['plates']
-                    totals['clock'] += res['clock']
-                    totals['looks'] += res['looks']
-                    totals['think'] += res.get('think', 0)
-                    totals['hw'] = totals.get('hw') or res.get('hw')
-                    say('  %3d/%d  %-22s %s' % (done, len(pairs), str(res['name'])[:22],
-                        ('saved · %d looks · %d plates · %d pin sightings · clock %d%s · %.0fs' % (res['looks'], res['plates'], res.get('pins', 0), res['clock'], (' · vision model: %d robot looks' % res['think']) if cfg.get('_think_ok') else '', res['sec']) + cam_note(res.get('cam'))) if res['ok'] else 'not saved: ' + res['why']))
+    # v2.46: one pool of workers for the whole job. Each video's matches used
+    # to be shared out and the next video waited until the slowest worker
+    # finished, so at the end of every video most workers sat idle; and a
+    # video with few matches kept only one or two of them busy. Now the next
+    # video's matches are handed out as soon as workers are about to run out
+    # of work, so they never wait for each other.
+    spent_all = {}
+    from concurrent.futures import wait as fwait, FIRST_COMPLETED
+    pool = ProcessPoolExecutor(max_workers=workers)
+    inflight, vids, done, cur_sub = {}, {}, 0, ['']
+    def collect(timeout):
+        nonlocal done_all, done
+        if not inflight:
+            return
+        ready, _ = fwait(set(inflight), timeout=timeout, return_when=FIRST_COMPLETED)
+        try:
+            part = sum(share.values())
+        except Exception:
+            part = 0
+        done_all = max(done_all, min(left - 0.01, part))
+        job_bar(cur_sub[0] + (' (and %d before it)' % (len(set(inflight.values())) - 1) if len(set(inflight.values())) > 1 else ''))
+        for fut in ready:
+            vid = inflight.pop(fut)
+            V = vids[vid]
+            V['chunks'] -= 1
+            try:
+                results = fut.result()
+            except Exception as e:
+                say('  a worker stopped:', str(e)[:200])
+                results = []
+            for res in results:
+                done += 1
+                totals['ok' if res['ok'] else 'no'] += 1
+                totals['plates'] += res['plates']
+                totals['clock'] += res['clock']
+                totals['looks'] += res['looks']
+                totals['think'] += res.get('think', 0)
+                totals['hw'] = totals.get('hw') or res.get('hw')
+                totals['gpu'] = totals.get('gpu') or res.get('det') not in (None, '', 'CPU')
+                for k, v in (res.get('spent') or {}).items():
+                    spent_all[k] = spent_all.get(k, 0.0) + v
+                say('  %3d/%d  %-22s %s' % (done, left, str(res['name'])[:22],
+                    ('saved · %d looks · %d plates · %d pin sightings · clock %d%s · %.0fs' % (res['looks'], res['plates'], res.get('pins', 0), res['clock'], (' · vision model: %d robot looks' % res['think']) if cfg.get('_think_ok') else '', res['sec']) + cam_note(res.get('cam'))) if res['ok'] else 'not saved: ' + res['why']))
+            if V['chunks'] == 0:
+                say('  video %s finished.' % vid)
+                path = V['path']
+                if not cfg.get('keep_videos') and path.startswith(DIRS['videos']):
+                    for junk in (path, path + '.have.json'):
+                        try:
+                            os.remove(junk)
+                        except OSError:
+                            pass
+    try:
+        for n, (vid, pairs) in enumerate(order, 1):
+            # Enough work queued for every worker: let some finish first.
+            while len(inflight) >= workers * 2:
+                collect(1.5)
+            _PROG['hold'] = bool(inflight)
+            say('\nVideo %d of %d (%s): %d matches' % (n, len(order), vid, len(pairs)))
+            if ahead and ahead[0] == vid:
+                while ahead[1].is_alive():
+                    ahead[1].join(1.5)
+                    collect(0)
+            else:
+                say('  getting the video…')
+                th = threading.Thread(target=fetch, args=(vid,), daemon=True)
+                th.start()
+                while th.is_alive():
+                    th.join(1.5)
+                    collect(0)
+            path = fetched.get(vid)
+            ahead = None
+            if n < len(order):
+                nxt = order[n][0]
+                ahead = (nxt, threading.Thread(target=fetch, args=(nxt,), daemon=True))
+                ahead[1].start()
+            if not path or not os.path.exists(path):
+                say('  no video, skipped. If you have the file, choose "Use a video file I already have" and point it at this stream.')
+                totals['no'] += len(pairs)
+                for _, j in pairs:
+                    share[str(j['id'])] = 1.0
+                continue
+            by_ev = {}
+            for ev, j in pairs:
+                by_ev.setdefault(ev, []).append(j)
+            chunks = []
+            for ev, jobs in by_ev.items():
+                jobs.sort(key=lambda j: j['off'])
+                sp = spacing_of(jobs)
+                # Runs of two or more (a run finds each next match from the
+                # last), small enough that every worker gets some.
+                size = max(2, math.ceil(len(jobs) / workers))
+                for i in range(0, len(jobs), size):
+                    chunks.append((cfg, ev, path, jobs[i:i + size], sp, share))
+            vids[vid] = {'chunks': len(chunks), 'path': path}
+            cur_sub[0] = 'Video %d of %d' % (n, len(order))
+            job_bar(cur_sub[0])
+            for c in chunks:
+                inflight[pool.submit(work_chunk, c)] = vid
+            _PROG['hold'] = True
+        while inflight:
+            collect(1.5)
+    finally:
+        pool.shutdown(wait=True)
         _PROG['hold'] = False
-        done_all = base + len(pairs)
-        job_bar('Video %d of %d done' % (n, len(order)) if n < len(order) else '')
-        if not cfg.get('keep_videos') and path.startswith(DIRS['videos']):
-            for junk in (path, path + '.have.json'):
-                try:
-                    os.remove(junk)
-                except OSError:
-                    pass
+    done_all = left
+    job_bar('')
+    if spent_all:
+        tot = sum(spent_all.values()) or 1
+        say('\nWhere the time went (all workers together): ' + ', '.join('%s %d%%' % (k, round(100 * v / tot)) for k, v in sorted(spent_all.items(), key=lambda kv: -kv[1]) if v / tot >= 0.02) + '.')
+        _LAST_SPENT.clear(); _LAST_SPENT.update({k: round(v / tot, 3) for k, v in spent_all.items()})
+        if spent_all.get('vision model', 0) / tot > 0.3:
+            say('The vision model took the most time. It is only asked about every picture where plates did not settle who is who; to go faster still, turn it off in Settings.')
+        elif spent_all.get('robots', 0) / tot > 0.4 and not totals.get('gpu'):
+            say('Finding robots took the most time, and it ran on the processor. On a graphics card it is several times faster: check that the graphics card driver is up to date, then start the app again.')
     mins = (time.time() - t_all) / 60
     _PROG['all'], _PROG['dl'] = None, ''
     try:

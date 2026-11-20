@@ -9,7 +9,7 @@ console.log('t147 — v158');
 ok('the bar is the whole job, set before the first download', /_PROG\['all'\] = \('Tracking matches', 0, left\)/.test(app) && /job_bar\('Getting the first video'\)/.test(app));
 ok('a download is named under it, never takes it over', /_PROG\['dl'\] = '%s · %d%%'/.test(app) && /next video: /.test(app));
 ok('each worker says how far through each match it is', /def share_set\(key, frac\):/.test(app) && /share_set\(job\.get\('id'\), min\(0\.98,/.test(app));
-ok('the bar moves between batches, not only when one is in', /fwait\(pending, timeout=1\.5, return_when=FIRST_COMPLETED\)/.test(app) && /part = sum\(share\.values\(\)\)/.test(app));
+ok('the bar moves between batches, not only when one is in', /fwait\((pending|set\(inflight\)), timeout=(1\.5|timeout), return_when=FIRST_COMPLETED\)/.test(app) && /part = sum\(share\.values\(\)\)/.test(app));
 ok('the window shows the step beside the stage', /P\.stage\+\(P\.sub\?' · '\+P\.sub:''\)/.test(app));
 ok('with nothing to mark pins and cups on, the window says why (no reviewed frames, or which streams need their field marked)', /def pieces_why\(site=None\):/.test(app) && /Pc\.why\.unmarked/.test(app) && /\$\('bPcs'\)\.disabled=Pc\.counted!==false&&!Pc\.left/.test(app));
 ok('app 2.34 or later', /VERSION = '2\.(3[4-9]|[4-9]\d)'/.test(app));
