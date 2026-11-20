@@ -63,7 +63,7 @@ const f = n => win.eval(n);
   ok('a summary says which release made it', /rv: VT_REMAKE/.test(src) && f('vtStale')({ ok: 1 }) === true && f('vtStale')({ ok: 1, rv: f('VT_REMAKE') }) === false && f('vtStale')({ ok: 0 }) === false);
   ok('a report with older matches fetches their recordings and reads them again', /vtSumsRefresh\(sums\)\.then\(n => \{ delete host\.dataset\.fresh; if \(n && host\.dataset\.team === num\) vtReportFill\(num\); \}\)/.test(src));
   ok('from the shared store when this device never tracked them', /if \(!rec\) \{ const r = await vtApi\('GET', `\?event=\$\{encodeURIComponent\(ev\)\}&match=\$\{encodeURIComponent\(id\)\}`\)/.test(src));
-  ok('each is tried once a visit', /vtRefreshTried\.add\(key\)/.test(src));
+  ok('each is tried once a visit', /vtRefreshTried\.add\((key|tag\(key\))\)/.test(src));
   ok('the page no longer says to open a computer', !/open the event on a computer and it happens by itself/.test(src));
 }
 // ── the heat map shows where it stays ──

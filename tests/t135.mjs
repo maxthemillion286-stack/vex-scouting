@@ -10,7 +10,7 @@ console.log('t135 — v146');
 const { win } = await boot();
 await settle(win);
 const f = n => win.eval(n);
-ok('the table remakes older matches and draws itself again', /if \(!host\.dataset\.fresh && \[\.\.\.sums\.values\(\)\]\.some\(vtStale\)\) \{\s+host\.dataset\.fresh = '1';\s+vtSumsRefresh\(sums\)\.then\(n => \{ delete host\.dataset\.fresh; if \(n\) \{[^}]*vtCoachFill\(num(, id)?\);/.test(src));
+ok('the table remakes older matches and draws itself again', /if \(!host\.dataset\.fresh( && \[\.\.\.sums\.values\(\)\]\.some\(vtStale\))?\) \{\s+host\.dataset\.fresh = '1';\s+vtSumsRefresh\(sums\)\.then\(n => \{ delete host\.dataset\.fresh; if \(n\) \{[^}]*vtCoachFill\(num(, id)?\);/.test(src));
 ok('and says why a time is missing', /its matches are being read again/.test(src) && /too few pins seen being stacked/.test(src));
 // the goal count wins but has no timing of its own: the field count's stays
 const mk = (i, field, goal) => ['900:' + i, { ok: 1, sv: 1, rs: 124, bs: 0, pk: 50, py: field / 10, pr: 0, pb: 0, gk: 50, gy: goal / 10, gr: 0, gb: 0, Ra: { ys: field / 10, oy: goal / 10, vs: 20, vh: 8 }, Rb: {}, Ba: {}, Bb: {} }];
