@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v170**. Everything green: 117 test files.
+Current release: **v171**. Everything green: 118 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,22 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v171 — every recording of a team counted.** Reported: "i send all the
+matches and even after watching them it still says for my team its only
+watched 3 matches even though ive been to 3 events with streams". The app
+POSTs only `rec`; a summary (what the team page reads, `vt:team:T`) was made
+only by `vtAppImport` → `vtBackfill` on a website with the admin key, for
+events still in `vt:jobsets`. Recordings that missed that stayed unsummarised
+and uncounted. Server: a rec POST (and a sum POST) adds `ev:id` to
+`vt:trec:T` for each team; `GET ?team=` also returns `recs`; `GET
+?event=EV&pending=1` lists `vt:ev2` ids with no `vt:s` summary. Website:
+`vtTeamCatchUp(num, sums)` (from the table and the report) summarises the
+team's listed recordings with none, and with the admin key every pending
+recording at its events (and job events), keeps them locally and shares them;
+recordings that do not summarise are counted in `vtCatchBad` and the table
+says so. The Matches column now says tracked against "its robot told apart"
+(the own-robot rows need 3 of those). Check: t157.
 
 **v170 (app 2.45) — review asks less; the tracker's table on phones.**
 Reported: "why does it have me review so many frames still?" `review_queue`

@@ -3714,7 +3714,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v170';
+const APP_BUILD = 'v171';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -10409,8 +10409,57 @@ async function vtTeamSums(number) {
   try {
     const r = await vtApi('GET', '?team=' + encodeURIComponent(num));
     if (r.ok && r.body.sums) for (const k of Object.keys(r.body.sums)) { const s = r.body.sums[k]; if (s && s.sv === VT_SUM_V && s.ok && !out.has(k)) out.set(k, s); }
+    if (r.ok && Array.isArray(r.body.recs)) vtTeamRecs.set(num, r.body.recs.map(String));
   } catch (e) {}
   return vtPinPick(out);
+}
+// ── Recordings with no summary yet (v171) ──────────────────────────────────
+// Reported: "i send all the matches and even after watching them it still
+// says for my team its only watched 3 matches even though ive been to 3
+// events with streams". The app sends recordings; a summary (what the team
+// page reads) was made only when a website with the admin key brought them in
+// from the Track robots box of an event. Matches the app finished after that,
+// or at an event whose box was never opened again, stayed recordings nobody
+// summarised, and the page did not count them. The team page now makes the
+// missing summaries itself: recordings listed under the team (every one sent
+// from v171 on), and with the admin key, any recording without a summary at
+// the events it played (the ones sent before). Summaries made with the key
+// are shared, so this happens once for everyone.
+const vtTeamRecs = new Map(), vtCatchTried = new Set(), vtCatchBad = new Map();
+async function vtTeamCatchUp(number, sums) {
+  const num = String(number || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const want = new Set((vtTeamRecs.get(num) || []).filter(k => !sums.has(k)));
+  const pass = vtPass();
+  if (pass) {
+    const evs = new Set([...sums.keys(), ...want].map(k => String(k).split(':')[0]));
+    try { const j = await vtApi('GET', '?jobs=1'); for (const ev of (j.ok && j.body.events) || []) evs.add(String(ev)); } catch (e) {}
+    await sim_pool([...evs].filter(ev => !vtCatchTried.has('ev:' + ev)), async ev => {
+      vtCatchTried.add('ev:' + ev);
+      try { const r = await vtApi('GET', `?event=${encodeURIComponent(ev)}&pending=1`); for (const id of (r.ok && r.body.ids) || []) if (!sums.has(ev + ':' + id)) want.add(ev + ':' + id); } catch (e) {}
+    }, 4);
+  }
+  const todo = [...want].filter(k => !vtCatchTried.has(k)).slice(0, 200);
+  if (!todo.length) return 0;
+  const local = await vtSumsLocal();
+  let made = 0;
+  await sim_pool(todo, async key => {
+    vtCatchTried.add(key);
+    try {
+      const cut = key.indexOf(':'), ev = key.slice(0, cut), id = key.slice(cut + 1);
+      let rec = await idbGet(`vt:m:${ev}:${id}`);
+      if (!rec) { const r = await vtApi('GET', `?event=${encodeURIComponent(ev)}&match=${encodeURIComponent(id)}`); rec = r.ok && r.body && r.body.rec && Array.isArray(r.body.rec.f) ? r.body.rec : null; }
+      if (!rec) return;
+      const vid = rec.vid || '';
+      const sum = vtSummarise(rec, vid ? await vtFieldGet(vid) : null, vid ? await vtLearnGet(vid) : null);
+      const mine = (rec.red || []).concat(rec.blue || []).map(t => String(t).toUpperCase()).includes(num);
+      if (!sum || !sum.ok) { if (mine) { if (!vtCatchBad.has(num)) vtCatchBad.set(num, new Set()); vtCatchBad.get(num).add(key); } return; }
+      local[key] = sum; made++;
+      if (mine) sums.set(key, sum);
+      if (pass) vtApi('POST', '', { passcode: pass, ev: String(ev), id: String(id), sum }).catch(() => {});
+    } catch (e) {}
+  }, 4);
+  if (made) await idbSet(VT_SUMS_KEY, local);
+  return made;
 }
 
 // ── A team's report ────────────────────────────────────────────────────────
@@ -10695,13 +10744,21 @@ async function vtCoachFill(number, hostId) {
   const mineTeam = vsMyTeam() === num;
   const sums = await vtTeamSums(num);
   if (!alive()) return;
-  if (!sums.size) { host.innerHTML = ''; return; }
+  if (!sums.size) {
+    host.innerHTML = '';
+    if (!host.dataset.catching) { host.dataset.catching = '1'; vtTeamCatchUp(num, sums).then(n => { delete host.dataset.catching; if (n && alive()) vtCoachFill(num, id); }).catch(() => { delete host.dataset.catching; }); }
+    return;
+  }
   // Older matches read again here as well (v146): the table showed "not timed
   // yet" while its summaries were from before the timing existed, because only
   // the report remade them.
   if (!host.dataset.fresh && [...sums.values()].some(vtStale)) {
     host.dataset.fresh = '1';
     vtSumsRefresh(sums).then(n => { delete host.dataset.fresh; if (n) { vtManyMemo && vtManyMemo.clear && vtManyMemo.clear(); vtCoachFill(num, id); } }).catch(() => { delete host.dataset.fresh; });
+  }
+  if (!host.dataset.catching) {
+    host.dataset.catching = '1';
+    vtTeamCatchUp(num, sums).then(n => { delete host.dataset.catching; if (n && alive()) { vtManyMemo && vtManyMemo.clear && vtManyMemo.clear(); vtCoachFill(num, id); } }).catch(() => { delete host.dataset.catching; });
   }
   const repAll = vtReport(num, sums);
   const byEvent = new Map();
@@ -10731,7 +10788,7 @@ async function vtCoachFill(number, hostId) {
     const AF = vtAutoFacts(own ? r.own : r.pair, own ? 1 : 2, chk);
     const auto = vtAutoText(AF, false);
     const none = '<i>not counted yet</i>';
-    return `<tr><td class="vt-coach-ev">${esc(name)}${when ? `<span>${esc(when)}</span>` : ''}</td><td data-label="Matches">${(own ? r.own : r.mine).length}${own ? '' : '<span>alliance</span>'}</td>
+    return `<tr><td class="vt-coach-ev">${esc(name)}${when ? `<span>${esc(when)}</span>` : ''}</td><td data-label="Matches">${(own ? r.own : r.mine).length}<span>${own ? (r.own.length < r.mine.length ? `its robot told apart in ${r.own.length} of ${r.mine.length} tracked` : 'all tracked, its robot told apart') : `tracked, alliance; its robot told apart in ${r.own.length}`}</span></td>
       <td data-label="Autonomous" class="vt-coach-mid">${auto ? esc(auto) : none}</td>
       <td data-label="Goes for" class="vt-coach-mid">${P ? (P.style ? esc(P.style.text) : 'too few pins to say') : none}</td>
       <td data-label="Pins a match">${P ? P.pins.toFixed(1) + `<span>${chk.ok ? `checked: ±${vtPct(chk.err)}` : 'not checked yet'}</span>` : none}</td><td data-label="Points a match">${(() => { const v = r.mine.map(x => x.pts).filter(x => typeof x === 'number'); return v.length ? Math.round(vtAvg(v)) + `<span>its alliance, official, ${v.length} match${v.length === 1 ? '' : 'es'}</span>` : none; })()}</td>
@@ -10740,6 +10797,7 @@ async function vtCoachFill(number, hostId) {
   host.innerHTML = `<div class="detail-block"><div class="detail-block-label">${mineTeam ? 'Your robot' : esc(num)}, as the tracker sees it</div>
     <div class="rw-hint">${mineTeam ? `What a team scouting ${esc(num)} would see, event by event.` : 'Event by event, from its tracked matches.'}</div>
     <div class="cmp-wrap"><table class="cmp-table vt-coach-table"><thead><tr><th>Event</th><th>Matches</th><th>Autonomous</th><th>Goes for</th><th>Pins a match</th><th>Points a match</th><th>5 pins stacked in</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>
+    ${(() => { const bad = (vtCatchBad.get(num) || new Set()).size; return bad ? `<div class="vt-note" id="vtCoachBad">${bad} more recording${bad === 1 ? '' : 's'} of ${esc(num)}'s matches could not be used: too few robots were seen in ${bad === 1 ? 'it' : 'them'} (the stream showed something else, or the field was cut off).</div>` : ''; })()}
     ${anyPins ? '' : `<div class="vt-note" id="vtCoachWhy">Pins are not counted for these matches yet. Counting needs two things: the match tracked since pin counting was added, and <strong>Mark the field</strong> done once on its stream (Jumper, open a match, Robot tracker box).</div>`}
     <details class="vs-why"><summary>What these mean</summary><div>
       <p><strong>Autonomous:</strong> pins your robot sets down in the first 15 seconds, and how many toggles your alliance has turned to its colour when they end. The tracker cannot tell which of the two robots turned a toggle.</p>
@@ -10749,6 +10807,7 @@ async function vtCoachFill(number, hostId) {
       <p><strong>5 pins stacked in:</strong> how long five pins take you at the goal: the time your robot spends at a goal on the visits that added pins, over the pins added. Driving between goals is not counted.</p>
       <p><strong>checked:</strong> the pin counts were compared with the official scores of those matches and corrected to fit; ± is how far a typical match was off. "Not checked yet" means fewer than four scored matches had pins counted.</p>
       <p>These are estimates read off a stream, not a referee's count.</p>
+      <p><strong>Matches:</strong> the tracked matches the row rests on. "Told apart" is how many of them the tracker could say which of the two alliance robots was this team's (its licence plate read, the vision model reading it, or its look recurring while the partner changed). With three or more, the row is about that robot alone; otherwise about both robots together.</p>
       ${anyAlliance ? '<p><strong>alliance:</strong> the tracker could not tell your robot from your partner\'s at that event, so the row is both robots together.</p>' : ''}
     </div></details>
   </div>` + vtReportHtml(num, repAll);
@@ -10840,6 +10899,10 @@ async function vtReportFill(number) {
   if (!host.dataset.fresh && [...sums.values()].some(vtStale)) {
     host.dataset.fresh = '1';
     vtSumsRefresh(sums).then(n => { delete host.dataset.fresh; if (n && host.dataset.team === num) vtReportFill(num); }).catch(() => { delete host.dataset.fresh; });
+  }
+  if (!host.dataset.catching) {
+    host.dataset.catching = '1';
+    vtTeamCatchUp(num, sums).then(n => { delete host.dataset.catching; if (n && host.dataset.team === num) vtReportFill(num); }).catch(() => { delete host.dataset.catching; });
   }
   const clips = vtClips(num, sums);
   if (clips.length) host.insertAdjacentHTML('beforeend', `<div class="rw-playall" style="margin-top:10px"><button class="btn btn-secondary" onclick="vtClipsOpen('${teamAttr(num)}')">Watch its autonomous runs (${clips.length})</button></div>`);
