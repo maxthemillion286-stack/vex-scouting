@@ -3714,7 +3714,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v166';
+const APP_BUILD = 'v167';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -7228,7 +7228,8 @@ function tTakenReset() {
   renderTournamentPickList();
 }
 // cands: [{ t, win }] best first, every team but the focused one.
-function tLivePickBlock(focus, cands, partnerForm, apRate, apUsed) {
+const T_FIT_PTS = 3;   // how many points of win % a perfect fit is worth, to break near ties
+function tLivePickBlock(focus, cands, partnerForm, apRate, apUsed, mine) {
   const taken = new Set(vsTaken(tournamentEventId));
   const open = cands.filter(c => !taken.has(String(c.t.number).toUpperCase()));
   const gone = cands.filter(c => taken.has(String(c.t.number).toUpperCase()));
@@ -7239,6 +7240,7 @@ function tLivePickBlock(focus, cands, partnerForm, apRate, apUsed) {
       <div class="lp-main">
         <div class="lp-top"><span class="mt-team" onclick="scoutTeam('${n}')">${esc(c.t.number)}</span><span class="lp-win">${c.win.toFixed(0)}%</span></div>
         <div class="lp-meta">${i === 0 ? 'Best still available. ' : ''}Seed ${esc(c.t.eventRank)}, ${esc(c.t.wins)}–${esc(c.t.losses)}${c.t.ties ? '–' + esc(c.t.ties) : ''}${f && f.trend && f.trend !== 'steady' ? ', ' + T_FORM_LABEL[f.trend].toLowerCase() : ''}${apRate && apRate.has(String(c.t.id)) ? ', ' + apRate.get(String(c.t.id)).toFixed(1) + ' AP a match' : ''}</div>
+        ${c.role ? `<div class="lp-meta">Mostly ${esc(c.role.label)}${c.fit !== null && c.fit !== undefined ? ` · ${c.fit >= 0.5 ? 'fits with you' : c.fit >= 0.25 ? 'some overlap with you' : 'plays like you'}` : ''}</div>` : ''}
       </div>
       <button class="lp-take" onclick="tTakenToggle('${n}')" aria-label="Mark ${n} as taken">Taken</button>
     </div>`;
@@ -7248,6 +7250,7 @@ function tLivePickBlock(focus, cands, partnerForm, apRate, apUsed) {
     <div class="lp-list">${open.slice(0, 12).map(row).join('') || '<div class="lp-help">Every team is marked taken.</div>'}</div>
     ${gone.length ? `<div class="lp-gone"><span>Taken (tap to undo):</span>${gone.map(c =>
       `<button class="lp-undo" onclick="tTakenToggle('${teamAttr(c.t.number)}')">${esc(c.t.number)}</button>`).join('')}<button class="lp-undo lp-reset" onclick="tTakenReset()">Clear all</button></div>` : ''}
+    ${mine ? `<div class="lp-help">From its tracked matches, ${esc(focus)} mostly ${esc(mine.label)}. Partners that spend their time on other jobs fit better (two stackers queue for the same goals); within ${T_FIT_PTS} points of win %, the better fit is listed first.</div>` : ''}
     <div class="sim-caveat">Win % is this pairing against an average alliance at this event, over 6,000 simulated matches. It is a ranking device, not a forecast.${apUsed ? ' Ratings include a small adjustment for autonomous points (AP) per match: a team whose alliances keep winning autonomous is rated a little higher than its scores alone would put it.' : ''}</div>`;
 }
 
@@ -8029,7 +8032,7 @@ function sim_learnNote(R) {
   } else if (c) {
     parts.push(`<strong>Not yet checked:</strong> the app tests its win chances against played matches once there are ${SIM_CAL_MIN} to test on; there ${c.n === 1 ? 'is' : 'are'} ${c.n} so far.`);
   }
-  if (R.trackUsed) parts.push(`<strong>Video included:</strong> ${R.trackUsed} teams' ratings lean a little on what the robot tracker measured in their matches (pace, autonomous distance, stops), counted as ${SIM_TRACK_K} match. What that is worth here was fitted on the ${R.trackFitOn} teams with both a rating and tracked matches; had it not predicted this event, it would have been left out.`);
+  if (R.trackUsed) parts.push(`<strong>Video included:</strong> ${R.trackUsed} teams' ratings lean a little on what the robot tracker measured in their matches (pins a match, autonomous pins, how fast it stacks, ground covered, autonomous distance, stops), counted as ${SIM_TRACK_K} match. What that is worth here was fitted on the ${R.trackFitOn} teams with both a rating and tracked matches; had it not predicted this event, it would have been left out.`);
   if (R.seasonOnly) parts.push(`<strong>Season form only:</strong> nothing has been played here yet, so these chances come from each team's record at its other events this season.`);
   else if (R.seasonUsed) parts.push(`<strong>Season included:</strong> ${R.seasonUsed} teams' ratings blend in their record at other events this season, counted as ${SIM_SEASON_K} matches. What a season record is worth here was fitted on the ${R.seasonFitOn} teams with enough matches at this event.`);
   return parts.length ? `<div class="sim-caveat">${parts.join(' ')}</div>` : '';
@@ -11810,20 +11813,66 @@ function rwRememberChannel(e0, id) {
 // position guessed from video is weaker evidence than a score.
 const SIM_TRACK_K = 1;
 function sim_trackScore(rowsByNum) {
-  // One number per team: pace and autonomous distance up, long stops down,
-  // each measured against the other teams here and capped.
+  // One number per team, each measure against the other teams here and
+  // capped: ground covered, autonomous distance and long stops (from v1xx),
+  // and since v167 what the newer tracking measures: pins a match,
+  // autonomous pins and how fast it stacks at a goal. A measure counts only
+  // where at least four teams have it; a team needs two of them.
   const raw = new Map();
   for (const [num, rows] of rowsByNum) {
     if (rows.length < 3) continue;
     const a = k => vtAvg(rows.map(r => r[k]).filter(v => v !== null && v !== undefined));
-    const act = a('act'), ap = a('ap'), stp = a('stp');
-    if (act === null || ap === null || stp === null) continue;
-    raw.set(num, [act, ap, -stp]);
+    const withPins = rows.filter(r => r.ys !== undefined && r.ys !== null);
+    const pins = withPins.length >= 3 ? vtAvg(withPins.map(r => ((r.ys || 0) + (r.as || 0)) / 2)) : null;
+    const auto = withPins.length >= 3 ? vtAvg(withPins.map(r => (r.ya || 0) / 2)) : null;
+    const pace = typeof vtStackPace === 'function' ? vtStackPace(rows, 1) : null;
+    const stp = a('stp');
+    raw.set(num, [a('act'), a('ap'), stp === null ? null : -stp, pins, auto, pace ? -pace : null]);
   }
   const out = new Map();
-  if (raw.size < 4) return out;
-  const zs = [0, 1, 2].map(k => { const v = [...raw.values()].map(r => r[k]), m = v.reduce((s, x) => s + x, 0) / v.length, sd = Math.sqrt(v.reduce((s, x) => s + (x - m) * (x - m), 0) / v.length) || 1; return x => Math.max(-2, Math.min(2, (x - m) / sd)); });
-  for (const [num, r] of raw) out.set(num, (zs[0](r[0]) + zs[1](r[1]) + zs[2](r[2])) / 3);
+  const K = 6, zs = [];
+  for (let k = 0; k < K; k++) {
+    const v = [...raw.values()].map(r => r[k]).filter(x => x !== null && x !== undefined && Number.isFinite(x));
+    if (v.length < 4) { zs.push(null); continue; }
+    const m = v.reduce((s, x) => s + x, 0) / v.length, sd = Math.sqrt(v.reduce((s, x) => s + (x - m) * (x - m), 0) / v.length) || 1;
+    zs.push(x => Math.max(-2, Math.min(2, (x - m) / sd)));
+  }
+  for (const [num, r] of raw) {
+    const got = r.map((x, k) => zs[k] && x !== null && x !== undefined && Number.isFinite(x) ? zs[k](x) : null).filter(x => x !== null);
+    if (got.length >= 2) out.set(num, got.reduce((s, x) => s + x, 0) / got.length);
+  }
+  if (out.size < 4) return new Map();
+  return out;
+}
+// How a team plays, from its tracked matches (v167): the share of driver
+// control at its alliance's goals, at neutral goals, going for toggles and
+// guarding its own. → { v: [4 shares], label } or null.
+const T_ROLE_NAMES = ['stacks on its goals', 'works the neutral goals', 'goes for toggles', 'guards its toggle'];
+function tRoleOf(rows) {
+  const g = (rows || []).filter(r => r.ga !== undefined && r.ga !== null);
+  if (g.length < 3) return null;
+  const avg = k => g.reduce((s, r) => s + (r[k] || 0), 0) / g.length;
+  const v = [avg('ga'), avg('gn'), avg('ts') + avg('to'), avg('th')];
+  const sum = v.reduce((s, x) => s + x, 0);
+  if (sum < 0.05) return null;
+  const k = v.indexOf(Math.max(...v));
+  return { v: v.map(x => x / sum), label: T_ROLE_NAMES[k] };
+}
+// How well two teams' ways of playing fit together: 1 when they spend their
+// time on different jobs, 0 when on the same ones (two stackers queue for
+// the same goals). Shown, and used only to break near ties in the list.
+function tRoleFit(a, b) {
+  if (!a || !b) return null;
+  let dot = 0, na = 0, nb = 0;
+  for (let i = 0; i < 4; i++) { dot += a.v[i] * b.v[i]; na += a.v[i] * a.v[i]; nb += b.v[i] * b.v[i]; }
+  return na && nb ? 1 - dot / Math.sqrt(na * nb) : null;
+}
+async function tRolesFor(numbers, capMs) {
+  const out = new Map(), nums = numbers.map(n => String(n).toUpperCase());
+  if (!nums.length || typeof vtTeamSumsMany !== 'function') return out;
+  const many = await Promise.race([vtTeamSumsMany(nums), new Promise(r => setTimeout(() => r(null), capMs || 1500))]);
+  if (!many) return out;
+  for (const n of nums) { const s = many.get(n.replace(/[^A-Z0-9]/g, '')); if (s && s.size >= 3) { const R = vtTeamRows(n, s); const r = tRoleOf(R.own.length >= 3 ? R.own : R.mine); if (r) out.set(n, r); } }
   return out;
 }
 async function sim_trackIndex(numById, capMs) {
@@ -16443,11 +16492,15 @@ async function renderTournamentPickList() {
     const you = roster.find(t => String(t.number).toUpperCase() === focus);
     if (you) {
       const partnerForm = tFormByTeam(R);
+      // How each plays, from tracked matches (v167): shown, and a near tie
+      // (within a few points of win %) goes to the one that fits you better.
+      const roles = await tRolesFor(roster.map(t => t.number));
+      const mine = roles.get(focus);
       const cands = roster
         .filter(t => t.id !== you.id)
-        .map(t => ({ t, win: pairWin(you, t) }))
-        .sort((a, b) => b.win - a.win);
-      if (cands.length) html += tLivePickBlock(focus, cands, partnerForm, R.apRate, R.apUsed);
+        .map(t => { const role = roles.get(String(t.number).toUpperCase()) || null, fit = tRoleFit(mine, role); return { t, win: pairWin(you, t), role, fit }; })
+        .sort((a, b) => (b.win + T_FIT_PTS * (b.fit || 0)) - (a.win + T_FIT_PTS * (a.fit || 0)));
+      if (cands.length) html += tLivePickBlock(focus, cands, partnerForm, R.apRate, R.apUsed, mine);
     }
   }
 

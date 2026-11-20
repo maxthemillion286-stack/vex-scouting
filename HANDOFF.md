@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v166**. Everything green: 113 test files.
+Current release: **v167**. Everything green: 114 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,17 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v167 — predictions and the pick list use the newer tracking.**
+`sim_trackScore` now z-scores up to six measures per team (act, ap, −stp as
+before, plus pins a match (ys+as)/2, autonomous pins ya/2, −`vtStackPace`),
+each only where ≥ 4 teams have it, a team needing two; the existing
+`sim_applyTracking` still applies it only if it predicts this event (upward
+slope). Pick list: `tRolesFor` → `tRoleOf` (shares of ga, gn, ts+to, th over
+≥ 3 tracked matches, label from `T_ROLE_NAMES`), `tRoleFit` (1 − cosine);
+each partner row says how it mostly plays and whether it fits the focused
+team; candidates sort by win % + `T_FIT_PTS` 3 × fit (a near-tie breaker).
+Tests: t153.
 
 **v166 (app 2.42) — marking helped.** A marking helper: `helper_due` after
 `HELPER_START` 20 marked frames and every `HELPER_EVERY` 20 after, `/api/psave`
