@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v168**. Everything green: 115 test files.
+Current release: **v169**. Everything green: 116 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,21 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v169 (app 2.44) — robots' fingerprints.** `ensure_embedder` makes
+models/embed.onnx once from YOLO11's ImageNet classifier (yolo11n-cls.pt,
+head's conv + pool, 1280 features; `torch.onnx.export(dynamo=False)`), at the
+start of tracking if the training tools are there. `Embedder`: crop (8%
+pad) → 224 → features → fixed random projection (seed 1234) to
+`EMBED_DIMS` 24, ×100 whole numbers. Every `EMBED_EVERY` 2 s, sure boxes
+→ `rec.em` [tenths, box x, box y, 24] (server: %27, ≤ 400 robots). Website:
+`vtFrames` keys them like `vo` → `F.fps`; `vtPrintJoin` averages a robot's
+(≥ 3) onto its summary as e0..e23. `vtIdentify` now runs `vtLookPicks`
+twice: colour looks (as before), then fingerprints (`vtPrintDist` 1 − cos,
+`VT_PRINT_MARGIN` 0.1, same crowd guard), the fingerprint winning where both
+name a robot; plates and vision reads still settle first. On a real frame the
+same robot a moment later scored 0.95–0.97, others ≤ 0.71. `VT_REMAKE` →
+169. Checks: desktop/dev/prints.py (7, real model), t155.
 
 **v168 (app 2.43) — the camera's lens.** One number per stream, k (a point
 moves out from the middle by 1 + k·r², r in half-widths; `ka` = H/W), carried

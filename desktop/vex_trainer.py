@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.43'
+VERSION = '2.44'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -1324,7 +1324,7 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
     def fresh():
         return {'v': 2, 'name': str(job.get('name', ''))[:60], 'round': job.get('round'), 'num': job.get('num'), 'red': job['red'], 'blue': job['blue'],
                 'rs': job.get('rs'), 'bs': job.get('bs'), 'vid': job['vid'], 'off': int(round(off)), 'rate': 4, 'w': SIZE, 'h': 0,
-                'model': 'det1', 'at': int(time.time() * 1000), 'f': [], 'tm': [], 'pn': [], 'tg': [], 'gs': [], 'sc': []}
+                'model': 'det1', 'at': int(time.time() * 1000), 'f': [], 'tm': [], 'pn': [], 'tg': [], 'gs': [], 'sc': [], 'em': []}
 
     while True:
         rec = fresh()
@@ -1336,7 +1336,7 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
             return None, 'past the end of the video', 0
         video.seek(start)
         att, robot_looks, clock_at, checked, kept, next_keep, misses, pin_at = [], 0, -1e9, False, 0, start + 6, 0, -1e9
-        before, auto_kept, next_auto, share_at = [], 0, start + LEAD + 5, -1e9
+        before, auto_kept, next_auto, share_at, emb_at = [], 0, start + LEAD + 5, -1e9, -1e9
         auto_room = [AUTO_MAX - auto_count()] if harvest else [0]
         spot_at, spots = -1e9, None
         # The stream's own score (v2.31), a check and never the truth: live
@@ -1441,6 +1441,16 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
             else:
                 extra.add(len(rec['f']))                 # a look only a key moment asked for
             rec['f'].append(pack_frame(t - rec['off'], put, w))
+            # A fingerprint of each robot every EMBED_EVERY s (v2.44), keyed like
+            # the vision model's notes: by the look's time and the box's corner.
+            if getattr(eyes, 'embed', None) is not None and not away and boxes and t >= emb_at + EMBED_EVERY and len(rec['em']) < 27 * 400:
+                emb_at = t
+                try:
+                    fr_ = rec['f'][-1]
+                    for i, e_ in enumerate(eyes.embed(frame, boxes[:6])):
+                        rec['em'] += [fr_[0], fr_[2 + 10 * i], fr_[3 + 10 * i]] + e_
+                except Exception:
+                    pass
             if goal_boxes is None:
                 goal_boxes = (spot_boxes(w, h, cur_quad, cur_placed) or [])[:9] if cur_quad else []
             if not away and key_moment(boxes, goal_boxes):
@@ -1566,6 +1576,8 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
             learn['score'] = None
     if not rec['sc']:
         del rec['sc']
+    if not rec.get('em'):
+        rec.pop('em', None)
     rec['_shots'] = shots if think else []
     rec['_cam'] = {k: cam[k] for k in ('checks', 'found', 'moves')}
     rec['_cam']['away'] = round(cam['away'])
@@ -2099,6 +2111,84 @@ def vlm_find_field(cfg, name):
             spots[k] = [round(found[j][0], 4), round(found[j][1], 4)]
     return {'pts': [[c[0] * W, c[1] * H] for c in corners], 'spots': spots}
 
+# ── a robot's look, learned from plate reads (v2.44) ──────────────────────
+# A pretrained image model (YOLO11's classifier, trained on millions of
+# photos) turns a robot's picture into an appearance fingerprint; the website
+# learns each team's fingerprint, at each event, from the matches where its
+# plate was read, and uses it to tell robots apart where no plate was. Plates
+# still settle a match; a fingerprint that looks like the crowd names nobody.
+# EMBED_DIMS numbers a robot a look (a fixed random projection of the
+# model's 1280, kept as whole numbers −100..100).
+EMBED_DIMS, EMBED_EVERY = 24, 2.0
+
+def embed_file():
+    return os.path.join(DIRS['models'], 'embed.onnx')
+
+def ensure_embedder():
+    """Make the fingerprint model once (needs the training tools: PyTorch).
+    → True if it is there."""
+    if os.path.exists(embed_file()):
+        return True
+    try:
+        import torch
+        from ultralytics import YOLO
+    except Exception:
+        return False
+    try:
+        cls = YOLO('yolo11n-cls.pt').model.eval()
+        layers = list(cls.model)
+        head = layers[-1]
+        class Body(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.body = torch.nn.Sequential(*layers[:-1])
+                self.conv, self.pool = head.conv, head.pool
+            def forward(self, x):
+                return torch.flatten(self.pool(self.conv(self.body(x))), 1)
+        net = Body().eval()
+        tmp = embed_file() + '.tmp'
+        args = dict(input_names=['x'], output_names=['f'], opset_version=12, dynamic_axes={'x': {0: 'n'}, 'f': {0: 'n'}})
+        try:
+            torch.onnx.export(net, torch.zeros(1, 3, 224, 224), tmp, dynamo=False, **args)   # the plain exporter: needs nothing more
+        except TypeError:
+            torch.onnx.export(net, torch.zeros(1, 3, 224, 224), tmp, **args)                # an older PyTorch: it is the only one
+        os.replace(tmp, embed_file())
+        return True
+    except Exception as e:
+        say('  the fingerprint model could not be made (%s); robots are told apart by colour alone.' % str(e)[:100])
+        return False
+
+class Embedder:
+    """A robot's picture → EMBED_DIMS whole numbers (its fingerprint)."""
+    def __init__(self, path=None):
+        import onnxruntime as ort, numpy as np
+        self.np = np
+        self.sess = ort.InferenceSession(path or embed_file(), providers=[p for p in ('CUDAExecutionProvider', 'DmlExecutionProvider', 'CPUExecutionProvider') if p in ort.get_available_providers()])
+        self.inp = self.sess.get_inputs()[0].name
+        dims = self.sess.get_outputs()[0].shape[-1]
+        self.proj = np.random.default_rng(1234).normal(size=(int(dims) if isinstance(dims, int) else 1280, EMBED_DIMS)).astype(np.float32)
+
+    def __call__(self, frame, boxes):
+        import cv2
+        np = self.np
+        H, W = frame.shape[:2]
+        crops = []
+        for b in boxes:
+            x, y, w, h = b[:4]
+            x0, y0, x1, y1 = int(max(0, x - 0.08 * w)), int(max(0, y - 0.08 * h)), int(min(W, x + 1.08 * w)), int(min(H, y + 1.08 * h))
+            c = frame[y0:y1, x0:x1]
+            if c.size == 0:
+                c = np.zeros((8, 8, 3), np.uint8)
+            crops.append(cv2.resize(cv2.cvtColor(c, cv2.COLOR_BGR2RGB), (224, 224), interpolation=cv2.INTER_AREA))
+        if not crops:
+            return []
+        x = np.stack(crops).astype(np.float32).transpose(0, 3, 1, 2) / 255.0
+        f = self.sess.run(None, {self.inp: x})[0].reshape(len(crops), -1)
+        f /= np.linalg.norm(f, axis=1, keepdims=True) + 1e-9
+        e = f @ self.proj
+        e /= np.linalg.norm(e, axis=1, keepdims=True) + 1e-9
+        return [[int(round(v * 100)) for v in row] for row in e]
+
 def make_follow(video, quad, t):
     """A CamFollow for one video: from the picture the field was marked on
     (`t`, seconds into the stream, saved by the website from v149), or, for a
@@ -2124,6 +2214,12 @@ def work_chunk(args):
     site = Site(cfg)
     if _EYES is None:
         _EYES = Eyes(quiet=True, threads=max(1, (os.cpu_count() or 8) // max(1, int(cfg.get('workers', 4)))))
+        _EYES.embed = None
+        if cfg.get('fingerprints', True) and os.path.exists(embed_file()):
+            try:
+                _EYES.embed = Embedder()
+            except Exception:
+                _EYES.embed = None
     video = Video(path, hw=bool(cfg.get('hw_decode', True)))
     out, shift, learn = [], 0, {}
     quads = {}                                        # the field's corners for each video, as marked on the website
@@ -4295,6 +4391,9 @@ def sync_review(cfg, quiet=False):
 def track_all(cfg, loop=True):
     """Everything the website asked for; then keep an eye out for more."""
     quiet = False
+    if cfg.get('fingerprints', True) and not os.path.exists(embed_file()):
+        say('Making the robot fingerprint model (once)…')
+        say('  done: robots are also told apart by their look.' if ensure_embedder() else '  not now (needs the training tools); robots are told apart by colour, as before.')
     while True:
         try:
             site = Site(cfg)

@@ -35,7 +35,7 @@ ok('no live score shown: nothing', flow({ rs: 45, bs: 43 }, ph) === null && flow
 ok('no official score yet: nothing', flow({ ...good, rs: null }, ph) === null);
 ok('the summary carries it, marked as from a matching stream score', /\.\.\.\(flow \? \{ sl: 1 \} : \{\}\)/.test(src) && /o\.sa = flow\[k\]\[0\]; o\.s1 = flow\[k\]\[1\]/.test(src));
 ok('the report shows it with what it rests on', /function vtReportFlow\(F\)/.test(src) && /only from matches where it ended on the official final, since live scoring can be wrong/.test(src) && /fl\.length >= 3/.test(src));
-ok('the server takes it, checked', /'sc'\]/.test(api) && /rec\.sc\.length % 3 === 0/.test(api));
+ok('the server takes it, checked', /'sc'[,\]]/.test(api) && /rec\.sc\.length % 3 === 0/.test(api));
 ok('the app finds the score from the official final, and forgets a place that stops matching', /def score_spots\(seen, rs, bs, end\):/.test(app) && /learn\['score'\] = None/.test(app) && /if rs is None or bs is None or rs == bs:/.test(app));
 ok('every device remakes its matches', /const VT_REMAKE = (15[2-9]|1[6-9]\d);/.test(src));
 ok('release is v152 or later', /const APP_BUILD = 'v1(5[2-9]|[6-9]\d)'/.test(src));
