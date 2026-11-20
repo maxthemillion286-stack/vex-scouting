@@ -14,7 +14,7 @@ ok('one short line: halves, how sure, a pin every, five pins in', p.short === '4
 ok('under 80 characters', p.short.length < 80);
 ok('unchecked: no ±', L(rows, null, true, null).short === '4.0 yellow halves a match · 5 pins in 30 s · 6.0 s a pin');
 ok('the report\'s Scoring line uses it', /if \(pin\) B\.speed = pin\.short;/.test(src));
-ok('the full sentence is still there, folded away', /Scoring, in full/.test(src));
+ok('the full version is still there, folded away, as points', /vr-h">How it scores</.test(src));
 ok('release is v137 or later', /const APP_BUILD = 'v1[3-9]\d'/.test(src) && !/const APP_BUILD = 'v13[0-6]'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -3722,7 +3722,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v174';
+const APP_BUILD = 'v175';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -10748,7 +10748,7 @@ function vtReportHtml(number, rep) {
       ${sec('Strengths', L.good, rep.own ? 'Nothing stands out against the robots it faced.' : 'Nothing stands out against the alliances it faced.')}
       ${sec('Weaknesses', L.weak || [], 'Nothing stands out.')}
       ${vtReportAuto(rep, L)}
-      ${rep.pins && rep.pins.text ? `<div class="vr-sec"><div class="vr-h">Scoring, in full</div><ul class="vr-list"><li>${esc(rep.pins.text)}</li></ul></div>` : ''}
+      ${rep.pins && rep.pins.bullets ? `<div class="vr-sec"><div class="vr-h">How it scores</div><ul class="vr-list">${rep.pins.bullets.map(t => `<li>${esc(t)}</li>`).join('')}</ul></div>` : ''}
       ${rep.game && rep.game.n >= 3 ? vtReportRole(rep.game) : ''}
       ${vtReportFlow(rep.flow)}
       ${vtReportSeen(rep.seen)}
@@ -12808,7 +12808,28 @@ function vtPinLine(mine, others, isOwn, check) {
   // The short form, for the report's top lines. Asked: "way too much info for scoring".
   const cupRows = mine.filter(r => r.cp !== undefined && r.cp !== null), cups = cupRows.length >= 2 ? vtAvg(cupRows.map(r => r.cp)) : null;
   const short = [`${avg.toFixed(1)} yellow halves a match${check && check.ok ? ` (±${vtPct(check.err)})` : ''}`, cups !== null ? `${cups.toFixed(1)} cups` : '', t5 !== null ? `5 pins in ${Math.round(t5)} s` : '', pace ? `${pace.toFixed(1)} s a pin` : ''].filter(Boolean).join(' · ');
-  return { avg, other, pace, n: a.length, short,
+  // v175: the full version, as short plain points about how it scores.
+  // Asked: "wayy too complicated needs to be more bullet points way simpler
+  // and clear info that directly relates to their scoring strategy". Pins,
+  // not halves; what it goes for; how fast; against the robots it faced; and
+  // how sure the count is, in one line.
+  const both = list => list.filter(r => r.ys !== undefined && r.ys !== null).map(r => fix * ((r.ys || 0) + (r.as || 0)) / 2);
+  const mp = both(mine), op = both(others || []);
+  const per = mp.length ? vtAvg(mp) : null, operPin = op.length >= 2 ? vtAvg(op) : null;
+  const who = isOwn ? '' : ' (a robot on its alliance, on average)';
+  const style = vtPinStyle(mine.reduce((x, r) => x + (r.ys || 0), 0), mine.reduce((x, r) => x + (r.as || 0), 0));
+  const pinsWord = v => { const n = Math.round(v); return `${n} pin${n === 1 ? '' : 's'}`; };
+  const bullets = [];
+  if (per !== null) bullets.push(`Scores about ${pinsWord(per)} a match${who}.`);
+  if (style) bullets.push(style.kind === 'yellow' ? `Goes for yellow pins (${vtPct(style.share)} of its pins).` : style.kind === 'own' ? `Goes for its own colour's pins (${vtPct(style.share)} of its pins).` : `Scores both: ${vtPct(style.share)} yellow, the rest its own colour.`);
+  if (pace) bullets.push(`Stacks a pin about every ${Math.round(pace)} s at a goal${t5 !== null ? ` (5 pins in about ${Math.round(t5)} s)` : ''}.`);
+  else if (t5 !== null) bullets.push(`Its quickest 5 pins take about ${Math.round(t5)} s.`);
+  if (per !== null && operPin !== null) {
+    const r = per / Math.max(0.1, operPin);
+    bullets.push(r >= 1.25 ? `Scores more than the robots it plays against (${pinsWord(per)} to their ${Math.round(operPin)}).` : r <= 0.8 ? `Scores less than the robots it plays against (${pinsWord(per)} to their ${Math.round(operPin)}).` : `Scores about as much as the robots it plays against.`);
+  }
+  bullets.push(check && check.ok ? `Counted from video and checked against ${check.n} official scores: usually within ${vtPct(check.err)}.` : 'Counted from video; not checked against official scores yet.');
+  return { avg, other, pace, n: a.length, short, bullets,
     text: `${isOwn ? 'Sets down' : 'A robot on its alliance sets down'} about ${avg.toFixed(1)} yellow halves a match (worth ${Math.round(avg * 10)} when its alliance holds that toggle)${pace ? `, a pin every ${pace.toFixed(1)} s while it is at the goal stacking (timed from when it got there to when it left, over the pins it added)` : ''}${t5 !== null ? `; its fastest five pins usually take ${Math.round(t5)} s` : ''}${other !== null ? `; the robots it faced: ${other.toFixed(1)}` : ''}. ${vtPinCheckText(check)}` };
 }
 
