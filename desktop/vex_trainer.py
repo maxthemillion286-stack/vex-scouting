@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.41'
+VERSION = '2.42'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -3276,6 +3276,150 @@ def pieces_queue(site=None):
                 out.append(l.pop(0))
     return out
 
+# ── helping the marking (v2.42) ──────────────────────────────────────────
+# Asked for: pre-filled marks from a quickly trained finder, and the most
+# useful frames first. After the first HELPER_START frames (and every
+# HELPER_EVERY after), a small finder is trained on them in a few minutes,
+# only to draw the guesses for the frames still to mark: checking a good
+# guess is quicker than marking from nothing. It never counts pins in
+# tracking (the finder made by Train, which must win a test, does that).
+HELPER_START, HELPER_EVERY, HELPER_ROUNDS = 20, 20, 30
+
+def helper_file():
+    return os.path.join(DIRS['models'], 'pieces_helper.onnx')
+
+def helper_info():
+    try:
+        with open(os.path.join(DIRS['models'], 'pieces_helper.json')) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def helper_due(marked):
+    """Is it time to train the marking helper again?"""
+    return marked >= HELPER_START and marked - int(helper_info().get('marks', 0)) >= HELPER_EVERY
+
+def do_quick_pieces(cfg):
+    """Train the marking helper (a small finder, a few minutes on a graphics
+    card) on every frame marked so far."""
+    marked = pieces_marked()
+    if len(marked) < HELPER_START:
+        say('The marking helper is trained after %d marked frames (%d so far).' % (HELPER_START, len(marked)))
+        return
+    if not ensure_training_tools():
+        return
+    import torch
+    from ultralytics import YOLO
+    if not torch.cuda.is_available() and not cfg.get('helper_cpu'):
+        say('No graphics card for training, so no marking helper: the colour guesses stay. (It would take too long without one.)')
+        return
+    root, counts = build_pieces_dataset(marked)
+    tag = 'h' + time.strftime('%y%m%d%H%M')
+    runs = os.path.join(DIRS['build'], 'runs')
+    def each_round(trainer):
+        progress('Training the marking helper', int(getattr(trainer, 'epoch', 0)) + 1, HELPER_ROUNDS)
+    model = newest_yolo(YOLO, 'yolo11n.pt')
+    try:
+        model.add_callback('on_fit_epoch_end', each_round)
+    except Exception:
+        pass
+    say('Training the marking helper on %d marked frames…' % len(marked))
+    model.train(data=os.path.join(root, 'data.yaml'), epochs=HELPER_ROUNDS, imgsz=PIECE_SIZE, batch=16, device=0 if torch.cuda.is_available() else 'cpu',
+                workers=2, patience=10, project=runs, name=tag, exist_ok=True, verbose=False, plots=False, fliplr=0.5, mosaic=1.0)
+    onnx_path = YOLO(os.path.join(runs, tag, 'weights', 'best.pt')).export(format='onnx', imgsz=PIECE_SIZE, opset=12, simplify=True, dynamic=False)
+    import onnxruntime as ort
+    if list(ort.InferenceSession(onnx_path, providers=['CPUExecutionProvider']).get_outputs()[0].shape)[:2] != [1, 4 + len(PIECE_NAMES)]:
+        say('The marking helper came out in an unexpected shape; the colour guesses stay.')
+        return
+    tmp = helper_file() + '.tmp'
+    shutil.copyfile(onnx_path, tmp)
+    os.replace(tmp, helper_file())
+    with open(os.path.join(DIRS['models'], 'pieces_helper.json'), 'w') as f:
+        json.dump({'marks': len(marked), 'when': time.strftime('%b %d, %H:%M'), 'tag': tag}, f)
+    say('The marking helper is ready: the next frames come with its guesses (trained on %d marked frames).' % len(marked))
+
+def guess_source():
+    """Which finder draws the guesses: the marking helper when it has seen
+    more marked frames than the finder in use, else the finder in use, else
+    the colours. → ('helper' | 'trained' | 'colour', file or None)"""
+    h, info = helper_file(), helper_info()
+    trained_frames = 0
+    try:
+        with open(pieces_info_file()) as f:
+            trained_frames = int(json.load(f).get('frames', 0)) if pieces_ready() else 0
+    except Exception:
+        pass
+    if os.path.exists(h) and int(info.get('marks', 0)) > trained_frames:
+        return 'helper', h
+    if pieces_ready():
+        return 'trained', pieces_file()
+    return 'colour', None
+
+def frame_interest(name, finder, robots):
+    """How much marking this frame would teach (v2.42): the guesses' doubts
+    (pieces found only half sure) and how far the finder and the colours
+    disagree on how many there are; without a finder, how many pieces stand
+    on goals there. Kept in the frame's notes with what worked it out."""
+    import cv2
+    try:
+        with open(os.path.join(PROPS, name + '.json')) as f:
+            p = json.load(f)
+    except Exception:
+        return 0.0
+    tag = finder[0] if finder else 'colour'
+    if isinstance(p.get('pint'), list) and p['pint'][0] == tag:
+        return p['pint'][1]
+    frame = cv2.imread(os.path.join(FRAMES, name + '.jpg'))
+    spots = frame_spots(name, frame) if frame is not None else []
+    if frame is None or not spots:
+        return 0.0
+    colour = pieces_from_colour(frame, robots, spots)
+    if finder:
+        found = finder[1].find_spots(frame, spots)
+        unsure = sum(1 for b in found if b[4] < 0.6)
+        sure = sum(1 for b in found if b[4] >= 0.6)
+        v = 2.0 * unsure + abs(sure - len(colour)) + 0.1 * len(found)
+    else:
+        v = float(len(colour))
+    p['pint'] = [tag, round(v, 2)]
+    with open(os.path.join(PROPS, name + '.json'), 'w') as f:
+        json.dump(p, f)
+    return v
+
+def rank_pieces(queue, budget=120):
+    """The pins & cups queue, most useful first (v2.42): streams marked least
+    come first in turn; within a stream, the frames that would teach most
+    (`frame_interest`, for the first `budget` frames; worked out once each).
+    Taking turns between streams stays, so it is never the same scene twice."""
+    src = guess_source()
+    finder = None
+    if src[1]:
+        try:
+            finder = (src[0] + ':' + str(int(os.path.getmtime(src[1]))), PieceFinder(src[1], prov=['CPUExecutionProvider']))
+        except Exception:
+            finder = None
+    done_by = {}
+    for n in os.listdir(LABELS) if os.path.isdir(LABELS) else []:
+        if n.endswith('.json') and 'pieces' in lab_read(n[:-5]):
+            v = n[:-5].rsplit('_', 1)[0]
+            done_by[v] = done_by.get(v, 0) + 1
+    score = {}
+    for name in queue[:budget]:
+        try:
+            score[name] = frame_interest(name, finder, lab_read(name).get('boxes', []))
+        except Exception:
+            score[name] = 0.0
+    by = {}
+    for name in queue:
+        by.setdefault(name.rsplit('_', 1)[0], []).append(name)
+    lists = [sorted(l, key=lambda n: -score.get(n, -1)) for v, l in sorted(by.items(), key=lambda kv: done_by.get(kv[0], 0))]
+    out = []
+    while any(lists):
+        for l in lists:
+            if l:
+                out.append(l.pop(0))
+    return out
+
 def pieces_from_colour(frame, robots, spots=None):
     """The colour finder's pins as boxes in the frame: [x, y, w, h, class];
     with `spots`, only those inside one."""
@@ -4202,6 +4346,7 @@ function paint(){
  $('bRev').disabled=!st.waiting;
  const Pc=st.pieces||{marked:0,left:0,need:60},PL=Pc.last;
  setHtml('pcsN','Pins &amp; cups: '+Pc.marked+' of '+(Pc.marked<Pc.need?Pc.need:Math.max(150,Math.ceil((Pc.marked+1)/100)*100))+' marked'+(Pc.marked<Pc.need?' · '+(Pc.need-Pc.marked)+' more and it can train':'')+
+  (Pc.guess?'<br><span class="dim">Guesses drawn by: '+(Pc.guess==='helper'?'the marking helper (trained on '+Pc.helper+' frames)':Pc.guess==='trained'?'the trained finder':'colours'+(Pc.marked<20?' (a helper takes over after 20 marked)':''))+' · most useful frames first</span>':'')+
   (PL?'<br>'+(PL.use?'Trained finder in use':'Colour finder in use')+' · pin halves '+(PL.use?PL.new:PL.colour)+(PL.use?' (colours: '+PL.colour+')':'')+' · cups '+PL.cups:'')+
   // v2.35: when there is nothing to mark, say why. Reported: the button greyed out, nothing said.
   (Pc.counted===false?'<br><span class="dim">Counting the frames…</span>':!Pc.left&&Pc.why?'<br><span class="warn">'+(!Pc.why.reviewed?'Nothing to mark yet: pins and cups are marked on frames whose robots you have reviewed. Review some robot frames first.':Pc.why.unmarked&&Pc.why.unmarked.length?'Nothing to mark yet: your reviewed frames come from '+(Pc.why.unmarked.length===1?'a stream':'streams')+' whose field is not marked. Mark it here, once a stream:</span><br>'+Pc.why.unmarked.map(u=>'<button class="ghost" style="margin:4px 6px 0 0" onclick="openField(\''+esc(u[0])+'\')">Mark the field: '+esc(u[0])+' ('+u[1]+' frame'+(u[1]===1?'':'s')+')</button>').join('')+'<span>':'Every reviewed frame from a marked stream is done. Review more robot frames to get more.')+'</span>':''));
@@ -4216,7 +4361,7 @@ function paint(){
  const pNeed=Math.max(0,((st.pieces||{}).need||60)-((st.pieces||{}).marked||0));
  for(const b of ['bTrack','bTrain','bAdd'])$(b).disabled=st.busy||(b==='bTrain'&&need>0&&pNeed>0)||(b==='bTrack'&&!st.key);
  $('bStop').style.display=st.busy?'':'none';
- const names={vreview:'The vision model is reviewing',think:'Getting the vision model ready',track:'Tracking',train:'Training',add:'Learning from a video',unpublish:'Removing the finder'};
+ const names={helper:'Training the marking helper',vreview:'The vision model is reviewing',think:'Getting the vision model ready',track:'Tracking',train:'Training',add:'Learning from a video',unpublish:'Removing the finder'};
  const last=(st.log.filter(l=>l.trim()).pop()||'').trim();
  const P=st.busy?st.progress:null,box=$('barBox'),eta=$('eta');
  // A real bar: how much is done, and how long is left at the pace so far.
@@ -4339,7 +4484,7 @@ function onBox(x0,y0){return boxes.some(b=>x0>=b[0]&&x0<=b[0]+b[2]&&y0>=b[1]&&y0
 // On a goal only in its column, on or above its base; over a loader anywhere in its box (v2.37).
 function spotAt(x0,y0){return (cur.spots||[]).find(s=>x0>=s[0]&&x0<=s[2]&&y0>=s[1]&&y0<=s[3])}
 function flash(t){const m=$('pMsg');if(!m)return;if(m.dataset.base===undefined)m.dataset.base=m.innerHTML;m.innerHTML='<b>'+t+'</b>';clearTimeout(flash.t);flash.t=setTimeout(()=>{m.innerHTML=m.dataset.base},2600)}
-async function saveFrame(skip){if(!cur||!cur.id)return;back.push(cur.id);if(pm)await api('/api/psave',{id:cur.id,skip,pieces:boxes});else await api('/api/save',{id:cur.id,skip,boxes});nextFrame()}
+async function saveFrame(skip){if(!cur||!cur.id)return;back.push(cur.id);if(pm){const r=await api('/api/psave',{id:cur.id,skip,pieces:boxes});if(r&&r.helper)setTimeout(()=>flash('A helper is training on your marks (a few minutes): the guesses get better after it. Keep going.'),300)}else await api('/api/save',{id:cur.id,skip,boxes});nextFrame()}
 window.onkeydown=e=>{if(!inReview||dlg.open)return;if(e.key==='Enter'||e.key===' '){e.preventDefault();saveFrame(false)}else if(/^s$/i.test(e.key))saveFrame(true);
  else if(pm&&/^[1-4]$/.test(e.key)){pc=+e.key-1;clsBar()}else if(/^z$/i.test(e.key)){if(hist.length){boxes=hist.pop();draw()}}else if(/^b$/i.test(e.key)){if(back.length)nextFrame(back.pop())}else if(e.key==='Escape')closeReview()};
 let polling=0;async function tick(){if(!inReview&&!polling){polling=1;try{await poll()}finally{polling=0}}setTimeout(tick,1000)}tick();
@@ -4494,6 +4639,10 @@ def serve_ui(cfg, port=8765, open_window=True):
     def count_pieces():
         with plock:
             q = pieces_queue(qsite())
+            try:
+                q = rank_pieces(q)                       # most useful first (v2.42)
+            except Exception as e:
+                say('  could not rank the pin frames (%s)' % e)
             why = pieces_why(qsite()) if not q else {'reviewed': 0, 'unmarked': []}
             pcache.update(at=time.time(), queue=q, marked=len(pieces_marked()), why=why)
 
@@ -4505,10 +4654,12 @@ def serve_ui(cfg, port=8765, open_window=True):
         return pcache
 
     pf_holder = {}
-    def pfinder():
-        if 'f' not in pf_holder:
-            f = PieceFinder(pieces_file(), prov=['CPUExecutionProvider'])
-            pf_holder['f'] = lambda fr, sp: f.find_spots(fr, sp)
+    def pfinder(path=None):
+        path = path or pieces_file()
+        key = (path, os.path.getmtime(path) if os.path.exists(path) else 0)
+        if pf_holder.get('fk') != key:                   # a new helper or finder: loaded again
+            f = PieceFinder(path, prov=['CPUExecutionProvider'])
+            pf_holder['f'], pf_holder['fk'] = (lambda fr, sp: f.find_spots(fr, sp)), key
         return pf_holder['f']
 
     def qsite():
@@ -4587,7 +4738,7 @@ def serve_ui(cfg, port=8765, open_window=True):
                 c, P = counts(), pcounts()
                 return self._send(200, {'version': VERSION, 'site': cfg['site'], 'key': bool(cfg.get('key')), 'busy': job.busy(), 'task': job.task if job.busy() else '',
                                         'log': job.lines(), 'progress': job.progress(), 'waiting': len(c['queue']), 'done': c['done'], 'gold': c['gold'], 'workers': cfg.get('workers', 4),
-                                        'keep': bool(cfg.get('keep_videos')), 'think': bool(cfg.get('think')), 'pieces': {'marked': P['marked'], 'left': len(P['queue']), 'counted': bool(P['at']), 'why': P.get('why'), 'need': PIECE_NEED, 'last': last_pieces()}, 'speed': cfg.get('max_mbps', 0), 'last': last_train()})
+                                        'keep': bool(cfg.get('keep_videos')), 'think': bool(cfg.get('think')), 'pieces': {'marked': P['marked'], 'left': len(P['queue']), 'counted': bool(P['at']), 'why': P.get('why'), 'guess': guess_source()[0], 'helper': helper_info().get('marks', 0), 'need': PIECE_NEED, 'last': last_pieces()}, 'speed': cfg.get('max_mbps', 0), 'last': last_train()})
             if u.path == '/api/fframe':
                 qs_ = urllib.parse.parse_qs(u.query)
                 vid, want = qs_.get('vid', [''])[0], qs_.get('id', [''])[0]
@@ -4621,9 +4772,10 @@ def serve_ui(cfg, port=8765, open_window=True):
                     frame = cv2.imread(os.path.join(FRAMES, name + '.jpg'))
                     pieces = []
                     if frame is not None:
-                        # The trained finder's guesses once there is one (cups too), else the colours', in the spots only.
+                        # The marking helper's guesses, or the trained finder's (cups too), else the colours', in the spots only.
                         try:
-                            pieces = [b[:4] + [b[5]] for b in pfinder()(frame, spots)] if pieces_ready() else pieces_from_colour(frame, robots, spots)
+                            src = guess_source()
+                            pieces = [b[:4] + [b[5]] for b in pfinder(src[1])(frame, spots)] if src[1] else pieces_from_colour(frame, robots, spots)
                         except Exception:
                             pieces = pieces_from_colour(frame, robots, spots)
                 return self._send(200, {'id': name, 'w': p['w'], 'h': p['h'], 'pieces': [[round(v, 1) for v in b[:4]] + [int(b[4])] for b in pieces],
@@ -4724,7 +4876,11 @@ def serve_ui(cfg, port=8765, open_window=True):
                     pcache['queue'].remove(name)
                     pcache['marked'] += 0 if body.get('skip') else 1
                 pcache['at'] = min(pcache['at'], time.time() - 15)
-                return self._send(200, {'ok': True})
+                helping = False
+                if not body.get('skip') and cfg.get('helper', True) and not job.busy() and helper_due(pcache['marked']):
+                    job.start('helper', ['--quick-pieces'])  # trains while marking goes on
+                    helping = True
+                return self._send(200, {'ok': True, 'helper': helping})
             if u.path == '/api/key':
                 key = str(body.get('key', '')).strip()
                 if not key:
@@ -4895,6 +5051,8 @@ def main():
             train_auto(cfg)
         elif args[0] == '--unpublish':
             unpublish(cfg)
+        elif args[0] == '--quick-pieces':
+            do_quick_pieces(cfg)
         elif args[0] == '--vreview':
             do_vreview(cfg)
         elif args[0] == '--think-setup':
