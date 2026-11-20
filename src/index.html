@@ -3714,7 +3714,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v169';
+const APP_BUILD = 'v170';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -10684,18 +10684,24 @@ function vtReportHtml(number, rep) {
 // The same report, about the team set as "my team", on the My team page — plus
 // how the things a driver can change have moved from one event to the next.
 // A robot is rebuilt between events, so each event is its own row.
-async function vtCoachFill(number) {
-  const num = String(number || '').toUpperCase(), host = document.getElementById('vtCoach');
+// v170: also on every team's scout card (`vtCoachCard`), any team, phone
+// included. Reported: "on phone i cant see the your robot as the tracker sees
+// it for my team or others" (it was only on Home, which phones do not show).
+async function vtCoachFill(number, hostId) {
+  const id = hostId || 'vtCoach';
+  const num = String(number || '').toUpperCase(), host = document.getElementById(id);
   if (!host || !num) return;
+  const alive = () => { const h = document.getElementById(id); return !!h && (id === 'vtCoach' ? vsMyTeam() === num : h.dataset.team === num); };
+  const mineTeam = vsMyTeam() === num;
   const sums = await vtTeamSums(num);
-  if (!document.getElementById('vtCoach') || vsMyTeam() !== num) return;
+  if (!alive()) return;
   if (!sums.size) { host.innerHTML = ''; return; }
   // Older matches read again here as well (v146): the table showed "not timed
   // yet" while its summaries were from before the timing existed, because only
   // the report remade them.
   if (!host.dataset.fresh && [...sums.values()].some(vtStale)) {
     host.dataset.fresh = '1';
-    vtSumsRefresh(sums).then(n => { delete host.dataset.fresh; if (n) { vtManyMemo && vtManyMemo.clear && vtManyMemo.clear(); vtCoachFill(num); } }).catch(() => { delete host.dataset.fresh; });
+    vtSumsRefresh(sums).then(n => { delete host.dataset.fresh; if (n) { vtManyMemo && vtManyMemo.clear && vtManyMemo.clear(); vtCoachFill(num, id); } }).catch(() => { delete host.dataset.fresh; });
   }
   const repAll = vtReport(num, sums);
   const byEvent = new Map();
@@ -10704,7 +10710,7 @@ async function vtCoachFill(number) {
   // ran together. Events are looked up by name (newest first), the columns
   // have room, and each number says what it is.
   const evs = await Promise.all([...byEvent.keys()].map(async ev => { try { const r = await vsEventRecord(ev); return [ev, (r && r[0]) || null]; } catch (e) { return [ev, null]; } }));
-  if (!document.getElementById('vtCoach') || vsMyTeam() !== num) return;
+  if (!alive()) return;
   const info = new Map(evs);
   const order = [...byEvent.keys()].sort((a, b) => String((info.get(b) || {}).start || '').localeCompare(String((info.get(a) || {}).start || '')) || Number(b) - Number(a));
   // What the table says (v122). The first version listed longest stop, time
@@ -10731,8 +10737,8 @@ async function vtCoachFill(number) {
       <td data-label="Pins a match">${P ? P.pins.toFixed(1) + `<span>${chk.ok ? `checked: ±${vtPct(chk.err)}` : 'not checked yet'}</span>` : none}</td><td data-label="Points a match">${(() => { const v = r.mine.map(x => x.pts).filter(x => typeof x === 'number'); return v.length ? Math.round(vtAvg(v)) + `<span>its alliance, official, ${v.length} match${v.length === 1 ? '' : 'es'}</span>` : none; })()}</td>
       <td data-label="5 pins stacked in">${P ? (P.t5 !== null ? Math.round(P.t5) + ' s' + (P.timed ? `<span>a pin every ${P.perPin.toFixed(1)} s at the goal</span>` : '') : `not timed yet<span>${[...m.values()].some(vtStale) ? 'its matches are being read again' : 'too few pins seen being stacked'}</span>`) : none}</td></tr>`;
   }).join('');
-  host.innerHTML = `<div class="detail-block"><div class="detail-block-label">Your robot, as the tracker sees it</div>
-    <div class="rw-hint">What a team scouting ${esc(num)} would see, event by event.</div>
+  host.innerHTML = `<div class="detail-block"><div class="detail-block-label">${mineTeam ? 'Your robot' : esc(num)}, as the tracker sees it</div>
+    <div class="rw-hint">${mineTeam ? `What a team scouting ${esc(num)} would see, event by event.` : 'Event by event, from its tracked matches.'}</div>
     <div class="cmp-wrap"><table class="cmp-table vt-coach-table"><thead><tr><th>Event</th><th>Matches</th><th>Autonomous</th><th>Goes for</th><th>Pins a match</th><th>Points a match</th><th>5 pins stacked in</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>
     ${anyPins ? '' : `<div class="vt-note" id="vtCoachWhy">Pins are not counted for these matches yet. Counting needs two things: the match tracked since pin counting was added, and <strong>Mark the field</strong> done once on its stream (Jumper, open a match, Robot tracker box).</div>`}
     <details class="vs-why"><summary>What these mean</summary><div>
@@ -18375,7 +18381,8 @@ function renderDetailedTeam(d, eventFilter) {
   html += seasonChart(d);
   // What the robot tracker has seen of this team, filled in once it is fetched.
   html += `<div id="vtReport" data-team="${teamAttr(String(d.team.number).toUpperCase())}"></div>`;
-  setTimeout(() => vtReportFill(d.team.number), 0);
+  html += `<div id="vtCoachCard" data-team="${teamAttr(String(d.team.number).toUpperCase())}"></div>`;
+  setTimeout(() => { vtReportFill(d.team.number); vtCoachFill(d.team.number, 'vtCoachCard'); }, 0);
   html += renderEventsUpcoming(d);
   html += renderEventsAttended(d);
 

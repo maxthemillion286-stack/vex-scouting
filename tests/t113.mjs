@@ -111,7 +111,7 @@ console.log('\n· a team\'s report');
   ok('and that it is unchecked', /unchecked against human scouting/.test(html));
   ok('says what it needs when there are too few', /a report needs three/.test(win.vtReportHtml('66449A', few)) && /needs at least two tracked wins and two losses/i.test(win.vtReportHtml('66449A', onlyWins)));
   ok('a team number is escaped in the block', !/<img/.test(win.vtReportHtml('<img src=x>', few)));
-  ok('the team page asks for the report', /<div id="vtReport" data-team=/.test(idx) && /setTimeout\(\(\) => vtReportFill\(d\.team\.number\), 0\)/.test(idx));
+  ok('the team page asks for the report', /<div id="vtReport" data-team=/.test(idx) && /setTimeout\(\(\) => \{? ?vtReportFill\(d\.team\.number\)/.test(idx));
   ok('a report for a team no longer on screen is dropped', /if \(host\.dataset\.team !== num\) return;\s+\/\/ another team was opened meanwhile/.test(idx));
   ok('matches tracked before summaries existed are summarised from stored boxes', /async function vtBackfill/.test(idx) && /\.then\(\(\) => vtBackfill\(ev\)\)\.catch/.test(idx));
 }
@@ -324,7 +324,7 @@ console.log('\n· the game: toggles, roles, routes');
   ok('the corners are marked over the Jumper\'s player, in four clicks', /function vtMarkField\(\)/.test(idx) && /onclick="vtMarkField\(\)">Mark the field</.test(idx));
 }
 
-ok('My team shows the report on your own robot, with a row per event', /<div id="vtCoach"><\/div>/.test(idx) && /async function vtCoachFill/.test(idx) && /Your robot, as the tracker sees it/.test(idx) && /vtCoachFill\(n\);/.test(idx));
+ok('My team shows the report on your own robot, with a row per event', /<div id="vtCoach"><\/div>/.test(idx) && /async function vtCoachFill/.test(idx) && /(Your robot|\$\{mineTeam \? 'Your robot' : esc\(num\)\}), as the tracker sees it/.test(idx) && /vtCoachFill\(n\);/.test(idx));
 
 console.log('\n· people are not robots; events still to come');
 {
