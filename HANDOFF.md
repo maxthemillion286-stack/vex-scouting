@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v175**. Everything green: 122 test files.
+Current release: **v176**. Everything green: 123 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,20 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v176 (app 2.46) — tracking faster.** Asked: "any way to make the tracking
+process faster … it takes hours upon hours just to get a few streams done".
+Profiled on a CPU (1 match of video): finding robots ~55%, reading plates
+~28%, video ~5%. Changes: `do_jobs` keeps ONE ProcessPoolExecutor for the
+whole job and hands out the next video's runs once fewer than 2×workers runs
+are queued (it used to wait for each video's slowest worker; runs are now 2
+matches at least, not 4). `trim_shots`: the vision model gets 2 pictures, not
+`THINK_LOOKS`, where every one of the four teams had 2+ plate reads (it is one
+model shared by every worker, and its answers were queued behind each video).
+`_TIME`/`_tick` measure video, robots, plates, camera, pins, fingerprints per
+match (+ vision model in `finish`); the log ends with "Where the time went"
+and a hint (vision model >30%, or robots >40% on the processor). Check:
+desktop/dev/speed.py (11), t162.
 
 **v175 — "How it scores" in plain points.** Reported: "wayy too
 complicated needs to be more bullet points way simpler and clear info that
