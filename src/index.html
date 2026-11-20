@@ -3714,7 +3714,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v167';
+const APP_BUILD = 'v168';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -9724,7 +9724,7 @@ function vtFrames(rec, quad, learn) {
   for (const f of raw) for (const p of f.pts) if (p.c) { xs.push(p.x); ys.push(p.y); }
   if (xs.length < 20) return { frames: raw, ok: false };
   // With the field's corners known, a position is a place on the real field.
-  const toField = quad && quad.q ? vtHomography(quad.q) : null;
+  const toField = quad && quad.q ? vtFieldMap(quad) : null;
   if (toField) {
     // v164: a box whose wheels stand off the field is a person, a ref or a
     // sign, never a robot (reported: "its selecting like people sometimes").
@@ -10348,7 +10348,7 @@ function vtReportSeen(S) {
 // the recordings are in the shared store too, so whichever device opens a
 // report fetches the ones it needs, makes the summaries again, keeps them, and
 // (with the admin key) shares them.
-const VT_REMAKE = 164;      // v164: boxes standing off the field dropped; v154: goal counts by the game's rules; v152: when the points came, from the stream's score; v150: unsure boxes carry on missing robots, whole-match slots, smoothed; v148: robots followed by speed and heading; v145/146: stacking timed at the goal (vs, vh)      // v136: pins counted on the goals as well (oy, oa, …)
+const VT_REMAKE = 168;      // v168: positions through the camera's lens; v164: boxes standing off the field dropped; v154: goal counts by the game's rules; v152: when the points came, from the stream's score; v150: unsure boxes carry on missing robots, whole-match slots, smoothed; v148: robots followed by speed and heading; v145/146: stacking timed at the goal (vs, vh)      // v136: pins counted on the goals as well (oy, oa, …)
 const vtStale = s => !!(s && s.ok && (s.rv || 0) < VT_REMAKE);
 const vtRefreshTried = new Set();
 async function vtSumsRefresh(sums, limit) {
@@ -10840,6 +10840,18 @@ function vtQuadOrder(q) {
   for (let i = 0; i < 8; i += 2) pts.push([q[i], q[i + 1]]);
   return pts.sort((a, b) => Math.atan2(a[1] - cy, a[0] - cx) - Math.atan2(b[1] - cy, b[0] - cx));
 }
+// The camera's lens (v168): the app works out k for a stream (a point moves
+// out from the picture's middle by 1 + k·r², r in half-widths, ka = height /
+// width) and keeps it with the field mark. Positions are mapped with it undone.
+function vtLensUndo(x, y, k, ka) { const nx = (x - 0.5) * 2, ny = (y - 0.5) * 2 * ka, s = 1 + k * (nx * nx + ny * ny); return [0.5 + nx * s / 2, 0.5 + ny * s / (2 * ka)]; }
+function vtFieldMap(quad) {
+  if (!quad || !quad.q) return null;
+  if (!(typeof quad.k === 'number' && quad.k && typeof quad.ka === 'number' && quad.ka)) return vtHomography(quad.q);
+  const q = [];
+  for (let i = 0; i < 8; i += 2) q.push(...vtLensUndo(quad.q[i], quad.q[i + 1], quad.k, quad.ka));
+  const H = vtHomography(q);
+  return (x, y) => { const [u, v] = vtLensUndo(x, y, quad.k, quad.ka); return H(u, v); };
+}
 function vtHomography(quad) {
   const p = vtQuadOrder(quad);
   const [x0, y0] = p[0], [x1, y1] = p[1], [x2, y2] = p[2], [x3, y3] = p[3];
@@ -10877,9 +10889,22 @@ function vtQuadGuess(points) {
   return hull.flatMap(p => [cx + (p[0] - cx) * 1.08, cy + (p[1] - cy) * 1.08]);
 }
 async function vtFieldsLocal() { return (await idbGet(VT_FIELDS_KEY)) || {}; }
+const vtLensAsked = new Set();
 async function vtFieldGet(vid) {
   const all = await vtFieldsLocal();
-  if (all[vid] && all[vid].by === 'click') return all[vid];
+  if (all[vid] && all[vid].by === 'click') {
+    // The lens is worked out later, by the app (v168): asked for once a visit
+    // while this copy has none, and taken only for the same corners.
+    const mine = all[vid];
+    if (mine.k === undefined && !vtLensAsked.has(vid)) {
+      vtLensAsked.add(vid);
+      try {
+        const r = await vtApi('GET', '?field=' + encodeURIComponent(vid)), f = r.ok && r.body && r.body.field;
+        if (f && typeof f.k === 'number' && Array.isArray(f.q) && f.q.every((v, i) => Math.abs(v - mine.q[i]) < 1e-3)) { mine.k = f.k; mine.ka = f.ka; await idbSet(VT_FIELDS_KEY, all); }
+      } catch (e) {}
+    }
+    return all[vid];
+  }
   try { const r = await vtApi('GET', '?field=' + encodeURIComponent(vid)); if (r.ok && r.body.field && Array.isArray(r.body.field.q)) { all[vid] = r.body.field; await idbSet(VT_FIELDS_KEY, all); return all[vid]; } } catch (e) {}
   return all[vid] || null;
 }
@@ -11313,7 +11338,7 @@ async function vtAccMark() {
 function vtAccuracy(rec, quad, samples) {
   const F = vtFrames(rec, quad, null);
   if (!F.ok || !F.field) return null;
-  const out = vtSlots(F.frames), toField = vtHomography(quad.q);
+  const out = vtSlots(F.frames), toField = vtFieldMap(quad);
   let n = 0, found = 0, errs = [], swaps = 0, chances = 0;
   const last = { 1: null, 2: null };
   for (const smp of samples) {
@@ -12367,7 +12392,7 @@ function vtPinPick(sums) {
 // as: halves of its own alliance's colour, likewise. py/pr/pb: what had been
 // set down by the end, per colour. pk: how many looks it rests on.
 function vtPinCount(rec, quad, turnK, track, ph, mode) {
-  const toField = quad && quad.q ? vtHomography(quad.q) : null, W = rec.pw || VT_PIN_W, H = rec.ph || Math.round(W * 9 / 16);
+  const toField = quad && quad.q ? vtFieldMap(quad) : null, W = rec.pw || VT_PIN_W, H = rec.ph || Math.round(W * 9 / 16);
   const samples = vtPinSamples(rec);
   if (!toField || samples.length < 8) return null;
   const turn = (x, y) => { for (let i = 0; i < turnK; i++) [x, y] = [y, 1 - x]; return [x, y]; };

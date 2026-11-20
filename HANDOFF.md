@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v167**. Everything green: 114 test files.
+Current release: **v168**. Everything green: 115 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,24 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v168 (app 2.43) — the camera's lens.** One number per stream, k (a point
+moves out from the middle by 1 + k·r², r in half-widths; `ka` = H/W), carried
+on the field mark as q[8], q[9] in the app (`with_lens`, `lens_of`) and as
+field.k/ka on the server (validated −0.5..0.5, 0.3..1.5). `quad_fwd` and
+`field_inverse` map through it (`straight_q`, `lens_undo`, `lens_do`);
+`CamFollow` uses q[:8] and carries q[8:]; `save_field` strips q to 8 and
+works k out from the frame it was marked on; tracking works it out once a
+stream from the marked moment (`lens_save` posts it). `estimate_lens`: per
+side, strong edges across 41 places, a RANSAC quadratic through the most
+(clutter and overlays ignored; a side it cannot see is skipped, ≥ 2 sides),
+then k in −0.4..0.4 that makes those curves straightest (SVD line fit, so
+corner-click error does not read as bend); kept only if ≥ 35% straighter and
+|k| ≥ 0.01. Website: `vtFieldMap(quad)` (in `vtFrames`, the pin mapping and
+`vtAccuracy`), `vtFieldGet` asks the server once a visit for a lens found
+after its copy. `VT_REMAKE` → 168. Checks: desktop/dev/lens.py (12: the real
+frame bent by +0.12 and −0.10, both found within 0.04 of bend + its own),
+t154.
 
 **v167 — predictions and the pick list use the newer tracking.**
 `sim_trackScore` now z-scores up to six measures per team (act, ap, −stp as

@@ -47,7 +47,7 @@ ok('tuning runs and never does worse than where it started', T && T.best >= T.st
 ok('and leaves the settings as they were', JSON.stringify(win.eval('VT_TRACK')) === JSON.stringify({ gate0: 0.12, gateK: 0.3, weak0: 0.06, slack: 0.1, smooth: 0.03 }));
 ok('the tracker reads its distances from one place', /const gate = VT_TRACK\.gate0 \+ VT_TRACK\.gateK \* Math\.min\(3, f\.t - tr\.t\);/.test(src) && /dd \/ VT_TRACK\.smooth/.test(src) && /VT_TRACK\.slack \+ VT_VMAX \* gap/.test(src));
 ok('marking and scoring are on the tracker panel', /onclick="vtAccMark\(\)">Mark robots here<\/button>/.test(src) && /onclick="vtAccShow\(\)">Score the tracker<\/button>/.test(src));
-ok('marks go through the same field mapping as the tracker', /const out = vtSlots\(F\.frames\), toField = vtHomography\(quad\.q\);/.test(src));
+ok('marks go through the same field mapping as the tracker', /const out = vtSlots\(F\.frames\), toField = (vtHomography\(quad\.q\)|vtFieldMap\(quad\));/.test(src));
 ok('release is v157 or later', /const APP_BUILD = 'v1(5[7-9]|[6-9]\d)'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

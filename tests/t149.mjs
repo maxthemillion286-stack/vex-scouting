@@ -13,7 +13,7 @@ ok('the guesses and the trained finder use it; a person\'s marks in a box are th
 ok('loader boxes are small, goal boxes wide enough for a leaning stack', /\(0\.02, 0\.02, 0\.035, 0\.12, 0\.025\)/.test(app) && /\(0\.17, 0\.66, 0\.11, 0\.30, 0\.03\)/.test(app));
 ok('clicks only land in a goal or loader box', /function spotAt\(x0,y0\)\{return \(cur\.spots\|\|\[\]\)\.find\(s=>x0>=s\[0\]/.test(app));
 ok('each frame\'s goals follow the camera from the picture the field was marked on', /def frame_spots\(name, frame=None, W=None, H=None\):/.test(app) && /spots = frame_spots\(name\)/.test(app) && /sb = frame_spots\(name\)/.test(app));
-ok('that picture is kept when the field is marked in the app', /refs\[vid\] = \{'id': fid, 'q': field\['q'\]\}/.test(app) && /id:F\.id,q,/.test(app));
+ok('that picture is kept when the field is marked in the app', /refs\[vid\] = \{'id': fid, 'q': field\['q'\](\[:8\])?\}/.test(app) && /id:F\.id,q,/.test(app));
 ok('the field can be marked again on the frame being marked', /(Boxes off\? )?Mark the field on this picture/.test(app) && /openField\(cur\.id\.replace/.test(app));
 ok('pin and cup boxes are a set size; dragging one moves it, a click removes it', /function sizedBox\(px,py,s\)/.test(app) && /if\(!d\.moved\)\{boxes\.splice\(d\.k,1\)\}/.test(app));
 ok('goals and loaders dragged on a frame, size kept, saved for the stream', /function moveGoals\(\)/.test(app) && /def move_spots\(cfg, body\):/.test(app) && /if u\.path == '\/api\/fmove':/.test(app));

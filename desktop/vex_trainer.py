@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.42'
+VERSION = '2.43'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -318,8 +318,142 @@ def pin_blobs(frame, boxes):
 TOG_ALONG, TOG_LIFTS, TOG_N = 0.09, (0.035, 0.0475, 0.06, 0.0725, 0.085), 24
 WALL_MID = ((0.5, 0), (1, 0.5), (0.5, 1), (0, 0.5))
 
+# ── the camera's lens (v2.43) ─────────────────────────────────────────────
+# A wide lens bends straight lines, most near the picture's edges, so a field
+# mapped from its four corners alone drifts there. One number per stream, k,
+# undoes it (r² radial: a picture point moves out from the middle by 1 + k·r²,
+# r measured in half-widths, `ka` = height / width). It is carried on the field
+# mark as q[8], q[9]; every mapping of the mark goes through it.
+def lens_undo(x, y, k, ka):
+    nx, ny = (x - 0.5) * 2, (y - 0.5) * 2 * ka
+    s = 1 + k * (nx * nx + ny * ny)
+    return 0.5 + nx * s / 2, 0.5 + ny * s / (2 * ka)
+
+def lens_do(x, y, k, ka):
+    """The inverse of lens_undo: where an undistorted point shows in the picture."""
+    xd, yd = x, y
+    for _ in range(12):
+        nx, ny = (xd - 0.5) * 2, (yd - 0.5) * 2 * ka
+        s = 1 + k * (nx * nx + ny * ny)
+        xd, yd = 0.5 + (x - 0.5) / s, 0.5 + (y - 0.5) / s
+    return xd, yd
+
+def lens_of(q):
+    """(k, ka) carried on a field mark, or None."""
+    if isinstance(q, (list, tuple)) and len(q) >= 10 and q[8] and q[9]:
+        return float(q[8]), float(q[9])
+    return None
+
+def straight_q(q):
+    """The four corners with the lens undone (the first eight numbers)."""
+    L = lens_of(q)
+    if not L:
+        return list(q[:8])
+    out = []
+    for i in range(0, 8, 2):
+        out += list(lens_undo(q[i], q[i + 1], *L))
+    return out
+
+def estimate_lens(frame, q, strict=True):
+    """k for this stream's camera, from one picture and its four corners: the
+    floor's edge is found along each side, and k is what makes those edges
+    straight. → (k, how much straighter: 0..1), (0, 0) if it cannot tell or the
+    lens bends nothing worth undoing."""
+    import cv2, numpy as np
+    H, W = frame.shape[:2]
+    ka = H / W
+    g = cv2.GaussianBlur(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), (5, 5), 0).astype(np.float32)
+    gx, gy = cv2.Sobel(g, cv2.CV_32F, 1, 0, ksize=3), cv2.Sobel(g, cv2.CV_32F, 0, 1, ksize=3)
+    cx, cy = (q[0] + q[2] + q[4] + q[6]) / 4, (q[1] + q[3] + q[5] + q[7]) / 4
+    c = sorted(((q[i], q[i + 1]) for i in range(0, 8, 2)), key=lambda t: math.atan2(t[1] - cy, t[0] - cx))
+    S = int(0.035 * W)
+    edges = []
+    rng = np.random.default_rng(7)
+    for i in range(4):
+        (x0, y0), (x1, y1) = c[i], c[(i + 1) % 4]
+        dx, dy = (x1 - x0) * W, (y1 - y0) * H
+        ln = math.hypot(dx, dy)
+        if ln < 40:
+            return 0.0, 0.0
+        nx, ny = -dy / ln, dx / ln
+        ts = np.linspace(0.08, 0.92, 41)
+        profs = []
+        for t in ts:
+            px, py = (x0 + t * (x1 - x0)) * W, (y0 + t * (y1 - y0)) * H
+            sh = np.arange(-S, S + 1)
+            X, Y = np.round(px + nx * sh).astype(int), np.round(py + ny * sh).astype(int)
+            inside = (X >= 0) & (X < W) & (Y >= 0) & (Y < H)
+            pr = np.zeros(len(sh), np.float32)
+            pr[inside] = np.abs(gx[Y[inside], X[inside]] * nx + gy[Y[inside], X[inside]] * ny)
+            profs.append(pr)
+        top = max(float(pr.max()) for pr in profs)
+        if top < 20:
+            return 0.0, 0.0
+        # Every strong edge across the side at each place along it...
+        cand = []
+        for t, pr in zip(ts, profs):
+            for k_ in range(1, len(pr) - 1):
+                if pr[k_] >= 0.3 * top and pr[k_] >= pr[k_ - 1] and pr[k_] >= pr[k_ + 1]:
+                    cand.append((t, float(k_ - S), float(pr[k_])))
+        if len(cand) < 10:
+            continue                                    # a side it cannot see (an overlay, robots): the others will do
+        cand = np.array(cand)
+        # ...and the smooth curve (offset = a + b·t + c·t²) through the most of
+        # them: the wall's foot runs the whole side; a pin or a robot does not.
+        best, best_n = None, 0
+        for _ in range(400):
+            pick = cand[rng.choice(len(cand), 3, replace=False)]
+            if len(set(pick[:, 0])) < 3:
+                continue
+            try:
+                coef = np.polyfit(pick[:, 0], pick[:, 1], 2)
+            except Exception:
+                continue
+            inl = np.abs(np.polyval(coef, cand[:, 0]) - cand[:, 1]) < 2.0
+            n_in = len(set(cand[inl, 0]))
+            if n_in > best_n:
+                best, best_n = coef, n_in
+        if best is None or best_n < 20:
+            continue
+        inl = np.abs(np.polyval(best, cand[:, 0]) - cand[:, 1]) < 2.0
+        coef = np.polyfit(cand[inl, 0], cand[inl, 1], 2)
+        pts = [(((x0 + t * (x1 - x0)) * W + nx * np.polyval(coef, t)) / W, ((y0 + t * (y1 - y0)) * H + ny * np.polyval(coef, t)) / H) for t in ts]
+        edges.append((c[i], c[(i + 1) % 4], pts))
+    if len(edges) < 2:
+        return 0.0, 0.0
+    def cost(k):
+        # How far each edge's points, unbent by k, are from the straight line
+        # that fits them best (the corners only said where to look: a corner
+        # clicked a few pixels off must not look like a bend).
+        res = []
+        for a, b, pts in edges:
+            P = np.array([lens_undo(x, y, k, ka) for x, y in pts]) * [1, ka]
+            P -= P.mean(axis=0)
+            _, _, vt = np.linalg.svd(P, full_matrices=False)
+            res += list(np.abs(P @ vt[1]))
+        return float(np.median(res))
+    ks = [round(v, 3) for v in np.arange(-0.4, 0.401, 0.005)]
+    costs = [cost(k) for k in ks]
+    j = int(np.argmin(costs))
+    c0 = cost(0.0)
+    gain = 1 - costs[j] / c0 if c0 > 0 else 0
+    if strict and (c0 < 0.0008 or gain < 0.35 or abs(ks[j]) < 0.01):
+        return 0.0, round(gain, 2)
+    return ks[j], round(gain, 2)
+
+def with_lens(q, k, ka):
+    """A field mark carrying its lens (or not, for k = 0)."""
+    return list(q[:8]) + ([round(float(k), 4), round(float(ka), 4)] if k else [])
+
 def quad_fwd(q):
-    """Unit square → picture, for four corners in any order (the website's vtHomographyFwd)."""
+    """Unit square → picture, for four corners in any order (the website's vtHomographyFwd);
+    through the camera's lens when the mark carries one (v2.43)."""
+    L = lens_of(q)
+    if L:
+        inner = quad_fwd(straight_q(q))
+        if not inner:
+            return None
+        return lambda u, v: lens_do(*inner(u, v), *L)
     cx, cy = (q[0] + q[2] + q[4] + q[6]) / 4, (q[1] + q[3] + q[5] + q[7]) / 4
     p = sorted(((q[i], q[i + 1]) for i in range(0, 8, 2)), key=lambda t: math.atan2(t[1] - cy, t[0] - cx))
     (x0, y0), (x1, y1), (x2, y2), (x3, y3) = p
@@ -819,7 +953,7 @@ class CamFollow:
         # Only the field and what stands on it: its corners, and the same again
         # a quarter of the field's height higher (goals and posts stand up);
         # never the stream's own overlays, which stay still while the field moves.
-        q = np.array(self.quad, dtype=np.float32).reshape(4, 2) * [w, h]
+        q = np.array(self.quad[:8], dtype=np.float32).reshape(4, 2) * [w, h]
         tall = (q[:, 1].max() - q[:, 1].min()) * 0.25
         mask = np.zeros((h, w), np.uint8)
         hull = self.cv2.convexHull(np.vstack([q, q - [0, tall]]).astype(np.int32))
@@ -857,7 +991,7 @@ class CamFollow:
         if n < self.NEED or n < 0.3 * len(good):
             return None
         # A real camera move keeps the field about the same size and the right way round.
-        q0 = np.float32(self.quad).reshape(4, 2)
+        q0 = np.float32(self.quad[:8]).reshape(4, 2)
         q1 = self.cv2.perspectiveTransform(q0.reshape(1, 4, 2), H).reshape(4, 2)
         area = lambda q: abs(self.cv2.contourArea(q.astype(np.float32)))
         if not (0.4 < area(q1) / max(1e-6, area(q0)) < 2.5) or not self.cv2.isContourConvex(self.cv2.convexHull(q1).astype(np.float32)):
@@ -866,7 +1000,7 @@ class CamFollow:
 
     def quad_now(self, H):
         import numpy as np
-        return [round(float(v), 4) for v in self.cv2.perspectiveTransform(np.float32(self.quad).reshape(1, 4, 2), H).reshape(-1)]
+        return [round(float(v), 4) for v in self.cv2.perspectiveTransform(np.float32(self.quad[:8]).reshape(1, 4, 2), H).reshape(-1)] + list(self.quad[8:10])
 
     def placed_now(self, placed, H):
         """The dragged goals and loaders, where they are in this picture."""
@@ -1715,12 +1849,21 @@ def field_inverse(q):
     """Picture fractions → field units (0..1 inside), for four corners in any
     order (the same order as quad_fwd). → a function, or None."""
     import cv2, numpy as np
+    L = lens_of(q)
+    q0 = q
+    q = straight_q(q)
     cx, cy = (q[0] + q[2] + q[4] + q[6]) / 4, (q[1] + q[3] + q[5] + q[7]) / 4
     pts = sorted(((q[i], q[i + 1]) for i in range(0, 8, 2)), key=lambda t: math.atan2(t[1] - cy, t[0] - cx))
     try:
         M = cv2.getPerspectiveTransform(np.float32(pts), np.float32([[0, 0], [1, 0], [1, 1], [0, 1]]))
     except Exception:
         return None
+    if L:
+        def inv_lens(x, y):
+            x, y = lens_undo(x, y, *L)
+            d = M[2][0] * x + M[2][1] * y + M[2][2]
+            return (M[0][0] * x + M[0][1] * y + M[0][2]) / d, (M[1][0] * x + M[1][1] * y + M[1][2]) / d
+        return inv_lens
     def inv(x, y):
         d = M[2][0] * x + M[2][1] * y + M[2][2]
         return (M[0][0] * x + M[0][1] * y + M[0][2]) / d, (M[1][0] * x + M[1][1] * y + M[1][2]) / d
@@ -2023,8 +2166,23 @@ def work_chunk(args):
                     fld = (site.get('?field=' + job['vid']) or {}).get('field') or {}
                     q = fld.get('q')
                     quads[job['vid']] = q if isinstance(q, list) and len(q) == 8 else None
+                    if quads[job['vid']] and isinstance(fld.get('k'), (int, float)) and isinstance(fld.get('ka'), (int, float)):
+                        quads[job['vid']] = with_lens(quads[job['vid']], fld['k'], fld['ka'])
                     _QUADS[job['vid']] = {'q': quads[job['vid']], 'g': fld.get('g'), 'l': fld.get('l'), 't': fld.get('t'), 'at': time.time()}
                     follows[job['vid']] = make_follow(video, quads[job['vid']], fld.get('t')) if quads[job['vid']] and cfg.get('follow', True) else None
+                    # The lens, once a stream, from the picture the field was marked on (v2.43).
+                    if quads[job['vid']] and not lens_of(quads[job['vid']]) and isinstance(fld.get('t'), (int, float)) and cfg.get('lens', True):
+                        try:
+                            pic = video.frame_at(float(fld['t']))
+                            k, gain = estimate_lens(pic, quads[job['vid']]) if pic is not None else (0.0, 0.0)
+                            if k:
+                                quads[job['vid']] = with_lens(quads[job['vid']], k, pic.shape[0] / pic.shape[1])
+                                if follows.get(job['vid']):
+                                    follows[job['vid']].quad = quads[job['vid']]
+                                lens_save(cfg, job['vid'], fld, k, pic.shape[0] / pic.shape[1])
+                                say('  the camera lens on this stream bends the field; straightened (k %.3f, edges %d%% straighter).' % (k, round(100 * gain)))
+                        except Exception as e:
+                            say('  could not work out the lens (%s)' % e)
                 looks = int(cfg.get('think_looks') or THINK_LOOKS) if cfg.get('think') and cfg.get('_think_ok') else 0
                 rec, why, shift = track_match(video, _EYES, job, shift, spacing, True, learn, quads[job['vid']], looks, follows.get(job['vid']))
             except Exception as e:
@@ -3043,7 +3201,7 @@ def field_ref(vid):
     except Exception:
         return None
     q = quad_for(vid)
-    if not r or not q or [round(v, 3) for v in r.get('q', [])] != [round(v, 3) for v in q]:
+    if not r or not q or [round(v, 3) for v in r.get('q', [])] != [round(v, 3) for v in q[:8]]:
         return None
     return r if os.path.exists(os.path.join(FRAMES, r['id'] + '.jpg')) else None
 
@@ -3179,6 +3337,8 @@ def quad_for(vid, site=None):
     fld = r.get('field') or {}
     q = fld.get('q')
     q = q if isinstance(q, list) and len(q) == 8 else None
+    if q and isinstance(fld.get('k'), (int, float)) and isinstance(fld.get('ka'), (int, float)):
+        q = with_lens(q, fld['k'], fld['ka'])
     _QUADS[vid] = {'q': q, 'g': fld.get('g') if q else None, 'l': fld.get('l') if q else None, 't': fld.get('t') if q else None, 'at': time.time()}
     try:
         os.makedirs(DIRS['data'], exist_ok=True)
@@ -3488,6 +3648,25 @@ def first_spots(q):
         return None
     return [[round(min(0.99, max(0.01, v)), 4) for v in fwd(u, v_)] for u, v_, *_ in SPOTS]
 
+def lens_save(cfg, vid, fld, k, ka):
+    """Keep a stream's lens with its field mark, here and on the website."""
+    e = _QUADS.get(vid) if isinstance(_QUADS.get(vid), dict) else None
+    if e and e.get('q'):
+        e['q'] = with_lens(e['q'], k, ka)
+    try:
+        with open(os.path.join(DIRS['data'], 'quads.json'), 'w') as f:
+            json.dump(_QUADS, f)
+    except Exception:
+        pass
+    if cfg.get('key') and fld.get('q') and fld.get('g') and fld.get('l'):
+        field = {'vid': vid, 'q': fld['q'][:8], 'g': fld['g'], 'l': fld['l'], 'k': round(float(k), 4), 'ka': round(float(ka), 4)}
+        if isinstance(fld.get('t'), (int, float)):
+            field['t'] = fld['t']
+        try:
+            Site(cfg).post({'field': field})
+        except Exception:
+            pass
+
 def save_field(cfg, body):
     """A field marked in the app, saved to the website like one marked
     there. → (ok, why not)."""
@@ -3496,18 +3675,31 @@ def save_field(cfg, body):
         return False, 'bad stream'
     num = lambda a, n: isinstance(a, list) and len(a) == n and all(isinstance(v, (int, float)) and -0.5 <= v <= 1.5 for v in a)
     q, g, l = body.get('q'), body.get('g'), body.get('l')
+    if isinstance(q, list) and len(q) >= 8:
+        q = q[:8]                                       # a lens carried on it is worked out again
     if not (num(q, 8) and num(g, 18) and num(l, 8)):
         return False, 'the corners, goals and loaders were not all there'
     if not cfg.get('key'):
         return False, 'save the admin key in Settings first'
-    field = {'vid': vid, 'q': [round(v, 4) for v in q], 'g': [round(v, 4) for v in g], 'l': [round(v, 4) for v in l]}
+    field = {'vid': vid, 'q': [round(v, 4) for v in q[:8]], 'g': [round(v, 4) for v in g], 'l': [round(v, 4) for v in l]}
+    # The lens, from the picture it was marked on (v2.43).
+    fid = str(body.get('id', ''))
+    if cfg.get('lens', True) and re.fullmatch(r'[A-Za-z0-9_-]+', fid) and os.path.exists(os.path.join(FRAMES, fid + '.jpg')):
+        try:
+            import cv2
+            pic = cv2.imread(os.path.join(FRAMES, fid + '.jpg'))
+            k, _ = estimate_lens(pic, field['q'])
+            if k:
+                field['k'], field['ka'] = round(k, 4), round(pic.shape[0] / pic.shape[1], 4)
+        except Exception:
+            pass
     t = body.get('t')
     if isinstance(t, (int, float)) and 0 <= t <= 200000:
         field['t'] = round(float(t), 1)
     r = Site(cfg).post({'field': field})
     if not (r and r.get('ok')):
         return False, 'the website said: ' + str((r or {}).get('error') or 'no answer')
-    _QUADS[vid] = {'q': field['q'], 'g': field['g'], 'l': field['l'], 't': field.get('t'), 'at': time.time()}
+    _QUADS[vid] = {'q': with_lens(field['q'], field.get('k', 0), field.get('ka', 0)), 'g': field['g'], 'l': field['l'], 't': field.get('t'), 'at': time.time()}
     fid = str(body.get('id', ''))
     if re.fullmatch(r'[A-Za-z0-9_-]+', fid) and os.path.exists(os.path.join(FRAMES, fid + '.jpg')):
         try:
@@ -3515,7 +3707,7 @@ def save_field(cfg, body):
                 refs = json.load(f)
         except Exception:
             refs = {}
-        refs[vid] = {'id': fid, 'q': field['q']}
+        refs[vid] = {'id': fid, 'q': field['q'][:8]}
         with open(refs_file(), 'w') as f:
             json.dump(refs, f)
         _FOLLOW.pop(vid, None)
