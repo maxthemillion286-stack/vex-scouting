@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v165**. Everything green: 112 test files.
+Current release: **v166**. Everything green: 113 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,19 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v166 (app 2.42) — marking helped.** A marking helper: `helper_due` after
+`HELPER_START` 20 marked frames and every `HELPER_EVERY` 20 after, `/api/psave`
+starts `--quick-pieces` (`do_quick_pieces`: yolo11n, 320, `HELPER_ROUNDS` 30,
+GPU only unless `helper_cpu`) → models/pieces_helper.onnx + .json {marks}.
+`guess_source` picks what draws the guesses: the helper when it has seen
+more marked frames than the finder in use, else that finder, else colours;
+the helper never counts in tracking. `rank_pieces` orders the queue: streams
+with fewest marks first, taking turns; within a stream by `frame_interest`
+(2 × half-sure finds + |sure − colour count| + 0.1 × finds; colours alone:
+pieces on goals), worked out for the first 120 in the background count and
+kept in props `pint` [finder tag, value]. Checks: desktop/dev/helper.py (14,
+with `--train` a real 2-round CPU training), t152.
 
 **v165 (app 2.41) — pins & cups screen simplified.** Reported: "it feels
 crammed and too much stuff". Top line: Back, count, Skip, Save. A row of four
