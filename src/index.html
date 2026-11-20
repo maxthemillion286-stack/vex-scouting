@@ -3722,7 +3722,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v172';
+const APP_BUILD = 'v173';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -10670,8 +10670,8 @@ function vtReportAuto(rep, L) {
   const G = rep.game && rep.game.n >= 3 ? rep.game : null, F = rep.autoFacts, items = [];
   if (F) {
     if (vtAutoSide(F)) items.push(vtAutoSide(F) + '. The driver-station side is the quadrant by its drivers, with both of its loaders.');
-    if (F.pins !== null) items.push(`Sets down about ${F.pins.toFixed(1)} pin${F.pins.toFixed(1) === '1.0' ? '' : 's'}.`);
-    if (F.tog !== null) items.push(`${F.tog.toFixed(1)} toggle${F.tog.toFixed(1) === '1.0' ? ' is' : 's are'} turned to its alliance's colour by the end of it.`);
+    if (F.pins !== null) items.push(`Sets down ${vtAutoPinsText(F)}${F.each && F.each.length >= 2 ? ` in its ${F.each.length} tracked matches` : ' (both robots together, halved)'}.`);
+    if (F.tog !== null) items.push(`Its alliance has ${vtAutoTogText(F)} turned to its colour by the end of it.`);
   }
   const R = G && G.replay;
   if (R) items.push(R.still ? `Stays where it starts (${R.n} of ${R.of}).` : `Runs the same routine in ${R.n} of ${R.of}.`);
@@ -11266,8 +11266,13 @@ function vtAutoFacts(rows, per, check) {
   const fix = check && check.ok ? check.k : 1, F = { pins: null, tog: null, near: 0, sideN: 0 };
   const p = rows.filter(r => r.ya !== undefined && r.ya !== null);
   if (p.length >= per) F.pins = fix * p.reduce((a, r) => a + r.ya, 0) / 2 / (p.length / per);
+  // v173: "how can autons have .5 pins its always a whole number". Each
+  // match's autonomous is a whole number of pins; the average of them is not.
+  // So it is shown as what the robot usually scores, and the range.
+  if (per === 1 && p.length) F.each = p.map(r => Math.max(0, Math.round(fix * r.ya / 2)));
   const t = rows.filter(r => r.tga !== undefined && r.tga !== null);
   if (t.length) F.tog = vtAvg(t.map(r => r.tga));
+  if (t.length) F.togs = t.map(r => Math.max(0, Math.round(r.tga)));
   const s = rows.filter(r => r.sd === 1 || r.sd === 2);
   F.sideN = s.length; F.near = s.filter(r => r.sd === 1).length;
   return F;
@@ -11277,11 +11282,29 @@ function vtAutoSide(F) {
   const near = F.near >= F.sideN - F.near;
   return `Starts on the ${near ? 'driver-station side' : 'far side'} (${near ? F.near : F.sideN - F.near} of ${F.sideN})`;
 }
+// The autonomous pins in whole numbers: the count it scored most often (a tie
+// goes to the one nearer the average), and the lowest and highest.
+function vtUsual(avg, e) {
+  if (avg === null || avg === undefined) return null;
+  if (!e || e.length < 2) { const n = Math.round(avg); return { n, lo: n, hi: n, usual: false, of: e ? e.length : 0 }; }
+  const c = new Map(); for (const v of e) c.set(v, (c.get(v) || 0) + 1);
+  const n = [...c.keys()].sort((a, b) => c.get(b) - c.get(a) || Math.abs(a - avg) - Math.abs(b - avg))[0];
+  return { n, lo: Math.min(...e), hi: Math.max(...e), usual: true, of: e.length };
+}
+function vtUsualText(A, one, many) {
+  if (!A) return '';
+  const w = n => `${n} ${n === 1 ? one : many}`;
+  if (!A.usual) return `about ${w(A.n)}`;
+  return A.lo === A.hi ? `${w(A.n)} every time` : `usually ${w(A.n)} (${A.lo}–${A.hi})`;
+}
+const vtAutoPins = F => vtUsual(F.pins, F.each);
+const vtAutoPinsText = F => vtUsualText(vtAutoPins(F), 'pin', 'pins');
+const vtAutoTogText = F => vtUsualText(vtUsual(F.tog, F.togs), 'toggle', 'toggles');
 function vtAutoText(F, withSide) {
   const bits = [];
   if (withSide && vtAutoSide(F)) bits.push(vtAutoSide(F));
-  if (F.pins !== null) bits.push(`${F.pins.toFixed(1)} pin${F.pins.toFixed(1) === '1.0' ? '' : 's'}`);
-  if (F.tog !== null) bits.push(`${F.tog.toFixed(1)} toggle${F.tog.toFixed(1) === '1.0' ? '' : 's'} to its colour`);
+  if (F.pins !== null) { const t = vtAutoPinsText(F); bits.push(t.charAt(0).toUpperCase() + t.slice(1)); }
+  if (F.tog !== null) bits.push(`${vtAutoTogText(F)} to its colour`);
   return bits.join(' · ');
 }
 // One autonomous it runs again and again, or nothing. Each match's path is six

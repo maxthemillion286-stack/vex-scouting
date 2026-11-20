@@ -59,8 +59,8 @@ const game = (where) => {
   const rows = [{ ya: 4, tga: 2, sd: 1 }, { ya: 2, tga: 1, sd: 1 }, { ya: 3, tga: 1, sd: 2 }];
   const a = F(rows, 1, null);
   ok('pins a match, toggles and side', a.pins === 1.5 && Math.abs(a.tog - 4 / 3) < 0.01 && a.near === 2 && a.sideN === 3, JSON.stringify(a));
-  ok('the table gets pins and toggles only', T(a, false) === '1.5 pins · 1.3 toggles to its colour', T(a, false));
-  ok('the briefing adds the side it starts on', /^Starts on the driver-station side \(2 of 3\) · 1\.5 pins/.test(T(a, true)), T(a, true));
+  ok('the table gets pins and toggles only', T(a, false) === 'Usually 2 pins (1–2) · usually 1 toggle (1–2) to its colour', T(a, false));
+  ok('the briefing adds the side it starts on', /^Starts on the driver-station side \(2 of 3\) · Usually 2 pins/.test(T(a, true)), T(a, true));
   ok('checked counts are corrected', F(rows, 1, { ok: true, k: 2 }).pins === 3);
   ok('nothing known, nothing said', T(F([{}, {}], 1, null), true) === '');
   ok('the table no longer describes a route', !/Sets down about \$\{P\.auto/.test(idx) && /const auto = vtAutoText\(AF, false\)/.test(idx));

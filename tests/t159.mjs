@@ -1,0 +1,23 @@
+// t159 — v173: "how can autons have .5 pins its always a whole number".
+import fs from 'fs';
+import { boot, settle } from './harness.mjs';
+let pass = 0, fail = 0;
+const ok = (name, cond, detail) => { if (cond) { pass++; console.log('  ok   ' + name); } else { fail++; console.log('  FAIL ' + name + (detail ? '\n         ' + detail : '')); } };
+const src = fs.readFileSync('../src/index.html', 'utf8');
+console.log('t159 — v173');
+const { win } = await boot();
+await settle(win);
+const F = win.eval('vtAutoFacts'), T = win.eval('vtAutoText');
+const r = ys => ys.map(y => ({ ya: y * 2, tga: 1 }));
+let t = T(F(r([4, 5, 5, 4, 5]), 1, null), false);
+ok('the pins it usually scores, whole, and the range', /^Usually 5 pins \(4–5\)/.test(t), t);
+t = T(F(r([4, 4, 4]), 1, null), false);
+ok('the same every time says so', /^4 pins every time/.test(t), t);
+t = T(F(r([4, 5]), 1, null), false);
+ok('a tie goes to the one nearer the average', /^Usually [45] pins \(4–5\)/.test(t), t);
+t = T(F(r([4, 5, 3, 6]), 2, null), false);
+ok('both robots together: a whole number, "about"', /^About \d+ pins?/.test(t) && !/\.\d/.test(t), t);
+ok('no decimals on autonomous pins anywhere', !/F\.pins\.toFixed/.test(src) && !/F\.tog\.toFixed/.test(src));
+ok('release is v173 or later', /const APP_BUILD = 'v1(7[3-9]|[89]\d)'/.test(src));
+console.log(`\n${pass} passed, ${fail} failed`);
+process.exit(fail ? 1 : 0);
