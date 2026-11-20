@@ -3714,7 +3714,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v168';
+const APP_BUILD = 'v169';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -9701,6 +9701,9 @@ function vtFrames(rec, quad, learn) {
   // frame, found again by that frame's time and the box's corner.
   const said = new Map(), acts = [];
   for (let i = 0, a = rec.vo || []; i + 4 < a.length; i += 5) said.set(a[i] + '|' + a[i + 1] + '|' + a[i + 2], [a[i + 3], a[i + 4]]);
+  // v169: a robot's fingerprint from the app (an image model's), the same way.
+  const print_ = new Map(), fps = [];
+  for (let i = 0, a = rec.em || []; i + 26 < a.length; i += 27) print_.set(a[i] + '|' + a[i + 1] + '|' + a[i + 2], a.slice(i + 3, i + 27));
   // v150: boxes the finder was unsure of (below the recording's threshold
   // `cf`) are kept apart, in `weak`: they never start a track or count for
   // anything themselves, and are only used to carry on a robot that just went
@@ -9717,6 +9720,8 @@ function vtFrames(rec, quad, learn) {
         g: N === 10 ? vtSigUnpack(fr[o + 6], fr[o + 7], fr[o + 8]) : null, who: N === 10 ? fr[o + 9] : 0 });
       const v = said.size ? said.get(fr[0] + '|' + fr[o] + '|' + fr[o + 1]) : null;
       if (v) acts.push({ t: fr[0] / 10, p: pts[pts.length - 1], act: v[0], who: v[1] });
+      const e = print_.size ? print_.get(fr[0] + '|' + fr[o] + '|' + fr[o + 1]) : null;
+      if (e) fps.push({ t: fr[0] / 10, p: pts[pts.length - 1], e });
     }
     raw.push(weak.length ? { t: fr[0] / 10, pts, weak } : { t: fr[0] / 10, pts });
   }
@@ -9730,14 +9735,14 @@ function vtFrames(rec, quad, learn) {
     // sign, never a robot (reported: "its selecting like people sometimes").
     const M = VT_FIELD_MARGIN, onField = p => { const [u, v] = toField(p.x, p.y); p.x = u; p.y = v; return u >= -M && u <= 1 + M && v >= -M && v <= 1 + M; };
     for (const f of raw) { f.pts = f.pts.filter(onField); if (f.weak) f.weak = f.weak.filter(onField); }
-    return { frames: raw, ok: true, field: true, acts };
+    return { frames: raw, ok: true, field: true, acts, fps };
   }
   xs.sort((a, b) => a - b); ys.sort((a, b) => a - b);
   const q = (a, f) => a[Math.min(a.length - 1, Math.max(0, Math.round(f * (a.length - 1))))];
   const x0 = q(xs, 0.02), x1 = q(xs, 0.98), y0 = q(ys, 0.02), y1 = q(ys, 0.98);
   const w = Math.max(0.05, x1 - x0), h = Math.max(0.05, y1 - y0);
   for (const f of raw) for (const p of f.weak ? f.pts.concat(f.weak) : f.pts) { p.x = (p.x - x0) / w; p.y = (p.y - y0) / h; }
-  return { frames: raw, ok: true, acts };
+  return { frames: raw, ok: true, acts, fps };
 }
 // Two slots per alliance. Each look, an alliance's boxes are matched to its
 // slots by the pairing that moves them least; a slot nobody claims keeps its
@@ -10166,6 +10171,7 @@ function vtSummarise(rec, quad, learn) {
   const A = side(1), Z = side(2);
   const { ra: Ra, rb: Rb, ...Rall } = A, { ra: Ba, rb: Bb, ...Ball } = Z;
   vtSeenJoin(F.acts, slotted, { 1: [Ra, Rb], 2: [Ba, Bb] });
+  vtPrintJoin(F.fps, slotted, { 1: [Ra, Rb], 2: [Ba, Bb] });
   // When the points came (v152), from the stream's own score, only when it
   // ended on the official final: sa in autonomous, s1–s3 in each third of
   // driver control (net, so a descore counts against).
@@ -10327,6 +10333,27 @@ function vtSeenJoin(acts, slotted, rows) {
   }
   return n;
 }
+// v169: each robot's fingerprints in a match, joined to it as the vision
+// model's notes are, averaged: e0..e23 on its summary (from 3 or more).
+function vtPrintJoin(fps, slotted, rows) {
+  if (!fps || !fps.length) return 0;
+  const at = new Map(slotted.map(fr => [fr.t, fr])), acc = new Map();
+  for (const a of fps) {
+    const fr = at.get(a.t);
+    if (!fr || !a.p) continue;
+    let best = null, bd = 0.03;
+    for (const c of [1, 2]) for (const i of [0, 1]) { const q = fr.s[c][i]; if (q && q.seen) { const d = Math.hypot(q.x - a.p.x, q.y - a.p.y); if (d < bd) { bd = d; best = [c, i]; } } }
+    if (!best) continue;
+    const row = rows[best[0]][best[1]], m = acc.get(row) || { s: new Array(24).fill(0), n: 0 };
+    for (let k = 0; k < 24; k++) m.s[k] += a.e[k];
+    m.n++; acc.set(row, m);
+  }
+  for (const [row, m] of acc) if (m.n >= 3) for (let k = 0; k < 24; k++) row['e' + k] = Math.round(m.s[k] / m.n);
+  return acc.size;
+}
+const vtPrintOf = r => { if (!r || r.e0 === undefined) return null; const v = []; let n = 0; for (let k = 0; k < 24; k++) { const x = r['e' + k] || 0; v.push(x); n += x * x; } n = Math.sqrt(n) || 1; return v.map(x => x / n); };
+const vtPrintDist = (a, b) => { let d = 0; for (let k = 0; k < 24; k++) d += a[k] * b[k]; return 1 - d; };
+const vtPrintMean = looks => { const m = new Array(24).fill(0); for (const g of looks) for (let k = 0; k < 24; k++) m[k] += g[k]; const n = Math.sqrt(m.reduce((s, x) => s + x * x, 0)) || 1; return m.map(x => x / n); };
 // A team's looks from the vision model, added up over its matches.
 function vtSeenOf(rows) {
   const counts = new Array(9).fill(0);
@@ -10348,7 +10375,7 @@ function vtReportSeen(S) {
 // the recordings are in the shared store too, so whichever device opens a
 // report fetches the ones it needs, makes the summaries again, keeps them, and
 // (with the admin key) shares them.
-const VT_REMAKE = 168;      // v168: positions through the camera's lens; v164: boxes standing off the field dropped; v154: goal counts by the game's rules; v152: when the points came, from the stream's score; v150: unsure boxes carry on missing robots, whole-match slots, smoothed; v148: robots followed by speed and heading; v145/146: stacking timed at the goal (vs, vh)      // v136: pins counted on the goals as well (oy, oa, …)
+const VT_REMAKE = 169;      // v169: robots' fingerprints joined; v168: positions through the camera's lens; v164: boxes standing off the field dropped; v154: goal counts by the game's rules; v152: when the points came, from the stream's score; v150: unsure boxes carry on missing robots, whole-match slots, smoothed; v148: robots followed by speed and heading; v145/146: stacking timed at the goal (vs, vh)      // v136: pins counted on the goals as well (oy, oa, …)
 const vtStale = s => !!(s && s.ok && (s.rv || 0) < VT_REMAKE);
 const vtRefreshTried = new Set();
 async function vtSumsRefresh(sums, limit) {
@@ -10408,7 +10435,8 @@ function vtIdentify(number, sums) {
     const own = k === 0 ? 'wa' : 'wb', other = k === 0 ? 'wb' : 'wa';
     const forA = (a[own] || 0) + (b[other] || 0), forB = (b[own] || 0) + (a[other] || 0);
     const oside = side === 'R' ? 'B' : 'R';
-    const e = { key, a, b, partner: list[1 - k] || '', la: vtLookOf(a), lb: vtLookOf(b), pick: null, crowd: [vtLookOf(s[oside + 'a']), vtLookOf(s[oside + 'b'])].filter(Boolean) };
+    const e = { key, a, b, partner: list[1 - k] || '', la: vtLookOf(a), lb: vtLookOf(b), pick: null, crowd: [vtLookOf(s[oside + 'a']), vtLookOf(s[oside + 'b'])].filter(Boolean),
+      fa: vtPrintOf(a), fb: vtPrintOf(b), fcrowd: [vtPrintOf(s[oside + 'a']), vtPrintOf(s[oside + 'b'])].filter(Boolean) };
     if (Math.max(forA, forB) >= 2 && Math.max(forA, forB) >= 2 * Math.min(forA, forB) + 1) { e.pick = forA > forB ? 'a' : 'b'; picks.set(key, { slot: e.pick, how: 'plate', margin: 1 }); }
     else {
       // No plate read by the reader: the vision model's reads, held to a
@@ -10422,43 +10450,53 @@ function vtIdentify(number, sums) {
     byEvent.get(ev).push(e);
   }
   const meanOf = looks => { const m = new Array(12).fill(0); for (const g of looks) for (let i = 0; i < 12; i++) m[i] += g[i] / looks.length; return m; };
+  // The colours' look first; then, where the app sent fingerprints (v169),
+  // theirs, which is the sharper of the two and wins where both name a robot.
+  vtLookPicks(byEvent, picks, 'l', 'crowd', vtSigDist, meanOf, VT_LOOK_MARGIN);
+  vtLookPicks(byEvent, picks, 'f', 'fcrowd', vtPrintDist, vtPrintMean, VT_PRINT_MARGIN);
+  return picks;
+}
+// Naming a team's robot by how it looks, at each event (v153 lookalike guard
+// kept): `L` is the look's letter on each entry (la, lb or fa, fb), `C` its
+// crowd. Only matches no plate or vision read settled are named.
+function vtLookPicks(byEvent, picks, L, C, dist, mean, MARGIN) {
   for (const list of byEvent.values()) {
-    const open = list.filter(e => !e.pick && e.la && e.lb), seeds = list.filter(e => e.pick && e['l' + e.pick]).map(e => e['l' + e.pick]);
+    const open = list.filter(e => !e.pick && e[L + 'a'] && e[L + 'b']), seeds = list.filter(e => e.pick && e[L + e.pick]).map(e => e[L + e.pick]);
     if (!open.length) continue;
     // With the same partner every time, both robots recur: the look cannot say
     // which is which. Only a plate can, and those are already settled.
     const partners = new Set(list.map(e => e.partner));
     if (!seeds.length && (partners.size < 2 || list.length < 3)) continue;
-    let proto = seeds.length ? meanOf(seeds) : meanOf(open.flatMap(e => [e.la, e.lb]));
+    let proto = seeds.length ? mean(seeds) : mean(open.flatMap(e => [e[L + 'a'], e[L + 'b']]));
     let choice = new Map();
     for (let it = 0; it < 8; it++) {
-      const next = new Map(open.map(e => [e.key, vtSigDist(e.la, proto) <= vtSigDist(e.lb, proto) ? 'a' : 'b']));
+      const next = new Map(open.map(e => [e.key, dist(e[L + 'a'], proto) <= dist(e[L + 'b'], proto) ? 'a' : 'b']));
       const same = open.every(e => next.get(e.key) === choice.get(e.key));
       choice = next;
       if (same) break;
-      proto = meanOf(seeds.concat(open.map(e => e['l' + choice.get(e.key)])));
+      proto = mean(seeds.concat(open.map(e => e[L + choice.get(e.key)])));
     }
-    const margins = open.map(e => { const c = choice.get(e.key), o = c === 'a' ? 'b' : 'a'; return vtSigDist(e['l' + o], proto) - vtSigDist(e['l' + c], proto); });
+    const margins = open.map(e => { const c = choice.get(e.key), o = c === 'a' ? 'b' : 'a'; return dist(e[L + o], proto) - dist(e[L + c], proto); });
     // The look has to separate the two robots by a real margin, on average
     // and in the match in question. Two robots that look alike are left alone.
-    if (vtAvg(margins) < VT_LOOK_MARGIN) continue;
+    if (vtAvg(margins) < MARGIN) continue;
     // v153: lookalikes across the event. Many teams build the same meta
     // robot, so a look that separates this robot from its partner may still
     // be shared by half the robots it plays against. The robots it faced at
     // this event are the crowd: the look names it only where the chosen robot
     // is closer to its look than nine in ten of them. A plate is still what
     // settles a match; the look only fills in matches where none was read.
-    const crowd = list.flatMap(e => e.crowd).map(g => vtSigDist(g, proto)).sort((x, y) => x - y);
+    const crowd = list.flatMap(e => e[C] || []).map(g => dist(g, proto)).sort((x, y) => x - y);
     const q10 = crowd.length >= 6 ? crowd[Math.floor(crowd.length * 0.1)] : Infinity;
     open.forEach((e, i) => {
-      if (margins[i] < VT_LOOK_MARGIN * 0.75) return;
-      if (vtSigDist(e['l' + choice.get(e.key)], proto) >= q10) return;     // looks like the crowd: not named by its look
+      if (margins[i] < MARGIN * 0.75) return;
+      if (dist(e[L + choice.get(e.key)], proto) >= q10) return;     // looks like the crowd: not named by its look
       picks.set(e.key, { slot: choice.get(e.key), how: 'look', margin: margins[i] });
     });
   }
-  return picks;
 }
 const VT_LOOK_MARGIN = 0.08;
+const VT_PRINT_MARGIN = 0.1;   // fingerprints: the same robot is about 0.03–0.05 apart, different ones 0.3 and more
 function vtTeamRows(number, sums) {
   const num = String(number).toUpperCase(), mine = [], others = [], own = [], ownOthers = [], pair = [], pairOthers = [];
   const picks = vtIdentify(num, sums), how = { plate: 0, look: 0, vision: 0 };
