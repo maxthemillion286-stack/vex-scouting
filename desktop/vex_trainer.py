@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.47'
+VERSION = '2.48'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -2105,6 +2105,173 @@ def do_vreview(cfg, limit=400):
             say('  %d looked at: %d agreed with the finder and were labelled, %d left for you with its changes.' % (i + 1, agreed, changed))
     progress('The vision model is reviewing frames', len(todo), len(todo))
     say('Done: %d frames labelled where the model and the finder agreed; %d left for you, with what the model thinks already applied.' % (agreed, changed))
+
+# ── the vision model marks pins & cups first (v2.48) ──────────────────────
+# Asked: "why cant the vision model also do the thing for cups that marks the
+# confident ones aka let the vision model review first too for cups and
+# pins". As for robots: the model is shown each goal and loader of a frame,
+# cut out and enlarged, and counts the pin halves of each colour and the cups
+# on it. Where its counts and the guesses' (the marking helper's, the trained
+# finder's, or the colours') agree on every goal and loader, the guesses are
+# saved as that frame's marks; they are trained on, never used to grade a
+# finder (`pby` 'vlm'). Where they disagree the frame stays for you, with the
+# model's counts shown, and those frames come first.
+def piece_guesses(name, frame, robots, spots):
+    """The boxes drawn on a frame before anyone marks it: the marking
+    helper's, else the trained finder's, else the colours'. [[x, y, w, h, c]]"""
+    src = guess_source()
+    try:
+        if src[1]:
+            f = PieceFinder(src[1], prov=['CPUExecutionProvider'])
+            return [list(b[:4]) + [int(b[5])] for b in f.find_spots(frame, spots)]
+    except Exception:
+        pass
+    return [list(b[:5]) for b in pieces_from_colour(frame, robots, spots)]
+
+def spot_counts_of(pieces, spots):
+    """Pieces on each spot, by kind: [[red halves, blue halves, yellow halves, cups]] a spot."""
+    out = [[0, 0, 0, 0] for _ in spots]
+    for b in pieces:
+        k = in_spots(b, spots)
+        if k >= 0 and 0 <= int(b[4]) < 4:
+            out[k][int(b[4])] += 1
+    return out
+
+def spots_picture(frame, spots):
+    """Each goal and loader of a frame cut out, enlarged and numbered, in one
+    JPEG. → (bytes, [the spot index each number is])"""
+    import cv2, numpy as np
+    H, W = frame.shape[:2]
+    cells, which = [], []
+    for k, sb in enumerate(spots):
+        if not sb:
+            continue
+        x0, y0, x1, y1 = (int(round(v)) for v in sb)
+        x0, y0, x1, y1 = max(0, x0), max(0, y0), min(W, x1), min(H, y1)
+        if x1 - x0 < 4 or y1 - y0 < 4:
+            continue
+        crop = frame[y0:y1, x0:x1]
+        ch = 300
+        cw = max(60, min(260, int(round((x1 - x0) * ch / (y1 - y0)))))
+        cells.append(cv2.resize(crop, (cw, ch), interpolation=cv2.INTER_CUBIC))
+        which.append(k)
+    if not cells:
+        return None, []
+    cols = 5
+    rows = (len(cells) + cols - 1) // cols
+    cw = max(c.shape[1] for c in cells)
+    pic = np.full((rows * 340, cols * (cw + 10), 3), 30, np.uint8)
+    for i, c in enumerate(cells):
+        r_, c_ = divmod(i, cols)
+        x, y = c_ * (cw + 10), r_ * 340 + 40
+        pic[y:y + c.shape[0], x:x + c.shape[1]] = c
+        cv2.rectangle(pic, (x, y - 38), (x + 46, y - 4), (0, 0, 0), -1)
+        cv2.putText(pic, str(i + 1), (x + 6, y - 11), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2, cv2.LINE_AA)
+    ok_, buf = cv2.imencode('.jpg', pic, [cv2.IMWRITE_JPEG_QUALITY, 92])
+    return (buf.tobytes() if ok_ else None), which
+
+def vlm_pieces_frame(cfg, name):
+    """The model's count of pins and cups on each goal and loader of one
+    saved frame, and the guesses'. → {'model', 'guess', 'pieces', 'agree'} or None."""
+    import cv2
+    frame = cv2.imread(os.path.join(FRAMES, name + '.jpg'))
+    if frame is None:
+        return None
+    spots = frame_spots(name, frame)
+    if not spots:
+        return None
+    robots = lab_read(name).get('boxes', [])
+    guesses = piece_guesses(name, frame, robots, spots)
+    jpeg, which = spots_picture(frame, spots)
+    if not jpeg:
+        return None
+    n = len(which)
+    prompt = ('Each numbered picture is one goal or one match loader, cut from a frame of a VEX V5 Robotics Competition match (the game Override) and enlarged. '
+              'Pins stack on goals and sit in loaders. A pin is two halves, each red, blue or yellow (one pin can be two colours). Cups are the cup-shaped pieces. '
+              'For each picture, count the red halves, blue halves, yellow halves and cups that are ON that goal or IN that loader, including half-hidden ones. '
+              'Do not count pieces lying loose on the floor, pieces on a robot, or pieces on another goal behind it.')
+    cnt = {'type': 'integer', 'minimum': 0, 'maximum': 30}
+    schema = {'type': 'object', 'required': ['spots'], 'properties': {'spots': {'type': 'array', 'minItems': n, 'maxItems': n, 'items': {
+        'type': 'object', 'required': ['n', 'red', 'blue', 'yellow', 'cups'],
+        'properties': {'n': {'type': 'integer', 'minimum': 1, 'maximum': n}, 'red': cnt, 'blue': cnt, 'yellow': cnt, 'cups': cnt}}}}}
+    got = vlm_ask(cfg, prompt, schema, jpeg, 60 + 40 * n)
+    if not got:
+        return None
+    model = [None] * len(spots)
+    for s_ in got.get('spots') or []:
+        try:
+            i = int(s_.get('n')) - 1
+            row = [int(s_.get(k, 0)) for k in ('red', 'blue', 'yellow', 'cups')]
+        except (TypeError, ValueError):
+            continue
+        if 0 <= i < n:
+            model[which[i]] = row
+    guess = spot_counts_of(guesses, spots)
+    agree = all(m is not None for k, m in enumerate(model) if spots[k]) and all(model[k] == guess[k] for k in range(len(spots)) if spots[k])
+    notes = {'model': model, 'guess': guess, 'agree': agree, 'at': int(time.time())}
+    try:
+        with open(os.path.join(PROPS, name + '.json')) as f:
+            p = json.load(f)
+        p['pvlm'] = notes
+        with open(os.path.join(PROPS, name + '.json'), 'w') as f:
+            json.dump(p, f)
+    except Exception:
+        pass
+    return dict(notes, pieces=guesses)
+
+def pvlm_text(notes):
+    """The model's counts where they differ from the boxes drawn, said plainly."""
+    if not notes or notes.get('agree'):
+        return ''
+    kinds = ('red', 'blue', 'yellow', 'cups')
+    out = []
+    for k, (m, g) in enumerate(zip(notes.get('model') or [], notes.get('guess') or [])):
+        if m is None or m == g:
+            continue
+        what = 'goal %d' % (k + 1) if k < N_GOALS else 'loader %d' % (k - N_GOALS + 1)
+        out.append('%s: %s' % (what, ', '.join('%d %s' % (v, ('cup' if v == 1 else 'cups') if i == 3 else kinds[i] + (' half' if v == 1 else ' halves')) for i, v in enumerate(m) if v) or 'nothing'))
+    return ('The vision model counts ' + '; '.join(out[:5]) + '.') if out else ''
+
+def do_vpieces(cfg, limit=300):
+    """The vision model goes through the frames waiting for pins & cups."""
+    if not ensure_think(cfg):
+        say('The vision model is not ready, so it cannot mark.')
+        return
+    todo = []
+    for name in pieces_queue():
+        try:
+            with open(os.path.join(PROPS, name + '.json')) as f:
+                if 'pvlm' in json.load(f):
+                    continue
+        except Exception:
+            continue
+        todo.append(name)
+        if len(todo) >= limit:
+            break
+    say('\nThe vision model is counting pins & cups on %d frames (about %d minutes).' % (len(todo), max(1, round(len(todo) * 8 / 60))))
+    agreed = changed = failed = 0
+    for i, name in enumerate(todo):
+        progress('The vision model is counting pins & cups', i, len(todo))
+        got = vlm_pieces_frame(cfg, name)
+        if not got:
+            failed += 1
+            if failed >= 5 and failed > i // 2:
+                say('  the vision model is not answering; stopped.')
+                break
+            continue
+        if got['agree']:
+            lab_write(name, pieces=clean_pieces(got['pieces']), pskip=False, pby='vlm')
+            agreed += 1
+        else:
+            changed += 1
+        if (i + 1) % 25 == 0:
+            say('  %d looked at: %d marked where it agreed with the guesses, %d left for you.' % (i + 1, agreed, changed))
+    progress('The vision model is counting pins & cups', len(todo), len(todo))
+    say('Done: %d frames marked where the vision model and the guesses agreed on every goal and loader; %d left for you, with its counts shown.' % (agreed, changed))
+
+def pieces_by_person(name):
+    """Marked by a person (not the vision model): only these grade a finder."""
+    return lab_read(name).get('pby') != 'vlm'
 
 # ── the field finder: trained on your own field marks (v2.47) ─────────────
 # Reported: "finding the field for me feature doesnt actually find the field
@@ -4324,7 +4491,7 @@ def build_pieces_dataset(marked):
         frame = cv2.imread(os.path.join(FRAMES, name + '.jpg'))
         if frame is None:
             continue
-        part = 'val' if is_val(name) else 'train'
+        part = 'val' if is_val(name) and pieces_by_person(name) else 'train'     # the vision model's marks never grade
         for k, sb in enumerate(spots):
             if not sb:
                 continue
@@ -4349,7 +4516,7 @@ def do_train_pieces(cfg):
     """Train the pin and cup finder from the marked frames; use it only if it
     finds pin halves better than what is used now. → info, or None."""
     marked = pieces_marked()
-    val = [m for m in marked if is_val(m[0])]
+    val = [m for m in marked if is_val(m[0]) and pieces_by_person(m[0])]
     say('\nPins & cups: %d marked frames (%d held back for testing).' % (len(marked), len(val)))
     if len(marked) < PIECE_NEED or len(val) < 6:
         say('Mark pins and cups on at least %d frames to train their finder (%d more).' % (PIECE_NEED, max(0, PIECE_NEED - len(marked), 6 - len(val))))
@@ -4998,7 +5165,8 @@ UI_HTML = r"""<!doctype html><html lang="en"><meta charset="utf-8"><meta name="v
   <div class="card"><h2>2 · Review</h2><p>Only frames the finder is unsure about, the hardest first. You never need to do them all.</p>
    <div class="n" id="revN">&nbsp;</div><button id="bRev" onclick="openReview(false)">Review robots</button>
    <button class="ghost" id="bVrev" style="margin-top:6px" onclick="start('vreview')" title="The vision model looks at the waiting frames first: frames where it and the finder agree are done for you, the rest come to you with its changes">Let the vision model review first</button>
-   <div class="n" id="pcsN" style="margin-top:10px">&nbsp;</div><button class="ghost" id="bPcs" onclick="openReview(true)">Mark pins &amp; cups</button></div>
+   <div class="n" id="pcsN" style="margin-top:10px">&nbsp;</div><button class="ghost" id="bPcs" onclick="openReview(true)">Mark pins &amp; cups</button>
+   <button class="ghost" id="bVpcs" style="margin-top:6px" onclick="start('vpieces')" title="The vision model counts the pins and cups on every goal and loader of the waiting frames: frames where its counts and the guesses agree are marked for you, the rest come to you first with its counts">Let the vision model mark pins &amp; cups first</button></div>
   <div class="card"><h2>3 · Train</h2><p>Makes a better robot finder and publishes it only if it wins.</p>
    <div class="n" id="trainN">&nbsp;</div><button id="bTrain" onclick="start('train')">Train</button>
    <div class="n" id="fieldN" style="margin-top:10px">&nbsp;</div><button class="ghost" id="bField" onclick="start('field')">Train the field finder</button></div>
@@ -5068,6 +5236,7 @@ function paint(){
   // v2.35: when there is nothing to mark, say why. Reported: the button greyed out, nothing said.
   (Pc.counted===false?'<br><span class="dim">Counting the frames…</span>':!Pc.left&&Pc.why?'<br><span class="warn">'+(!Pc.why.reviewed?'Nothing to mark yet: pins and cups are marked on frames whose robots you have reviewed. Review some robot frames first.':Pc.why.unmarked&&Pc.why.unmarked.length?'Nothing to mark yet: your reviewed frames come from '+(Pc.why.unmarked.length===1?'a stream':'streams')+' whose field is not marked. Mark it here, once a stream:</span><br>'+Pc.why.unmarked.map(u=>'<button class="ghost" style="margin:4px 6px 0 0" onclick="openField(\''+esc(u[0])+'\')">Mark the field: '+esc(u[0])+' ('+u[1]+' frame'+(u[1]===1?'':'s')+')</button>').join('')+'<span>':'Every reviewed frame from a marked stream is done. Review more robot frames to get more.')+'</span>':''));
  $('bPcs').disabled=Pc.counted!==false&&!Pc.left;
+ $('bVpcs').disabled=st.busy||!st.think||!((st.pieces||{}).left);$('bVpcs').title=st.think?'The vision model counts the pins and cups on every goal and loader of the waiting frames: frames where its counts and the guesses agree are marked for you, the rest come to you first with its counts':'Turn on the vision model in Settings first';
  $('bVrev').disabled=st.busy||!st.think;$('bVrev').title=st.think?'The vision model looks at the waiting frames first: frames where it and the finder agree are done for you, the rest come to you with its changes':'Turn on the vision model in Settings first';
  $('trackN').textContent=st.task==='track'?'Running':' ';
  const need=Math.max(0,150-st.gold);
@@ -5158,6 +5327,7 @@ async function nextPieces(id){$('revLeft').textContent='Loading the next frame�
  $('pRemark').style.display='';$('pMove').style.display=(cur.spots||[]).length?'':'none';gm=false;$('pMove').textContent='Move the goals';
  $('pFix').style.display=(cur.spots||[]).length?'none':'';
  if(!(cur.spots||[]).length)$('revLeft').textContent='Not the view the field was marked on: Skip it, or mark the field on it.';
+ else if(cur.vlm)$('revLeft').textContent+=' · '+cur.vlm;
  boxes=(cur.pieces||[]).map(b=>b.slice(0,5));hist=[];loadFrame()}
 function draw(){x.drawImage(img,0,0);
  if(pm){x.lineWidth=Math.max(1,c.width/1400);x.setLineDash([]);
@@ -5475,6 +5645,16 @@ def serve_ui(cfg, port=8765, open_window=True):
                     name = want
                 else:
                     name = P['queue'][0] if P['queue'] else None
+                    # Frames the vision model counted differently come first (v2.48).
+                    for n_ in P['queue'][:200]:
+                        try:
+                            with open(os.path.join(PROPS, n_ + '.json')) as f_:
+                                pv_ = json.load(f_).get('pvlm')
+                        except Exception:
+                            pv_ = None
+                        if pv_ and not pv_.get('agree'):
+                            name = n_
+                            break
                 if not name:
                     return self._send(200, {'id': None, 'marked': P['marked']})
                 with open(os.path.join(PROPS, name + '.json')) as f:
@@ -5498,7 +5678,7 @@ def serve_ui(cfg, port=8765, open_window=True):
                             pieces = [b[:4] + [b[5]] for b in pfinder(src[1])(frame, spots)] if src[1] else pieces_from_colour(frame, robots, spots)
                         except Exception:
                             pieces = pieces_from_colour(frame, robots, spots)
-                return self._send(200, {'id': name, 'w': p['w'], 'h': p['h'], 'pieces': [[round(v, 1) for v in b[:4]] + [int(b[4])] for b in pieces],
+                return self._send(200, {'id': name, 'w': p['w'], 'h': p['h'], 'pieces': [[round(v, 1) for v in b[:4]] + [int(b[4])] for b in pieces], 'vlm': pvlm_text(p.get('pvlm')),
                                         'robots': robots, 'spots': [s + [units[k], k] + list(spot_foot_px(k, s)[:2]) for k, s in enumerate(spots) if s and k < len(units)], 'left': len(P['queue']), 'marked': P['marked']})
             if u.path == '/api/next':
                 c = counts(wait=True)
@@ -5594,7 +5774,7 @@ def serve_ui(cfg, port=8765, open_window=True):
                 if body.get('skip'):
                     lab_write(name, pskip=True)
                 else:
-                    lab_write(name, pieces=clean_pieces(body.get('pieces')), pskip=False)
+                    lab_write(name, pieces=clean_pieces(body.get('pieces')), pskip=False, pby=None)
                 if name in pcache['queue']:          # off the list now; counted again properly soon, off to one side
                     pcache['queue'].remove(name)
                     pcache['marked'] += 0 if body.get('skip') else 1
@@ -5655,6 +5835,10 @@ def serve_ui(cfg, port=8765, open_window=True):
                     if not cfg.get('think'):
                         return self._send(200, {'error': 'Turn on the vision model in Settings first.'})
                     args = ['--vreview']
+                elif task == 'vpieces':
+                    if not cfg.get('think'):
+                        return self._send(200, {'error': 'Turn on the vision model in Settings first.'})
+                    args = ['--vpieces']
                 elif task == 'add':
                     src = str(body.get('src', '')).strip()
                     if not src:
@@ -5782,6 +5966,8 @@ def main():
             do_field_finder(cfg, auto='--auto' in args)
         elif args[0] == '--vreview':
             do_vreview(cfg)
+        elif args[0] == '--vpieces':
+            do_vpieces(cfg)
         elif args[0] == '--think-setup':
             say('The vision model is ready. It will be used the next time matches are tracked.' if ensure_think(cfg) else 'The vision model is not ready; tracking goes on without it.')
         else:

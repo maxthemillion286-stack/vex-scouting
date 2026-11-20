@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v177**. Everything green: 124 test files.
+Current release: **v178**. Everything green: 125 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,19 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v178 (app 2.48) — the vision model marks pins & cups first.** Asked:
+"why cant the vision model also … let the vision model review first too for
+cups and pins". `do_vpieces` (`--vpieces`, button under Mark pins & cups):
+for each frame in `pieces_queue` without `pvlm`, `vlm_pieces_frame` sends
+`spots_picture` (each goal/loader crop, 300 px tall, numbered, 5 a row) and
+asks for red/blue/yellow halves and cups per spot; compares with
+`piece_guesses` (helper → trained finder → colours) via `spot_counts_of`.
+Agree on every spot → `lab_write(pieces=guesses, pby='vlm')`; else the counts
+stay in the frame's notes, those frames come first in `/api/pnext` and the
+screen shows `pvlm_text`. `pby='vlm'` frames are trained on, never in the
+test set (`pieces_by_person`); a person saving a frame clears it. Check:
+desktop/dev/vpieces.py (12), t164.
 
 **v177 (app 2.47) — a field finder trained on the owner's marks.** Asked:
 "fix the automatically finding field and goal locations". A hand-built finder
