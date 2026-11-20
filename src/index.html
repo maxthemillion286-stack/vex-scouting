@@ -2612,7 +2612,15 @@
     .vt-coach-table td[data-label]::before { content: attr(data-label); display: block; font-size: 11.5px; font-weight: 400; color: var(--text-dim); margin-bottom: 1px; }
   }
   .vt-coach-table td.vt-coach-wide { white-space: normal; min-width: 220px; max-width: 420px; line-height: 1.4; }
-  .vt-coach-table td.vt-coach-mid { white-space: normal; min-width: 150px; max-width: 230px; line-height: 1.4; }
+  .vt-coach-table td.vt-coach-mid { white-space: normal; min-width: 110px; max-width: 230px; line-height: 1.4; }
+  /* v172: "get rid of scroll bar at bottom". The small grey lines under each
+     number kept their cells from wrapping, so the table ran wider than the
+     card. Everything wraps now and the table fits; nothing scrolls sideways. */
+  .cmp-wrap.vt-coach-wrap { overflow-x: hidden; }
+  .vt-coach-table { table-layout: auto; }
+  .vt-coach-table th, .vt-coach-table td { white-space: normal; }
+  @media (min-width: 601px) { .vt-coach-table td.vt-coach-ev { min-width: 140px; } }
+  .vt-coach-table td span { line-height: 1.35; }
   .vt-coach-table td i { font-style: normal; color: var(--text-dim); font-size: 13px; }
   .vt-coach-table td span { display: block; font-size: 12px; font-weight: 400; color: var(--text-dim); }
   .vt-over { display: none; position: fixed; inset: 0; z-index: 2147483000; background: var(--bg); overflow-y: auto; -webkit-overflow-scrolling: touch; }
@@ -3714,7 +3722,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v171';
+const APP_BUILD = 'v172';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -10796,7 +10804,7 @@ async function vtCoachFill(number, hostId) {
   }).join('');
   host.innerHTML = `<div class="detail-block"><div class="detail-block-label">${mineTeam ? 'Your robot' : esc(num)}, as the tracker sees it</div>
     <div class="rw-hint">${mineTeam ? `What a team scouting ${esc(num)} would see, event by event.` : 'Event by event, from its tracked matches.'}</div>
-    <div class="cmp-wrap"><table class="cmp-table vt-coach-table"><thead><tr><th>Event</th><th>Matches</th><th>Autonomous</th><th>Goes for</th><th>Pins a match</th><th>Points a match</th><th>5 pins stacked in</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>
+    <div class="cmp-wrap vt-coach-wrap"><table class="cmp-table vt-coach-table"><thead><tr><th>Event</th><th>Matches</th><th>Autonomous</th><th>Goes for</th><th>Pins a match</th><th>Points a match</th><th>5 pins stacked in</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>
     ${(() => { const bad = (vtCatchBad.get(num) || new Set()).size; return bad ? `<div class="vt-note" id="vtCoachBad">${bad} more recording${bad === 1 ? '' : 's'} of ${esc(num)}'s matches could not be used: too few robots were seen in ${bad === 1 ? 'it' : 'them'} (the stream showed something else, or the field was cut off).</div>` : ''; })()}
     ${anyPins ? '' : `<div class="vt-note" id="vtCoachWhy">Pins are not counted for these matches yet. Counting needs two things: the match tracked since pin counting was added, and <strong>Mark the field</strong> done once on its stream (Jumper, open a match, Robot tracker box).</div>`}
     <details class="vs-why"><summary>What these mean</summary><div>
