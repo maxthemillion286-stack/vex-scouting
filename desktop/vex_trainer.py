@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.48'
+VERSION = '2.49'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -753,6 +753,12 @@ class Eyes:
                 self.pieces = PieceFinder(pieces_file(), so, prov)
             except Exception:
                 self.pieces = None
+        self.stack = None
+        if stack_ready():
+            try:
+                self.stack = StackReader(prov=prov)
+            except Exception:
+                self.stack = None
         with open(os.path.join(DIRS['models'], 'plate_chars.json'), encoding='utf-8') as f:
             self.chars = {int(k): v for k, v in json.load(f).items()}
         if not quiet:
@@ -1317,6 +1323,16 @@ _LAST_SPENT = {}
 def _tick(k, t0):
     _TIME[k] = _TIME.get(k, 0.0) + time.perf_counter() - t0
 
+def blocked(sb, boxes, most=0.35):
+    """Is a spot box [x0, y0, x1, y1] more than `most` covered by a robot box [x, y, w, h, …]?"""
+    area = max(1.0, (sb[2] - sb[0]) * (sb[3] - sb[1]))
+    for b in boxes:
+        ix = max(0.0, min(sb[2], b[0] + b[2]) - max(sb[0], b[0]))
+        iy = max(0.0, min(sb[3], b[1] + b[3]) - max(sb[1], b[1]))
+        if ix * iy / area > most:
+            return True
+    return False
+
 def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None, quad=None, think=None, follow=None):
     """Watch one match. → (recording or None, why, shift found)
 
@@ -1347,7 +1363,7 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
         att, robot_looks, clock_at, checked, kept, next_keep, misses, pin_at = [], 0, -1e9, False, 0, start + 6, 0, -1e9
         before, auto_kept, next_auto, share_at, emb_at = [], 0, start + LEAD + 5, -1e9, -1e9
         auto_room = [AUTO_MAX - auto_count()] if harvest else [0]
-        spot_at, spots = -1e9, None
+        spot_at, spots, stack_mem = -1e9, None, {}
         # The stream's own score (v2.31), a check and never the truth: live
         # scorers make mistakes and some events show none. Read every second
         # once its place is known; until then, every number on screen every
@@ -1501,13 +1517,26 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
                         rec['tg'] += [jround((t - rec['off']) * 10)] + tg
             # Pins and cups on each goal and in each loader, every second, once
             # the trained finder is in use and the field is marked.
-            if eyes.pieces is not None and quad and not away and t >= spot_at + 1 and len(rec['gs']) < 24000:
+            if (eyes.pieces is not None or getattr(eyes, 'stack', None) is not None) and quad and not away and t >= spot_at + 1 and len(rec['gs']) < 24000:
                 spot_at = t
                 if spots is None:
                     spots = spot_boxes(frame.shape[1], frame.shape[0], cur_quad, cur_placed) or []
+                    stack_mem.clear()                   # the camera moved: earlier looks no longer line up
                 if spots:
                     _t0 = time.perf_counter()
-                    rec['gs'] += [jround((t - rec['off']) * 10)] + [v for c in eyes.pieces.spot_counts(frame, spots) for v in c]
+                    # The stack reader where it won its test (v2.49), from the last looks laid over each other; else the pin finder.
+                    if getattr(eyes, 'stack', None) is not None:
+                        unblocked = [None if (sb and blocked(sb, boxes)) else sb for sb in spots]
+                        cnt = eyes.stack.counts(frame, unblocked, stack_mem)
+                    else:
+                        cnt = eyes.pieces.spot_counts(frame, spots)
+                    # v2.49: a goal or loader a robot stands in front of is not
+                    # counted this look (-1s): the website keeps its last clear
+                    # count instead of a half-hidden stack read short.
+                    for k, sb in enumerate(spots):
+                        if sb and blocked(sb, boxes):
+                            cnt[k] = [-1, -1, -1, -1]
+                    rec['gs'] += [jround((t - rec['off']) * 10)] + [v for c in cnt for v in c]
                     _tick('pins', _t0)
             if (learn.get('score') or (rs_ is not None and bs_ is not None)) and not away and t >= score_at + (1 if learn.get('score') else 3) and len(rec['sc']) < 1200:
                 score_at = t
@@ -3089,7 +3118,12 @@ def download(vid_or_url, dest_stem, windows=None):
             say('  downloading: %s%.0f MB at %.1f MB/s' % (('%d%% of ' % (100 * done / total)) if total else '', (total or done) / 1e6, speed / 1e6))
             if total:
                 progress('Downloading the video', done, total, minor=True)
-    opts = {'format': 'bv*[height<=720][fps<=30][vcodec^=avc1]/bv*[height<=720][fps<=30]/bv*[height<=720]/b[height<=720]/b',
+    # v2.49: "Sharper pin counting" downloads 1080p where there is one. Far
+    # pins are a few pixels tall at 720p; robots are found as well either way
+    # (every picture is shrunk for that), so it only costs download size and
+    # a little decoding.
+    hp = 1080 if load_config().get('sharp') else 720
+    opts = {'format': 'bv*[height<=%d][fps<=30][vcodec^=avc1]/bv*[height<=%d][fps<=30]/bv*[height<=%d]/b[height<=%d]/b' % (hp, hp, hp, hp),
             'outtmpl': dest_stem + '.%(ext)s', 'quiet': True, 'no_warnings': True, 'noprogress': True, 'progress_hooks': [hook],
             # Many pieces at once, and asked for in 10 MB ranges: a single plain
             # connection is what YouTube slows down.
@@ -4631,6 +4665,292 @@ class PieceFinder:
         return cnt
 
 
+# ── the stack reader (v2.49) ──────────────────────────────────────────────
+# Asked for pins counted exactly ("build all of it"). Pins have one shape and
+# score only on the goals and in the loaders, so each goal is read the way a
+# line of text is: one goal's column, cut out, is read bottom to top as a
+# sequence ("red, red, yellow, blue, cup") by a small network (a few
+# convolutions and a recurrent layer, trained with CTC, as text readers are).
+# It learns from:
+#   · every goal and loader on the frames marked for pins & cups;
+#   · practice stacks made from those marks: each marked half and cup is cut
+#     out and stacked again, in new orders and heights, on goals marked
+#     empty, so it sees thousands of stacks before it has to read a real one;
+# and, while tracking, it reads each goal from the last few looks at it laid
+# over each other (the camera is followed, so they line up; pins do not move
+# once scored), which takes out a stream's blur and blocky compression.
+# It is tested on marked frames it never saw against the pin finder and the
+# colours, by how many goals it counts exactly right, and used only if it wins.
+STACK_W, STACK_H = 48, 144
+STACK_KINDS = 4                        # red half, blue half, yellow half, cup (0 is "nothing" for CTC)
+STACK_SYNTH = 3000
+STACK_ROUNDS = 30
+
+def stack_file():
+    return os.path.join(DIRS['models'], 'stack_reader.onnx')
+
+def stack_info():
+    try:
+        with open(os.path.join(DIRS['models'], 'stack_reader.json')) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def stack_ready():
+    return os.path.exists(stack_file()) and bool(stack_info().get('use'))
+
+def stack_crop(frame, sb):
+    """A spot's column as the reader sees it: STACK_H × STACK_W, bottom row first (uint8 HWC)."""
+    import cv2
+    H, W = frame.shape[:2]
+    x0, y0, x1, y1 = (int(round(v)) for v in sb)
+    x0, y0, x1, y1 = max(0, x0), max(0, y0), min(W, x1), min(H, y1)
+    if x1 - x0 < 3 or y1 - y0 < 3:
+        return None
+    return cv2.resize(frame[y0:y1, x0:x1], (STACK_W, STACK_H), interpolation=cv2.INTER_AREA if (x1 - x0) > STACK_W else cv2.INTER_CUBIC)[::-1]
+
+def stack_label(pieces, k, spots):
+    """The marked pieces on spot k, bottom to top: [kind + 1, …]."""
+    on = [b for b in pieces if in_spots(b, spots) == k and 0 <= int(b[4]) < STACK_KINDS]
+    return [int(b[4]) + 1 for b in sorted(on, key=lambda b: -(b[1] + b[3] / 2))]
+
+def stack_examples(marked):
+    """(crop, sequence, frame name) for every spot of every marked frame."""
+    import cv2
+    out = []
+    for item in marked:
+        name, w, h, robots, pieces, spots = item[:6]
+        frame = cv2.imread(os.path.join(FRAMES, name + '.jpg'))
+        if frame is None:
+            continue
+        for k, sb in enumerate(spots):
+            if not sb:
+                continue
+            c = stack_crop(frame, sb)
+            if c is not None:
+                out.append((c, stack_label(pieces, k, spots), name))
+    return out
+
+def stack_practice(marked, n, seed=5):
+    """Practice stacks: marked halves and cups cut out and stacked again on
+    goals marked empty. → [(crop, sequence)]"""
+    import cv2, numpy as np
+    rng = np.random.default_rng(seed)
+    patches = {k: [] for k in range(STACK_KINDS)}
+    empties = []
+    for item in marked:
+        name, w, h, robots, pieces, spots = item[:6]
+        frame = cv2.imread(os.path.join(FRAMES, name + '.jpg'))
+        if frame is None:
+            continue
+        for b in pieces:
+            k = in_spots(b, spots)
+            if k < 0:
+                continue
+            sb = spots[k]
+            x, y, bw, bh = (int(round(v)) for v in b[:4])
+            if bw < 2 or bh < 2:
+                continue
+            p = frame[max(0, y):y + bh, max(0, x):x + bw]
+            if p.size:
+                # Kept relative to its goal's column, so it is pasted at the size it really was.
+                patches[int(b[4])].append((p.copy(), bw / max(1.0, sb[2] - sb[0]), bh / max(1.0, sb[3] - sb[1])))
+        for k, sb in enumerate(spots):
+            if sb and not stack_label(pieces, k, spots):
+                c = stack_crop(frame, sb)
+                if c is not None:
+                    empties.append(c[::-1].copy())          # upright again, to paste on
+    kinds = [k for k in range(STACK_KINDS) if patches[k]]
+    if not kinds or not empties:
+        return []
+    out = []
+    for _ in range(n):
+        bg = empties[int(rng.integers(len(empties)))].copy()
+        seq, y = [], STACK_H * (0.92 + 0.06 * rng.random())
+        for _ in range(int(rng.integers(0, 11))):
+            k = kinds[int(rng.integers(len(kinds)))]
+            p, fw, fh = patches[k][int(rng.integers(len(patches[k])))]
+            pw = max(3, int(round(fw * STACK_W * (0.9 + 0.2 * rng.random()))))
+            ph = max(3, int(round(fh * STACK_H * (0.9 + 0.2 * rng.random()))))
+            top = int(round(y - ph))
+            if top < 2:
+                break
+            x0 = int(round((STACK_W - pw) / 2 + rng.normal(0, STACK_W * 0.04)))
+            x0 = min(max(0, x0), STACK_W - pw)
+            bg[top:top + ph, x0:x0 + pw] = cv2.resize(p, (pw, ph), interpolation=cv2.INTER_LINEAR)
+            seq.append(k + 1)
+            y = top + ph * (0.12 + 0.12 * rng.random())        # stacked pieces overlap a little
+        # As a stream shows it: a little blur, noise and brightness.
+        if rng.random() < 0.6:
+            bg = cv2.GaussianBlur(bg, (3, 3), 0.4 + rng.random())
+        bg = np.clip(bg.astype(np.float32) * (0.8 + 0.4 * rng.random()) + rng.normal(0, 4, bg.shape), 0, 255).astype(np.uint8)
+        out.append((bg[::-1].copy(), seq))
+    return out
+
+def stack_net():
+    import torch.nn as nn
+    class StackNet(nn.Module):
+        def __init__(self):
+            super().__init__()
+            def blk(i, o, pool):
+                return [nn.Conv2d(i, o, 3, padding=1), nn.BatchNorm2d(o), nn.ReLU(inplace=True)] + ([nn.MaxPool2d(pool)] if pool else [])
+            self.cnn = nn.Sequential(*blk(3, 32, (2, 2)), *blk(32, 64, (2, 2)), *blk(64, 96, (1, 2)), *blk(96, 128, (1, 2)), *blk(128, 128, None))
+            self.rnn = nn.GRU(128, 64, bidirectional=True, batch_first=True)
+            self.out = nn.Linear(128, STACK_KINDS + 1)
+        def forward(self, x):                       # x: N×3×H×W, bottom row first
+            f = self.cnn(x).mean(dim=3)             # N×128×T (T = H/4), from the bottom up
+            f, _ = self.rnn(f.permute(0, 2, 1))
+            return self.out(f)                      # N×T×(kinds+1)
+    return StackNet()
+
+def stack_decode(logits):
+    """Greedy CTC: T×(kinds+1) scores → [kind, …] bottom to top (kinds 0..3)."""
+    best = logits.argmax(axis=1)
+    out, prev = [], 0
+    for v in best:
+        v = int(v)
+        if v and v != prev:
+            out.append(v - 1)
+        prev = v
+    return out
+
+def stack_counts_of(seq):
+    c = [0] * STACK_KINDS
+    for k in seq:
+        c[k] += 1
+    return c
+
+class StackReader:
+    """The trained reader: counts(frame, spots, memory) → per spot [red, blue,
+    yellow halves, cups] (-1s off the picture). `memory` (a dict kept for a
+    match) holds the last looks at each spot, laid over each other."""
+    def __init__(self, path=None, prov=None):
+        import onnxruntime as ort, numpy as np
+        self.np = np
+        have = ort.get_available_providers()
+        prov = prov or [p for p in ('DmlExecutionProvider', 'CUDAExecutionProvider') if p in have] + ['CPUExecutionProvider']
+        self.s = ort.InferenceSession(path or stack_file(), providers=prov)
+        self.inp = self.s.get_inputs()[0].name
+
+    def read(self, crops):
+        np = self.np
+        if not crops:
+            return []
+        x = np.stack([c[:, :, ::-1].transpose(2, 0, 1) for c in crops]).astype(np.float32) / 255.0
+        out = self.s.run(None, {self.inp: np.ascontiguousarray(x)})[0]
+        return [stack_decode(o) for o in out]
+
+    def counts(self, frame, spots, memory=None):
+        np = self.np
+        cnt, crops, where = [], [], []
+        for k, sb in enumerate(spots or []):
+            c = stack_crop(frame, sb) if sb else None
+            if c is None:
+                cnt.append([-1, -1, -1, -1])
+                continue
+            if memory is not None:
+                last = memory.setdefault(k, [])
+                last.append(c)
+                del last[:-3]
+                if len(last) >= 2:
+                    c = np.median(np.stack(last), axis=0).astype(np.uint8)
+            cnt.append(None)
+            crops.append(c)
+            where.append(k)
+        for k, seq in zip(where, self.read(crops)):
+            cnt[k] = stack_counts_of(seq)
+        return cnt
+
+def stack_exact(count_of, val):
+    """Share of the spots on marked frames counted exactly right (all four kinds).
+    count_of(frame, robots, spots) → per spot counts."""
+    import cv2
+    right = total = 0
+    for item in val:
+        name, w, h, robots, pieces, spots = item[:6]
+        frame = cv2.imread(os.path.join(FRAMES, name + '.jpg'))
+        if frame is None:
+            continue
+        got = count_of(frame, robots, spots)
+        truth = spot_counts_of(pieces, spots)
+        for k, sb in enumerate(spots):
+            if not sb:
+                continue
+            total += 1
+            right += int(list(got[k]) == list(truth[k]))
+    return right / total if total else 0.0
+
+def do_stack_reader(cfg):
+    """Train the stack reader on the pins & cups marks and practice stacks."""
+    marked = pieces_marked()
+    val = [m for m in marked if is_val(m[0]) and pieces_by_person(m[0])]
+    train = [m for m in marked if m not in val]
+    if len(train) < 20 or len(val) < 4:
+        say('The stack reader learns from pins & cups marks: at least 20 frames to learn from and 4 to test it on (now %d and %d).' % (len(train), len(val)))
+        return None
+    try:
+        import torch
+    except Exception:
+        if not ensure_training_tools():
+            return None
+        import torch
+    import numpy as np
+    dev = 'cuda' if torch.cuda.is_available() else 'cpu'
+    real = [(c, s) for c, s, _ in stack_examples(train)]
+    fake = stack_practice(train, int(cfg.get('stack_synth') or STACK_SYNTH))
+    data = real * 3 + fake                          # the real ones count more
+    say('\nThe stack reader: %d goals and loaders from %d marked frames, and %d practice stacks.' % (len(real), len(train), len(fake)))
+    if len(data) < 50:
+        say('  Not enough to learn from yet.')
+        return None
+    net = stack_net().to(dev)
+    opt = torch.optim.AdamW(net.parameters(), lr=2e-3, weight_decay=1e-4)
+    ctc = torch.nn.CTCLoss(blank=0, zero_infinity=True)
+    rounds = int(cfg.get('stack_rounds') or STACK_ROUNDS)
+    rng = np.random.default_rng(1)
+    for ep in range(rounds):
+        net.train()
+        order = rng.permutation(len(data))
+        tot = 0.0
+        for i in range(0, len(order), 64):
+            batch = [data[j] for j in order[i:i + 64]]
+            x = torch.from_numpy(np.stack([c[:, :, ::-1].transpose(2, 0, 1) for c, _ in batch]).astype(np.float32) / 255.0).to(dev)
+            tg = torch.tensor([v for _, s in batch for v in s] or [1], dtype=torch.long)
+            tl = torch.tensor([len(s) for _, s in batch], dtype=torch.long)
+            lp = net(x).log_softmax(2).permute(1, 0, 2)        # T×N×C
+            il = torch.full((len(batch),), lp.shape[0], dtype=torch.long)
+            loss = ctc(lp.cpu(), tg, il, tl)
+            opt.zero_grad(); loss.backward(); opt.step()
+            tot += float(loss.detach()) * len(batch)
+        progress('Training the stack reader', ep + 1, rounds)
+        if (ep + 1) % 10 == 0 or ep == 0:
+            say('  round %d/%d: loss %.3f' % (ep + 1, rounds, tot / len(data)))
+    net.eval().cpu()
+    tmp = os.path.join(DIRS['build'], 'stack_reader.onnx')
+    torch.onnx.export(net, torch.zeros(1, 3, STACK_H, STACK_W), tmp, input_names=['x'], output_names=['y'],
+                      dynamic_axes={'x': {0: 'n'}, 'y': {0: 'n'}}, opset_version=13, **({'dynamo': False} if 'dynamo' in torch.onnx.export.__code__.co_varnames else {}))
+    rd = StackReader(tmp, prov=['CPUExecutionProvider'])
+    mine = stack_exact(lambda fr, rb, sp: rd.counts(fr, sp), val)
+    colour = stack_exact(lambda fr, rb, sp: spot_counts_of(pieces_from_colour(fr, rb, sp), sp), val)
+    finder = None
+    if pieces_ready():
+        try:
+            pf = PieceFinder(pieces_file(), prov=['CPUExecutionProvider'])
+            finder = stack_exact(lambda fr, rb, sp: pf.spot_counts(fr, sp), val)
+        except Exception:
+            finder = None
+    best_other = max(colour, finder or 0)
+    use = mine > best_other
+    shutil.copyfile(tmp, stack_file())
+    info = {'use': use, 'exact': round(mine, 3), 'colour': round(colour, 3), 'finder': None if finder is None else round(finder, 3),
+            'frames': len(train), 'test': len(val), 'practice': len(fake), 'when': time.strftime('%b %d, %H:%M')}
+    with open(os.path.join(DIRS['models'], 'stack_reader.json'), 'w') as f:
+        json.dump(info, f)
+    say('Goals and loaders counted exactly right, on %d marked frames it never saw:' % len(val))
+    say('  stack reader %d%%   ·   pin finder %s   ·   colours %d%%' % (round(100 * mine), ('%d%%' % round(100 * finder)) if finder is not None else '—', round(100 * colour)))
+    say('STACK READER IN USE: matches tracked from now on are counted with it.' if use else 'The stack reader is not better yet, so it is not used. It learns again with every pins & cups training.')
+    return info
+
 def is_val(name):
     return int(hashlib.md5(name.encode()).hexdigest(), 16) % 100 < 15
 
@@ -5066,6 +5386,10 @@ def train_auto(cfg):
             do_train_pieces(cfg)
         except Exception as e:
             say('Training the pin & cup finder stopped:', e)
+        try:
+            do_stack_reader(cfg)
+        except Exception as e:
+            say('Training the stack reader stopped:', e)
     if not robots_ok:
         return
     info = do_train(cfg)
@@ -5196,6 +5520,7 @@ UI_HTML = r"""<!doctype html><html lang="en"><meta charset="utf-8"><meta name="v
  <label>Matches watched at once (4 to 8 suits an 8-core processor)</label><input id="sWorkers" type="number" min="1" max="16" style="width:100%">
  <label>Download speed</label><select id="sSpeed" style="width:100%"><option value="0">Full speed (uses the whole connection)</option><option value="40">Fast, leaves some room (40 MB/s)</option><option value="15">Gentle, fine for gaming (15 MB/s)</option><option value="5">Very gentle (5 MB/s)</option></select>
  <label><input id="sKeep" type="checkbox" style="width:auto"> Keep downloaded videos after tracking</label>
+ <label title="Downloads 1080p where the stream has it: pins at the far end of the field are a few pixels tall at 720p. Bigger downloads, a little slower."><input id="sSharp" type="checkbox" style="width:auto"> Sharper pin counting (1080p downloads)</label>
  <label><input id="sThink" type="checkbox" style="width:auto"> Vision model: also say what each robot is doing, and read plates the small reader cannot</label>
  <p style="margin:2px 0 10px;font-size:13px;opacity:.75">Free, and it runs on this computer's graphics card: nothing is sent anywhere. Turning it on installs Ollama and downloads a model of about 6 GB, once. Tracking takes roughly 20 seconds longer a match. It is new and can be wrong; the website marks what came from it.</p>
  <label>Admin key</label><button class="ghost" onclick="forgetKey()">Change the admin key</button>
@@ -5271,8 +5596,8 @@ async function saveKey(){const v=$('keyIn').value.trim();if(!v){$('keyMsg').text
  catch(e){$('keyMsg').textContent='The program behind this window did not answer. Close it and run VEX_Trainer.bat again.'}
  $('bKey').disabled=false;poll()}
 async function forgetKey(){await api('/api/key',{key:''});dlg.close();poll()}
-function openSettings(){$('sWorkers').value=st.workers;$('sKeep').checked=st.keep;$('sThink').checked=!!st.think;$('sSpeed').value=String(st.speed||0);dlg.showModal()}
-async function saveSettings(){await api('/api/settings',{workers:+$('sWorkers').value,keep:$('sKeep').checked,think:$('sThink').checked,speed:+$('sSpeed').value});dlg.close();poll()}
+function openSettings(){$('sWorkers').value=st.workers;$('sKeep').checked=st.keep;$('sSharp').checked=!!st.sharp;$('sThink').checked=!!st.think;$('sSpeed').value=String(st.speed||0);dlg.showModal()}
+async function saveSettings(){await api('/api/settings',{workers:+$('sWorkers').value,keep:$('sKeep').checked,sharp:$('sSharp').checked,think:$('sThink').checked,speed:+$('sSpeed').value});dlg.close();poll()}
 // review
 const c=$('c'),x=c.getContext('2d');let cur=null,img=new Image(),boxes=[],hist=[],drag=null,back=[],pm=false,pc=2,zoom=1;
 // Pins & cups: one class for each half's colour, one for cups.
@@ -5626,7 +5951,7 @@ def serve_ui(cfg, port=8765, open_window=True):
                 c, P = counts(), pcounts()
                 return self._send(200, {'version': VERSION, 'site': cfg['site'], 'key': bool(cfg.get('key')), 'busy': job.busy(), 'task': job.task if job.busy() else '',
                                         'log': job.lines(), 'progress': job.progress(), 'waiting': len(c['queue']), 'sure': _SURE[0], 'done': c['done'], 'gold': c['gold'], 'workers': cfg.get('workers', 4),
-                                        'keep': bool(cfg.get('keep_videos')), 'think': bool(cfg.get('think')), 'pieces': {'marked': P['marked'], 'left': len(P['queue']), 'counted': bool(P['at']), 'why': P.get('why'), 'guess': guess_source()[0], 'helper': helper_info().get('marks', 0), 'need': PIECE_NEED, 'last': last_pieces()}, 'speed': cfg.get('max_mbps', 0), 'last': last_train(), 'field': field_status()})
+                                        'keep': bool(cfg.get('keep_videos')), 'sharp': bool(cfg.get('sharp')), 'think': bool(cfg.get('think')), 'pieces': {'marked': P['marked'], 'left': len(P['queue']), 'counted': bool(P['at']), 'why': P.get('why'), 'guess': guess_source()[0], 'helper': helper_info().get('marks', 0), 'need': PIECE_NEED, 'last': last_pieces()}, 'speed': cfg.get('max_mbps', 0), 'last': last_train(), 'field': field_status()})
             if u.path == '/api/fframe':
                 qs_ = urllib.parse.parse_qs(u.query)
                 vid, want = qs_.get('vid', [''])[0], qs_.get('id', [''])[0]
@@ -5808,6 +6133,8 @@ def serve_ui(cfg, port=8765, open_window=True):
                 except (TypeError, ValueError):
                     pass
                 cfg['keep_videos'] = bool(body.get('keep'))
+                if 'sharp' in body:
+                    cfg['sharp'] = bool(body.get('sharp'))
                 turned_on = bool(body.get('think')) and not cfg.get('think')
                 cfg['think'] = bool(body.get('think'))
                 if body.get('speed') in (0, 5, 15, 40):
@@ -5962,6 +6289,8 @@ def main():
             unpublish(cfg)
         elif args[0] == '--quick-pieces':
             do_quick_pieces(cfg)
+        elif args[0] == '--stack-reader':
+            do_stack_reader(cfg)
         elif args[0] == '--field-finder':
             do_field_finder(cfg, auto='--auto' in args)
         elif args[0] == '--vreview':

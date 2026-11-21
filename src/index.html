@@ -3722,7 +3722,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v180';
+const APP_BUILD = 'v181';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -10431,7 +10431,7 @@ function vtReportSeen(S) {
 // the recordings are in the shared store too, so whichever device opens a
 // report fetches the ones it needs, makes the summaries again, keeps them, and
 // (with the admin key) shares them.
-const VT_REMAKE = 180;      // v180: the stream's score jumps credited to robots (sp, spa); v169: robots' fingerprints joined; v168: positions through the camera's lens; v164: boxes standing off the field dropped; v154: goal counts by the game's rules; v152: when the points came, from the stream's score; v150: unsure boxes carry on missing robots, whole-match slots, smoothed; v148: robots followed by speed and heading; v145/146: stacking timed at the goal (vs, vh)      // v136: pins counted on the goals as well (oy, oa, …)
+const VT_REMAKE = 181;      // v181: stacks counted by height; v180: the stream's score jumps credited to robots (sp, spa); v169: robots' fingerprints joined; v168: positions through the camera's lens; v164: boxes standing off the field dropped; v154: goal counts by the game's rules; v152: when the points came, from the stream's score; v150: unsure boxes carry on missing robots, whole-match slots, smoothed; v148: robots followed by speed and heading; v145/146: stacking timed at the goal (vs, vh)      // v136: pins counted on the goals as well (oy, oa, …)
 const vtStale = s => !!(s && s.ok && (s.rv || 0) < VT_REMAKE);
 const vtRefreshTried = new Set();
 // v174: reported "i met all the fixes and it didnt fix": the field was marked
@@ -12461,7 +12461,11 @@ function vtGoalLook(blobs, cols, W, H) {
     }
     if (best < 0) continue;
     const px = cols[best].scale * W, half = 0.75 * (40 / VT_FIELD_MM * px) * (82.5 / VT_FIELD_MM * px * 0.9);
-    const halves = Math.min(16, b.area / Math.max(4, half));
+    // v181: a stack of one colour merges into one tall patch. Its height over
+    // one half's height is the count; a side hidden or blurred does not make
+    // it short, as it would by its area. One or two halves: by area as before.
+    const tallH = 82.5 / VT_FIELD_MM * px * 0.9;
+    const halves = Math.min(16, b.h > 1.6 * tallH ? b.h / tallH : b.area / Math.max(4, half));
     if (halves >= 0.3) out[b.c][best] += halves;
   }
   return out;
