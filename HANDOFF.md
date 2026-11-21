@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v181**. Everything green: 128 test files.
+Current release: **v182**. Everything green: 129 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,18 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v182 (app 2.50) — matches watched in the Jumper are tracked by the app.**
+Asked: "whenever someone on the website uses the jumper and watches a match
+it automatically trains in the background". A page cannot read a YouTube
+iframe's pixels, so: `rewatchJump` → `vtWatchWant(ctx, m)` → `vtJobOf` (played,
+not practice, YouTube) → public `POST { want: { ev, job } }` (no passcode;
+`validJob`; skipped if `vt:ev2` has it; at most VT_WANTS_MAX 2000 in
+`vt:wants`); `GET ?wants=1` lists them newest first; a v2 rec POST HDELs
+`ev:id`. App: `wants_open(site)` (config `wants`, default on; tried < 2 in
+data/wants_tried.json) joins `do_jobs`' todo and wakes `track_all` when no
+job events exist; already-tracked ones are marked done. Checks:
+desktop/dev/wants.py (6), t168.
 
 **v181 (app 2.49) — counting pins exactly, the app's half.** (1) `blocked(sb,
 boxes)`: a spot more than 35% covered by a robot box is written -1s in `gs`
