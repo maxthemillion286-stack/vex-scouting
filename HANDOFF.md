@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v180**. Everything green: 127 test files.
+Current release: **v181**. Everything green: 128 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,25 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v181 (app 2.49) — counting pins exactly, the app's half.** (1) `blocked(sb,
+boxes)`: a spot more than 35% covered by a robot box is written -1s in `gs`
+that look (the website already skips -1). (2) Settings "Sharper pin counting":
+`cfg['sharp']` downloads ≤1080p. (3) Website `vtGoalLook`: a patch taller
+than 1.6 halves is counted by height ÷ one half's height (merged stacks),
+VT_REMAKE 181. (4) The stack reader: `StackNet` (5 conv blocks → mean over
+width → BiGRU 64 → 5 classes, CTC, bottom row first), 48×144 crops of each
+spot (`stack_crop`), labels = marked pieces bottom→top (`stack_label`);
+`stack_practice` pastes marked halves/cups (sized relative to their column)
+onto spots marked empty, with blur/noise; real examples ×3 + 3000 practice;
+`do_stack_reader` (after every pins & cups training, or `--stack-reader`)
+grades "spots counted exactly right" on person-marked test frames against
+the pin finder and colours (`stack_exact`), `use` only if it wins.
+`StackReader.counts(frame, spots, memory)`: median of the last 3 crops per
+spot (memory cleared when the camera moves), blocked spots not read. Eyes
+loads it when `stack_ready()`; tracking prefers it to the pin finder. Check:
+desktop/dev/stack.py (11; 16 with --train: 98–100% on drawn stacks vs colours
+31%, and it counts in a real tracking run), t167.
 
 **v180 — pins counted to add up, and the stream's score jump by jump.**
 Asked to count pins exactly ("build all of it", from the list of ideas).
