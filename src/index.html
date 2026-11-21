@@ -3722,7 +3722,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v181';
+const APP_BUILD = 'v182';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -5608,6 +5608,7 @@ function rewatchJump(matchId) {
   if (off === null) return;
   ctx.playing = { matchId, off };
   rwSeenMark(ctx.eventId, matchId, m.name);
+  vtWatchWant(ctx, m);
   rewatchRender();
   rwPlayAllArm();   // no-op unless "play all" is on; restarts the clock if it is
   const p = document.getElementById('rwPlayer');
@@ -8416,6 +8417,38 @@ function vtPlayed(m) {
   return !(m.t > Date.now());
 }
 // What can be watched: matches with a position in a YouTube video, in order.
+// ── A match watched here, offered to the app (v182) ────────────────────────
+// Asked: "whenever someone on the website uses the jumper and watches a match
+// it automatically trains in the background". A web page cannot read the
+// pictures of a YouTube video (the browser keeps another site's picture from
+// it), so the watching cannot be learned from here. Instead each played match
+// someone opens in the Jumper is offered to the desktop app, which tracks it
+// by itself the next time it looks for work: its frames go to review and the
+// robot finder's training, its recording to every team's numbers. Anyone's
+// watching offers it (no admin key); the app is what decides and saves.
+const vtWanted = new Set();
+function vtWatchWant(ctx, m) {
+  try {
+    const j = vtJobOf(m, ctx);
+    if (!j) return;
+    const key = ctx.eventId + ':' + j.id;
+    if (vtWanted.has(key)) return;
+    vtWanted.add(key);
+    vtApi('POST', '', { want: { ev: String(ctx.eventId), job: vtJobClean(j) } }).catch(() => {});
+  } catch (e) {}
+}
+// One match as a job for the app, or null (practice, not played, no YouTube video).
+function vtJobOf(m, ctx) {
+  if (!m || m.round === 1 || !vtPlayed(m)) return null;
+  const cal = rwCalForMatch(m, ctx.cal);
+  const off = rwOffsetFor(m, ctx.cal);
+  if (!cal || off === null || !cal.videoId || (cal.platform || 'youtube') !== 'youtube') return null;
+  if (!/^[A-Za-z0-9_-]{6,20}$/.test(String(cal.videoId))) return null;
+  return { id: String(m.id), name: m.name, round: m.round, num: m.num, t: m.t, vid: String(cal.videoId), off,
+    red: (m.redNums || []).map(v => String(v).toUpperCase().replace(/[^A-Z0-9]/g, '')),
+    blue: (m.blueNums || []).map(v => String(v).toUpperCase().replace(/[^A-Z0-9]/g, '')),
+    rs: m.redScore, bs: m.blueScore };
+}
 function vtQueueFrom(ctx) {
   if (!ctx || !ctx.eventId) return [];
   const out = [];

@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.49'
+VERSION = '2.50'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -3175,6 +3175,42 @@ def download(vid_or_url, dest_stem, windows=None):
         return None
 
 
+# ── matches watched on the website (v2.50) ─────────────────────────────────
+# Asked: "whenever someone on the website uses the jumper and watches a match
+# it automatically trains in the background". The website cannot learn from
+# a YouTube video itself (the browser does not let a page read another site's
+# picture), so a match watched in the Jumper is offered to this app, which
+# tracks it like a match the website sent: its frames join review, and its
+# recording, the website's numbers. A match that could not be tracked twice
+# is left alone.
+WANTS_TRIES = 2
+
+def wants_tried(new=None):
+    path = os.path.join(DIRS['data'], 'wants_tried.json')
+    if new is not None:
+        try:
+            with open(path, 'w') as f:
+                json.dump(dict(list(new.items())[-5000:]), f)
+        except Exception:
+            pass
+        return new
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def wants_open(site):
+    """Matches watched on the website still to try: [{ev, job}]."""
+    if not load_config().get('wants', True):
+        return []
+    try:
+        wants = site.get('?wants=1').get('wants') or []
+    except Exception:
+        return []
+    tried = wants_tried()
+    return [w for w in wants if tried.get('%s:%s' % (w.get('ev'), (w.get('job') or {}).get('id')), 0) < WANTS_TRIES and isinstance(w.get('job'), dict)]
+
 # ── menu: track what the website asked for ──────────────────────────────────
 def do_jobs(cfg):
     site = Site(cfg)
@@ -3182,21 +3218,49 @@ def do_jobs(cfg):
         return
     r = site.get('?jobs=1')
     events = r.get('events') or []
-    if not events:
+    wants = wants_open(site)
+    if not events and not wants:
         say('\nThe website has not asked for anything. On the website, open an event in the Jumper, and in the\n'
             'Robot tracker box press "Send this event to the app" or "Send these teams\' earlier matches to the app".')
         return
     todo = {}                                         # vid → [(ev, job)]
     asked = done_already = 0
+    haves = {}
+    def have_of(ev):
+        if ev not in haves:
+            haves[ev] = set(str(i) for i in (site.get('?event=' + str(ev)).get('ids') or []))
+        return haves[ev]
+    queued = set()
     for ev in events:
         jobs = site.get('?jobs=' + str(ev)).get('list') or []
-        have = set(str(i) for i in (site.get('?event=' + str(ev)).get('ids') or []))
+        have = have_of(ev)
         asked += len(jobs)
         for j in jobs:
             if str(j['id']) in have:
                 done_already += 1
             else:
                 todo.setdefault(j['vid'], []).append((ev, j))
+                queued.add('%s:%s' % (ev, j['id']))
+    # Matches someone watched in the Jumper (v2.50): tracked too, newest first.
+    if wants:
+        tried = wants_tried()
+        n_w = 0
+        for w in wants:
+            ev, j = str(w['ev']), w['job']
+            key = '%s:%s' % (ev, j['id'])
+            if key in queued:
+                continue
+            if str(j['id']) in have_of(ev):
+                tried[key] = WANTS_TRIES                 # tracked already: nothing to do
+                continue
+            todo.setdefault(j['vid'], []).append((ev, j))
+            queued.add(key)
+            tried[key] = tried.get(key, 0) + 1
+            n_w += 1
+        asked += n_w
+        wants_tried(tried)
+        if n_w:
+            say('\n%d match%s watched on the website (in the Jumper) are tracked too.' % (n_w, '' if n_w == 1 else 'es'))
     left = sum(len(v) for v in todo.values())
     say('\nThe website asked for %d matches in %d events. %d are already tracked; %d to go, in %d videos.' % (asked, len(events), done_already, left, len(todo)))
     if not left:
@@ -5304,6 +5368,8 @@ def track_all(cfg, loop=True):
         try:
             site = Site(cfg)
             events = site.get('?jobs=1').get('events') or []
+            if not events and wants_open(site):
+                events = ['watched']                  # only matches watched on the website: still work
             if events:
                 quiet = False
                 n = do_jobs(cfg)

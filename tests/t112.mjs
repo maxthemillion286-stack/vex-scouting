@@ -147,6 +147,7 @@ console.log('\n· shared storage and the passcode');
       if (c[0] === 'GET') return { result: db.get(c[1]) || null };
       if (c[0] === 'SADD') { if (!sets.has(c[1])) sets.set(c[1], new Set()); sets.get(c[1]).add(c[2]); return { result: 1 }; }
       if (c[0] === 'SMEMBERS') return { result: [...(sets.get(c[1]) || [])] };
+      if (c[0] === 'HDEL') return { result: 0 };                     // v182: a watched match asked for is cleared
       return { error: 'unknown' };
     });
     return { ok: true, status: 200, json: async () => out };
