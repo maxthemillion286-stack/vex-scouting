@@ -3722,7 +3722,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v179';
+const APP_BUILD = 'v180';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -10070,6 +10070,46 @@ function vtScoreFlow(rec, ph) {
   const d = (ph.end - ph.driver) / 3, marks = [ph.start, ph.driver, ph.driver + d, ph.driver + 2 * d, ph.end + 5];
   return [0, 1].map(k => [0, 1, 2, 3].map(j => at(k, marks[j + 1]) - at(k, marks[j])));
 }
+// ── The stream's score, jump by jump (v180) ────────────────────────────────
+// Asked to count exactly. Where the stream shows the live score (and it ends
+// on the official final, which vtScoreFlow checks), every rise in an
+// alliance's score is something it scored at that moment, worth exactly that
+// many points. Each rise goes to the alliance's robot that was at a goal in
+// the few seconds before it; with both there or neither, it is shared. A fall
+// (a descore against it) is not taken from anyone. → per robot {p, a} or null.
+function vtScoreJumps(rec, track, ph) {
+  const a = rec && rec.sc;
+  if (!Array.isArray(a) || a.length < 30 || !track || !track.length || !ph) return null;
+  const rows = [];
+  for (let i = 0; i + 2 < a.length; i += 3) rows.push({ t: a[i] / 10, v: [a[i + 1], a[i + 2]] });
+  const out = { 1: [{ p: 0, a: 0 }, { p: 0, a: 0 }], 2: [{ p: 0, a: 0 }, { p: 0, a: 0 }] };
+  const near = (p) => p ? Math.min(...VT_GOALS_FIELD.map(g => Math.hypot(p.x - g[0], p.y - g[1]))) : Infinity;
+  for (const k of [0, 1]) {
+    const c = k + 1;
+    let held = null, prev = null;
+    for (const r of rows) {
+      const v = r.v[k];
+      if (!(v >= 0)) { prev = null; continue; }
+      if (v === prev && v !== held) {
+        if (held !== null && v > held && r.t >= ph.start - 1 && r.t <= ph.end + 8) {
+          const d = v - held;
+          // Who was at a goal in the six seconds before the score was seen to change (it is read once a second or so, and believed on the second reading).
+          const best = [Infinity, Infinity];
+          for (const b of track) {
+            if (b.t < r.t - 8 || b.t > r.t) continue;
+            for (const i of [0, 1]) best[i] = Math.min(best[i], near(b.s[c][i]));
+          }
+          const at = best.map(x => x < 0.12);
+          const share = at[0] && !at[1] ? [1, 0] : at[1] && !at[0] ? [0, 1] : at[0] && at[1] ? (best[0] <= best[1] ? [0.75, 0.25] : [0.25, 0.75]) : [0.5, 0.5];
+          for (const i of [0, 1]) { out[c][i].p += d * share[i]; if (r.t < ph.driver) out[c][i].a += d * share[i]; }
+        }
+        held = v;
+      }
+      prev = v;
+    }
+  }
+  return out;
+}
 function vtSummarise(rec, quad, learn) {
   const F = vtFrames(rec, quad, learn);
   // vid and of (where the match is in which video) are what a clip is cut from.
@@ -10185,6 +10225,14 @@ function vtSummarise(rec, quad, learn) {
   // driver control (net, so a descore counts against).
   const flow = vtScoreFlow(rec, ph);
   if (flow) for (const [o, k] of [[Rall, 0], [Ball, 1]]) { o.sa = flow[k][0]; o.s1 = flow[k][1]; o.s2 = flow[k][2]; o.s3 = flow[k][3]; }
+  // Each jump in the stream's score, credited to a robot (v180): sp points in
+  // the match, spa in autonomous.
+  if (flow && F.field && axis) {
+    try {
+      const J = vtScoreJumps(rec, track, ph);
+      if (J) [[Ra, 1, 0], [Rb, 1, 1], [Ba, 2, 0], [Bb, 2, 1]].forEach(([row, c, i]) => { row.sp = Math.round(J[c][i].p); row.spa = Math.round(J[c][i].a); });
+    } catch (e) {}
+  }
   // The game's own measures, only where the field is known.
   if (F.field && axis) {
     try {
@@ -10383,7 +10431,7 @@ function vtReportSeen(S) {
 // the recordings are in the shared store too, so whichever device opens a
 // report fetches the ones it needs, makes the summaries again, keeps them, and
 // (with the admin key) shares them.
-const VT_REMAKE = 169;      // v169: robots' fingerprints joined; v168: positions through the camera's lens; v164: boxes standing off the field dropped; v154: goal counts by the game's rules; v152: when the points came, from the stream's score; v150: unsure boxes carry on missing robots, whole-match slots, smoothed; v148: robots followed by speed and heading; v145/146: stacking timed at the goal (vs, vh)      // v136: pins counted on the goals as well (oy, oa, …)
+const VT_REMAKE = 180;      // v180: the stream's score jumps credited to robots (sp, spa); v169: robots' fingerprints joined; v168: positions through the camera's lens; v164: boxes standing off the field dropped; v154: goal counts by the game's rules; v152: when the points came, from the stream's score; v150: unsure boxes carry on missing robots, whole-match slots, smoothed; v148: robots followed by speed and heading; v145/146: stacking timed at the goal (vs, vh)      // v136: pins counted on the goals as well (oy, oa, …)
 const vtStale = s => !!(s && s.ok && (s.rv || 0) < VT_REMAKE);
 const vtRefreshTried = new Set();
 // v174: reported "i met all the fixes and it didnt fix": the field was marked
@@ -10593,11 +10641,12 @@ function vtTeamRows(number, sums) {
     // and the partner's own count (pya), so a robot is never credited with
     // more in autonomous than its alliance scored.
     const side = onRed ? 'R' : 'B', sa = Number.isFinite(a.sa) ? a.sa : null, ya = o => (s[side + o] && Number.isFinite(s[side + o].ya)) ? s[side + o].ya : 0;
-    for (const o of ['a', 'b']) { const r1 = s[side + o], r2 = s[(onRed ? 'B' : 'R') + o]; if (r1) pair.push({ ...r1, ...res, asa: sa, pya: ya(o === 'a' ? 'b' : 'a') }); if (r2) pairOthers.push(r2); }
+    const X = vtExact(s), xf = X ? X[side] : null, xo = X ? X[onRed ? 'B' : 'R'] : null;
+    for (const o of ['a', 'b']) { const r1 = s[side + o], r2 = s[(onRed ? 'B' : 'R') + o]; if (r1) pair.push({ ...r1, ...res, asa: sa, pya: ya(o === 'a' ? 'b' : 'a'), xf }); if (r2) pairOthers.push({ ...r2, xf: xo }); }
     const p = picks.get(key);
     if (p) {
       const me = s[side + p.slot];
-      if (me) { own.push({ ...me, ...res, asa: sa, pya: ya(p.slot === 'a' ? 'b' : 'a') }); how[p.how]++; for (const o of ['a', 'b']) { const r = s[(onRed ? 'B' : 'R') + o]; if (r) ownOthers.push(r); } }
+      if (me) { own.push({ ...me, ...res, asa: sa, pya: ya(p.slot === 'a' ? 'b' : 'a'), xf }); how[p.how]++; for (const o of ['a', 'b']) { const r = s[(onRed ? 'B' : 'R') + o]; if (r) ownOthers.push(r); } }
     }
   }
   return { mine, others, own, ownOthers, pair, pairOthers, how };
@@ -10826,7 +10875,7 @@ async function vtCoachFill(number, hostId) {
     return `<tr><td class="vt-coach-ev">${esc(name)}${when ? `<span>${esc(when)}</span>` : ''}</td><td data-label="Matches">${(own ? r.own : r.mine).length}<span>${own ? (r.own.length < r.mine.length ? `its robot told apart in ${r.own.length} of ${r.mine.length} tracked` : 'all tracked, its robot told apart') : `tracked, alliance; its robot told apart in ${r.own.length}`}</span></td>
       <td data-label="Autonomous" class="vt-coach-mid">${auto ? esc(auto) : none}</td>
       <td data-label="Goes for" class="vt-coach-mid">${P ? (P.style ? esc(P.style.text) : 'too few pins to say') : none}</td>
-      <td data-label="Pins a match">${P ? P.pins.toFixed(1) + `<span>${chk.ok ? `checked: ±${vtPct(chk.err)}` : 'not checked yet'}</span>` : none}</td><td data-label="Points a match">${(() => { const v = r.mine.map(x => x.pts).filter(x => typeof x === 'number'); return v.length ? Math.round(vtAvg(v)) + `<span>its alliance, official, ${v.length} match${v.length === 1 ? '' : 'es'}</span>` : none; })()}</td>
+      <td data-label="Pins a match">${P ? P.pins.toFixed(1) + `<span>${(() => { const rr = own ? r.own : r.pair, n = rr.filter(x => Number.isFinite(x.xf)).length; return n ? `fitted to the official score in ${own ? n : Math.round(n / 2)} of ${own ? rr.length : Math.round(rr.length / 2)}` : chk.ok ? `checked: ±${vtPct(chk.err)}` : 'not checked yet'; })()}</span>` : none}</td><td data-label="Points a match">${(() => { const v = r.mine.map(x => x.pts).filter(x => typeof x === 'number'); return v.length ? Math.round(vtAvg(v)) + `<span>its alliance, official, ${v.length} match${v.length === 1 ? '' : 'es'}</span>` : none; })()}</td>
       <td data-label="5 pins stacked in">${P ? (P.t5 !== null ? Math.round(P.t5) + ' s' + (P.timed ? `<span>a pin every ${P.perPin.toFixed(1)} s at the goal</span>` : '') : `not timed yet<span>${[...m.values()].some(vtStale) ? 'its matches are being read again' : 'too few pins seen being stacked'}</span>`) : none}</td></tr>`;
   }).join('');
   host.innerHTML = `<div class="detail-block"><div class="detail-block-label">${mineTeam ? 'Your robot' : esc(num)}, as the tracker sees it</div>
@@ -10862,6 +10911,58 @@ async function vtCoachFill(number, hostId) {
 // toggle is not known. Yellow nobody owned makes the counts look high, which
 // the correction then absorbs. Four matches are needed before any of it is used.
 const VT_PTS_YELLOW = 10, VT_PTS_OWN = 5, VT_PTS_AUTO = 12, VT_PTS_MID = 8;
+// ── The end of a match, made to add up (v180) ──────────────────────────────
+// Asked to count pins exactly. The official final score is known and is made
+// of fixed values: 5 an own-colour half, 10 a yellow half (where the alliance
+// owns it), 12 for the autonomous bonus, 8 a robot in midfield. So for each
+// match, the whole numbers of halves nearest what the video counted that add
+// up EXACTLY to both alliances' official scores are found (the bonus tried
+// each way: red, blue, or shared on a tie), and each robot's count is scaled
+// by its alliance's: xf, used in place of the event-wide correction. A match
+// the video barely saw is left alone.
+function vtExact(s) {
+  if (s._x !== undefined) return s._x;
+  s._x = null;
+  if (!s || !s.ok || !s.pk || !Number.isFinite(s.rs) || !Number.isFinite(s.bs)) return null;
+  const obs = c => { const rs_ = c === 1 ? [s.Ra, s.Rb] : [s.Ba, s.Bb]; return { own: rs_.reduce((a, r) => a + ((r && r.as) || 0), 0), y: rs_.reduce((a, r) => a + ((r && r.ys) || 0), 0), mid: rs_.filter(r => r && r.eg).length }; };
+  const O = [null, obs(1), obs(2)];
+  if (O[1].own + O[1].y + O[2].own + O[2].y < 2) return null;
+  const score = [null, s.rs, s.bs];
+  // Fit one alliance: its own and yellow halves nearest the counts making
+  // `left` points. Robots in midfield may be one off what was seen, and a few
+  // points the count does not model (a remainder under 5) may be left over;
+  // both cost something, so the plain reading wins when it fits.
+  const fit = (c, bonus) => {
+    let best = null;
+    for (const mid of [O[c].mid, O[c].mid - 1, O[c].mid + 1]) {
+      if (mid < 0 || mid > 2) continue;
+      const all = score[c] - bonus - VT_PTS_MID * mid;
+      if (all < 0) continue;
+      const rest = all % VT_PTS_OWN, left = all - rest;
+      for (let y = 0; y * VT_PTS_YELLOW <= left; y++) {
+        const own = (left - y * VT_PTS_YELLOW) / VT_PTS_OWN;
+        const cost = (own - O[c].own) ** 2 + 0.5 * (y - O[c].y) ** 2 + (mid !== O[c].mid ? 4 : 0) + (rest ? 2 : 0);
+        if (!best || cost < best.cost) best = { own, y, mid, bonus, rest, cost };
+      }
+    }
+    return best;
+  };
+  let pick = null;
+  for (const [br, bb] of [[VT_PTS_AUTO, 0], [0, VT_PTS_AUTO], [VT_PTS_AUTO / 2, VT_PTS_AUTO / 2]]) {
+    if (Number.isFinite(s.R && s.R.sa) && Number.isFinite(s.B && s.B.sa)) {       // the stream showed who won autonomous
+      const w = s.R.sa > s.B.sa ? 1 : s.R.sa < s.B.sa ? 2 : 0;
+      if ((w === 1 && br !== VT_PTS_AUTO) || (w === 2 && bb !== VT_PTS_AUTO) || (w === 0 && br !== bb)) continue;
+    }
+    const a = fit(1, br), b = fit(2, bb);
+    if (a && b && (!pick || a.cost + b.cost < pick.cost)) pick = { cost: a.cost + b.cost, 1: a, 2: b };
+  }
+  if (!pick) return null;
+  const xf = c => { const seen = O[c].own + O[c].y, got = pick[c].own + pick[c].y; return seen >= 1 ? got / seen : null; };
+  s._x = { R: xf(1), B: xf(2), r: pick[1], b: pick[2] };
+  return s._x;
+}
+// The correction a robot's row takes: its match's exact fit where there is one, else the event's.
+const vtFx = (r, fix) => (r && Number.isFinite(r.xf) ? r.xf : fix);
 function vtPinCheck(sums) {
   const ratios = [];
   for (const s of (sums && sums.values ? sums.values() : sums || [])) {
@@ -10912,7 +11013,7 @@ function vtCoachPins(rows, per, check) {
   const got = rows.filter(r => r.ys !== undefined && r.ys !== null);
   if (got.length < per) return null;
   const fix = check && check.ok ? check.k : 1;           // corrected by the official scores, where they could be checked
-  const matches = got.length / per, sum = k => fix * got.reduce((a, r) => a + (r[k] || 0), 0);
+  const matches = got.length / per, sum = k => got.reduce((a, r) => a + vtFx(r, fix) * (r[k] || 0), 0);
   const halves = (sum('ys') + sum('as')) / matches, pins = halves / 2;
   // Five pins: timed at the goal where it could be (v145), else its fastest
   // stretch between set-downs. The gaps between set-downs alone are not used:
@@ -11300,9 +11401,10 @@ function vtAutoFacts(rows, per, check) {
   // the least), shared between its two robots by their own counts: a robot
   // is never given more than its alliance could have scored.
   const halves = r => {
-    let h = fix * r.ya;
+    let h = vtFx(r, fix) * r.ya;
+    if (Number.isFinite(r.spa) && h > r.spa / VT_PTS_OWN + 1e-9) { h = r.spa / VT_PTS_OWN; F.capped++; }     // its own share of the stream's autonomous points
     if (Number.isFinite(r.asa)) {
-      const cap = Math.max(0, r.asa) / VT_PTS_OWN, both = fix * (r.ya + (r.pya || 0));
+      const cap = Math.max(0, r.asa) / VT_PTS_OWN, both = vtFx(r, fix) * (r.ya + (r.pya || 0));
       if (both > cap + 1e-9) { h = both > 0 ? h * cap / both : 0; F.capped++; }
     }
     return h;
@@ -12833,7 +12935,7 @@ function vtPinLine(mine, others, isOwn, check) {
   // and clear info that directly relates to their scoring strategy". Pins,
   // not halves; what it goes for; how fast; against the robots it faced; and
   // how sure the count is, in one line.
-  const both = list => list.filter(r => r.ys !== undefined && r.ys !== null).map(r => fix * ((r.ys || 0) + (r.as || 0)) / 2);
+  const both = list => list.filter(r => r.ys !== undefined && r.ys !== null).map(r => vtFx(r, fix) * ((r.ys || 0) + (r.as || 0)) / 2);
   const mp = both(mine), op = both(others || []);
   const per = mp.length ? vtAvg(mp) : null, operPin = op.length >= 2 ? vtAvg(op) : null;
   const who = isOwn ? '' : ' (a robot on its alliance, on average)';
@@ -12848,7 +12950,10 @@ function vtPinLine(mine, others, isOwn, check) {
     const r = per / Math.max(0.1, operPin);
     bullets.push(r >= 1.25 ? `Scores more than the robots it plays against (${pinsWord(per)} to their ${Math.round(operPin)}).` : r <= 0.8 ? `Scores less than the robots it plays against (${pinsWord(per)} to their ${Math.round(operPin)}).` : `Scores about as much as the robots it plays against.`);
   }
-  bullets.push(check && check.ok ? `Counted from video and checked against ${check.n} official scores: usually within ${vtPct(check.err)}.` : 'Counted from video; not checked against official scores yet.');
+  const spr = mine.filter(r => Number.isFinite(r.sp));
+  if (spr.length >= 2) bullets.push(`The stream's own score credits it${isOwn ? '' : ' (a robot on its alliance)'} with about ${Math.round(vtAvg(spr.map(r => r.sp)))} points a match (${spr.length} matches with the score shown).`);
+  const exact = mine.filter(r => Number.isFinite(r.xf)).length;
+  bullets.push(exact ? `Counted from video, then made to add up to the official score in ${exact} of ${mine.length} matches.` : check && check.ok ? `Counted from video and checked against ${check.n} official scores: usually within ${vtPct(check.err)}.` : 'Counted from video; not checked against official scores yet.');
   return { avg, other, pace, n: a.length, short, bullets,
     text: `${isOwn ? 'Sets down' : 'A robot on its alliance sets down'} about ${avg.toFixed(1)} yellow halves a match (worth ${Math.round(avg * 10)} when its alliance holds that toggle)${pace ? `, a pin every ${pace.toFixed(1)} s while it is at the goal stacking (timed from when it got there to when it left, over the pins it added)` : ''}${t5 !== null ? `; its fastest five pins usually take ${Math.round(t5)} s` : ''}${other !== null ? `; the robots it faced: ${other.toFixed(1)}` : ''}. ${vtPinCheckText(check)}` };
 }
