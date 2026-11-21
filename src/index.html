@@ -3722,7 +3722,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v178';
+const APP_BUILD = 'v179';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -10589,11 +10589,15 @@ function vtTeamRows(number, sums) {
     const res = { won: my > their ? 1 : my < their ? 0 : null, name: s.name, margin: (my || 0) - (their || 0) };
     mine.push({ ...a, ...res, pts: my });
     others.push({ ...b, pts: their });
-    for (const o of ['a', 'b']) { const r1 = s[(onRed ? 'R' : 'B') + o], r2 = s[(onRed ? 'B' : 'R') + o]; if (r1) pair.push({ ...r1, ...res }); if (r2) pairOthers.push(r2); }
+    // v179: the alliance's autonomous points as the stream showed them (asa),
+    // and the partner's own count (pya), so a robot is never credited with
+    // more in autonomous than its alliance scored.
+    const side = onRed ? 'R' : 'B', sa = Number.isFinite(a.sa) ? a.sa : null, ya = o => (s[side + o] && Number.isFinite(s[side + o].ya)) ? s[side + o].ya : 0;
+    for (const o of ['a', 'b']) { const r1 = s[side + o], r2 = s[(onRed ? 'B' : 'R') + o]; if (r1) pair.push({ ...r1, ...res, asa: sa, pya: ya(o === 'a' ? 'b' : 'a') }); if (r2) pairOthers.push(r2); }
     const p = picks.get(key);
     if (p) {
-      const me = s[(onRed ? 'R' : 'B') + p.slot];
-      if (me) { own.push({ ...me, ...res }); how[p.how]++; for (const o of ['a', 'b']) { const r = s[(onRed ? 'B' : 'R') + o]; if (r) ownOthers.push(r); } }
+      const me = s[side + p.slot];
+      if (me) { own.push({ ...me, ...res, asa: sa, pya: ya(p.slot === 'a' ? 'b' : 'a') }); how[p.how]++; for (const o of ['a', 'b']) { const r = s[(onRed ? 'B' : 'R') + o]; if (r) ownOthers.push(r); } }
     }
   }
   return { mine, others, own, ownOthers, pair, pairOthers, how };
@@ -10693,7 +10697,7 @@ function vtReportAuto(rep, L) {
   const G = rep.game && rep.game.n >= 3 ? rep.game : null, F = rep.autoFacts, items = [];
   if (F) {
     if (vtAutoSide(F)) items.push(vtAutoSide(F) + '. The driver-station side is the quadrant by its drivers, with both of its loaders.');
-    if (F.pins !== null) items.push(`Sets down ${vtAutoPinsText(F)}${F.each && F.each.length >= 2 ? ` in its ${F.each.length} tracked matches` : ' (both robots together, halved)'}.`);
+    if (F.pins !== null) items.push(`Sets down ${vtAutoPinsText(F)}${F.each && F.each.length >= 2 ? ` in its ${F.each.length} tracked matches (${F.each.join(', ')})` : ' (both robots together, halved)'}. ${F.scored ? `Held to its alliance's autonomous score on the stream in ${F.scored} of them${F.capped ? `; ${F.capped} counted higher than that score allows were brought down to it` : ''}.` : 'Counted from the video: no stream score to check it against.'}`);
     if (F.tog !== null) items.push(`Its alliance has ${vtAutoTogText(F)} turned to its colour by the end of it.`);
   }
   const R = G && G.replay;
@@ -11288,13 +11292,28 @@ function vtGameLines(rows, others, isOwn, extra) {
 // turned, which side it starts on. `per` is 1 for one robot's rows, 2 when the
 // rows are both robots of its alliances.
 function vtAutoFacts(rows, per, check) {
-  const fix = check && check.ok ? check.k : 1, F = { pins: null, tog: null, near: 0, sideN: 0 };
+  const fix = check && check.ok ? check.k : 1, F = { pins: null, tog: null, near: 0, sideN: 0, capped: 0 };
   const p = rows.filter(r => r.ya !== undefined && r.ya !== null);
-  if (p.length >= per) F.pins = fix * p.reduce((a, r) => a + r.ya, 0) / 2 / (p.length / per);
+  // v179: "6 pin autonomous is crazy high … the most this team can score is
+  // 4, can it not count it instead of guess". Where the stream showed the
+  // score, the alliance's autonomous points bound its halves (5 a half at
+  // the least), shared between its two robots by their own counts: a robot
+  // is never given more than its alliance could have scored.
+  const halves = r => {
+    let h = fix * r.ya;
+    if (Number.isFinite(r.asa)) {
+      const cap = Math.max(0, r.asa) / VT_PTS_OWN, both = fix * (r.ya + (r.pya || 0));
+      if (both > cap + 1e-9) { h = both > 0 ? h * cap / both : 0; F.capped++; }
+    }
+    return h;
+  };
+  if (p.length >= per) F.pins = p.reduce((a, r) => a + halves(r), 0) / 2 / (p.length / per);
   // v173: "how can autons have .5 pins its always a whole number". Each
   // match's autonomous is a whole number of pins; the average of them is not.
   // So it is shown as what the robot usually scores, and the range.
-  if (per === 1 && p.length) F.each = p.map(r => Math.max(0, Math.round(fix * r.ya / 2)));
+  F.capped = 0;
+  if (per === 1 && p.length) F.each = p.map(r => Math.max(0, Math.round(halves(r) / 2)));
+  F.scored = p.filter(r => Number.isFinite(r.asa)).length;
   const t = rows.filter(r => r.tga !== undefined && r.tga !== null);
   if (t.length) F.tog = vtAvg(t.map(r => r.tga));
   if (t.length) F.togs = t.map(r => Math.max(0, Math.round(r.tga)));
@@ -11312,9 +11331,10 @@ function vtAutoSide(F) {
 function vtUsual(avg, e) {
   if (avg === null || avg === undefined) return null;
   if (!e || e.length < 2) { const n = Math.round(avg); return { n, lo: n, hi: n, usual: false, of: e ? e.length : 0 }; }
-  const c = new Map(); for (const v of e) c.set(v, (c.get(v) || 0) + 1);
-  const n = [...c.keys()].sort((a, b) => c.get(b) - c.get(a) || Math.abs(a - avg) - Math.abs(b - avg))[0];
-  return { n, lo: Math.min(...e), hi: Math.max(...e), usual: true, of: e.length };
+  // v179: the middle match (the lower of the two middles), not the most
+  // common count: with a few matches one high count twice was "usually".
+  const o = [...e].sort((a, b) => a - b), n = o[Math.floor((o.length - 1) / 2)];
+  return { n, lo: o[0], hi: o[o.length - 1], usual: true, of: e.length };
 }
 function vtUsualText(A, one, many) {
   if (!A) return '';
