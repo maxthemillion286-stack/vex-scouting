@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v178**. Everything green: 125 test files.
+Current release: **v179**. Everything green: 126 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,16 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v179 — autonomous held to the stream's score.** Reported: "6 pin autonomous
+is crazy high … the most this team can score is 4, can it not count it
+instead of guess". `vtTeamRows` gives own/pair rows the alliance's
+stream-read autonomous points (`asa`, from `vtScoreFlow`'s `sa`) and the
+partner's count (`pya`); `vtAutoFacts` caps the two robots' halves together
+at `asa / VT_PTS_OWN`, shared by their counts (`F.capped`, `F.scored`).
+`vtUsual` is now the lower middle match, not the most common count (one high
+count twice was "usually"). The report lists each match's count and whether
+it was checked against the stream. Check: t165.
 
 **v178 (app 2.48) — the vision model marks pins & cups first.** Asked:
 "why cant the vision model also … let the vision model review first too for
