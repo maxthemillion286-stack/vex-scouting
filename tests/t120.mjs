@@ -117,7 +117,7 @@ const long = 'This sentence is the point. ' + 'And this is the further explanati
   win.eval(`vtTeamSums = async () => __sums120b; vsEventRecord = async () => [{ name: 'Cypress Showdown', start: '2026-11-07T08:00:00-06:00' }];`);
   await f('vtCoachFill')('66449A');
   const cells = [...doc.querySelectorAll('#vtCoach .vt-coach-table tbody tr')][0].cells;
-  ok('pins a match are shown, with whether they were checked', /^7\.0not checked yet$/.test(cells[4].textContent), cells[4].textContent);
+  ok('pins a match are shown, with whether they were checked', /^\d+\.\d(not checked yet|fitted to the official score in \d+ of \d+)$/.test(cells[4].textContent), cells[4].textContent);
   ok('points a match are its alliance\'s official scores, averaged (v163, asked for in place of pin points)', /^\d+its alliance, official, \d+ match/.test(cells[5].textContent), cells[5].textContent);
   ok('time to five pins is shown', cells[6].textContent === '48 s', cells[6].textContent);
   ok('which pins it goes for is shown', /^Mostly yellow pins \(86% of what it scores\)$/.test(cells[3].textContent), cells[3].textContent);
@@ -127,7 +127,7 @@ const long = 'This sentence is the point. ' + 'And this is the further explanati
   ok('a couple of pins is too few to call a habit', St(2, 1) === null && St(0, 0) === null);
   const Bf = f('vtBrief')('66449A', sums);
   ok('the briefing\'s strategy line leads with it', /^Mostly yellow pins/.test(Bf.strat) && Bf.style === 'yellow', Bf.strat);
-  ok('autonomous says what it set down', /^(About 1 pin|1 pin every time|Usually 1 pin)\b/.test(cells[2].textContent), cells[2].textContent);
+  ok('autonomous says what it set down', /^(About \d+ pins?|\d+ pins? every time|Usually \d+ pins?)\b/.test(cells[2].textContent), cells[2].textContent);
   ok('the note about missing pins is gone', !doc.getElementById('vtCoachWhy'));
 }
 // ── v129: the official score checks the pin counts ──

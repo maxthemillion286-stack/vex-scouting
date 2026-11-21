@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v179**. Everything green: 126 test files.
+Current release: **v180**. Everything green: 127 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,21 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v180 — pins counted to add up, and the stream's score jump by jump.**
+Asked to count pins exactly ("build all of it", from the list of ideas).
+`vtExact(s)`: per match, whole own/yellow halves nearest the robots' counts
+such that 5·own + 10·yellow + bonus (12 to red, blue, or 6 each; fixed by
+the stream's `sa` when read) + 8·midfield (±1 allowed, cost 4) + a remainder
+under 5 (cost 2) equals each alliance's official score; `xf` = fitted ÷
+counted per alliance, put on team rows (`vtTeamRows`) and used by `vtFx(r,
+fix)` in place of the event-wide `check.k` (pins, auto, pin line). The table
+says "fitted to the official score in N of M". `vtScoreJumps`: each believed
+rise in a stream score (between start−1 and end+8) goes to the alliance robot
+within 0.12 of a goal in the 8 s before (both: 0.75/0.25 to the nearer;
+neither: halves) → row `sp`, `spa`; autonomous halves capped at `spa/5`; the
+report says the stream's points a match. VT_REMAKE 180. Check: t166 (t120
+updated).
 
 **v179 — autonomous held to the stream's score.** Reported: "6 pin autonomous
 is crazy high … the most this team can score is 4, can it not count it
