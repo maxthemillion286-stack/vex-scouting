@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.53'
+VERSION = '2.54'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -2107,12 +2107,18 @@ def ask_answer(cfg, q):
         if h.get('role') in ('user', 'assistant') and isinstance(h.get('content'), str):
             msgs.append({'role': h['role'], 'content': h['content'][:2000]})
     msgs.append({'role': 'user', 'content': question})
-    body = {'model': think_model(cfg), 'stream': False, 'keep_alive': '10m', 'options': {'temperature': 0.2, 'num_predict': 700, 'num_ctx': 32768}, 'messages': msgs}
-    if not _THINK['plain']:
-        body['think'] = False
-    if not _ASK_LOCK.acquire(timeout=120):
-        return {'error': 'Busy with another question; try again in a moment.'}
-    try:
+    # v2.54: reported "No answer came back.": the model spent its words
+    # thinking to itself and left the answer empty. The answer is now asked
+    # for as JSON ({"answer": …}), which it must fill, with room to write,
+    # thinking turned off (and "/no_think" said, for models that take it
+    # that way); if it still comes back empty, once more with more room.
+    msgs[-1] = {'role': 'user', 'content': question + ' /no_think'}
+    schema = {'type': 'object', 'required': ['answer'], 'properties': {'answer': {'type': 'string'}}}
+    def once(tokens):
+        body = {'model': think_model(cfg), 'stream': False, 'keep_alive': '10m', 'format': schema,
+                'options': {'temperature': 0.2, 'num_predict': tokens, 'num_ctx': 16384}, 'messages': msgs}
+        if not _THINK['plain']:
+            body['think'] = False
         try:
             r = ollama_call('/api/chat', body, timeout=300)
         except urllib.error.HTTPError as e:
@@ -2122,8 +2128,23 @@ def ask_answer(cfg, q):
                 r = ollama_call('/api/chat', body, timeout=300)
             else:
                 raise
-        text = ((r.get('message') or {}).get('content') or '').strip()
-        return {'answer': text or 'No answer came back.'}
+        m = r.get('message') or {}
+        raw = (m.get('content') or '').strip()
+        try:
+            got = json.loads(raw) if raw else {}
+            text = str(got.get('answer') or '').strip() if isinstance(got, dict) else ''
+        except Exception:
+            text = raw                              # plain words: use them as they are
+        return text, (m.get('thinking') or '').strip()
+    if not _ASK_LOCK.acquire(timeout=120):
+        return {'error': 'Busy with another question; try again in a moment.'}
+    try:
+        text, thought = once(1200)
+        if not text:
+            text, thought = once(3000)
+        if text:
+            return {'answer': text}
+        return {'error': 'The vision model gave no answer%s. Try asking more simply, or check that %s is installed in Ollama.' % (' (it only thought about it)' if thought else '', think_model(cfg))}
     except Exception as e:
         return {'error': 'The vision model could not answer (%s).' % str(e)[:120]}
     finally:
