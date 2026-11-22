@@ -2527,12 +2527,6 @@
   .cmp-num { display: block; line-height: 24px; }
   .cmp-num .mt-team { display: inline; padding: 0; margin: 0; }
   .cmp-pm { color: var(--text-dim); font-size: 0.85em; margin-left: 2px; }
-  .t-ask-log { display: flex; flex-direction: column; gap: 8px; margin: 8px 0; }
-  .t-ask-log:empty { display: none; }
-  .t-ask-q { align-self: flex-end; max-width: 85%; padding: 8px 12px; border-radius: 12px; background: var(--accent); color: #fff; font-size: 14px; }
-  .t-ask-wait { opacity: 0.7; font-style: italic; }
-  .t-ask-err { border-color: var(--warn, #c77) !important; }
-  .t-ask-a { align-self: flex-start; max-width: 92%; padding: 8px 12px; border-radius: 12px; border: 1px solid var(--border); font-size: 14px; line-height: 1.5; white-space: pre-wrap; }
   .md-plan { margin-top: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; line-height: 1.5; }
   .md-plan:empty { display: none; }
   .md-plan b { color: var(--text); }
@@ -3733,7 +3727,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v189';
+const APP_BUILD = 'v190';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -7742,94 +7736,6 @@ function tCompareRemove(number) { tCompareSet(tCompareList().filter(n => n !== t
 function tCompareClear() { tCompareSet([]); }
 
 // rows: [{ label, values: [..], show: v => string, better: 'high' | 'low' | null }]
-// ── Ask (v184) ─────────────────────────────────────────────────────────────
-// Asked: "ask it anything … would this be like basically a chatbot?" A
-// question about this event goes, with the event's numbers as a table (what
-// this page already shows: seeds, records, ratings, offence and defence, and
-// what the tracker saw of each team), to the desktop app on this computer,
-// whose vision model answers from that table only. Nothing goes to any
-// other service. It needs the app open on this computer with the vision
-// model on; the page says so when it cannot reach it.
-let tAskHist = [];
-function tAskBlock(R) {
-  return `<div class="detail-block-label" style="margin-top:22px">Ask about this event</div>
-    <div class="t-ask">
-      <div class="t-ask-log" id="tAskLog">${tAskHist.map(h => `<div class="t-ask-${h.role === 'user' ? 'q' : 'a'}">${esc(h.content)}</div>`).join('')}</div>
-      <div class="cmp-add"><input type="text" id="tAskInput" placeholder="e.g. Who has the best autonomous from the right side?" autocomplete="off" enterkeyhint="send" onkeydown="if(event.key==='Enter')tAsk()">
-      <button class="btn btn-primary" id="tAskBtn" onclick="tAsk()">Ask</button></div>
-      <div class="lp-help" id="tAskNote">Answered by the vision model in the desktop app, from this event's numbers only. Works on any device while the app is open on a computer. Check anything important against the tables.</div>
-    </div>`;
-}
-// The event as a table: one line a team.
-async function tAskTable(R, seeds) {
-  const nums = seeds.map(t => String(t.number).toUpperCase());
-  let many = null;
-  try { many = await Promise.race([vtTeamSumsMany(nums), new Promise(r => setTimeout(() => r(null), 6000))]); } catch (e) {}
-  const f1 = v => (typeof v === 'number' && Number.isFinite(v)) ? v.toFixed(1) : '';
-  const lines = ['Columns: team | seed | wins-losses-ties | rating (about the points it adds to an alliance) | autonomous points (AP) a match | tracked matches | autonomous pins (tracked) | autonomous routes | how it scores (tracked) | role',
-    'team | seed | W-L-T | rating | AP | tracked | auto pins | auto routes | scoring | role'];
-  for (const t of seeds) {
-    const id = String(t.id), n = String(t.number).toUpperCase();
-    let tr = '', ap = '', rt = '', sc = '', role = '';
-    try {
-      const sums = many && many.get(n.replace(/[^A-Z0-9]/g, ''));
-      if (sums && sums.size) {
-        const rep = vtReport(n, sums);
-        tr = String(rep.n || sums.size);
-        if (rep.autoFacts && rep.autoFacts.pins !== null) ap = vtAutoPinsText(rep.autoFacts) + (rep.own ? '' : ' (alliance, halved)');
-        const RT = (rep.game && rep.game.routes) || [];
-        rt = RT.map((r, i) => `route ${i + 1}: ${r.n}/${r.of}${r.start ? ' from ' + r.start : ''}${r.pins !== null ? ', ' + r.pins + ' pins' : ''}`).join('; ');
-        sc = rep.pins && rep.pins.bullets ? rep.pins.bullets.slice(0, 4).join(' ') : '';
-        const RR = vtTeamRows(n, sums), ro = tRoleOf(RR.own.length >= 3 ? RR.own : RR.mine);
-        if (ro) role = ro.label;
-      }
-    } catch (e) {}
-    lines.push([n, t.eventRank || '', `${t.wins || 0}-${t.losses || 0}-${t.ties || 0}`, f1(R.ratings.get(id)),
-      f1(R.apRate && R.apRate.get(id)), tr, ap, rt, sc, role].join(' | '));
-  }
-  return lines.join('\n');
-}
-// v187/v188: reported "i asked a question to the box and nothing happened",
-// then again with the app open and updated: the browser kept the page from
-// talking to the app on the computer. So questions go through this
-// website's own server instead: it keeps the question a few minutes, the
-// owner's app (wherever it is open) takes it, answers it and puts the answer
-// back, and this page waits for it. Any device can ask, phones too, while
-// the app is open somewhere. The question stays, and each step or problem
-// shows in the conversation.
-const T_ASK_WAIT_MS = 240000;
-async function tAsk() {
-  const inp = document.getElementById('tAskInput'), btn = document.getElementById('tAskBtn'), log = document.getElementById('tAskLog');
-  const q = inp && inp.value.trim();
-  const C = window._tAskCtx;
-  if (!q || !log) return;
-  btn.disabled = true;
-  inp.value = '';
-  log.insertAdjacentHTML('beforeend', `<div class="t-ask-q">${esc(q)}</div><div class="t-ask-a t-ask-wait">Gathering this event's numbers…</div>`);
-  const bubble = log.lastElementChild;
-  const say = (t, cls) => { bubble.textContent = t; bubble.className = 't-ask-a' + (cls ? ' ' + cls : ''); };
-  try {
-    if (!C) return say('This event has not loaded yet. Open the Ask tab again in a moment.', 't-ask-err');
-    const table = (await tAskTable(C.R, C.seeds)).slice(0, 140000);
-    say('Sending the question…', 't-ask-wait');
-    const r = await vtApi('POST', '', { ask: { question: q, table, where: (C.R.event && C.R.event.name) || tournamentEventName || '', history: tAskHist.slice(-6) } });
-    if (!r.ok || !r.body || !r.body.id) return say((r.body && r.body.error) || 'The website could not take the question just now. Try again in a moment.', 't-ask-err');
-    const id = r.body.id, t0 = Date.now();
-    say('Waiting for the app to answer…', 't-ask-wait');
-    while (Date.now() - t0 < T_ASK_WAIT_MS) {
-      await new Promise(res => setTimeout(res, 2000));
-      const g = await vtApi('GET', '?ask=' + id).catch(() => null);
-      const b = g && g.body;
-      if (b && b.answer) { say(b.answer); tAskHist.push({ role: 'user', content: q }, { role: 'assistant', content: b.answer }); return; }
-      if (b && b.error) return say(b.error, 't-ask-err');
-      if (b && b.waiting && Date.now() - t0 > 9000) say(b.app ? 'The vision model is thinking (the first answer can take a minute)…'
-        : 'Waiting for the desktop app: it answers when it is open on a computer. If it is open, give it a few seconds; it checks every few seconds.', 't-ask-wait');
-    }
-    say('No answer came in 4 minutes. Is the desktop app open (version 2.53 or later) with the vision model on in its Settings?', 't-ask-err');
-  } catch (e) {
-    say('Something went wrong: ' + (e && e.message ? e.message : e), 't-ask-err');
-  } finally { btn.disabled = false; }
-}
 function tCompareBlock(R, roster, focus, pairWin) {
   const byNum = new Map(roster.map(t => [String(t.number).toUpperCase(), t]));
   const you = focus ? byNum.get(focus) : null;
@@ -16426,7 +16332,6 @@ function tournamentNav(active) {
     ${btn('awards', 'Awards')}
     ${btn('bracket', 'Bracket')}
     ${btn('picklist', 'Pick List')}
-    ${btn('ask', 'Ask')}
     ${tournamentFocusTeamNumber ? `<button class="t-nav-btn${active === 'team' ? ' active' : ''}" onclick="tournamentGo('team')">${esc(tournamentFocusTeamNumber)}</button>` : ''}
     ${tournamentEventId ? `<button class="t-nav-btn t-more-btn" aria-expanded="false" onclick="tNavMore(this)">More</button>` : ''}
     ${tournamentEventId ? tOfflineButton(tournamentEventId) : ''}
@@ -16539,7 +16444,7 @@ function tPredict(R, redNums, blueNums, seed) {
 const tPredClass = p => p >= 65 ? 'pred-good' : p <= 35 ? 'pred-bad' : 'pred-even';
 
 const T_VIEW_LABELS = { teams: 'Teams', matches: 'Matches', skills: 'Skills',
-  awards: 'Awards', bracket: 'Bracket', picklist: 'Pick List', team: 'that team', ask: 'Ask' };
+  awards: 'Awards', bracket: 'Bracket', picklist: 'Pick List', team: 'that team' };
 
 function tournamentGo(view) {
   tournamentView = view;
@@ -16556,30 +16461,7 @@ function tournamentGo(view) {
   if (view === 'bracket') return renderBracketView();
   if (view === 'picklist') return renderTournamentPickList();
   if (view === 'team') return renderEventTeamMatchesView();
-  if (view === 'ask') return renderTournamentAsk();
 }
-// v186: Ask has its own tab (reported: "cant see the chat box": it sat at the
-// bottom of the Pick List).
-async function renderTournamentAsk() {
-  tournamentView = 'ask';
-  const resultsEl = document.getElementById('tournamentResults'), loadingEl = document.getElementById('tournamentLoading'), loadingText = document.getElementById('tournamentLoadingText');
-  const say = t => { if (loadingText) loadingText.textContent = t; };
-  if (!tournamentTeamCache) { await loadAndRenderTeamList(); if (tournamentView !== 'ask') return; }
-  loadingEl.classList.add('active');
-  say('READING THE EVENT...');
-  let R = null;
-  try { R = await tRatings(say); } catch (e) {}
-  loadingEl.classList.remove('active');
-  if (tournamentView !== 'ask') return;
-  const head = `<div class="tournament-summary"><div class="tournament-summary-name">${esc(tournamentEventName)}</div><div class="tournament-summary-count">Ask about this event</div></div>${tournamentNav('ask')}`;
-  const roster = (tournamentTeamCache || []).filter(t => t.eventRank);
-  if (!R || roster.length < 2) { resultsEl.innerHTML = head + `<div class="t-empty">No match results yet, so there is nothing to answer from.</div>`; return; }
-  window._tAskCtx = { R, seeds: roster.slice().sort((a, b) => a.eventRank - b.eventRank) };
-  resultsEl.innerHTML = head + tAskBlock(R).replace('<div class="detail-block-label" style="margin-top:22px">Ask about this event</div>', '');
-  const inp = document.getElementById('tAskInput');
-  if (inp && !vsIsPhone()) inp.focus();
-}
-
 // Every match at the event, played and upcoming, with scores
 async function renderTournamentMatches() {
   tournamentView = 'matches';
