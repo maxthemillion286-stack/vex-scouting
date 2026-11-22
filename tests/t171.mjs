@@ -62,6 +62,7 @@ await win.eval('tAsk()');
 const log = win.document.getElementById('tAskLog').textContent;
 ok('the page shows the question and the answer', log.includes('best auto?') && log.includes('471A, usually 6 pins.'), log);
 ok('the app takes questions every few seconds while its window is open', /def ask_relay\(cfg_get, stop\):/.test(app) && /target=ask_relay/.test(app) && /'asksTake': 1/.test(app));
+ok('v189: the answer is asked for as JSON it must fill, thinking off, asked again with more room if empty', /'format': schema/.test(app) && /text, thought = once\(3000\)/.test(app));
 ok('app 2.53 or later', /VERSION = '2\.(5[3-9]|[6-9]\d)'/.test(app));
 ok('release is v188 or later', /const APP_BUILD = 'v1(8[8-9]|9\d)'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);

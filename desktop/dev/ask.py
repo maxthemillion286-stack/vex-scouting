@@ -16,6 +16,7 @@ def check(name, cond, detail=''):
     else: fail += 1; print('  FAIL', name, detail)
 
 asked = []
+mode = {'empty': 0}
 class O(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
     def _send(self, obj):
@@ -26,7 +27,10 @@ class O(BaseHTTPRequestHandler):
         self._send({})
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers['Content-Length']))); asked.append(body)
-        self._send({'message': {'role': 'assistant', 'content': '66449A: usually 4 pins.'}, 'done': True})
+        if mode['empty']:
+            mode['empty'] -= 1
+            return self._send({'message': {'role': 'assistant', 'content': '', 'thinking': 'hmm, let me think about autos…'}, 'done': True})
+        self._send({'message': {'role': 'assistant', 'content': json.dumps({'answer': '66449A: usually 4 pins.'})}, 'done': True})
 o = ThreadingHTTPServer(('127.0.0.1', 0), O); threading.Thread(target=o.serve_forever, daemon=True).start()
 T.OLLAMA = 'http://127.0.0.1:%d' % o.server_address[1]
 T.say = lambda *a, **k: None
@@ -61,8 +65,15 @@ table = 'team | auto pins\n66449A | usually 4 pins'
 c, h, b = req('POST', '/ask', SITE, {'question': 'Who has the best auto?', 'table': table, 'where': 'Excalibur', 'history': [{'role': 'user', 'content': 'hi'}, {'role': 'assistant', 'content': 'hello'}]})
 check('a question is answered', c == 200 and json.loads(b).get('answer') == '66449A: usually 4 pins.', b)
 m = asked[-1]['messages'] if asked else []
-check('the model gets the table, the earlier turns and the question', m and table in m[0]['content'] and 'Excalibur' in m[0]['content'] and m[1]['content'] == 'hi' and m[-1]['content'] == 'Who has the best auto?', str(m)[:300])
+check('the model gets the table, the earlier turns and the question', m and table in m[0]['content'] and 'Excalibur' in m[0]['content'] and m[1]['content'] == 'hi' and m[-1]['content'].startswith('Who has the best auto?'), str(m)[:300])
 check('and is told to use only the table', m and 'ONLY the data below' in m[0]['content'])
+check('the answer is asked for as JSON it must fill, with thinking off', asked[-1].get('format', {}).get('required') == ['answer'] and asked[-1].get('think') is False)
+mode['empty'] = 1
+c, h, b = req('POST', '/ask', SITE, {'question': 'Again?', 'table': table})
+check('an empty answer (all thinking) is asked again, with more room', json.loads(b).get('answer') == '66449A: usually 4 pins.' and asked[-1]['options']['num_predict'] > asked[-2]['options']['num_predict'], b)
+mode['empty'] = 2
+c, h, b = req('POST', '/ask', SITE, {'question': 'Again?', 'table': table})
+check('still empty: says so plainly, not "no answer came back"', 'only thought about it' in json.loads(b).get('error', ''), b)
 c, h, b = req('POST', '/ask', 'https://evil.example', {'question': 'x', 'table': ''})
 check('another website cannot ask', c == 403)
 srv.shutdown()
@@ -88,6 +99,6 @@ stop.set(); th.join(5)
 ans = [b['askAnswer'] for b in posted if 'askAnswer' in b]
 check('the app takes a question from the website and puts the answer back', ans and ans[0]['id'] == 'abcdef0123456789' and ans[0].get('answer') == '66449A: usually 4 pins.', str(posted)[:300])
 T.Site = real_site
-check('app 2.53 or later', T.VERSION >= '2.53')
+check('app 2.54 or later', T.VERSION >= '2.54')
 print('ask checks: %d ok, %d failing' % (ok, fail))
 sys.exit(1 if fail else 0)

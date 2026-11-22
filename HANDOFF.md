@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v188**. Everything green: 131 test files.
+Current release: **v189**. Everything green: 131 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,14 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v189 (app 2.54) — Ask's empty answers.** Reported: the relay worked but
+the reply was "No answer came back." (the model's content was empty: a
+thinking model spending its tokens on thought). `ask_answer` now asks with
+`format` {answer: string}, `think` false, " /no_think" on the question,
+num_predict 1200 (then 3000 if still empty), num_ctx 16384; plain text is
+used if it is not JSON; still empty → an error saying so. Checks:
+desktop/dev/ask.py (14), t171.
 
 **v188 (app 2.53) — Ask goes through the website.** Reported again with the
 app open and updated: "Could not reach the desktop app". The browser keeps a
