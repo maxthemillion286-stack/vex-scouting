@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v184**. Everything green: 129 test files.
+Current release: **v185**. Everything green: 130 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,23 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v185 (app 2.52) — Ask, and the robot finder teaching itself.** #10 and #2
+of the advanced list. Ask: event page block `tAskBlock` → `tAsk()` finds the
+app (`GET http://127.0.0.1:8765..8774/ask/ping`), builds `tAskTable(R,
+seeds)` (a line a team: seed, record, rating, `R.skill` ±, AP, and from
+`vtReport`/`vtTeamRows`: tracked matches, auto pins, routes, pin bullets,
+role) and POSTs `/ask` {question, table, where, history}. App: `/ask` and
+`/ask/ping` skip the window token but only for `ASK_ORIGINS` (the site,
+localhost:3000); `do_OPTIONS` answers the CORS + Private Network Access
+preflight; `ask_answer` sends system prompt ("ONLY the data below") + last 6
+turns + question to Ollama (num_ctx 32768, one at a time), returns
+{answer} or {error}. Verified in real Chromium cross-origin. Teaching:
+`teach_again()` before each robot training re-looks at every unreviewed
+4-box steady frame with the current finder (`teacher_look`: four sure robots
+2+2, the mirrored look must match each box IoU ≥ 0.6 and colour), replaces
+boxes or sets `steady` 0; once per finder file (`teach` tag). Checks:
+desktop/dev/ask.py (10), desktop/dev/teach.py (6), t170.
 
 **v184 — skill model, next-match plan, autonomous routes.** Asked for #5, #7
 and #3 of the advanced list. `sim_skill(observations)` (observations now carry

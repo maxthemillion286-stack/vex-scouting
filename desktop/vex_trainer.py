@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.51'
+VERSION = '2.52'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -1175,6 +1175,81 @@ def steady_four(boxes, before, unsure, w):
             return False
     return True
 
+# ── self-teaching (v2.52) ─────────────────────────────────────────────────
+# Asked for the robot finder to teach itself. Frames it was sure of while
+# tracking (four sure robots, two of each colour, where the look before had
+# them) are already trained on. Before each training they are now looked at
+# again by the newest finder, as the teacher: once as they are and once
+# mirrored. A frame is kept only where both looks find the same four robots;
+# its boxes become the teacher's. So as the finder gets better, so do the
+# frames it learns from, and a frame it was wrongly sure of drops out.
+TEACH_MAX = 1500
+
+def _iou(a, b):
+    ix = max(0.0, min(a[0] + a[2], b[0] + b[2]) - max(a[0], b[0]))
+    iy = max(0.0, min(a[1] + a[3], b[1] + b[3]) - max(a[1], b[1]))
+    u = a[2] * a[3] + b[2] * b[3] - ix * iy
+    return ix * iy / u if u > 0 else 0.0
+
+def teacher_look(eyes, frame):
+    """The finder's four robots on a frame if it finds the same four mirrored, else None."""
+    w = frame.shape[1]
+    a = [b for b in eyes.detect(frame) if b[4] >= CONF]
+    if len(a) != 4 or sorted(b[5] for b in a) != [1, 1, 2, 2] or any(b[4] < 0.6 for b in a):
+        return None
+    m = [b for b in eyes.detect(frame[:, ::-1].copy()) if b[4] >= CONF]
+    if len(m) != 4:
+        return None
+    back = [[w - b[0] - b[2], b[1], b[2], b[3], b[4], b[5]] for b in m]
+    out = []
+    for b in a:
+        best = max(back, key=lambda o: _iou(b, o))
+        if _iou(b, best) < 0.6 or best[5] != b[5]:
+            return None
+        out.append([round((b[0] + best[0]) / 2, 1), round((b[1] + best[1]) / 2, 1), round((b[2] + best[2]) / 2, 1), round((b[3] + best[3]) / 2, 1), round(min(b[4], best[4]), 3), int(b[5])])
+    return out
+
+def teach_again(eyes=None, limit=TEACH_MAX):
+    """The newest finder looks again at the frames it was sure of. → (kept, dropped)."""
+    import cv2
+    try:
+        tag = str(int(os.path.getmtime(detector_path())))
+    except Exception:
+        tag = '0'
+    todo = []
+    for n in os.listdir(PROPS):
+        name = n[:-5]
+        if os.path.exists(os.path.join(LABELS, n)) or not os.path.exists(os.path.join(FRAMES, name + '.jpg')):
+            continue
+        try:
+            with open(os.path.join(PROPS, n)) as f:
+                p = json.load(f)
+        except Exception:
+            continue
+        if len(p.get('boxes') or []) == 4 and p.get('steady', 1) and p.get('teach') != tag:
+            todo.append((name, p))
+    if not todo:
+        return 0, 0
+    if eyes is None:
+        eyes = Eyes(quiet=True)
+    kept = dropped = 0
+    for i, (name, p) in enumerate(todo[:limit]):
+        if i % 25 == 0:
+            progress('The finder is checking the frames it was sure of', i, min(limit, len(todo)))
+        frame = cv2.imread(os.path.join(FRAMES, name + '.jpg'))
+        got = teacher_look(eyes, frame) if frame is not None else None
+        if got:
+            p['boxes'] = [b[:5] for b in got]
+            p['steady'] = 1
+            kept += 1
+        else:
+            p['steady'] = 0                   # not sure of it any more: not trained on
+            dropped += 1
+        p['teach'] = tag
+        with open(os.path.join(PROPS, name + '.json'), 'w') as f:
+            json.dump(p, f)
+    return kept, dropped
+
 def auto_count():
     try:
         return sum(1 for n in os.listdir(PROPS) if n.endswith('.json') and '"auto": 1' in open(os.path.join(PROPS, n)).read(200))
@@ -2000,6 +2075,59 @@ def share_set(key, frac):
 # check. Coordinates from Qwen3-VL come as 0-1000 of the picture (pixels of
 # the picture sent are taken too, if a model gives those).
 VLM_WHAT = ['robot', 'person', 'referee or staff', 'field element or game piece', 'sign or screen', 'other']
+
+# ── Ask: questions about the scouting data, answered on this computer (v2.52) ──
+# Asked: "ask it anything … would this be like basically a chatbot?" The
+# website's Ask box sends the question with the event's numbers as a table
+# (what the website already shows); the vision model here answers from that
+# table only, and says when the table does not have the answer. Only the
+# website (and this computer) may ask, it only gets text back, and one
+# question is answered at a time. Nothing leaves this computer.
+ASK_ORIGINS = ('https://vex-scouting-by-max.vercel.app', 'http://localhost:3000', 'http://127.0.0.1:3000')
+ASK_MAX_BYTES = 400000
+_ASK_LOCK = threading.Lock()
+
+def ask_answer(cfg, q):
+    question = str(q.get('question') or '').strip()[:600]
+    table = str(q.get('table') or '')[:300000]
+    where = str(q.get('where') or '').strip()[:200]
+    history = [h for h in (q.get('history') or [])[-6:] if isinstance(h, dict)]
+    if not question:
+        return {'error': 'no question'}
+    if not cfg.get('think'):
+        return {'error': 'Turn on the vision model in the app\'s Settings: it is what answers.'}
+    if not ensure_think(cfg):
+        return {'error': 'The vision model is not ready on this computer yet.'}
+    system = ('You are a scouting assistant for a VEX V5 Robotics Competition team (game: Override). Answer the question using ONLY the data below%s. '
+              'Quote the numbers you use, name teams by their number, and keep it short: a few sentences or a short list. '
+              'If the data does not answer it, say so plainly and say what would. Do not invent numbers. '
+              'Column meanings are given in the first lines of the data.\n\nDATA:\n%s') % ((' about ' + where) if where else '', table)
+    msgs = [{'role': 'system', 'content': system}]
+    for h in history:
+        if h.get('role') in ('user', 'assistant') and isinstance(h.get('content'), str):
+            msgs.append({'role': h['role'], 'content': h['content'][:2000]})
+    msgs.append({'role': 'user', 'content': question})
+    body = {'model': think_model(cfg), 'stream': False, 'keep_alive': '10m', 'options': {'temperature': 0.2, 'num_predict': 700, 'num_ctx': 32768}, 'messages': msgs}
+    if not _THINK['plain']:
+        body['think'] = False
+    if not _ASK_LOCK.acquire(timeout=120):
+        return {'error': 'Busy with another question; try again in a moment.'}
+    try:
+        try:
+            r = ollama_call('/api/chat', body, timeout=300)
+        except urllib.error.HTTPError as e:
+            if e.code == 400 and 'think' in body:
+                _THINK['plain'] = True
+                del body['think']
+                r = ollama_call('/api/chat', body, timeout=300)
+            else:
+                raise
+        text = ((r.get('message') or {}).get('content') or '').strip()
+        return {'answer': text or 'No answer came back.'}
+    except Exception as e:
+        return {'error': 'The vision model could not answer (%s).' % str(e)[:120]}
+    finally:
+        _ASK_LOCK.release()
 
 def vlm_ask(cfg, prompt, schema, jpeg, tokens=400):
     """One question with one picture, answered as JSON to the schema. → dict or None."""
@@ -5090,6 +5218,12 @@ def do_train(cfg):
         return
     import torch
     from ultralytics import YOLO
+    try:
+        kept, dropped = teach_again()
+        if kept or dropped:
+            say('The finder looked again at the frames it was sure of: %d confirmed (its newest boxes kept), %d it is no longer sure of (left out).' % (kept, dropped))
+    except Exception as e:
+        say('  (could not look again at the frames it was sure of: %s)' % str(e)[:100])
     root, counts = build_dataset()
     say('Training on %d reviewed frames and %d the finder was sure of; testing on %d.' % (counts['train'], counts['pseudo'], counts['val']))
     device = 0 if torch.cuda.is_available() else 'cpu'
@@ -5902,11 +6036,14 @@ def serve_ui(cfg, port=8765, open_window=True):
     class H(BaseHTTPRequestHandler):
         def log_message(self, *a):
             pass
-        def _send(self, code, body, ctype='application/json'):
+        def _send(self, code, body, ctype='application/json', cors=None):
             body = body if isinstance(body, bytes) else (body if isinstance(body, str) else json.dumps(body)).encode('utf-8')
             self.send_response(code)
             self.send_header('Content-Type', ctype)
             self.send_header('Content-Length', str(len(body)))
+            if cors:
+                self.send_header('Access-Control-Allow-Origin', cors)
+                self.send_header('Vary', 'Origin')
             self.send_header('Cache-Control', 'no-store')
             self.send_header('X-Content-Type-Options', 'nosniff')
             self.end_headers()
@@ -5932,8 +6069,31 @@ def serve_ui(cfg, port=8765, open_window=True):
                 except Exception:
                     pass
 
+        def _ask_origin(self):
+            """The website (or this computer) asking a question: its origin, else None."""
+            o = (self.headers.get('Origin') or '').rstrip('/')
+            return o if o in ASK_ORIGINS else None
+        def do_OPTIONS(self):
+            # The website asks first whether it may (a browser's check before
+            # a page on the internet talks to this computer): only for /ask.
+            o = self._ask_origin()
+            if not o or not self.path.startswith('/ask'):
+                self.send_response(403); self.end_headers(); return
+            self.send_response(204)
+            self.send_header('Access-Control-Allow-Origin', o)
+            self.send_header('Access-Control-Allow-Methods', 'GET, POST')
+            self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+            self.send_header('Access-Control-Allow-Private-Network', 'true')
+            self.send_header('Access-Control-Max-Age', '600')
+            self.send_header('Vary', 'Origin')
+            self.end_headers()
         def _get(self):
             u = urllib.parse.urlparse(self.path)
+            if u.path == '/ask/ping':
+                o = self._ask_origin()
+                if not o:
+                    return self._send(403, {'error': 'not allowed'})
+                return self._send(200, {'ok': True, 'think': bool(load_config().get('think')), 'app': VERSION}, cors=o)
             if not self._allowed(u):
                 return self._send(403, {'error': 'not allowed'})
             if u.path == '/':
@@ -6050,6 +6210,18 @@ def serve_ui(cfg, port=8765, open_window=True):
 
         def _post(self):
             u = urllib.parse.urlparse(self.path)
+            if u.path == '/ask':
+                o = self._ask_origin()
+                if not o:
+                    return self._send(403, {'error': 'not allowed'})
+                try:
+                    n = int(self.headers.get('Content-Length', 0))
+                    if n > ASK_MAX_BYTES:
+                        return self._send(413, {'error': 'too much'}, cors=o)
+                    q = json.loads(self.rfile.read(n).decode('utf-8') or '{}')
+                except Exception:
+                    return self._send(400, {'error': 'bad request'}, cors=o)
+                return self._send(200, ask_answer(load_config(), q), cors=o)
             if not self._allowed(u):
                 return self._send(403, {'error': 'not allowed'})
             try:

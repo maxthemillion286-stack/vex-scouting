@@ -2527,6 +2527,10 @@
   .cmp-num { display: block; line-height: 24px; }
   .cmp-num .mt-team { display: inline; padding: 0; margin: 0; }
   .cmp-pm { color: var(--text-dim); font-size: 0.85em; margin-left: 2px; }
+  .t-ask-log { display: flex; flex-direction: column; gap: 8px; margin: 8px 0; }
+  .t-ask-log:empty { display: none; }
+  .t-ask-q { align-self: flex-end; max-width: 85%; padding: 8px 12px; border-radius: 12px; background: var(--accent); color: #fff; font-size: 14px; }
+  .t-ask-a { align-self: flex-start; max-width: 92%; padding: 8px 12px; border-radius: 12px; border: 1px solid var(--border); font-size: 14px; line-height: 1.5; white-space: pre-wrap; }
   .md-plan { margin-top: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; line-height: 1.5; }
   .md-plan:empty { display: none; }
   .md-plan b { color: var(--text); }
@@ -3727,7 +3731,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v184';
+const APP_BUILD = 'v185';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -7736,6 +7740,92 @@ function tCompareRemove(number) { tCompareSet(tCompareList().filter(n => n !== t
 function tCompareClear() { tCompareSet([]); }
 
 // rows: [{ label, values: [..], show: v => string, better: 'high' | 'low' | null }]
+// ── Ask (v184) ─────────────────────────────────────────────────────────────
+// Asked: "ask it anything … would this be like basically a chatbot?" A
+// question about this event goes, with the event's numbers as a table (what
+// this page already shows: seeds, records, ratings, offence and defence, and
+// what the tracker saw of each team), to the desktop app on this computer,
+// whose vision model answers from that table only. Nothing goes to any
+// other service. It needs the app open on this computer with the vision
+// model on; the page says so when it cannot reach it.
+const T_ASK_PORTS = [8765, 8766, 8767, 8768, 8769, 8770, 8771, 8772, 8773, 8774];
+let tAskPort = null, tAskHist = [];
+function tAskBlock(R) {
+  return `<div class="detail-block-label" style="margin-top:22px">Ask about this event</div>
+    <div class="t-ask">
+      <div class="t-ask-log" id="tAskLog">${tAskHist.map(h => `<div class="t-ask-${h.role === 'user' ? 'q' : 'a'}">${esc(h.content)}</div>`).join('')}</div>
+      <div class="cmp-add"><input type="text" id="tAskInput" placeholder="e.g. Who has the best autonomous from the right side?" autocomplete="off" enterkeyhint="send" onkeydown="if(event.key==='Enter')tAsk()">
+      <button class="btn btn-primary" id="tAskBtn" onclick="tAsk()">Ask</button></div>
+      <div class="lp-help" id="tAskNote">Answered by the vision model in the desktop app on this computer, from this event's numbers only. The app has to be open.</div>
+    </div>`;
+}
+async function tAskFindApp() {
+  if (tAskPort) return tAskPort;
+  for (const p of T_ASK_PORTS) {
+    try {
+      const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 700);
+      const r = await fetch(`http://127.0.0.1:${p}/ask/ping`, { signal: ctl.signal });
+      clearTimeout(t);
+      if (r.ok) { const j = await r.json(); if (j && j.ok) { tAskPort = p; return p; } }
+    } catch (e) {}
+  }
+  return null;
+}
+// The event as a table: one line a team.
+async function tAskTable(R, seeds) {
+  const nums = seeds.map(t => String(t.number).toUpperCase());
+  let many = null;
+  try { many = await Promise.race([vtTeamSumsMany(nums), new Promise(r => setTimeout(() => r(null), 6000))]); } catch (e) {}
+  const f1 = v => (typeof v === 'number' && Number.isFinite(v)) ? v.toFixed(1) : '';
+  const lines = ['Columns: team | seed | wins-losses-ties | rating (points it adds, older model) | adds to its alliance ± range | takes off opponents ± range | autonomous points (AP) a match | tracked matches | autonomous pins (tracked) | autonomous routes | how it scores (tracked) | role',
+    'team | seed | W-L-T | rating | adds | takes off | AP | tracked | auto pins | auto routes | scoring | role'];
+  for (const t of seeds) {
+    const id = String(t.id), n = String(t.number).toUpperCase(), k = R.skill && R.skill.get(id);
+    let tr = '', ap = '', rt = '', sc = '', role = '';
+    try {
+      const sums = many && many.get(n.replace(/[^A-Z0-9]/g, ''));
+      if (sums && sums.size) {
+        const rep = vtReport(n, sums);
+        tr = String(rep.n || sums.size);
+        if (rep.autoFacts && rep.autoFacts.pins !== null) ap = vtAutoPinsText(rep.autoFacts) + (rep.own ? '' : ' (alliance, halved)');
+        const RT = (rep.game && rep.game.routes) || [];
+        rt = RT.map((r, i) => `route ${i + 1}: ${r.n}/${r.of}${r.start ? ' from ' + r.start : ''}${r.pins !== null ? ', ' + r.pins + ' pins' : ''}`).join('; ');
+        sc = rep.pins && rep.pins.bullets ? rep.pins.bullets.slice(0, 4).join(' ') : '';
+        const RR = vtTeamRows(n, sums), ro = tRoleOf(RR.own.length >= 3 ? RR.own : RR.mine);
+        if (ro) role = ro.label;
+      }
+    } catch (e) {}
+    lines.push([n, t.eventRank || '', `${t.wins || 0}-${t.losses || 0}-${t.ties || 0}`, f1(R.ratings.get(id)), k ? `${f1(k.off)} ± ${f1(k.offSd)}` : '', k ? `${f1(k.def)} ± ${f1(k.defSd)}` : '',
+      f1(R.apRate && R.apRate.get(id)), tr, ap, rt, sc, role].join(' | '));
+  }
+  return lines.join('\n');
+}
+async function tAsk() {
+  const inp = document.getElementById('tAskInput'), btn = document.getElementById('tAskBtn'), log = document.getElementById('tAskLog'), note = document.getElementById('tAskNote');
+  const q = inp && inp.value.trim();
+  const C = window._tAskCtx;
+  if (!q || !C) return;
+  btn.disabled = true;
+  const add = (role, content) => { tAskHist.push({ role, content }); log.insertAdjacentHTML('beforeend', `<div class="t-ask-${role === 'user' ? 'q' : 'a'}">${esc(content)}</div>`); };
+  add('user', q);
+  inp.value = '';
+  note.textContent = 'Looking for the app on this computer…';
+  try {
+    const port = await tAskFindApp();
+    if (!port) { note.textContent = 'The desktop app is not open on this computer (or is older than 2.52). Open it, then ask again.'; tAskHist.pop(); log.lastChild.remove(); return; }
+    note.textContent = 'Gathering this event\'s numbers…';
+    const table = await tAskTable(C.R, C.seeds);
+    note.textContent = 'The vision model is thinking (it can take a minute the first time)…';
+    const r = await fetch(`http://127.0.0.1:${port}/ask`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: q, table, where: (C.R.event && C.R.event.name) || '', history: tAskHist.slice(0, -1).slice(-6) }) });
+    const j = await r.json();
+    if (j.answer) { add('assistant', j.answer); note.textContent = 'From this event\'s numbers only. Check anything important against the tables above.'; }
+    else { note.textContent = j.error || 'No answer.'; tAskHist.pop(); log.lastChild.remove(); }
+  } catch (e) {
+    tAskPort = null;
+    note.textContent = 'Could not reach the app on this computer: ' + (e && e.message ? e.message : e);
+  } finally { btn.disabled = false; }
+}
 function tCompareBlock(R, roster, focus, pairWin) {
   const byNum = new Map(roster.map(t => [String(t.number).toUpperCase(), t]));
   const you = focus ? byNum.get(focus) : null;
@@ -16892,6 +16982,8 @@ async function renderTournamentPickList() {
   html += sim_learnNote(R);
   html += tCompareBlock(R, seeds, focus, pairWin);
   html += tFormBlock(R, seeds, focus);
+  window._tAskCtx = { R, seeds };
+  html += tAskBlock(R);
 
   resultsEl.innerHTML = html;
   enhanceAllSelects();
