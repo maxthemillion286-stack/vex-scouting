@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v183**. Everything green: 128 test files.
+Current release: **v184**. Everything green: 129 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,20 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v184 — skill model, next-match plan, autonomous routes.** Asked for #5, #7
+and #3 of the advanced list. `sim_skill(observations)` (observations now carry
+`opp`): score ≈ μ + Σ offence(own) − Σ defence(opp), Gauss–Seidel ridge
+(λ off 2, def 6), σ from residuals, ± = σ/√(weight + λ); on `R.skill`, shown
+in Compare as "Adds to its alliance" / "Takes off opponents" with ±. Next
+match: `mdPlanFill` (into `#mdPlan`) gives the win chance with defence
+counted (`sim_matchupProb`, so the event's calibration applies) and a job
+split from `tRolesFor` role shares (`mdPlanPick`: each robot's share of the
+job, −0.6·min if both pick the same, +0.5·opponents' toggle share for
+guarding). `vtAutoRoutes(rows)`: greedy clusters of the 6-point auto paths
+within 0.125, up to 4, each with n, start zone (most common `art` first
+digit), median auto pins (`vtFx(r,1)·ya/2`) and its own replay in the report.
+Check: t169.
 
 **v183 (app 2.51) — v182 taken back.** The owner asked for it reverted once it
 was clear the website itself cannot learn from what a viewer watches (the

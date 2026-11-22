@@ -2526,6 +2526,11 @@
   .cmp thead th { font-family: var(--display); font-size: 17px; font-weight: 700; color: var(--text); vertical-align: top; padding-bottom: 6px; }
   .cmp-num { display: block; line-height: 24px; }
   .cmp-num .mt-team { display: inline; padding: 0; margin: 0; }
+  .cmp-pm { color: var(--text-dim); font-size: 0.85em; margin-left: 2px; }
+  .md-plan { margin-top: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; line-height: 1.5; }
+  .md-plan:empty { display: none; }
+  .md-plan b { color: var(--text); }
+  .md-plan ul { margin: 4px 0 0 18px; padding: 0; }
   .cmp-sub { display: block; width: 100%; height: 30px; line-height: 30px; padding: 0; margin: 0; border: 0; background: none; text-align: right;
     font-family: var(--body); font-size: 12px; font-weight: 400; letter-spacing: 0; color: var(--text-muted); }
   .cmp-rm { cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
@@ -3722,7 +3727,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v183';
+const APP_BUILD = 'v184';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -7759,6 +7764,10 @@ function tCompareBlock(R, roster, focus, pairWin) {
       show: (v, i) => `${cols[i].wins}–${cols[i].losses}${cols[i].ties ? '–' + cols[i].ties : ''}`, better: 'high' },
     { label: 'Rating', vals: cols.map(t => R.ratings.has(String(t.id)) ? R.ratings.get(String(t.id)) : null), show: v => num(v), better: 'high' },
     { label: 'AP a match', vals: cols.map(t => R.apRate && R.apRate.has(String(t.id)) ? R.apRate.get(String(t.id)) : null), show: v => num(v, 1), better: 'high' },
+    { label: 'Adds to its alliance', vals: cols.map(t => { const k = R.skill && R.skill.get(String(t.id)); return k ? k.off : null; }),
+      show: (v, i) => { const k = R.skill.get(String(cols[i].id)); return `${v >= 0 ? '+' : ''}${v.toFixed(0)} <span class="cmp-pm">± ${k.offSd.toFixed(0)}</span>`; }, better: 'high' },
+    { label: 'Takes off opponents', vals: cols.map(t => { const k = R.skill && R.skill.get(String(t.id)); return k ? k.def : null; }),
+      show: (v, i) => { const k = R.skill.get(String(cols[i].id)); return `${v.toFixed(0)} <span class="cmp-pm">± ${k.defSd.toFixed(0)}</span>`; }, better: 'high' },
     { label: 'Usual low score', vals: cols.map(t => f(t).floor), show: v => num(v), better: 'high' },
     { label: 'Usual high score', vals: cols.map(t => f(t).ceil), show: v => num(v), better: 'high' },
     { label: 'Trend', vals: cols.map(t => f(t).drift), show: (v, i) => T_FORM_LABEL[f(cols[i]).trend] || '', better: null },
@@ -10749,11 +10758,18 @@ function vtReportAuto(rep, L) {
     if (F.pins !== null) items.push(`Sets down ${vtAutoPinsText(F)}${F.each && F.each.length >= 2 ? ` in its ${F.each.length} tracked matches (${F.each.join(', ')})` : ' (both robots together, halved)'}. ${F.scored ? `Held to its alliance's autonomous score on the stream in ${F.scored} of them${F.capped ? `; ${F.capped} counted higher than that score allows were brought down to it` : ''}.` : 'Counted from the video: no stream score to check it against.'}`);
     if (F.tog !== null) items.push(`Its alliance has ${vtAutoTogText(F)} turned to its colour by the end of it.`);
   }
-  const R = G && G.replay;
-  if (R) items.push(R.still ? `Stays where it starts (${R.n} of ${R.of}).` : `Runs the same routine in ${R.n} of ${R.of}.`);
+  const R = G && G.replay, RT = (G && G.routes) || [];
+  if (RT.length) {
+    // v184: each routine it runs, most used first, with its own replay.
+    RT.forEach((r, i) => items.push(`Route ${i + 1}, in ${r.n} of ${r.of}: ${r.still ? 'stays where it starts' : 'moves'}${r.start ? `, starting in ${r.start}` : ''}${r.pins !== null ? `; usually ${r.pins} pin${r.pins === 1 ? '' : 's'} in those matches` : ''}.`));
+    const rest = RT.length ? RT[0].of - RT.reduce((a, r) => a + r.n, 0) : 0;
+    if (rest > 0) items.push(`${rest} other${rest === 1 ? '' : 's'} not like any of these.`);
+  } else if (R) items.push(R.still ? `Stays where it starts (${R.n} of ${R.of}).` : `Runs the same routine in ${R.n} of ${R.of}.`);
   else if (G) items.push('No routine it runs consistently: its path changes from match to match.');
   for (const t of L.auto || []) if (!/routine every time|more than one routine/.test(t)) items.push(t);
-  const play = R && !R.still ? `<div class="vr-replay">${vtFieldSvg(null, null, R)}<button class="btn btn-secondary" onclick="vtReplayPlay(this)">▶ Play its autonomous</button><div class="vr-cap">Its routine as it ran in ${R.n} matches, played in real time (15 s). ${VT_FIELD_KEY}</div></div>` : '';
+  const moving = RT.filter(r => !r.still);
+  const play = moving.length ? moving.map((r, i) => `<div class="vr-replay">${vtFieldSvg(null, null, r)}<button class="btn btn-secondary" onclick="vtReplayPlay(this)">▶ Play route ${RT.indexOf(r) + 1}</button><div class="vr-cap">Route ${RT.indexOf(r) + 1} as it ran in ${r.n} matches, played in real time (15 s).${i === moving.length - 1 ? ' ' + VT_FIELD_KEY : ''}</div></div>`).join('')
+    : R && !R.still ? `<div class="vr-replay">${vtFieldSvg(null, null, R)}<button class="btn btn-secondary" onclick="vtReplayPlay(this)">▶ Play its autonomous</button><div class="vr-cap">Its routine as it ran in ${R.n} matches, played in real time (15 s). ${VT_FIELD_KEY}</div></div>` : '';
   return `<div class="vr-sec"><div class="vr-h">Autonomous</div>${items.length ? `<ul class="vr-list">${items.map(t => `<li>${esc(t)}</li>`).join('')}</ul>` : '<div class="vr-none">Not enough of the autonomous period was in view.</div>'}${play}</div>`;
 }
 // Role and strategy: where the driver period goes, then how it does at toggles.
@@ -11366,6 +11382,7 @@ function vtGameLines(rows, others, isOwn, extra) {
     L.time = { n: withGoals.length, own: avg(withGoals, 'ga') || 0, neutral: avg(withGoals, 'gn') || 0, togs: (avg(withGoals, 'ts') || 0) + (avg(withGoals, 'to') || 0), home: avg(withGoals, 'th') || 0 };
   } else L.time = { n: 0, own: null, neutral: null, togs: (avg(withField, 'ts') || 0) + (avg(withField, 'to') || 0), home: avg(withField, 'th') || 0 };
   L.replay = vtAutoReplay(withField);
+  L.routes = vtAutoRoutes(withField);
   // Autonomous routines, most used first.
   const byRoute = new Map();
   for (const r of withField) { const k = r.art || 0; if (!byRoute.has(k)) byRoute.set(k, []); byRoute.get(k).push(r); }
@@ -11460,6 +11477,34 @@ function vtAutoText(F, withSide) {
 // routine; its average is what gets replayed. Anything less and there is no
 // replay at all (asked for: "if theres no consistent auton then they shouldnt
 // have the replay option").
+// ── Autonomous routes (v184) ───────────────────────────────────────────────
+// Asked for each team's autonomous routines told apart: its first 15 s paths
+// (a point every 3 s) are grouped by shape, most used first: a route is two
+// or more matches whose paths stay within an eighth of the field of each
+// other. Each has how often it is run, where it starts, the autonomous pins
+// in those matches, and its own replay. → [{pts, n, of, still, start, pins}]
+function vtAutoRoutes(rows) {
+  const P = rows.map(r => ({ r, p: Array.from({ length: 6 }, (_, k) => r['p' + 2 * k] >= 0 ? [r['p' + 2 * k] / 100, r['p' + (2 * k + 1)] / 100] : null) })).filter(x => x.p.filter(Boolean).length >= 4);
+  if (P.length < 2) return [];
+  const dist = (a, b) => { let d = 0, n = 0; for (let k = 0; k < 6; k++) if (a[k] && b[k]) { d += Math.hypot(a[k][0] - b[k][0], a[k][1] - b[k][1]); n++; } return n >= 3 ? d / n : Infinity; };
+  let left = P.slice();
+  const out = [];
+  while (left.length >= 2 && out.length < 4) {
+    let best = [];
+    for (const seed of left) { const m = left.filter(q => dist(seed.p, q.p) < 0.125); if (m.length > best.length) best = m; }
+    if (best.length < 2) break;
+    left = left.filter(x => !best.includes(x));
+    const pts = [];
+    for (let k = 0; k < 6; k++) { const h = best.map(q => q.p[k]).filter(Boolean); if (h.length) pts.push([vtAvg(h.map(q => q[0])), vtAvg(h.map(q => q[1])), k * 3]); }
+    let len = 0; for (let k = 1; k < pts.length; k++) len += Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1]);
+    const codes = new Map(); for (const x of best) { const c = String(x.r.art || '')[0]; if (c) codes.set(c, (codes.get(c) || 0) + 1); }
+    const c0 = [...codes.entries()].sort((a, b) => b[1] - a[1])[0];
+    const pins = best.filter(x => Number.isFinite(x.r.ya)).map(x => Math.round(vtFx(x.r, 1) * x.r.ya / 2));
+    const o = pins.slice().sort((a, b) => a - b);
+    out.push({ pts, n: best.length, of: P.length, still: len < 0.08, start: c0 ? VT_ZONE_WORDS[c0[0]] || null : null, pins: o.length ? o[Math.floor((o.length - 1) / 2)] : null });
+  }
+  return out;
+}
 function vtAutoReplay(rows) {
   const paths = rows.map(r => Array.from({ length: 6 }, (_, k) => r['p' + 2 * k] >= 0 ? [r['p' + 2 * k] / 100, r['p' + (2 * k + 1)] / 100] : null)).filter(p => p.filter(Boolean).length >= 4);
   if (paths.length < 3) return null;
@@ -15082,6 +15127,8 @@ async function renderEventTeamMatchesView() {
         </div>
       </div>`;
     }
+    html += `<div class="md-plan" id="mdPlan"></div>`;
+    setTimeout(() => mdPlanFill(next, R, teamId).catch(() => {}), 30);
     html += `</div>`;
   }
 
@@ -18787,6 +18834,101 @@ function sim_computeOPR(observations, lambda = 0.5) {
   return { ratings, matchCount };
 }
 
+// ── The plan for the next match (v184) ─────────────────────────────────────
+// Asked for "a match simulator": the win chance with defence counted (each
+// side's offence less the other side's defence, with every range), and the
+// split of jobs that suits the two robots: each where it spends its time
+// (from the tracker), not both on the same job, and guarding the toggle when
+// the other side goes for toggles.
+const MD_JOBS = ['stack on its goals', 'work the neutral goals', 'go for the toggles', 'guard the toggle'];
+function mdPlanPick(mine, opp) {
+  const v = r => (r && r.v) || [0.25, 0.25, 0.25, 0.25];
+  const threat = opp.reduce((a, r) => a + (r ? v(r)[2] : 0), 0);
+  let best = null;
+  for (let a = 0; a < 4; a++) for (let b = 0; b < 4; b++) {
+    if (mine.length < 2 && b > 0) continue;
+    const va = v(mine[0])[a], vb = mine.length > 1 ? v(mine[1])[b] : 0;
+    let score = va + vb + ((a === 3 || (mine.length > 1 && b === 3)) ? 0.5 * threat : 0);
+    if (mine.length > 1 && a === b) score -= 0.6 * Math.min(va, vb);
+    if (!best || score > best.score) best = { a, b, score, threat };
+  }
+  return best;
+}
+async function mdPlanFill(next, R, teamId) {
+  const host = document.getElementById('mdPlan');
+  if (!host || !next) return;
+  const lines = [];
+  const K = R && R.skill;
+  if (K && next.myIds.every(id => K.has(String(id))) && next.oppIds.every(id => K.has(String(id)))) {
+    const side = (mine, opp) => {
+      const mean = K.mu + mine.reduce((a, id) => a + K.get(String(id)).off, 0) - opp.reduce((a, id) => a + K.get(String(id)).def, 0);
+      const sd = Math.sqrt(K.sigma ** 2 + mine.reduce((a, id) => a + K.get(String(id)).offSd ** 2, 0) + opp.reduce((a, id) => a + K.get(String(id)).defSd ** 2, 0));
+      return { mean, sd };
+    };
+    const A = side(next.myIds, next.oppIds), B = side(next.oppIds, next.myIds);
+    const p = sim_matchupProb(A.mean, A.sd, B.mean, B.sd, 6000, 777).redWin;
+    lines.push(`<b>With defence counted:</b> ${p.toFixed(0)}% (about ${Math.round(A.mean)} to ${Math.round(B.mean)}).`);
+  }
+  const roles = await tRolesFor((next.myNums || []).concat(next.oppNums || []), 2500);
+  const mine = (next.myNums || []).map(n => roles.get(String(n).toUpperCase()) || null);
+  const opp = (next.oppNums || []).map(n => roles.get(String(n).toUpperCase()) || null);
+  if (mine.some(Boolean)) {
+    const P = mdPlanPick(mine, opp);
+    const nm = next.myNums || [];
+    const items = [`<li><b>${esc(nm[0])}</b>: ${MD_JOBS[P.a]}${mine[0] ? ` (${Math.round(100 * mine[0].v[P.a])}% of its time)` : ''}</li>`];
+    if (nm.length > 1) items.push(`<li><b>${esc(nm[1])}</b>: ${MD_JOBS[P.b]}${mine[1] ? ` (${Math.round(100 * mine[1].v[P.b])}% of its time)` : ''}</li>`);
+    const top = opp.map((r, i) => r ? { n: (next.oppNums || [])[i], t: r.v[2] } : null).filter(Boolean).sort((a, b) => b.t - a.t)[0];
+    lines.push(`<b>Plan:</b><ul>${items.join('')}</ul>${top && top.t >= 0.3 ? `<div>${esc(top.n)} goes for toggles ${Math.round(100 * top.t)}% of its time.</div>` : ''}`);
+  }
+  if (document.getElementById('mdPlan') === host) host.innerHTML = lines.join('');
+}
+
+// ── Skill: offence and defence, each with how sure it is (v184) ──────────────
+// Asked for "a skill model for every team" with honest ranges. Every alliance
+// score this event is explained as: the field's usual score, plus what its
+// two robots add (offence), minus what the two robots against it take away
+// (defence). Both are pulled toward 0 until the matches say otherwise
+// (defence more strongly: it is the harder thing to see in scores). The
+// range (±) is how far each could still be off, from how well scores are
+// explained and how many matches a team has: it narrows with every match.
+const SIM_SKILL_LAMBDA_OFF = 2, SIM_SKILL_LAMBDA_DEF = 6;
+function sim_skill(observations) {
+  const obs = (observations || []).filter(o => Array.isArray(o.teams) && Array.isArray(o.opp) && Number.isFinite(o.score));
+  if (obs.length < 6) return null;
+  const ids = [...new Set(obs.flatMap(o => o.teams.concat(o.opp)))];
+  const off = new Map(ids.map(t => [t, 0])), def = new Map(ids.map(t => [t, 0]));
+  const W = o => (o.w === undefined ? 1 : o.w);
+  let mu = obs.reduce((a, o) => a + W(o) * o.score, 0) / obs.reduce((a, o) => a + W(o), 0);
+  const byT = new Map(ids.map(t => [t, { mine: [], against: [] }]));
+  obs.forEach((o, i) => { o.teams.forEach(t => byT.get(t).mine.push(i)); o.opp.forEach(t => byT.get(t).against.push(i)); });
+  const pred = o => mu + o.teams.reduce((a, t) => a + off.get(t), 0) - o.opp.reduce((a, t) => a + def.get(t), 0);
+  for (let it = 0; it < 80; it++) {
+    for (const t of ids) {
+      const B = byT.get(t);
+      let num = 0, den = SIM_SKILL_LAMBDA_OFF;
+      for (const i of B.mine) { const o = obs[i]; num += W(o) * (o.score - pred(o) + off.get(t)); den += W(o); }
+      off.set(t, num / den);
+      // With def(t) taken out of the prediction, what is left unexplained (prediction over score) is its defence.
+      num = 0; den = SIM_SKILL_LAMBDA_DEF;
+      for (const i of B.against) { const o = obs[i]; num += W(o) * (pred(o) + def.get(t) - o.score); den += W(o); }
+      def.set(t, num / den);
+    }
+    let a = 0, b = 0;
+    for (const o of obs) { a += W(o) * (o.score - (pred(o) - mu)); b += W(o); }
+    mu = a / b;
+  }
+  let sq = 0, ws = 0;
+  for (const o of obs) { const r = o.score - pred(o); sq += W(o) * r * r; ws += W(o); }
+  const sigma = Math.sqrt(sq / Math.max(1e-9, ws)) || 1;
+  const out = new Map();
+  for (const t of ids) {
+    const B = byT.get(t), nm = B.mine.reduce((a, i) => a + W(obs[i]), 0), na = B.against.reduce((a, i) => a + W(obs[i]), 0);
+    out.set(t, { off: off.get(t), offSd: sigma / Math.sqrt(nm + SIM_SKILL_LAMBDA_OFF), def: def.get(t), defSd: sigma / Math.sqrt(na + SIM_SKILL_LAMBDA_DEF), n: B.mine.length });
+  }
+  out.mu = mu; out.sigma = sigma;
+  return out;
+}
+
 // ── Recency weight for a match timestamp (exponential decay, ~45-day half-life) ──
 function sim_recencyWeight(matchTimeMs, newestMs) {
   if (matchTimeMs == null || newestMs == null) return 1;
@@ -19062,8 +19204,8 @@ async function sim_buildRatingsFromEventUncached(event, setStatus) {
     const rScore = (redA.score === null || redA.score === undefined) ? null : redA.score;
     const bScore = (blueA.score === null || blueA.score === undefined) ? null : blueA.score;
     const w = sim_recencyWeight(sim_matchTime(m), newestEvtMs);
-    if (rScore !== null && rIds.length) observations.push({ teams: rIds, score: rScore, w });
-    if (bScore !== null && bIds.length) observations.push({ teams: bIds, score: bScore, w });
+    if (rScore !== null && rIds.length) observations.push({ teams: rIds, opp: bIds, score: rScore, w });
+    if (bScore !== null && bIds.length) observations.push({ teams: bIds, opp: rIds, score: bScore, w });
   }
 
   const { ratings, matchCount } = sim_computeOPR(observations, 0.5);
@@ -19092,7 +19234,9 @@ async function sim_buildRatingsFromEventUncached(event, setStatus) {
   try { tracking = sim_applyTracking(ratings, matchCount, await sim_trackIndex(numById, 1500)); } catch (e) {}
   const idByNum = {};
   for (const [id, num] of Object.entries(numById)) idByNum[num.toUpperCase()] = id;
-  return { event, ratings, stdByTeam, globalStd, matchCount, matches: allMatches, numById, idByNum, trackUsed: tracking.used, trackFitOn: tracking.fitOn,
+  let skill = null;
+  try { skill = sim_skill(observations); } catch (e) {}
+  return { event, ratings, stdByTeam, globalStd, matchCount, matches: allMatches, numById, idByNum, trackUsed: tracking.used, trackFitOn: tracking.fitOn, skill,
     apRate: ap.rate, apAdj: ap.adj, apUsed: ap.used,
     cal, prior: season.prior, seasonUsed: season.used, seasonFitOn: season.fitOn, seasonOnly: season.seasonOnly };
 }
