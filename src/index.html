@@ -3731,7 +3731,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v185';
+const APP_BUILD = 'v186';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -16426,6 +16426,7 @@ function tournamentNav(active) {
     ${btn('awards', 'Awards')}
     ${btn('bracket', 'Bracket')}
     ${btn('picklist', 'Pick List')}
+    ${btn('ask', 'Ask')}
     ${tournamentFocusTeamNumber ? `<button class="t-nav-btn${active === 'team' ? ' active' : ''}" onclick="tournamentGo('team')">${esc(tournamentFocusTeamNumber)}</button>` : ''}
     ${tournamentEventId ? `<button class="t-nav-btn t-more-btn" aria-expanded="false" onclick="tNavMore(this)">More</button>` : ''}
     ${tournamentEventId ? tOfflineButton(tournamentEventId) : ''}
@@ -16538,7 +16539,7 @@ function tPredict(R, redNums, blueNums, seed) {
 const tPredClass = p => p >= 65 ? 'pred-good' : p <= 35 ? 'pred-bad' : 'pred-even';
 
 const T_VIEW_LABELS = { teams: 'Teams', matches: 'Matches', skills: 'Skills',
-  awards: 'Awards', bracket: 'Bracket', picklist: 'Pick List', team: 'that team' };
+  awards: 'Awards', bracket: 'Bracket', picklist: 'Pick List', team: 'that team', ask: 'Ask' };
 
 function tournamentGo(view) {
   tournamentView = view;
@@ -16555,6 +16556,28 @@ function tournamentGo(view) {
   if (view === 'bracket') return renderBracketView();
   if (view === 'picklist') return renderTournamentPickList();
   if (view === 'team') return renderEventTeamMatchesView();
+  if (view === 'ask') return renderTournamentAsk();
+}
+// v186: Ask has its own tab (reported: "cant see the chat box": it sat at the
+// bottom of the Pick List).
+async function renderTournamentAsk() {
+  tournamentView = 'ask';
+  const resultsEl = document.getElementById('tournamentResults'), loadingEl = document.getElementById('tournamentLoading'), loadingText = document.getElementById('tournamentLoadingText');
+  const say = t => { if (loadingText) loadingText.textContent = t; };
+  if (!tournamentTeamCache) { await loadAndRenderTeamList(); if (tournamentView !== 'ask') return; }
+  loadingEl.classList.add('active');
+  say('READING THE EVENT...');
+  let R = null;
+  try { R = await tRatings(say); } catch (e) {}
+  loadingEl.classList.remove('active');
+  if (tournamentView !== 'ask') return;
+  const head = `<div class="tournament-summary"><div class="tournament-summary-name">${esc(tournamentEventName)}</div><div class="tournament-summary-count">Ask about this event</div></div>${tournamentNav('ask')}`;
+  const roster = (tournamentTeamCache || []).filter(t => t.eventRank);
+  if (!R || roster.length < 2) { resultsEl.innerHTML = head + `<div class="t-empty">No match results yet, so there is nothing to answer from.</div>`; return; }
+  window._tAskCtx = { R, seeds: roster.slice().sort((a, b) => a.eventRank - b.eventRank) };
+  resultsEl.innerHTML = head + tAskBlock(R).replace('<div class="detail-block-label" style="margin-top:22px">Ask about this event</div>', '');
+  const inp = document.getElementById('tAskInput');
+  if (inp && !vsIsPhone()) inp.focus();
 }
 
 // Every match at the event, played and upcoming, with scores
@@ -16982,8 +17005,6 @@ async function renderTournamentPickList() {
   html += sim_learnNote(R);
   html += tCompareBlock(R, seeds, focus, pairWin);
   html += tFormBlock(R, seeds, focus);
-  window._tAskCtx = { R, seeds };
-  html += tAskBlock(R);
 
   resultsEl.innerHTML = html;
   enhanceAllSelects();

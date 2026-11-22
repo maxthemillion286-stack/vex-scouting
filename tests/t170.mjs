@@ -15,7 +15,7 @@ const table = await win.eval('tAskTable')(R, seeds);
 const lines = table.split('\n');
 ok('the event as a table: what each column means, then a line a team', /^Columns: /.test(lines[0]) && lines.length === 4, table);
 ok('with seed, record, rating, offence and defence with their ranges, AP', /^66449A \| 1 \| 5-1-0 \| 30\.0 \| 12\.0 ± 4\.0 \| 3\.0 ± 2\.0 \| 4\.0 \|/.test(lines[2]), lines[2]);
-ok('the block is on the event page', /html \+= tAskBlock\(R\);/.test(src) && /Ask about this event/.test(src));
+ok('Ask has its own tab on the event page', /\$\{btn\('ask', 'Ask'\)\}/.test(src) && /async function renderTournamentAsk\(\)/.test(src));
 ok('it asks only the app on this computer', /fetch\(`http:\/\/127\.0\.0\.1:\$\{port\}\/ask`/.test(src) && !/api\.anthropic|openai\.com/.test(src.slice(src.indexOf('function tAskBlock'), src.indexOf('function tCompareBlock'))));
 ok('the app answers only the website, from the table only', /ASK_ORIGINS = \('https:\/\/vex-scouting-by-max\.vercel\.app'/.test(app) && /Answer the question using ONLY the data below/.test(app) && /Access-Control-Allow-Private-Network/.test(app));
 ok('the robot finder looks again at the frames it was sure of, mirrored too', /def teacher_look\(eyes, frame\)/.test(app) && /kept, dropped = teach_again\(\)/.test(app));
