@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.52'
+VERSION = '2.53'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -2128,6 +2128,32 @@ def ask_answer(cfg, q):
         return {'error': 'The vision model could not answer (%s).' % str(e)[:120]}
     finally:
         _ASK_LOCK.release()
+
+# v2.53: questions come through the website. A page cannot reliably talk to
+# a program on the computer (browsers block it or ask in ways people miss;
+# reported: "i asked a question … and nothing happened"), so the website
+# keeps each question for a few minutes and this app, while open, takes the
+# waiting ones every few seconds, answers them here and puts the answers
+# back. It works from any device, phones too, while this app is open.
+ASK_EVERY = 3
+
+def ask_relay(cfg_get, stop):
+    quiet = 0
+    while not stop.is_set():
+        cfg = cfg_get()
+        if not cfg.get('key') or not cfg.get('ask', True):
+            stop.wait(30)
+            continue
+        try:
+            site = Site(cfg)
+            r = site.post({'asksTake': 1}, tries=1)
+            for q in (r.get('asks') or [])[:3]:
+                a = ask_answer(cfg, q)
+                site.post({'askAnswer': dict(a, id=q.get('id'))}, tries=2)
+            quiet = 0 if r.get('ok') else min(quiet + 1, 10)
+        except Exception:
+            quiet = min(quiet + 1, 10)
+        stop.wait(ASK_EVERY * (1 + quiet))
 
 def vlm_ask(cfg, prompt, schema, jpeg, tokens=400):
     """One question with one picture, answered as JSON to the schema. → dict or None."""
@@ -6364,6 +6390,9 @@ def serve_ui(cfg, port=8765, open_window=True):
     if not open_window:
         threading.Thread(target=srv.serve_forever, daemon=True).start()
         return srv
+    # Questions asked on the website's Ask tab, answered here while the window is open (v2.53).
+    srv.ask_stop = threading.Event()
+    threading.Thread(target=ask_relay, args=(lambda: dict(cfg, **load_config()), srv.ask_stop), daemon=True).start()
     # Nothing to press: with the key saved, tracking starts with the window.
     if cfg.get('key'):
         threading.Thread(target=lambda: (sync_review(cfg, quiet=True), counts(True)), daemon=True).start()

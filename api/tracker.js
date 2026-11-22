@@ -18,6 +18,10 @@
 //   POST { passcode, ev, id, rec } → { ok }           save one match
 //   GET  ?jobs=1 | ?jobs=EV      → { events } | { list }   work for the desktop app
 //   POST { passcode, jobs: { ev, list } | { ev, done } }
+//   POST { ask: { question, table, where, history } } → { id }   (no passcode) a question for Ask (v188)
+//   GET  ?ask=ID                 → { answer } | { error } | { waiting, app }   its answer, when there is one
+//   POST { passcode, asksTake: 1 } → { asks: [...] }   the desktop app takes questions waiting
+//   POST { passcode, askAnswer: { id, answer | error } } → { ok }
 //   GET  ?model=1 | ?model=TAG&part=i → { model } | { b64 }   a finder trained in the app
 //   POST { passcode, model: { tag, i, n, b64 } | { clear } }
 //   GET  ?teams=A,B,C            → { teams }          several teams' summaries (≤12)
@@ -205,6 +209,7 @@ export function validJob(j) {
   return null;
 }
 const MODEL_PART_B64 = 900 * 1024, MODEL_MAX_PARTS = 80;
+const ASK_MAX_BYTES = 150000, ASK_QUEUE = 30;
 const modelTag = v => typeof v === 'string' && /^[a-z0-9]{4,16}$/.test(v) ? v : null;
 // A frame for review: a picture, where the finder thinks the robots are.
 const FRAME_ID = /^[A-Za-z0-9_-]{4,60}$/, MAX_FRAMES_WAITING = 300, MAX_FRAME_B64 = 520 * 1024;
@@ -316,6 +321,12 @@ export default async function handler(req, res) {
         if (learn && validLearn(learn)) learn = null;
         return res.status(200).json({ db: true, learn });
       }
+      if (q.ask !== undefined) {
+        if (!hasDb || !/^[0-9a-f]{16}$/.test(String(q.ask))) return res.status(400).json({ error: 'bad id' });
+        const [a, alive] = await redis(E, [['GET', `vt:ask:a:${q.ask}`], ['GET', 'vt:ask:alive']]);
+        if (a) { try { return res.status(200).json(JSON.parse(a)); } catch (e) {} }
+        return res.status(200).json({ waiting: true, app: !!alive });
+      }
       if (q.cal !== undefined) {
         const ev = digits(q.cal);
         if (!ev) return res.status(400).json({ error: 'cal must be an event number' });
@@ -366,12 +377,49 @@ export default async function handler(req, res) {
       let body = req.body;
       if (typeof body === 'string') { try { body = JSON.parse(body); } catch (e) { body = null; } }
       if (!body || typeof body !== 'object') return res.status(400).json({ error: 'no body' });
+      // v188: a question for Ask. The website cannot reach the app on a
+      // computer by itself (browsers stop pages talking to other programs),
+      // so a question waits here for the owner's app, which takes it,
+      // answers it on that computer and puts the answer back. Anyone may ask
+      // (no passcode): it is text, at most ASK_MAX_BYTES, kept ten minutes,
+      // and at most ASK_QUEUE wait at once.
+      if (body.ask !== undefined && body.passcode === undefined) {
+        if (!hasDb) return res.status(503).json({ error: 'no database is connected' });
+        const A = body.ask;
+        if (!A || typeof A.question !== 'string' || !A.question.trim() || A.question.length > 600 || typeof A.table !== 'string' || A.table.length > ASK_MAX_BYTES ||
+            (A.where !== undefined && (typeof A.where !== 'string' || A.where.length > 200)) || (A.history !== undefined && !Array.isArray(A.history)))
+          return res.status(400).json({ error: 'bad question' });
+        const history = (A.history || []).slice(-6).filter(h => h && (h.role === 'user' || h.role === 'assistant') && typeof h.content === 'string').map(h => ({ role: h.role, content: h.content.slice(0, 2000) }));
+        const [n] = await redis(E, [['LLEN', 'vt:askq']]);
+        if (n >= ASK_QUEUE) return res.status(429).json({ error: 'Too many questions waiting; try again in a minute.' });
+        const id = crypto.randomBytes(8).toString('hex');
+        await redis(E, [['SET', `vt:ask:q:${id}`, JSON.stringify({ id, question: A.question.trim(), table: A.table, where: A.where || '', history, at: Date.now() }), 'EX', '600'], ['LPUSH', 'vt:askq', id]]);
+        return res.status(200).json({ ok: true, id });
+      }
       if (!passcodeOk(body.passcode, E.passcode)) {
         // A wrong guess costs a moment, so guessing in bulk is slow.
         await new Promise(r => setTimeout(r, 400));
         return res.status(403).json({ error: E.passcode.length >= MIN_PASSCODE ? 'wrong passcode' : 'no passcode is set on the server' });
       }
       if (body.check) return res.status(200).json({ ok: true, db: hasDb });
+      if (body.asksTake !== undefined) {
+        if (!hasDb) return res.status(503).json({ error: 'no database is connected' });
+        const cmds = [['SET', 'vt:ask:alive', String(Date.now()), 'EX', '20']];
+        for (let i = 0; i < 3; i++) cmds.push(['RPOP', 'vt:askq']);
+        const out = await redis(E, cmds);
+        const ids = out.slice(1).filter(v => typeof v === 'string' && /^[0-9a-f]{16}$/.test(v));
+        const got = ids.length ? await redis(E, ids.map(id => ['GET', `vt:ask:q:${id}`])) : [];
+        const asks = [];
+        got.forEach(v => { try { const q = JSON.parse(v); if (q && q.id) asks.push(q); } catch (e) {} });
+        return res.status(200).json({ ok: true, asks });
+      }
+      if (body.askAnswer !== undefined) {
+        const A = body.askAnswer;
+        if (!A || !/^[0-9a-f]{16}$/.test(String(A.id || ''))) return res.status(400).json({ error: 'bad answer' });
+        const v = typeof A.answer === 'string' ? { answer: A.answer.slice(0, 8000) } : { error: String(A.error || 'no answer').slice(0, 500) };
+        await redis(E, [['SET', `vt:ask:a:${A.id}`, JSON.stringify(v), 'EX', '600'], ['DEL', `vt:ask:q:${A.id}`]]);
+        return res.status(200).json({ ok: true });
+      }
       if (!hasDb) return res.status(503).json({ error: 'no database is connected' });
       if (body.field !== undefined) {
         const f = body.field;

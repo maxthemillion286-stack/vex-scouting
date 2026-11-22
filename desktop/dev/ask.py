@@ -66,6 +66,28 @@ check('and is told to use only the table', m and 'ONLY the data below' in m[0]['
 c, h, b = req('POST', '/ask', 'https://evil.example', {'question': 'x', 'table': ''})
 check('another website cannot ask', c == 403)
 srv.shutdown()
-check('app 2.52 or later', T.VERSION >= '2.52')
+# v2.53: questions taken from the website and answered back.
+posted = []
+class FakeSite:
+    def __init__(self, cfg): pass
+    def post(self, body, tries=3):
+        posted.append(body)
+        if body.get('asksTake'):
+            return {'ok': True, 'asks': [] if len(posted) > 1 else [{'id': 'abcdef0123456789', 'question': 'Who has the best auto?', 'table': table, 'where': 'Excalibur', 'history': []}]}
+        return {'ok': True}
+real_site = T.Site
+T.Site = FakeSite
+stop = threading.Event()
+th = threading.Thread(target=T.ask_relay, args=(lambda: {'site': 'x', 'key': 'k', 'think': True}, stop), daemon=True)
+th.start()
+import time
+for _ in range(100):
+    if any('askAnswer' in b for b in posted): break
+    time.sleep(0.1)
+stop.set(); th.join(5)
+ans = [b['askAnswer'] for b in posted if 'askAnswer' in b]
+check('the app takes a question from the website and puts the answer back', ans and ans[0]['id'] == 'abcdef0123456789' and ans[0].get('answer') == '66449A: usually 4 pins.', str(posted)[:300])
+T.Site = real_site
+check('app 2.53 or later', T.VERSION >= '2.53')
 print('ask checks: %d ok, %d failing' % (ok, fail))
 sys.exit(1 if fail else 0)
