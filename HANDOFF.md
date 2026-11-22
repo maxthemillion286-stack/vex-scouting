@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v186**. Everything green: 130 test files.
+Current release: **v187**. Everything green: 130 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,19 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v187 — skill rows taken out; Ask says what is happening.** The owner asked
+to remove #5: `sim_skill`, `R.skill`, the two Compare rows, the "with
+defence counted" plan line and the Ask table's skill columns are gone (the
+job split stays). Reported: "i asked a question to the box and nothing
+happened": without the app the question was removed and only a grey note
+changed. Now the question stays and a reply bubble shows each step or the
+error with what to do (app open and ≥2.52, vision model on, allow the
+browser's "apps on this device" prompt; on a phone: not yet). `tAskFindApp`
+pings all ports at once (`Promise.any`, 1.5 s), fetches carry
+`targetAddressSpace: 'loopback'` (Chrome's local network access). Verified
+in Chromium: the built page, served from localhost:3000, asks the app and
+shows the answer.
 
 **v186 — Ask gets its own tab.** Reported: "cant see the chat box" (it was at
 the bottom of the Pick List). Event nav: `Ask` → `renderTournamentAsk()`

@@ -2530,6 +2530,8 @@
   .t-ask-log { display: flex; flex-direction: column; gap: 8px; margin: 8px 0; }
   .t-ask-log:empty { display: none; }
   .t-ask-q { align-self: flex-end; max-width: 85%; padding: 8px 12px; border-radius: 12px; background: var(--accent); color: #fff; font-size: 14px; }
+  .t-ask-wait { opacity: 0.7; font-style: italic; }
+  .t-ask-err { border-color: var(--warn, #c77) !important; }
   .t-ask-a { align-self: flex-start; max-width: 92%; padding: 8px 12px; border-radius: 12px; border: 1px solid var(--border); font-size: 14px; line-height: 1.5; white-space: pre-wrap; }
   .md-plan { margin-top: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; line-height: 1.5; }
   .md-plan:empty { display: none; }
@@ -3731,7 +3733,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v186';
+const APP_BUILD = 'v187';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -7756,31 +7758,32 @@ function tAskBlock(R) {
       <div class="t-ask-log" id="tAskLog">${tAskHist.map(h => `<div class="t-ask-${h.role === 'user' ? 'q' : 'a'}">${esc(h.content)}</div>`).join('')}</div>
       <div class="cmp-add"><input type="text" id="tAskInput" placeholder="e.g. Who has the best autonomous from the right side?" autocomplete="off" enterkeyhint="send" onkeydown="if(event.key==='Enter')tAsk()">
       <button class="btn btn-primary" id="tAskBtn" onclick="tAsk()">Ask</button></div>
-      <div class="lp-help" id="tAskNote">Answered by the vision model in the desktop app on this computer, from this event's numbers only. The app has to be open.</div>
+      <div class="lp-help" id="tAskNote">Answered by the vision model in the desktop app on this computer, from this event's numbers only. The app has to be open. Check anything important against the tables.</div>
     </div>`;
 }
+// v187: every port at once, so finding the app takes under a second (not ten
+// tries in a row). targetAddressSpace tells Chrome this is a call to this
+// computer, so it can ask "allow this site to reach apps on this device?".
 async function tAskFindApp() {
   if (tAskPort) return tAskPort;
-  for (const p of T_ASK_PORTS) {
-    try {
-      const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 700);
-      const r = await fetch(`http://127.0.0.1:${p}/ask/ping`, { signal: ctl.signal });
-      clearTimeout(t);
-      if (r.ok) { const j = await r.json(); if (j && j.ok) { tAskPort = p; return p; } }
-    } catch (e) {}
-  }
-  return null;
+  const one = p => new Promise((ok, no) => {
+    const ctl = new AbortController(), t = setTimeout(() => { ctl.abort(); no(); }, 1500);
+    fetch(`http://127.0.0.1:${p}/ask/ping`, { signal: ctl.signal, targetAddressSpace: 'loopback' })
+      .then(r => r.ok ? r.json() : null).then(j => { clearTimeout(t); j && j.ok ? ok({ p, j }) : no(); }).catch(() => { clearTimeout(t); no(); });
+  });
+  try { const got = await Promise.any(T_ASK_PORTS.map(one)); tAskPort = got.p; tAskApp = got.j; return got.p; } catch (e) { return null; }
 }
+let tAskApp = null;
 // The event as a table: one line a team.
 async function tAskTable(R, seeds) {
   const nums = seeds.map(t => String(t.number).toUpperCase());
   let many = null;
   try { many = await Promise.race([vtTeamSumsMany(nums), new Promise(r => setTimeout(() => r(null), 6000))]); } catch (e) {}
   const f1 = v => (typeof v === 'number' && Number.isFinite(v)) ? v.toFixed(1) : '';
-  const lines = ['Columns: team | seed | wins-losses-ties | rating (points it adds, older model) | adds to its alliance ± range | takes off opponents ± range | autonomous points (AP) a match | tracked matches | autonomous pins (tracked) | autonomous routes | how it scores (tracked) | role',
-    'team | seed | W-L-T | rating | adds | takes off | AP | tracked | auto pins | auto routes | scoring | role'];
+  const lines = ['Columns: team | seed | wins-losses-ties | rating (about the points it adds to an alliance) | autonomous points (AP) a match | tracked matches | autonomous pins (tracked) | autonomous routes | how it scores (tracked) | role',
+    'team | seed | W-L-T | rating | AP | tracked | auto pins | auto routes | scoring | role'];
   for (const t of seeds) {
-    const id = String(t.id), n = String(t.number).toUpperCase(), k = R.skill && R.skill.get(id);
+    const id = String(t.id), n = String(t.number).toUpperCase();
     let tr = '', ap = '', rt = '', sc = '', role = '';
     try {
       const sums = many && many.get(n.replace(/[^A-Z0-9]/g, ''));
@@ -7795,35 +7798,43 @@ async function tAskTable(R, seeds) {
         if (ro) role = ro.label;
       }
     } catch (e) {}
-    lines.push([n, t.eventRank || '', `${t.wins || 0}-${t.losses || 0}-${t.ties || 0}`, f1(R.ratings.get(id)), k ? `${f1(k.off)} ± ${f1(k.offSd)}` : '', k ? `${f1(k.def)} ± ${f1(k.defSd)}` : '',
+    lines.push([n, t.eventRank || '', `${t.wins || 0}-${t.losses || 0}-${t.ties || 0}`, f1(R.ratings.get(id)),
       f1(R.apRate && R.apRate.get(id)), tr, ap, rt, sc, role].join(' | '));
   }
   return lines.join('\n');
 }
+// v187: reported "i asked a question to the box and nothing happened": when
+// the app could not be reached the question was taken back off and a grey
+// line changed below. Now the question stays, and what is happening (or what
+// went wrong, and what to do) appears in the conversation itself.
 async function tAsk() {
-  const inp = document.getElementById('tAskInput'), btn = document.getElementById('tAskBtn'), log = document.getElementById('tAskLog'), note = document.getElementById('tAskNote');
+  const inp = document.getElementById('tAskInput'), btn = document.getElementById('tAskBtn'), log = document.getElementById('tAskLog');
   const q = inp && inp.value.trim();
   const C = window._tAskCtx;
-  if (!q || !C) return;
+  if (!q || !log) return;
   btn.disabled = true;
-  const add = (role, content) => { tAskHist.push({ role, content }); log.insertAdjacentHTML('beforeend', `<div class="t-ask-${role === 'user' ? 'q' : 'a'}">${esc(content)}</div>`); };
-  add('user', q);
   inp.value = '';
-  note.textContent = 'Looking for the app on this computer…';
+  log.insertAdjacentHTML('beforeend', `<div class="t-ask-q">${esc(q)}</div><div class="t-ask-a t-ask-wait">Looking for the app on this computer…</div>`);
+  const bubble = log.lastElementChild;
+  const say = (t, cls) => { bubble.textContent = t; bubble.className = 't-ask-a' + (cls ? ' ' + cls : ''); };
   try {
+    if (!C) return say('This event has not loaded yet. Open the Ask tab again in a moment.', 't-ask-err');
     const port = await tAskFindApp();
-    if (!port) { note.textContent = 'The desktop app is not open on this computer (or is older than 2.52). Open it, then ask again.'; tAskHist.pop(); log.lastChild.remove(); return; }
-    note.textContent = 'Gathering this event\'s numbers…';
+    if (!port) return say(vsIsPhone()
+      ? 'Ask is answered by the desktop app on a computer, so it does not work on a phone yet.'
+      : 'Could not reach the desktop app on this computer. Check that: the app is open (version 2.52 or later: restart it to update); the vision model is on in its Settings; and if the browser asked to let this site reach apps on this device, you allowed it. Chrome or Edge work best.', 't-ask-err');
+    if (tAskApp && tAskApp.think === false) return say("The app is open, but its vision model is off. Turn it on in the app's Settings, then ask again.", 't-ask-err');
+    say('Gathering this event\'s numbers…', 't-ask-wait');
     const table = await tAskTable(C.R, C.seeds);
-    note.textContent = 'The vision model is thinking (it can take a minute the first time)…';
-    const r = await fetch(`http://127.0.0.1:${port}/ask`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question: q, table, where: (C.R.event && C.R.event.name) || '', history: tAskHist.slice(0, -1).slice(-6) }) });
+    say('The vision model is thinking (the first answer can take a minute)…', 't-ask-wait');
+    const r = await fetch(`http://127.0.0.1:${port}/ask`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, targetAddressSpace: 'loopback',
+      body: JSON.stringify({ question: q, table, where: (C.R.event && C.R.event.name) || tournamentEventName || '', history: tAskHist.slice(-6) }) });
     const j = await r.json();
-    if (j.answer) { add('assistant', j.answer); note.textContent = 'From this event\'s numbers only. Check anything important against the tables above.'; }
-    else { note.textContent = j.error || 'No answer.'; tAskHist.pop(); log.lastChild.remove(); }
+    if (j.answer) { say(j.answer); tAskHist.push({ role: 'user', content: q }, { role: 'assistant', content: j.answer }); }
+    else say(j.error || 'No answer came back.', 't-ask-err');
   } catch (e) {
     tAskPort = null;
-    note.textContent = 'Could not reach the app on this computer: ' + (e && e.message ? e.message : e);
+    say('Could not reach the app on this computer (' + (e && e.message ? e.message : e) + ').', 't-ask-err');
   } finally { btn.disabled = false; }
 }
 function tCompareBlock(R, roster, focus, pairWin) {
@@ -7854,10 +7865,6 @@ function tCompareBlock(R, roster, focus, pairWin) {
       show: (v, i) => `${cols[i].wins}–${cols[i].losses}${cols[i].ties ? '–' + cols[i].ties : ''}`, better: 'high' },
     { label: 'Rating', vals: cols.map(t => R.ratings.has(String(t.id)) ? R.ratings.get(String(t.id)) : null), show: v => num(v), better: 'high' },
     { label: 'AP a match', vals: cols.map(t => R.apRate && R.apRate.has(String(t.id)) ? R.apRate.get(String(t.id)) : null), show: v => num(v, 1), better: 'high' },
-    { label: 'Adds to its alliance', vals: cols.map(t => { const k = R.skill && R.skill.get(String(t.id)); return k ? k.off : null; }),
-      show: (v, i) => { const k = R.skill.get(String(cols[i].id)); return `${v >= 0 ? '+' : ''}${v.toFixed(0)} <span class="cmp-pm">± ${k.offSd.toFixed(0)}</span>`; }, better: 'high' },
-    { label: 'Takes off opponents', vals: cols.map(t => { const k = R.skill && R.skill.get(String(t.id)); return k ? k.def : null; }),
-      show: (v, i) => { const k = R.skill.get(String(cols[i].id)); return `${v.toFixed(0)} <span class="cmp-pm">± ${k.defSd.toFixed(0)}</span>`; }, better: 'high' },
     { label: 'Usual low score', vals: cols.map(t => f(t).floor), show: v => num(v), better: 'high' },
     { label: 'Usual high score', vals: cols.map(t => f(t).ceil), show: v => num(v), better: 'high' },
     { label: 'Trend', vals: cols.map(t => f(t).drift), show: (v, i) => T_FORM_LABEL[f(cols[i]).trend] || '', better: null },
@@ -18948,9 +18955,7 @@ function sim_computeOPR(observations, lambda = 0.5) {
 }
 
 // ── The plan for the next match (v184) ─────────────────────────────────────
-// Asked for "a match simulator": the win chance with defence counted (each
-// side's offence less the other side's defence, with every range), and the
-// split of jobs that suits the two robots: each where it spends its time
+// Asked for "a match simulator": the split of jobs that suits the two robots: each where it spends its time
 // (from the tracker), not both on the same job, and guarding the toggle when
 // the other side goes for toggles.
 const MD_JOBS = ['stack on its goals', 'work the neutral goals', 'go for the toggles', 'guard the toggle'];
@@ -18971,17 +18976,6 @@ async function mdPlanFill(next, R, teamId) {
   const host = document.getElementById('mdPlan');
   if (!host || !next) return;
   const lines = [];
-  const K = R && R.skill;
-  if (K && next.myIds.every(id => K.has(String(id))) && next.oppIds.every(id => K.has(String(id)))) {
-    const side = (mine, opp) => {
-      const mean = K.mu + mine.reduce((a, id) => a + K.get(String(id)).off, 0) - opp.reduce((a, id) => a + K.get(String(id)).def, 0);
-      const sd = Math.sqrt(K.sigma ** 2 + mine.reduce((a, id) => a + K.get(String(id)).offSd ** 2, 0) + opp.reduce((a, id) => a + K.get(String(id)).defSd ** 2, 0));
-      return { mean, sd };
-    };
-    const A = side(next.myIds, next.oppIds), B = side(next.oppIds, next.myIds);
-    const p = sim_matchupProb(A.mean, A.sd, B.mean, B.sd, 6000, 777).redWin;
-    lines.push(`<b>With defence counted:</b> ${p.toFixed(0)}% (about ${Math.round(A.mean)} to ${Math.round(B.mean)}).`);
-  }
   const roles = await tRolesFor((next.myNums || []).concat(next.oppNums || []), 2500);
   const mine = (next.myNums || []).map(n => roles.get(String(n).toUpperCase()) || null);
   const opp = (next.oppNums || []).map(n => roles.get(String(n).toUpperCase()) || null);
@@ -18994,52 +18988,6 @@ async function mdPlanFill(next, R, teamId) {
     lines.push(`<b>Plan:</b><ul>${items.join('')}</ul>${top && top.t >= 0.3 ? `<div>${esc(top.n)} goes for toggles ${Math.round(100 * top.t)}% of its time.</div>` : ''}`);
   }
   if (document.getElementById('mdPlan') === host) host.innerHTML = lines.join('');
-}
-
-// ── Skill: offence and defence, each with how sure it is (v184) ──────────────
-// Asked for "a skill model for every team" with honest ranges. Every alliance
-// score this event is explained as: the field's usual score, plus what its
-// two robots add (offence), minus what the two robots against it take away
-// (defence). Both are pulled toward 0 until the matches say otherwise
-// (defence more strongly: it is the harder thing to see in scores). The
-// range (±) is how far each could still be off, from how well scores are
-// explained and how many matches a team has: it narrows with every match.
-const SIM_SKILL_LAMBDA_OFF = 2, SIM_SKILL_LAMBDA_DEF = 6;
-function sim_skill(observations) {
-  const obs = (observations || []).filter(o => Array.isArray(o.teams) && Array.isArray(o.opp) && Number.isFinite(o.score));
-  if (obs.length < 6) return null;
-  const ids = [...new Set(obs.flatMap(o => o.teams.concat(o.opp)))];
-  const off = new Map(ids.map(t => [t, 0])), def = new Map(ids.map(t => [t, 0]));
-  const W = o => (o.w === undefined ? 1 : o.w);
-  let mu = obs.reduce((a, o) => a + W(o) * o.score, 0) / obs.reduce((a, o) => a + W(o), 0);
-  const byT = new Map(ids.map(t => [t, { mine: [], against: [] }]));
-  obs.forEach((o, i) => { o.teams.forEach(t => byT.get(t).mine.push(i)); o.opp.forEach(t => byT.get(t).against.push(i)); });
-  const pred = o => mu + o.teams.reduce((a, t) => a + off.get(t), 0) - o.opp.reduce((a, t) => a + def.get(t), 0);
-  for (let it = 0; it < 80; it++) {
-    for (const t of ids) {
-      const B = byT.get(t);
-      let num = 0, den = SIM_SKILL_LAMBDA_OFF;
-      for (const i of B.mine) { const o = obs[i]; num += W(o) * (o.score - pred(o) + off.get(t)); den += W(o); }
-      off.set(t, num / den);
-      // With def(t) taken out of the prediction, what is left unexplained (prediction over score) is its defence.
-      num = 0; den = SIM_SKILL_LAMBDA_DEF;
-      for (const i of B.against) { const o = obs[i]; num += W(o) * (pred(o) + def.get(t) - o.score); den += W(o); }
-      def.set(t, num / den);
-    }
-    let a = 0, b = 0;
-    for (const o of obs) { a += W(o) * (o.score - (pred(o) - mu)); b += W(o); }
-    mu = a / b;
-  }
-  let sq = 0, ws = 0;
-  for (const o of obs) { const r = o.score - pred(o); sq += W(o) * r * r; ws += W(o); }
-  const sigma = Math.sqrt(sq / Math.max(1e-9, ws)) || 1;
-  const out = new Map();
-  for (const t of ids) {
-    const B = byT.get(t), nm = B.mine.reduce((a, i) => a + W(obs[i]), 0), na = B.against.reduce((a, i) => a + W(obs[i]), 0);
-    out.set(t, { off: off.get(t), offSd: sigma / Math.sqrt(nm + SIM_SKILL_LAMBDA_OFF), def: def.get(t), defSd: sigma / Math.sqrt(na + SIM_SKILL_LAMBDA_DEF), n: B.mine.length });
-  }
-  out.mu = mu; out.sigma = sigma;
-  return out;
 }
 
 // ── Recency weight for a match timestamp (exponential decay, ~45-day half-life) ──
@@ -19347,9 +19295,7 @@ async function sim_buildRatingsFromEventUncached(event, setStatus) {
   try { tracking = sim_applyTracking(ratings, matchCount, await sim_trackIndex(numById, 1500)); } catch (e) {}
   const idByNum = {};
   for (const [id, num] of Object.entries(numById)) idByNum[num.toUpperCase()] = id;
-  let skill = null;
-  try { skill = sim_skill(observations); } catch (e) {}
-  return { event, ratings, stdByTeam, globalStd, matchCount, matches: allMatches, numById, idByNum, trackUsed: tracking.used, trackFitOn: tracking.fitOn, skill,
+  return { event, ratings, stdByTeam, globalStd, matchCount, matches: allMatches, numById, idByNum, trackUsed: tracking.used, trackFitOn: tracking.fitOn,
     apRate: ap.rate, apAdj: ap.adj, apUsed: ap.used,
     cal, prior: season.prior, seasonUsed: season.used, seasonFitOn: season.fitOn, seasonOnly: season.seasonOnly };
 }
