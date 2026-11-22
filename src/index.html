@@ -3733,7 +3733,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v187';
+const APP_BUILD = 'v188';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -7750,30 +7750,16 @@ function tCompareClear() { tCompareSet([]); }
 // whose vision model answers from that table only. Nothing goes to any
 // other service. It needs the app open on this computer with the vision
 // model on; the page says so when it cannot reach it.
-const T_ASK_PORTS = [8765, 8766, 8767, 8768, 8769, 8770, 8771, 8772, 8773, 8774];
-let tAskPort = null, tAskHist = [];
+let tAskHist = [];
 function tAskBlock(R) {
   return `<div class="detail-block-label" style="margin-top:22px">Ask about this event</div>
     <div class="t-ask">
       <div class="t-ask-log" id="tAskLog">${tAskHist.map(h => `<div class="t-ask-${h.role === 'user' ? 'q' : 'a'}">${esc(h.content)}</div>`).join('')}</div>
       <div class="cmp-add"><input type="text" id="tAskInput" placeholder="e.g. Who has the best autonomous from the right side?" autocomplete="off" enterkeyhint="send" onkeydown="if(event.key==='Enter')tAsk()">
       <button class="btn btn-primary" id="tAskBtn" onclick="tAsk()">Ask</button></div>
-      <div class="lp-help" id="tAskNote">Answered by the vision model in the desktop app on this computer, from this event's numbers only. The app has to be open. Check anything important against the tables.</div>
+      <div class="lp-help" id="tAskNote">Answered by the vision model in the desktop app, from this event's numbers only. Works on any device while the app is open on a computer. Check anything important against the tables.</div>
     </div>`;
 }
-// v187: every port at once, so finding the app takes under a second (not ten
-// tries in a row). targetAddressSpace tells Chrome this is a call to this
-// computer, so it can ask "allow this site to reach apps on this device?".
-async function tAskFindApp() {
-  if (tAskPort) return tAskPort;
-  const one = p => new Promise((ok, no) => {
-    const ctl = new AbortController(), t = setTimeout(() => { ctl.abort(); no(); }, 1500);
-    fetch(`http://127.0.0.1:${p}/ask/ping`, { signal: ctl.signal, targetAddressSpace: 'loopback' })
-      .then(r => r.ok ? r.json() : null).then(j => { clearTimeout(t); j && j.ok ? ok({ p, j }) : no(); }).catch(() => { clearTimeout(t); no(); });
-  });
-  try { const got = await Promise.any(T_ASK_PORTS.map(one)); tAskPort = got.p; tAskApp = got.j; return got.p; } catch (e) { return null; }
-}
-let tAskApp = null;
 // The event as a table: one line a team.
 async function tAskTable(R, seeds) {
   const nums = seeds.map(t => String(t.number).toUpperCase());
@@ -7803,10 +7789,15 @@ async function tAskTable(R, seeds) {
   }
   return lines.join('\n');
 }
-// v187: reported "i asked a question to the box and nothing happened": when
-// the app could not be reached the question was taken back off and a grey
-// line changed below. Now the question stays, and what is happening (or what
-// went wrong, and what to do) appears in the conversation itself.
+// v187/v188: reported "i asked a question to the box and nothing happened",
+// then again with the app open and updated: the browser kept the page from
+// talking to the app on the computer. So questions go through this
+// website's own server instead: it keeps the question a few minutes, the
+// owner's app (wherever it is open) takes it, answers it and puts the answer
+// back, and this page waits for it. Any device can ask, phones too, while
+// the app is open somewhere. The question stays, and each step or problem
+// shows in the conversation.
+const T_ASK_WAIT_MS = 240000;
 async function tAsk() {
   const inp = document.getElementById('tAskInput'), btn = document.getElementById('tAskBtn'), log = document.getElementById('tAskLog');
   const q = inp && inp.value.trim();
@@ -7814,27 +7805,29 @@ async function tAsk() {
   if (!q || !log) return;
   btn.disabled = true;
   inp.value = '';
-  log.insertAdjacentHTML('beforeend', `<div class="t-ask-q">${esc(q)}</div><div class="t-ask-a t-ask-wait">Looking for the app on this computer…</div>`);
+  log.insertAdjacentHTML('beforeend', `<div class="t-ask-q">${esc(q)}</div><div class="t-ask-a t-ask-wait">Gathering this event's numbers…</div>`);
   const bubble = log.lastElementChild;
   const say = (t, cls) => { bubble.textContent = t; bubble.className = 't-ask-a' + (cls ? ' ' + cls : ''); };
   try {
     if (!C) return say('This event has not loaded yet. Open the Ask tab again in a moment.', 't-ask-err');
-    const port = await tAskFindApp();
-    if (!port) return say(vsIsPhone()
-      ? 'Ask is answered by the desktop app on a computer, so it does not work on a phone yet.'
-      : 'Could not reach the desktop app on this computer. Check that: the app is open (version 2.52 or later: restart it to update); the vision model is on in its Settings; and if the browser asked to let this site reach apps on this device, you allowed it. Chrome or Edge work best.', 't-ask-err');
-    if (tAskApp && tAskApp.think === false) return say("The app is open, but its vision model is off. Turn it on in the app's Settings, then ask again.", 't-ask-err');
-    say('Gathering this event\'s numbers…', 't-ask-wait');
-    const table = await tAskTable(C.R, C.seeds);
-    say('The vision model is thinking (the first answer can take a minute)…', 't-ask-wait');
-    const r = await fetch(`http://127.0.0.1:${port}/ask`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, targetAddressSpace: 'loopback',
-      body: JSON.stringify({ question: q, table, where: (C.R.event && C.R.event.name) || tournamentEventName || '', history: tAskHist.slice(-6) }) });
-    const j = await r.json();
-    if (j.answer) { say(j.answer); tAskHist.push({ role: 'user', content: q }, { role: 'assistant', content: j.answer }); }
-    else say(j.error || 'No answer came back.', 't-ask-err');
+    const table = (await tAskTable(C.R, C.seeds)).slice(0, 140000);
+    say('Sending the question…', 't-ask-wait');
+    const r = await vtApi('POST', '', { ask: { question: q, table, where: (C.R.event && C.R.event.name) || tournamentEventName || '', history: tAskHist.slice(-6) } });
+    if (!r.ok || !r.body || !r.body.id) return say((r.body && r.body.error) || 'The website could not take the question just now. Try again in a moment.', 't-ask-err');
+    const id = r.body.id, t0 = Date.now();
+    say('Waiting for the app to answer…', 't-ask-wait');
+    while (Date.now() - t0 < T_ASK_WAIT_MS) {
+      await new Promise(res => setTimeout(res, 2000));
+      const g = await vtApi('GET', '?ask=' + id).catch(() => null);
+      const b = g && g.body;
+      if (b && b.answer) { say(b.answer); tAskHist.push({ role: 'user', content: q }, { role: 'assistant', content: b.answer }); return; }
+      if (b && b.error) return say(b.error, 't-ask-err');
+      if (b && b.waiting && Date.now() - t0 > 9000) say(b.app ? 'The vision model is thinking (the first answer can take a minute)…'
+        : 'Waiting for the desktop app: it answers when it is open on a computer. If it is open, give it a few seconds; it checks every few seconds.', 't-ask-wait');
+    }
+    say('No answer came in 4 minutes. Is the desktop app open (version 2.53 or later) with the vision model on in its Settings?', 't-ask-err');
   } catch (e) {
-    tAskPort = null;
-    say('Could not reach the app on this computer (' + (e && e.message ? e.message : e) + ').', 't-ask-err');
+    say('Something went wrong: ' + (e && e.message ? e.message : e), 't-ask-err');
   } finally { btn.disabled = false; }
 }
 function tCompareBlock(R, roster, focus, pairWin) {

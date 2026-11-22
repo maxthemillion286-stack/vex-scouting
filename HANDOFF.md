@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v187**. Everything green: 130 test files.
+Current release: **v188**. Everything green: 131 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,20 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v188 (app 2.53) — Ask goes through the website.** Reported again with the
+app open and updated: "Could not reach the desktop app". The browser keeps a
+web page from reaching the app on the computer. Now: `POST { ask: {question
+≤600, table ≤150000, where, history} }` (no passcode) → `vt:ask:q:ID` (EX
+600) + LPUSH `vt:askq` (≤ ASK_QUEUE 30 waiting) → `{id}`; the app's
+`ask_relay` thread (started with the window, every ASK_EVERY 3 s, backs off
+on errors; config `ask`, default on) `POST {passcode, asksTake}` (RPOP ≤3,
+sets `vt:ask:alive` EX 20) → `ask_answer` → `POST {passcode, askAnswer: {id,
+answer|error}}` (`vt:ask:a:ID` EX 600). Page `tAsk` polls `GET ?ask=ID`
+every 2 s for 4 min ({waiting, app} says whether an app has looked lately).
+Works from any device while the app is open somewhere. The direct
+127.0.0.1 routes stay in the app but the page no longer uses them. Checks:
+t171, desktop/dev/ask.py (11).
 
 **v187 — skill rows taken out; Ask says what is happening.** The owner asked
 to remove #5: `sim_skill`, `R.skill`, the two Compare rows, the "with
