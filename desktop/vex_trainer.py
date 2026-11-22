@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.54'
+VERSION = '2.55'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -2075,106 +2075,6 @@ def share_set(key, frac):
 # check. Coordinates from Qwen3-VL come as 0-1000 of the picture (pixels of
 # the picture sent are taken too, if a model gives those).
 VLM_WHAT = ['robot', 'person', 'referee or staff', 'field element or game piece', 'sign or screen', 'other']
-
-# ── Ask: questions about the scouting data, answered on this computer (v2.52) ──
-# Asked: "ask it anything … would this be like basically a chatbot?" The
-# website's Ask box sends the question with the event's numbers as a table
-# (what the website already shows); the vision model here answers from that
-# table only, and says when the table does not have the answer. Only the
-# website (and this computer) may ask, it only gets text back, and one
-# question is answered at a time. Nothing leaves this computer.
-ASK_ORIGINS = ('https://vex-scouting-by-max.vercel.app', 'http://localhost:3000', 'http://127.0.0.1:3000')
-ASK_MAX_BYTES = 400000
-_ASK_LOCK = threading.Lock()
-
-def ask_answer(cfg, q):
-    question = str(q.get('question') or '').strip()[:600]
-    table = str(q.get('table') or '')[:300000]
-    where = str(q.get('where') or '').strip()[:200]
-    history = [h for h in (q.get('history') or [])[-6:] if isinstance(h, dict)]
-    if not question:
-        return {'error': 'no question'}
-    if not cfg.get('think'):
-        return {'error': 'Turn on the vision model in the app\'s Settings: it is what answers.'}
-    if not ensure_think(cfg):
-        return {'error': 'The vision model is not ready on this computer yet.'}
-    system = ('You are a scouting assistant for a VEX V5 Robotics Competition team (game: Override). Answer the question using ONLY the data below%s. '
-              'Quote the numbers you use, name teams by their number, and keep it short: a few sentences or a short list. '
-              'If the data does not answer it, say so plainly and say what would. Do not invent numbers. '
-              'Column meanings are given in the first lines of the data.\n\nDATA:\n%s') % ((' about ' + where) if where else '', table)
-    msgs = [{'role': 'system', 'content': system}]
-    for h in history:
-        if h.get('role') in ('user', 'assistant') and isinstance(h.get('content'), str):
-            msgs.append({'role': h['role'], 'content': h['content'][:2000]})
-    msgs.append({'role': 'user', 'content': question})
-    # v2.54: reported "No answer came back.": the model spent its words
-    # thinking to itself and left the answer empty. The answer is now asked
-    # for as JSON ({"answer": …}), which it must fill, with room to write,
-    # thinking turned off (and "/no_think" said, for models that take it
-    # that way); if it still comes back empty, once more with more room.
-    msgs[-1] = {'role': 'user', 'content': question + ' /no_think'}
-    schema = {'type': 'object', 'required': ['answer'], 'properties': {'answer': {'type': 'string'}}}
-    def once(tokens):
-        body = {'model': think_model(cfg), 'stream': False, 'keep_alive': '10m', 'format': schema,
-                'options': {'temperature': 0.2, 'num_predict': tokens, 'num_ctx': 16384}, 'messages': msgs}
-        if not _THINK['plain']:
-            body['think'] = False
-        try:
-            r = ollama_call('/api/chat', body, timeout=300)
-        except urllib.error.HTTPError as e:
-            if e.code == 400 and 'think' in body:
-                _THINK['plain'] = True
-                del body['think']
-                r = ollama_call('/api/chat', body, timeout=300)
-            else:
-                raise
-        m = r.get('message') or {}
-        raw = (m.get('content') or '').strip()
-        try:
-            got = json.loads(raw) if raw else {}
-            text = str(got.get('answer') or '').strip() if isinstance(got, dict) else ''
-        except Exception:
-            text = raw                              # plain words: use them as they are
-        return text, (m.get('thinking') or '').strip()
-    if not _ASK_LOCK.acquire(timeout=120):
-        return {'error': 'Busy with another question; try again in a moment.'}
-    try:
-        text, thought = once(1200)
-        if not text:
-            text, thought = once(3000)
-        if text:
-            return {'answer': text}
-        return {'error': 'The vision model gave no answer%s. Try asking more simply, or check that %s is installed in Ollama.' % (' (it only thought about it)' if thought else '', think_model(cfg))}
-    except Exception as e:
-        return {'error': 'The vision model could not answer (%s).' % str(e)[:120]}
-    finally:
-        _ASK_LOCK.release()
-
-# v2.53: questions come through the website. A page cannot reliably talk to
-# a program on the computer (browsers block it or ask in ways people miss;
-# reported: "i asked a question … and nothing happened"), so the website
-# keeps each question for a few minutes and this app, while open, takes the
-# waiting ones every few seconds, answers them here and puts the answers
-# back. It works from any device, phones too, while this app is open.
-ASK_EVERY = 3
-
-def ask_relay(cfg_get, stop):
-    quiet = 0
-    while not stop.is_set():
-        cfg = cfg_get()
-        if not cfg.get('key') or not cfg.get('ask', True):
-            stop.wait(30)
-            continue
-        try:
-            site = Site(cfg)
-            r = site.post({'asksTake': 1}, tries=1)
-            for q in (r.get('asks') or [])[:3]:
-                a = ask_answer(cfg, q)
-                site.post({'askAnswer': dict(a, id=q.get('id'))}, tries=2)
-            quiet = 0 if r.get('ok') else min(quiet + 1, 10)
-        except Exception:
-            quiet = min(quiet + 1, 10)
-        stop.wait(ASK_EVERY * (1 + quiet))
 
 def vlm_ask(cfg, prompt, schema, jpeg, tokens=400):
     """One question with one picture, answered as JSON to the schema. → dict or None."""
@@ -6116,31 +6016,8 @@ def serve_ui(cfg, port=8765, open_window=True):
                 except Exception:
                     pass
 
-        def _ask_origin(self):
-            """The website (or this computer) asking a question: its origin, else None."""
-            o = (self.headers.get('Origin') or '').rstrip('/')
-            return o if o in ASK_ORIGINS else None
-        def do_OPTIONS(self):
-            # The website asks first whether it may (a browser's check before
-            # a page on the internet talks to this computer): only for /ask.
-            o = self._ask_origin()
-            if not o or not self.path.startswith('/ask'):
-                self.send_response(403); self.end_headers(); return
-            self.send_response(204)
-            self.send_header('Access-Control-Allow-Origin', o)
-            self.send_header('Access-Control-Allow-Methods', 'GET, POST')
-            self.send_header('Access-Control-Allow-Headers', 'Content-Type')
-            self.send_header('Access-Control-Allow-Private-Network', 'true')
-            self.send_header('Access-Control-Max-Age', '600')
-            self.send_header('Vary', 'Origin')
-            self.end_headers()
         def _get(self):
             u = urllib.parse.urlparse(self.path)
-            if u.path == '/ask/ping':
-                o = self._ask_origin()
-                if not o:
-                    return self._send(403, {'error': 'not allowed'})
-                return self._send(200, {'ok': True, 'think': bool(load_config().get('think')), 'app': VERSION}, cors=o)
             if not self._allowed(u):
                 return self._send(403, {'error': 'not allowed'})
             if u.path == '/':
@@ -6257,18 +6134,6 @@ def serve_ui(cfg, port=8765, open_window=True):
 
         def _post(self):
             u = urllib.parse.urlparse(self.path)
-            if u.path == '/ask':
-                o = self._ask_origin()
-                if not o:
-                    return self._send(403, {'error': 'not allowed'})
-                try:
-                    n = int(self.headers.get('Content-Length', 0))
-                    if n > ASK_MAX_BYTES:
-                        return self._send(413, {'error': 'too much'}, cors=o)
-                    q = json.loads(self.rfile.read(n).decode('utf-8') or '{}')
-                except Exception:
-                    return self._send(400, {'error': 'bad request'}, cors=o)
-                return self._send(200, ask_answer(load_config(), q), cors=o)
             if not self._allowed(u):
                 return self._send(403, {'error': 'not allowed'})
             try:
@@ -6411,9 +6276,6 @@ def serve_ui(cfg, port=8765, open_window=True):
     if not open_window:
         threading.Thread(target=srv.serve_forever, daemon=True).start()
         return srv
-    # Questions asked on the website's Ask tab, answered here while the window is open (v2.53).
-    srv.ask_stop = threading.Event()
-    threading.Thread(target=ask_relay, args=(lambda: dict(cfg, **load_config()), srv.ask_stop), daemon=True).start()
     # Nothing to press: with the key saved, tracking starts with the window.
     if cfg.get('key'):
         threading.Thread(target=lambda: (sync_review(cfg, quiet=True), counts(True)), daemon=True).start()
