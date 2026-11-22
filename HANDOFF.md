@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v181**. Everything green: 128 test files.
+Current release: **v183**. Everything green: 128 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,13 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v183 (app 2.51) — v182 taken back.** The owner asked for it reverted once it
+was clear the website itself cannot learn from what a viewer watches (the
+app would do the tracking). `git revert -m 1` of the v182 merge: no `want`
+POST, no `?wants=`, no `vtWatchWant`, no `wants_open` in the app; numbers
+moved on (v183, app 2.51) so caches and installed apps update. Old
+`vt:wants` entries in storage are unused.
 
 **v181 (app 2.49) — counting pins exactly, the app's half.** (1) `blocked(sb,
 boxes)`: a spot more than 35% covered by a robot box is written -1s in `gs`
