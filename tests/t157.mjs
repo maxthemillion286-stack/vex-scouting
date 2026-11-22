@@ -22,7 +22,6 @@ console.log('t157 — v171');
       if (c[0] === 'SADD') { if (!sets.has(c[1])) sets.set(c[1], new Set()); sets.get(c[1]).add(c[2]); return { result: 1 }; }
       if (c[0] === 'SMEMBERS') return { result: [...(sets.get(c[1]) || [])] };
       if (c[0] === 'HSET') { if (!hashes.has(c[1])) hashes.set(c[1], new Map()); hashes.get(c[1]).set(c[2], c[3]); return { result: 1 }; }
-      if (c[0] === 'HDEL') return { result: 0 };
       if (c[0] === 'HKEYS') return { result: [...(hashes.get(c[1]) || new Map()).keys()] };
       if (c[0] === 'HGETALL') return { result: [...(hashes.get(c[1]) || new Map())].flat() };
       return { error: 'unknown ' + c[0] };

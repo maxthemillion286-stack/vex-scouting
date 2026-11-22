@@ -18,9 +18,6 @@
 //   POST { passcode, ev, id, rec } → { ok }           save one match
 //   GET  ?jobs=1 | ?jobs=EV      → { events } | { list }   work for the desktop app
 //   POST { passcode, jobs: { ev, list } | { ev, done } }
-//   POST { want: { ev, job } }    → { ok }             (no passcode) a match someone watched in the Jumper,
-//                                                      for the app to track (v182); a recording of it clears it
-//   GET  ?wants=1                → { wants: [{ ev, job }] }
 //   GET  ?model=1 | ?model=TAG&part=i → { model } | { b64 }   a finder trained in the app
 //   POST { passcode, model: { tag, i, n, b64 } | { clear } }
 //   GET  ?teams=A,B,C            → { teams }          several teams' summaries (≤12)
@@ -208,7 +205,6 @@ export function validJob(j) {
   return null;
 }
 const MODEL_PART_B64 = 900 * 1024, MODEL_MAX_PARTS = 80;
-const VT_WANTS_MAX = 2000;
 const modelTag = v => typeof v === 'string' && /^[a-z0-9]{4,16}$/.test(v) ? v : null;
 // A frame for review: a picture, where the finder thinks the robots are.
 const FRAME_ID = /^[A-Za-z0-9_-]{4,60}$/, MAX_FRAMES_WAITING = 300, MAX_FRAME_B64 = 520 * 1024;
@@ -280,14 +276,6 @@ export default async function handler(req, res) {
         const labels = {};
         for (let k = 0; Array.isArray(flat) && k + 1 < flat.length; k += 2) { try { labels[String(flat[k])] = JSON.parse(flat[k + 1]); } catch (e) {} }
         return res.status(200).json({ db: true, labels });
-      }
-      if (q.wants !== undefined) {
-        if (!hasDb) return res.status(200).json({ db: false, wants: [] });
-        const [flat] = await redis(E, [['HGETALL', 'vt:wants']]);
-        const wants = [];
-        for (let i = 0; Array.isArray(flat) && i + 1 < flat.length; i += 2) { try { const w = JSON.parse(flat[i + 1]); if (w && digits(w.ev) && !validJob(w.job)) wants.push({ ev: String(w.ev), job: w.job, at: w.at || 0 }); } catch (e) {} }
-        wants.sort((a, b) => b.at - a.at);
-        return res.status(200).json({ db: true, wants });
       }
       if (q.jobs !== undefined) {
         if (!hasDb) return res.status(200).json({ db: false, events: [], list: [] });
@@ -378,21 +366,6 @@ export default async function handler(req, res) {
       let body = req.body;
       if (typeof body === 'string') { try { body = JSON.parse(body); } catch (e) { body = null; } }
       if (!body || typeof body !== 'object') return res.status(400).json({ error: 'no body' });
-      // v182: a match watched in the Jumper, offered to the app. Anyone may
-      // offer one (no passcode): it is only a request to watch a played match
-      // in a YouTube stream, checked like any job, at most VT_WANTS_MAX kept;
-      // the app (with the passcode) is what watches it and saves anything.
-      if (body.want !== undefined && body.passcode === undefined) {
-        if (!hasDb) return res.status(503).json({ error: 'no database is connected' });
-        const W = body.want, wev = W && digits(W.ev), bad = W && validJob(W.job);
-        if (!wev || !W.job || bad) return res.status(400).json({ error: bad || 'bad want' });
-        const key = `${wev}:${W.job.id}`;
-        const [have, n, done] = await redis(E, [['HEXISTS', 'vt:wants', key], ['HLEN', 'vt:wants'], ['SISMEMBER', `vt:ev2:${wev}`, String(W.job.id)]]);
-        if (done) return res.status(200).json({ ok: true, tracked: true });
-        if (!have && n >= VT_WANTS_MAX) return res.status(200).json({ ok: false, full: true });
-        await redis(E, [['HSET', 'vt:wants', key, JSON.stringify({ ev: wev, job: W.job, at: Date.now() })]]);
-        return res.status(200).json({ ok: true });
-      }
       if (!passcodeOk(body.passcode, E.passcode)) {
         // A wrong guess costs a moment, so guessing in bulk is slow.
         await new Promise(r => setTimeout(r, 400));
@@ -497,7 +470,7 @@ export default async function handler(req, res) {
         const text = JSON.stringify(body.rec);
         if (text.length > MAX_REC_BYTES) return res.status(413).json({ error: 'record too large' });
         cmds.push(['SET', `vt:m:${ev}:${id}`, text], ['SADD', `vt:ev:${ev}`, id]);
-        if (body.rec.v === 2) cmds.push(['SADD', `vt:ev2:${ev}`, id], ['HDEL', 'vt:wants', `${ev}:${id}`]);
+        if (body.rec.v === 2) cmds.push(['SADD', `vt:ev2:${ev}`, id]);
         for (const t of (body.rec.red || []).concat(body.rec.blue || [])) if (teamKey(t)) cmds.push(['SADD', `vt:trec:${teamKey(t)}`, `${ev}:${id}`]);
       }
       if (body.sum !== undefined) {
