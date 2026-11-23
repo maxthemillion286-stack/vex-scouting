@@ -106,7 +106,7 @@ const f = n => win.eval(n);
   ok('a recording is closed after five and a half minutes at most', /now - cur\.t0 > VT_WINDOW_WIDE\) await finish\(\)/.test(idx));
   ok('live and watching save through the same step', (idx.match(/await vtKeep\(run, /g) || []).length === 2);
   ok('the tracker box offers Track live', /onclick="vtStart\('live'\)">Track live</.test(idx));
-  ok('a team view does not offer live', /\$\{ctx\.team \? '' : `<div class="rw-hint"><strong>Live\.<\/strong>/.test(idx));
+  ok('a team view does not offer live', /\$\{ctx\.team \? '' : `<button class="btn btn-secondary" onclick="vtStart\('history'\)">Track these teams' earlier matches<\/button> <button class="btn btn-secondary" onclick="vtStart\('live'\)">/.test(idx));
   ok('a match saved without a score is remembered as such', /idx\[id\]\.ns = 1/.test(idx));
   ok('scores are filled in before summaries are refreshed', /vtScoreFill\(ev, ctx\)\.catch\(\(\) => \{\}\)\.then\(\(\) => vtBackfill\(ev\)\)/.test(idx));
   ok('plates are read live as well', (idx.match(/await vtPlates\(run, slot, video, sx, sy, boxes/g) || []).length === 2);

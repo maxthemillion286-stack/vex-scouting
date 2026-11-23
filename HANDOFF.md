@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v193**. Everything green: 131 test files.
+Current release: **v194**. Everything green: 132 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,16 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v194 — the Robot tracker box, simpler; the app's work comes in by itself.**
+Reported: "can it be automatic? also this is way too many buttons and way too
+confusing". `vtAutoImport`: 8 s after load and every 5 min (key saved, tab
+visible) runs `vtAppImport(true)`; the "Bring in what the app tracked" button
+is gone. `vtRender`: note, `main` (send this event / these teams' earlier
+matches to the app, or how to save the key), `briefRow`, then `<details
+class="vt-more">` with the learning line, tracking in this page (here,
+history, live), marking the field here and the accuracy test. Checks: t173
+(t112, t114, t116 updated).
 
 **v193 — the owner's numbers on every device.** The owner: his computer's
 numbers are right; the website's copies (shown by v191) were "way too low"
