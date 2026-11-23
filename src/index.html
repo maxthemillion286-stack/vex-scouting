@@ -3729,7 +3729,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v194';
+const APP_BUILD = 'v195';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -5533,6 +5533,7 @@ function rwPlayOrder() {
   for (const day of Object.keys(byDay).sort()) {
     const groups = {};
     for (const m of byDay[day]) (groups[roundName(m)] = groups[roundName(m)] || []).push(m);
+    if (groups.Elimination) groups.Elimination.sort((a, b) => (a.t == null ? Infinity : a.t) - (b.t == null ? Infinity : b.t));
     for (const g of ['Qualification', 'Elimination', 'Practice']) {
       for (const m of (groups[g] || [])) {
         // Only what can actually be opened. A match on an unsynced day has no
@@ -6557,6 +6558,9 @@ function rewatchRender() {
     const groups = {};
     for (const m of dayMatches) { (groups[roundName(m)] = groups[roundName(m)] || []).push(m); }
     const order = ['Qualification', 'Elimination', 'Practice'].filter(k => groups[k]);
+    // v195: eliminations in the order they were played (the round numbers put
+    // the round of 16 after the finals).
+    if (groups.Elimination) groups.Elimination.sort((a, b) => (a.t == null ? Infinity : a.t) - (b.t == null ? Infinity : b.t) || (a.round - b.round) || (a.num - b.num) || ((a.instance || 0) - (b.instance || 0)));
     for (const g of order) {
       html += `<div class="rw-group-label">${g}</div><div class="rw-list">`;
       for (const m of groups[g]) {
