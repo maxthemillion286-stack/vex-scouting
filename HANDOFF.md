@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v192**. Everything green: 130 test files.
+Current release: **v193**. Everything green: 131 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,16 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v193 — the owner's numbers on every device.** The owner: his computer's
+numbers are right; the website's copies (shown by v191) were "way too low"
+and scored "really too fast" (likely made on another device lacking a
+field mark or learning kept only on his). `vtTakeServer(server, mine)`: with
+the admin key, the browser's own copy unless the website's has a higher
+`rv`; without it, the website's copy unless this browser's has a higher
+`rv` (its own only fills gaps). `vtSumsShareUp` (key only, ≤60 a read, once
+a key a visit) POSTs every own copy that is missing on the website or
+differs there and is not older counting. Check: t172.
 
 **v192 — v191 taken back.** After v191 the owner said "now my computer's info
 is all inaccurate": the website's copy winning ties replaced summaries his
