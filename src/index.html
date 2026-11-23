@@ -3729,7 +3729,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v195';
+const APP_BUILD = 'v196';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -10801,9 +10801,8 @@ function vtReportAuto(rep, L) {
   } else if (R) items.push(R.still ? `Stays where it starts (${R.n} of ${R.of}).` : `Runs the same routine in ${R.n} of ${R.of}.`);
   else if (G) items.push('No routine it runs consistently: its path changes from match to match.');
   for (const t of L.auto || []) if (!/routine every time|more than one routine/.test(t)) items.push(t);
-  const moving = RT.filter(r => !r.still);
-  const play = moving.length ? moving.map((r, i) => `<div class="vr-replay">${vtFieldSvg(null, null, r)}<button class="btn btn-secondary" onclick="vtReplayPlay(this)">▶ Play route ${RT.indexOf(r) + 1}</button><div class="vr-cap">Route ${RT.indexOf(r) + 1} as it ran in ${r.n} matches, played in real time (15 s).${i === moving.length - 1 ? ' ' + VT_FIELD_KEY : ''}</div></div>`).join('')
-    : R && !R.still ? `<div class="vr-replay">${vtFieldSvg(null, null, R)}<button class="btn btn-secondary" onclick="vtReplayPlay(this)">▶ Play its autonomous</button><div class="vr-cap">Its routine as it ran in ${R.n} matches, played in real time (15 s). ${VT_FIELD_KEY}</div></div>` : '';
+  // v196: the autonomous replays (its routine and each route, played on the field) were taken out: reported not working.
+  const play = '';
   return `<div class="vr-sec"><div class="vr-h">Autonomous</div>${items.length ? `<ul class="vr-list">${items.map(t => `<li>${esc(t)}</li>`).join('')}</ul>` : '<div class="vr-none">Not enough of the autonomous period was in view.</div>'}${play}</div>`;
 }
 // Role and strategy: where the driver period goes, then how it does at toggles.
