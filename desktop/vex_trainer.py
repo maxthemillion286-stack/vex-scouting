@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.55'
+VERSION = '2.56'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -3250,6 +3250,33 @@ def download(vid_or_url, dest_stem, windows=None):
         return None
 
 
+JOB_TRIES = 2
+
+def job_tries(new=None):
+    """Matches tracked without success so far: {'ev:id': times}."""
+    path = os.path.join(DIRS['data'], 'job_tries.json')
+    if new is not None:
+        try:
+            with open(path, 'w') as f:
+                json.dump(dict(list(new.items())[-20000:]), f)
+        except Exception:
+            pass
+        return new
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def finish_events(site, per_ev, tries):
+    """An event whose every match is tracked or given up is finished on the website."""
+    for ev, (jobs, have) in per_ev.items():
+        if jobs and all(str(j['id']) in have or tries.get('%s:%s' % (ev, j['id']), 0) >= JOB_TRIES for j in jobs):
+            try:
+                site.post({'jobs': {'ev': str(ev), 'done': True}}, tries=1)
+            except Exception:
+                pass
+
 # ── menu: track what the website asked for ──────────────────────────────────
 def do_jobs(cfg):
     site = Site(cfg)
@@ -3263,19 +3290,36 @@ def do_jobs(cfg):
         return
     todo = {}                                         # vid → [(ev, job)]
     asked = done_already = 0
+    # v2.56: reported "ive sent an event to the tracker before and its taken
+    # multiple days … and its still not done". A match that could not be
+    # tracked (no video, robots not seen, its place in the stream off) was
+    # tried again every round for ever, video downloaded again each time,
+    # and its event never finished. Now each match gets JOB_TRIES goes; after
+    # that it is left out and said so, and an event whose every match is
+    # tracked or given up is finished on the website.
+    tries = job_tries()
+    gave = {}                                         # ev → [names given up on]
+    per_ev = {}                                       # ev → (jobs, have)
     for ev in events:
         jobs = site.get('?jobs=' + str(ev)).get('list') or []
         have = set(str(i) for i in (site.get('?event=' + str(ev)).get('ids') or []))
+        per_ev[ev] = (jobs, have)
         asked += len(jobs)
         for j in jobs:
             if str(j['id']) in have:
                 done_already += 1
+            elif tries.get('%s:%s' % (ev, j['id']), 0) >= JOB_TRIES:
+                gave.setdefault(ev, []).append(str(j.get('name') or j['id']))
             else:
                 todo.setdefault(j['vid'], []).append((ev, j))
+    finish_events(site, per_ev, tries)
     left = sum(len(v) for v in todo.values())
-    say('\nThe website asked for %d matches in %d events. %d are already tracked; %d to go, in %d videos.' % (asked, len(events), done_already, left, len(todo)))
+    n_gave = sum(len(v) for v in gave.values())
+    say('\nThe website asked for %d matches in %d events. %d are already tracked; %d to go, in %d videos.%s' % (
+        asked, len(events), done_already, left, len(todo),
+        (' %d could not be tracked after %d tries and are left out (%s).' % (n_gave, JOB_TRIES, ', '.join(n for v in gave.values() for n in v)[:300])) if n_gave else ''))
     if not left:
-        say('Nothing left to do. Open the Robot tracker box on the website and it brings them in.')
+        say('Nothing left to do. The website brings in what was tracked by itself.')
         return
     workers = max(1, int(cfg.get('workers', 4)))
     totals = {'ok': 0, 'no': 0, 'plates': 0, 'clock': 0, 'looks': 0, 'think': 0}
@@ -3317,6 +3361,7 @@ def do_jobs(cfg):
         except Exception as e:
             say('  could not get %s: %s' % (vid, str(e)[:120]))
             fetched[vid] = None
+    id_ev = {str(j['id']): '%s:%s' % (ev, j['id']) for pairs_ in todo.values() for ev, j in pairs_}
     ahead = None
     done_all = 0
     # One bar for the whole job (v2.34): matches, counted in fractions as each
@@ -3361,6 +3406,10 @@ def do_jobs(cfg):
                 say('  a worker stopped:', str(e)[:200])
                 results = []
             for res in results:
+                k_ = id_ev.get(str(res.get('id')))
+                if k_ and not res['ok']:
+                    tries[k_] = tries.get(k_, 0) + 1
+                    job_tries(tries)
                 done += 1
                 totals['ok' if res['ok'] else 'no'] += 1
                 totals['plates'] += res['plates']
@@ -3445,6 +3494,13 @@ def do_jobs(cfg):
             say('The vision model took the most time. It is only asked about every picture where plates did not settle who is who; to go faster still, turn it off in Settings.')
         elif spent_all.get('robots', 0) / tot > 0.4 and not totals.get('gpu'):
             say('Finding robots took the most time, and it ran on the processor. On a graphics card it is several times faster: check that the graphics card driver is up to date, then start the app again.')
+    # Events now finished (every match tracked, or tried JOB_TRIES times) come off the list.
+    try:
+        for ev in list(per_ev):
+            per_ev[ev] = (per_ev[ev][0], set(str(i) for i in (site.get('?event=' + str(ev)).get('ids') or [])))
+        finish_events(site, per_ev, tries)
+    except Exception:
+        pass
     mins = (time.time() - t_all) / 60
     _PROG['all'], _PROG['dl'] = None, ''
     try:

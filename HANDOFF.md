@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v196**. Everything green: 134 test files.
+Current release: **v197**. Everything green: 135 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,15 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v197 (app 2.56) — matches that cannot be tracked stop being retried.**
+Reported: an event sent days ago still not done. A failed match (no video,
+robots not seen, offset off) was retried every round for ever (video
+downloaded again each time) and its event never finished. `job_tries()`
+(data/job_tries.json, 'ev:id' → failures) counts failures from results;
+`JOB_TRIES` 2, then the match is left out (named in the log);
+`finish_events` posts `jobs {ev, done}` when every job of an event is tracked
+or given up (before and after a run). Checks: desktop/dev/tries.py (6), t176.
 
 **v196 — autonomous replays removed.** Reported not working; the report's
 "▶ Play its autonomous" / per-route replays are gone (`vtReportAuto` play is
