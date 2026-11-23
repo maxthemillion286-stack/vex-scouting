@@ -25,7 +25,7 @@ const f = n => win.eval(n);
   ok('index.html is exactly what src/index.html builds', made.page === served && !made.warn.length, made.warn.join(' | ') || 'run: node tools/build.mjs');
   ok('it has no comments left in its script', !/\n\s*\/\/ /.test(served.slice(served.indexOf('<script>'))) && !/\/\*\*?\s/.test(served.slice(served.indexOf('<script>'))));
   ok('and is much smaller', served.length < 0.72 * src.length, `${served.length} of ${src.length}`);
-  ok('names are kept: buttons call functions by name', /function vtReportHtml\(/.test(served) && /function vtReplayPlay\(/.test(served) && /onclick="vtReplayPlay\(this\)"/.test(served));
+  ok('names are kept: buttons call functions by name', /function vtReportHtml\(/.test(served) && /function vtBriefingOpen\(/.test(served) && /onclick="vtBriefingOpen\(\)"/.test(served));
   ok('the packed page boots clean', errors.length === 0 && typeof win.vtReportHtml === 'function', errors.slice(0, 2).join(' | '));
   ok('the source stays off the public site', /^src\/$/m.test(fs.readFileSync('../.vercelignore', 'utf8')));
 }
