@@ -3727,7 +3727,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v191';
+const APP_BUILD = 'v192';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -10484,34 +10484,6 @@ async function vtSumsRefresh(sums, limit) {
   if (made) await idbSet(VT_SUMS_KEY, local);
   return made;
 }
-// ── The same numbers on every device (v191) ────────────────────────────────
-// Reported: "i looked at my website on my friends pc and the stats are
-// completely different". A match's summary kept in this browser always won
-// over the website's copy, even when the website's was newer, and a summary
-// made here (with the admin key) that never reached the website stayed
-// here: so each browser could show its own numbers. Now the newer one wins
-// (made by a later version of the counting), the website's on a tie, and
-// with the admin key saved, any summary here that is newer than the
-// website's, or missing there, is sent up so every device gets it.
-function vtSumWins(server, mine) {
-  if (!mine) return true;
-  return (server.rv || 0) >= (mine.rv || 0);
-}
-const vtSharedUp = new Set();
-function vtSumsShareUp(out, server) {
-  const pass = vtPass();
-  if (!pass) return;
-  let n = 0;
-  for (const [k, s] of out) {
-    const sv = server[k];
-    if (vtSharedUp.has(k) || (sv && (sv.rv || 0) >= (s.rv || 0))) continue;
-    vtSharedUp.add(k);
-    const cut = k.indexOf(':');
-    if (cut < 0) continue;
-    vtApi('POST', '', { passcode: pass, ev: k.slice(0, cut), id: k.slice(cut + 1), sum: s }).catch(() => {});
-    if (++n >= 40) break;
-  }
-}
 async function vtTeamSums(number) {
   const num = String(number || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   const out = new Map();
@@ -10520,9 +10492,8 @@ async function vtTeamSums(number) {
   for (const k of Object.keys(local)) { const s = local[k]; if (s && s.sv === VT_SUM_V && s.ok && ((s.red || []).includes(num) || (s.blue || []).includes(num))) out.set(k, s); }
   try {
     const r = await vtApi('GET', '?team=' + encodeURIComponent(num));
-    if (r.ok && r.body.sums) for (const k of Object.keys(r.body.sums)) { const s = r.body.sums[k]; if (s && s.sv === VT_SUM_V && s.ok && vtSumWins(s, out.get(k))) out.set(k, s); }
+    if (r.ok && r.body.sums) for (const k of Object.keys(r.body.sums)) { const s = r.body.sums[k]; if (s && s.sv === VT_SUM_V && s.ok && !out.has(k)) out.set(k, s); }
     if (r.ok && Array.isArray(r.body.recs)) vtTeamRecs.set(num, r.body.recs.map(String));
-    if (r.ok) vtSumsShareUp(out, r.body.sums || {});
   } catch (e) {}
   return vtPinPick(out);
 }
@@ -11882,7 +11853,7 @@ async function vtTeamSumsMany(numbers) {
     try {
       const r = await vtApi('GET', '?teams=' + c.join(','));
       if (!r.ok || !r.body.teams) return;
-      for (const n of c) { const sums = r.body.teams[n] || {}; for (const k of Object.keys(sums)) { const s = sums[k]; if (s && s.sv === VT_SUM_V && s.ok && vtSumWins(s, out.get(n).get(k))) out.get(n).set(k, s); } vtSumsShareUp(out.get(n), sums); }
+      for (const n of c) { const sums = r.body.teams[n] || {}; for (const k of Object.keys(sums)) { const s = sums[k]; if (s && s.sv === VT_SUM_V && s.ok && !out.get(n).has(k)) out.get(n).set(k, s); } }
     } catch (e) {}
   });
   for (const [n, m] of out) out.set(n, vtPinPick(m));
