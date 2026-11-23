@@ -2526,6 +2526,8 @@
   .cmp thead th { font-family: var(--display); font-size: 17px; font-weight: 700; color: var(--text); vertical-align: top; padding-bottom: 6px; }
   .cmp-num { display: block; line-height: 24px; }
   .cmp-num .mt-team { display: inline; padding: 0; margin: 0; }
+  .vt-more { margin-top: 14px; }
+  .vt-more > summary { cursor: pointer; color: var(--text-dim); font-size: 13px; padding: 4px 0; }
   .cmp-pm { color: var(--text-dim); font-size: 0.85em; margin-left: 2px; }
   .md-plan { margin-top: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; line-height: 1.5; }
   .md-plan:empty { display: none; }
@@ -3727,7 +3729,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v193';
+const APP_BUILD = 'v194';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -9355,6 +9357,9 @@ async function vtJobsSend(mode) {
 // (vtBackfill) and are saved for everyone. → how many came in.
 let vtImportBusy = false;
 let vtImportAt = 0;
+// v194: brought in by itself: shortly after the site opens and every five
+// minutes while it is open, on a device with the admin key.
+setTimeout(function vtAutoImport() { try { if (vtPass() && document.visibilityState !== 'hidden') vtAppImport(true).catch(() => {}); } catch (e) {} setTimeout(vtAutoImport, 300000); }, 8000);
 async function vtAppImport(quiet) {
   if (quiet && Date.now() - vtImportAt < 60000) return 0;      // not on every redraw
   vtImportAt = Date.now();
@@ -9599,59 +9604,54 @@ async function vtRender(note) {
   if (vsIsPhone()) { panel.innerHTML = `<div class="rw-block vt-block"><div class="detail-block-label">Scouting from video</div>${briefRow}</div>`; return; }
   const queue = vtQueueFrom(ctx);
   const ev = String(ctx.eventId);
-  // The desktop app's row. Always shown on a computer, so it can be found:
-  // reported as "i cant find the spot in the website where it says send this
-  // event to app". Without the admin key it says what is missing instead of
-  // not being there at all.
-  const appRow = `<div class="rw-hint" id="vtAppRow"><strong>Desktop app.</strong> The app on your computer watches video files many times faster than this page can play them, and can retrain the robot finder. Send it the matches to watch; what it tracks comes back here by itself.</div>
-    ${vtPass() ? `<div class="rw-playall">${queue.length ? `<button class="btn btn-primary" onclick="vtJobsSend('here')">Send ${ctx.team && ctx.team.number ? esc(ctx.team.number) + "'s matches here" : 'this event'} to the app</button>` : ''}
-      ${ctx.team ? '' : `<button class="btn btn-secondary" onclick="vtJobsSend('history')">Send these teams' earlier matches to the app</button>`}
-      <button class="btn btn-secondary" onclick="vtAppImport()">Bring in what the app tracked</button></div>`
-      : `<div class="vt-note">To use it, save the admin key on this device first: <button class="set-link" onclick="switchTab('settings')">open Settings</button>, type it under Admin key and press Save, then come back here.</div>`}
-    <div class="vt-note" id="vtAppState"></div>`;
-  if (!vtSupported()) {
-    panel.innerHTML = `<div class="rw-block vt-block"><div class="detail-block-label">Robot tracker</div>
-      <div class="rw-hint">Tracking in this page captures the tab, which needs Chrome or Edge on a computer. The desktop app does not need that.</div>
-      ${briefRow}${appRow}</div>`;
+  // v194: reported "can it be automatic? also this is way too many buttons
+  // and way too confusing". What the app tracked comes in by itself now (on
+  // opening the site and every few minutes, with the admin key), so that
+  // button is gone; the box shows one thing to do and the briefing, and
+  // everything else (tracking in this page, marking the field here, the
+  // accuracy test) is folded under "More".
+  if (!vtSupported() && !vtPass()) {
+    panel.innerHTML = `<div class="rw-block vt-block"><div class="detail-block-label">Robot tracker</div>${briefRow}</div>`;
     return;
   }
   const local = await vtLocalIndex(ev);
   if (vtRun || window._rwCtx !== ctx) return;       // things moved on while that was read
+  vtAppImport(true).then(n => { if (n && !vtRun && window._rwCtx === ctx) vtRender(`${n} new match${n === 1 ? '' : 'es'} from the desktop app.`); }).catch(() => {});
+  vtScoreFill(ev, ctx).catch(() => {}).then(() => vtBackfill(ev)).catch(() => {});   // scores for live-tracked matches, then summaries
   const learned = await vtLearnLine([...new Set(Object.values(ctx.cal || {}).map(c => c && c.videoId).filter(Boolean).map(String))]).catch(() => '');
   if (vtRun || window._rwCtx !== ctx) return;
-  vtAppImport(true).then(n => { if (n && !vtRun && window._rwCtx === ctx) vtRender(`Brought in ${n} matches the desktop app tracked.`); }).catch(() => {});
-  vtScoreFill(ev, ctx).catch(() => {}).then(() => vtBackfill(ev)).catch(() => {});   // scores for live-tracked matches, then summaries
-  const P = vtParallel();
+  const hasHere = queue.length > 0;
   const doneHere = queue.filter(m => vtDone(local[m.id])).length;
-  const older = queue.filter(m => local[m.id] && local[m.id].s === 'done' && !vtDone(local[m.id])).length;
+  const who = ctx.team && ctx.team.number ? `${esc(ctx.team.number)}'s matches here` : 'this event';
+  // The one thing to do: give the desktop app the matches.
+  const main = vtPass()
+    ? `<div class="rw-hint">The desktop app watches the matches and the numbers show up here by themselves.</div>
+      <div class="rw-playall">${hasHere ? `<button class="btn btn-primary" onclick="vtJobsSend('here')">Send ${who} to the app</button>` : ''}
+        ${ctx.team ? '' : `<button class="btn ${hasHere ? 'btn-secondary' : 'btn-primary'}" onclick="vtJobsSend('history')">Send these teams' earlier matches to the app</button>`}</div>
+      ${!hasHere && !ctx.team ? `<div class="vt-note">No played matches with video here yet: their earlier matches get you ready for this event.</div>` : ''}`
+    : `<div class="rw-hint">To have the desktop app watch matches, save the admin key on this device: <button class="set-link" onclick="switchTab('settings')">open Settings</button>, type it under Admin key and press Save.</div>`;
+  const P = vtParallel();
   const left = queue.length - doneHere;
   const mins = Math.ceil(left * (VT_WINDOW / VT_RATE + 6) / 60 / P);
   const span = mins >= 90 ? (Math.round(mins / 6) / 10) + ' hours' : mins + ' minutes';
-  const who = ctx.team && ctx.team.number ? `${esc(ctx.team.number)}'s ${queue.length} matches` : `all ${queue.length} matches at this event`;
-  const hasHere = queue.length > 0;
-  const history = ctx.team ? '' : `<div class="rw-hint">${hasHere
-      ? '<strong>Also:</strong> track the matches these teams played at their earlier events this season.'
-      : '<strong>This event has no played matches with video yet.</strong> To get ready for it, track the matches its teams have already played at their earlier events this season. It looks up every registered team, finds those events and their videos, and watches only the matches these teams were in. Leave it running.'}</div>
-    <div class="rw-playall"><button class="btn ${hasHere && left ? 'btn-secondary' : 'btn-primary'}" onclick="vtStart('history')">Track these teams' earlier matches</button></div>`;
+  const more = vtSupported() ? `<details class="vt-more"><summary>More: track in this page, mark the field, accuracy test</summary>
+    ${learned ? `<div class="rw-hint" id="vtLearned">${esc(learned)}</div>` : ''}
+    <div class="rw-hint"><strong>Track in this page</strong> (slower than the app; Chrome will ask what to share: choose <strong>This tab</strong>).${hasHere && left ? ` About ${span} for the ${left} left here.` : ''}</div>
+    <div class="rw-playall">${hasHere && left ? `<button class="btn btn-secondary" onclick="vtStart('here')">Track this event's matches</button>` : ''}
+      ${ctx.team ? '' : `<button class="btn btn-secondary" onclick="vtStart('history')">Track these teams' earlier matches</button> <button class="btn btn-secondary" onclick="vtStart('live')">Track live</button>`}</div>
+    <div class="rw-hint"><strong>Mark the field here</strong> (the app's field marking is easier): open a match in the player above, pause on the whole field, then:</div>
+    <div class="rw-playall"><button class="btn btn-secondary" onclick="vtMarkField()">Mark the field</button></div>
+    <div class="rw-hint"><strong>Accuracy test:</strong> play a tracked match above, pause, and click where each robot really is, every five seconds or so through two or three matches.</div>
+    <div class="rw-playall"><button class="btn btn-secondary" onclick="vtAccMark()">Mark robots here</button> <button class="btn btn-secondary" onclick="vtAccShow()">Score the tracker</button></div>
+    <div id="vtAccOut"></div>
+  </details>` : '';
   panel.innerHTML = `<div class="rw-block vt-block">
     <div class="detail-block-label">Robot tracker</div>
     ${note ? `<div class="vt-note">${esc(note)}</div>` : ''}
-    ${learned ? `<div class="rw-hint" id="vtLearned"><strong>It learns as it watches.</strong> ${esc(learned)}</div>` : ''}
-    ${hasHere ? `<div class="rw-hint">Watches ${who}, ${P} at a time at ${VT_RATE}×, and records where every robot is. ${doneHere ? `${doneHere} already tracked on this device. ` : ''}${older ? `${older} tracked before robots could be told apart will be watched once more. ` : ''}${left
-      ? `About ${span} for the rest.` : 'Nothing is left to watch here.'}</div>
-    ${left ? `<div class="rw-playall"><button class="btn btn-primary" onclick="vtStart('here')">Track this event's matches</button></div>` : ''}`
-    : (ctx.team ? `<div class="rw-hint">None of ${esc(ctx.team.number || 'this team')}'s played matches here has video the Jumper can open yet.</div>` : '')}
-    ${history}
-    ${ctx.team ? '' : `<div class="rw-hint"><strong>Live.</strong> While the event is being played, follow its stream and track each match as it happens. It reads the match name off the stream to know which match is on, so it needs no schedule times.</div>
-    <div class="rw-playall"><button class="btn btn-secondary" onclick="vtStart('live')">Track live</button></div>`}
+    ${main}
+    <div class="vt-note" id="vtAppState"></div>
     ${briefRow}
-    ${appRow}
-    <div class="rw-hint"><strong>Field positions.</strong> For toggle, role and route details the tracker needs the field's four corners in this stream. Open a match in the player above (▶), pause on a view of the whole field, then:</div>
-    <div class="rw-playall"><button class="btn btn-secondary" onclick="vtMarkField()">Mark the field</button></div>
-    <div class="rw-hint"><strong>Accuracy test.</strong> To see how well the tracker does: play a tracked match above, pause, and click where each robot really is. Mark a moment every five seconds or so through two or three matches.</div>
-    <div class="rw-playall"><button class="btn btn-secondary" onclick="vtAccMark()">Mark robots here</button> <button class="btn btn-secondary" onclick="vtAccShow()">Score the tracker</button></div>
-    <div id="vtAccOut"></div>
-    <div class="rw-hint">Chrome will ask what to share: choose <strong>This tab</strong>.</div>
+    ${more}
   </div>`;
 }
 // From an event page: open the Jumper on the whole event, where Start is.
