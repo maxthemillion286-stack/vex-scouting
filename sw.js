@@ -1,4 +1,4 @@
-// VEX Scout Service Worker — v190
+// VEX Scout Service Worker — v191
 //
 // Built on the v3 network-first design (updates always appear immediately),
 // with three additions aimed at competition venues:
@@ -21,8 +21,8 @@
 //
 // Bump CACHE_NAME whenever index.html changes.
 
-const CACHE_NAME = 'vex-scout-v190';
-const API_CACHE = 'vex-scout-v190-api';
+const CACHE_NAME = 'vex-scout-v191';
+const API_CACHE = 'vex-scout-v191-api';
 
 // How long to wait for the network before showing the cached copy.
 const HTML_TIMEOUT_MS = 2500;
