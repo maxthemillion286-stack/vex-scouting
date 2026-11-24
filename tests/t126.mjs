@@ -73,6 +73,6 @@ const Q = [0.2265625, 0.1111111111111111, 0.7734375, 0.1111111111111111, 0.77343
   ok('it is applied where a team\'s matches are fetched', /return vtPinPick\(out\);/.test(src) && /for \(const \[n, m\] of out\) out\.set\(n, vtPinPick\(m\)\);/.test(src));
   ok('every device remakes older summaries for it', /const VT_REMAKE = 1(3[6-9]|[4-9]\d);/.test(src));
 }
-ok('release is v136 or later', /const APP_BUILD = 'v1[3-9]\d'/.test(src) && !/const APP_BUILD = 'v13[0-5]'/.test(src));
+ok('release is v136 or later', /const APP_BUILD = 'v(1[3-9]\d|[2-9]\d\d)'/.test(src) && !/const APP_BUILD = 'v13[0-5]'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

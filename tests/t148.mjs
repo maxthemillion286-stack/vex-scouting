@@ -14,6 +14,6 @@ ok('frames now keep the moment they were taken', /p\['t'\] = round\(float\(at\),
 ok('the server takes the same fields from the app', /f\.t >= 0 && f\.t <= 200000/.test(fs.readFileSync('../api/tracker.js', 'utf8')));
 ok('a button is not rebuilt under the mouse every second', /function setHtml\(id,h\)/.test(app) && /setHtml\('pcsN',/.test(app));
 ok('app 2.36 or later', /VERSION = '2\.(3[6-9]|[4-9]\d)'/.test(app));
-ok('release is v159 or later', /const APP_BUILD = 'v1(59|[6-9]\d)'/.test(src));
+ok('release is v159 or later', /const APP_BUILD = 'v(1(59|[6-9]\d)|[2-9]\d\d)'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

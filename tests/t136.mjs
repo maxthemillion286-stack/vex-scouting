@@ -17,6 +17,6 @@ ok('a pin frame just marked leaves the list straight away', /if name in pcache\[
 ok('both finders start from YOLO11, with YOLOv8 to fall back on', /newest_yolo\(YOLO, 'yolo11n\.pt'\)/.test(app) && /'yolo11s\.pt'/.test(app) && /def newest_yolo\(YOLO, name\):/.test(app) && !/YOLO\('yolov8/.test(app));
 ok('old training tools are updated for YOLO11', /\(major, minor\) < \(8, 3\)/.test(app));
 ok('the website still reads only the shape it knows', /list\(shape\) != \[1, 5, 8400\]/.test(app));
-ok('release is v147 or later', /const APP_BUILD = 'v1(4[7-9]|[5-9]\d)'/.test(src));
+ok('release is v147 or later', /const APP_BUILD = 'v(1(4[7-9]|[5-9]\d)|[2-9]\d\d)'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

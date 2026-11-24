@@ -75,6 +75,6 @@ ok('the server takes the threshold, checked', /'cf'[,\]]/.test(api) && /rec\.cf 
 ok('the fastest normal drive is the limit', /600 rpm on 2\.75 in wheels, is 7\.2 ft\/s/.test(src));
 ok('every device remakes its matches', /const VT_REMAKE = (1[5-9]\d);/.test(src));
 ok('app 2.29 or later', /VERSION = '2\.(29|[3-9]\d)'/.test(app));
-ok('release is v150 or later', /const APP_BUILD = 'v1([5-9]\d)'/.test(src));
+ok('release is v150 or later', /const APP_BUILD = 'v(1([5-9]\d)|[2-9]\d\d)'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

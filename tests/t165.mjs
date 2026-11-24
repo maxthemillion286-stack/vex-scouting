@@ -21,6 +21,6 @@ ok('says how many were brought down', A.capped === 3 && A.scored === 4, JSON.str
 ok('a robot with no stream score is counted as before', F([{ ya: 8 }], 1, null).each[0] === 4);
 ok('the report lists each match and what it was checked against', /in its \$\{F\.each\.length\} tracked matches \(\$\{F\.each\.join\(', '\)\}\)/.test(src) && /Held to its alliance's autonomous score on the stream/.test(src));
 ok('the team rows carry the alliance\'s autonomous points and the partner\'s count', /asa: sa, pya: ya\(p\.slot === 'a' \? 'b' : 'a'\)/.test(src));
-ok('release is v179 or later', /const APP_BUILD = 'v1(79|[89]\d)'/.test(src));
+ok('release is v179 or later', /const APP_BUILD = 'v(1(79|[89]\d)|[2-9]\d\d)'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

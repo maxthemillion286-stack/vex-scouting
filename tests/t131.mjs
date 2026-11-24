@@ -34,6 +34,6 @@ ok('circles to drag, yellow for goals and pink for loaders, with Done and Skip',
 ok('the app looks exactly where they were placed', /def spot_boxes\(W, H, q, placed=None\):/.test(app) && /spot_boxes\(frame\.shape\[1\], frame\.shape\[0\], (quad, placed_for\(job\['vid'\]\)|cur_quad, cur_placed)\)/.test(app) && /_QUADS\[job\['vid'\]\] = \{'q': quads\[job\['vid'\]\], 'g': fld\.get\('g'\), 'l': fld\.get\('l'\)(, 't': fld\.get\('t'\))?(, 'at': time\.time\(\))?\}/.test(app));
 ok('and asks the website again after ten minutes, in case they were placed since', /time\.time\(\) - f\.get\('at', 0\) < 600/.test(app));
 ok('placing the goals redoes the summaries from that stream', f('vtQuadMark')({ q: Q, by: 'click' }) !== f('vtQuadMark')({ q: Q, by: 'click', g }));
-ok('release is v141 or later', /const APP_BUILD = 'v1(4[1-9]|[5-9]\d)'/.test(src));
+ok('release is v141 or later', /const APP_BUILD = 'v(1(4[1-9]|[5-9]\d)|[2-9]\d\d)'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

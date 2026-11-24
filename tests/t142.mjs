@@ -33,6 +33,6 @@ const both = new Map([...own, ...meta]);
 const p4 = win.vtIdentify('66449A', both);
 ok('each event is judged on its own (a rebuild changes the look)', [...p4.keys()].every(k => k.startsWith('80:')) && p4.size === 6);
 ok('the guard is in place', /looks like the crowd: not named by its look/.test(src) && /crowd\[Math\.floor\(crowd\.length \* 0\.1\)\]/.test(src));
-ok('release is v153 or later', /const APP_BUILD = 'v1(5[3-9]|[6-9]\d)'/.test(src));
+ok('release is v153 or later', /const APP_BUILD = 'v(1(5[3-9]|[6-9]\d)|[2-9]\d\d)'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

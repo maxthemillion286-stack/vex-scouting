@@ -11,6 +11,6 @@ ok('it only draws guesses; tracking keeps the finder that won its test', /def gu
 ok('the most useful frames come first: the finder\'s doubts, and streams marked least', /def frame_interest\(name, finder, robots\):/.test(app) && /def rank_pieces\(queue, budget=120\):/.test(app) && /q = rank_pieces\(q\)/.test(app));
 ok('the window says what draws the guesses', /Guesses drawn by: /.test(app));
 ok('app 2.42 or later', /VERSION = '2\.(4[2-9]|[5-9]\d)'/.test(app));
-ok('release is v166 or later', /const APP_BUILD = 'v1(6[6-9]|[7-9]\d)'/.test(src));
+ok('release is v166 or later', /const APP_BUILD = 'v(1(6[6-9]|[7-9]\d)|[2-9]\d\d)'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

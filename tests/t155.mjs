@@ -36,6 +36,6 @@ ok('a robot\'s fingerprints in a match are averaged onto it', rows[1][0].e0 === 
 ok('the server takes them, checked', /rec\.em\.length % 27 === 0/.test(api));
 ok('the app makes them from a pretrained image model', /def ensure_embedder\(\):/.test(app) && /YOLO\('yolo11n-cls\.pt'\)/.test(app) && /class Embedder:/.test(app) && /rec\['em'\] \+= \[fr_\[0\], fr_\[2 \+ 10 \* i\], fr_\[3 \+ 10 \* i\]\] \+ e_/.test(app));
 ok('every device remakes its matches', /const VT_REMAKE = (169|1[7-9]\d);/.test(src));
-ok('release is v169 or later', /const APP_BUILD = 'v1(69|[7-9]\d)'/.test(src));
+ok('release is v169 or later', /const APP_BUILD = 'v(1(69|[7-9]\d)|[2-9]\d\d)'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -112,6 +112,6 @@ const game = (where) => {
   ok('waiting for work shows no bar, and when it looks again', /progress\('Waiting for the website to send work', wait=60\)/.test(app) && /checks again in '\+P\.wait/.test(app) && /\.bar\.idle\{display:none\}/.test(app));
   ok('the made-up 8% is gone', !/st\.busy\?'8%'/.test(app));
 }
-ok('release is v131 or later', /const APP_BUILD = 'v1[3-9]\d'/.test(idx) && !/const APP_BUILD = 'v130'/.test(idx));
+ok('release is v131 or later', /const APP_BUILD = 'v(1[3-9]\d|[2-9]\d\d)'/.test(idx) && !/const APP_BUILD = 'v130'/.test(idx));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -22,6 +22,6 @@ ok('the app: the stack reader, practice stacks, looks laid over each other', /cl
 ok('the app: used only when it wins its test', /use = mine > best_other/.test(app) && /def stack_ready\(\):/.test(app));
 ok('its check is there', fs.existsSync('../desktop/dev/stack.py'));
 ok('app 2.49 or later', /VERSION = '2\.(49|[5-9]\d)'/.test(app));
-ok('release is v181 or later', /const APP_BUILD = 'v1(8[1-9]|9\d)'/.test(src));
+ok('release is v181 or later', /const APP_BUILD = 'v(1(8[1-9]|9\d)|[2-9]\d\d)'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

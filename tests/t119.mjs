@@ -159,6 +159,6 @@ const sum = win.eval('vtSummarise(__rec119, __quad119, null)');
   ok('the app asks the website for the corners and does the same', /site\.get\('\?field=' \+ job\['vid'\]\)/.test(app) && /def toggle_look\(frame, q\)/.test(app));
   ok('Mark the field offers the tracker\'s own outline to keep', /id="vtMarkKeep">It is right: keep it</.test(idx) && /await vtFieldSet\(String\(cal\.videoId\), guess\.q, 'click'\)/.test(idx));
 }
-ok('release is v115 or later', /const APP_BUILD = 'v1(1[5-9]|[2-9]\d)'/.test(idx));
+ok('release is v115 or later', /const APP_BUILD = 'v(1(1[5-9]|[2-9]\d)|[2-9]\d\d)'/.test(idx));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

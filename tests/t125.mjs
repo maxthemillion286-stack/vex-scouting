@@ -19,6 +19,6 @@ ok('saving robots keeps pin marks, and the other way', /lab_write\(name, skip=bo
 ok('it trains from 60 marked frames, even before 150 robots', /PIECE_SIZE, PIECE_NEED, PIECE_CONF = \d+, 60/.test(app) && /if pieces_ok:\s+try:\s+do_train_pieces\(cfg\)/.test(app));
 ok('used only when it beats the colour finder and the one in use', /bar = max\(colour\['halves'\]\[2\], cur\['halves'\]\[2\] if cur else 0\)/.test(app) && /use = new\['halves'\]\[2\] > bar/.test(app));
 ok('in tracking it counts pins and cups on the goals (v140: spots, not the whole field)', /eyes\.pieces\.spot_counts\(frame, spots\)/.test(app));
-ok('release is v135 or later', /const APP_BUILD = 'v1[3-9]\d'/.test(src) && !/const APP_BUILD = 'v13[0-4]'/.test(src));
+ok('release is v135 or later', /const APP_BUILD = 'v(1[3-9]\d|[2-9]\d\d)'/.test(src) && !/const APP_BUILD = 'v13[0-4]'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

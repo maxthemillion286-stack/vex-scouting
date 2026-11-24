@@ -21,6 +21,6 @@ ok('how fast it stacks', B.some(b => /^Stacks a pin about every \d+ s at a goal/
 ok('against the robots it played', B.some(b => /^Scores more than the robots it plays against/.test(b)));
 ok('how sure, in one line', /checked against 8 official scores: usually within 22%/.test(B[B.length - 1]));
 ok('the report shows them as a list', /<div class="vr-h">How it scores<\/div><ul class="vr-list">\$\{rep\.pins\.bullets\.map/.test(src));
-ok('release is v175 or later', /const APP_BUILD = 'v1(7[5-9]|[89]\d)'/.test(src));
+ok('release is v175 or later', /const APP_BUILD = 'v(1(7[5-9]|[89]\d)|[2-9]\d\d)'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

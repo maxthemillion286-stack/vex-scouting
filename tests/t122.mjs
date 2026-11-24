@@ -77,6 +77,6 @@ const f = n => win.eval(n);
   ok('evenly everywhere colours nothing', !/height="25\.0" opacity/.test(flat));
   ok('the scale says so', /usual/.test(svg) && /a lot/.test(svg));
 }
-ok('release is v132 or later', /const APP_BUILD = 'v1[3-9]\d'/.test(src) && !/const APP_BUILD = 'v13[01]'/.test(src));
+ok('release is v132 or later', /const APP_BUILD = 'v(1[3-9]\d|[2-9]\d\d)'/.test(src) && !/const APP_BUILD = 'v13[01]'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

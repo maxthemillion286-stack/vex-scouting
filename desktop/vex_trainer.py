@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.57'
+VERSION = '2.58'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -5616,7 +5616,7 @@ UI_HTML = r"""<!doctype html><html lang="en"><meta charset="utf-8"><meta name="v
 .warn{color:#ffb86b}.dim{color:#8b93a7}
 </style>
 <header><h1>VEX Trainer</h1><span class="site" id="site"></span><span class="sp"></span>
- <span class="pill" id="keyPill">…</span><button class="ghost" onclick="openSettings()">Settings</button></header>
+ <span class="pill" id="keyPill">…</span><button class="ghost" id="updBtn" onclick="updateApp()" title="Get the newest version from the website and restart">Update</button><button class="ghost" onclick="openSettings()">Settings</button></header>
 <main id="home">
  <div class="panel" id="key"><b>Enter the admin key once</b><div class="hint" style="margin-top:4px">The same key that is saved in the website's Settings. It is kept on this computer and sent only to your website.</div>
   <div class="row"><input id="keyIn" type="password" placeholder="Admin key" autocomplete="off" onkeydown="if(event.key==='Enter')saveKey()"><button id="bKey" onclick="saveKey()">Save</button></div><div class="hint" id="keyMsg"></div></div>
@@ -5680,7 +5680,14 @@ function loadFrame(){const want=cur.id;img=new Image();c.style.visibility='hidde
  img.onerror=()=>{const id=cur.id;revTrouble('The picture for this frame is missing on this computer; it is set aside.');api(pm?'/api/psave':'/api/save',pm?{id,skip:true,pieces:[]}:{id,skip:true,boxes:[]}).then(()=>setTimeout(()=>nextFrame(),1200))};
  img.src='/img/'+cur.id+'.jpg?t='+T}
 let st=null,inReview=false;
-async function poll(){try{st=await api('/api/state');paint()}catch(e){$('now').textContent='The program behind this window has stopped. Close this and run VEX_Trainer.bat again.'}}
+let updating=null;
+async function poll(){try{st=await api('/api/state');if(updating&&st.version===updating){location.reload();return}paint()}catch(e){$('now').textContent=updating?'Updating to '+updating+'… this window reloads by itself.':'The program behind this window has stopped. Close this and run VEX_Trainer.bat again.'}}
+// v2.58: update without closing the app.
+async function updateApp(){const b=$('updBtn');b.disabled=true;b.textContent='Checking…';let r;try{r=await api('/api/update',{})}catch(e){r={error:'The app did not answer.'}}
+ if(r.newest){b.textContent='Up to date';setTimeout(()=>{b.textContent='Update';b.disabled=false},3000);return}
+ if(r.error){b.textContent='Update';b.disabled=false;alert(r.error);return}
+ updating=r.to;b.textContent='Updating to '+r.to+'…';$('now').textContent='Updating to '+r.to+'… this window reloads by itself.';
+ setTimeout(()=>{if(updating)$('now').textContent='Still restarting. If nothing happens within a minute, close this and run VEX_Trainer.bat again.'},60000)}
 // Redrawn only when it changed: the window repaints every second, and a
 // button rebuilt between pressing and letting go loses the click (v2.36).
 function setHtml(id,h){const e=$(id);if(e&&e.innerHTML!==h&&e.dataset.h!==h){e.innerHTML=h;e.dataset.h=h}}
@@ -5952,9 +5959,51 @@ class Job:
         self.add('Stopped. Everything already saved is kept.')
 
 
+# ── Update without closing the app (v2.58) ────────────────────────────────
+# Asked: "is there a way i can press a refresh button in the app to update
+# it". The newest program is fetched from the website (as VEX_Trainer.bat
+# does when it starts), checked, put in place, and the app restarts itself in
+# the same black window; the open window reloads.
+UPDATE = {'ready': False}
+def version_key(v):
+    return tuple(int(x) for x in re.findall(r'\d+', str(v))[:3])
+def fetch_update(cfg, path=None):
+    """→ {'to': version} once put in place, {'newest': True}, or {'error'}."""
+    url = cfg['site'].rstrip('/') + '/desktop/vex_trainer.py'
+    try:
+        req = urllib.request.Request(url + '?u=%d' % int(time.time()), headers={'User-Agent': 'vex-trainer/' + VERSION, 'Cache-Control': 'no-cache'})
+        with urllib.request.urlopen(req, timeout=60) as r:
+            src = r.read()
+    except Exception as e:
+        return {'error': 'Could not reach the website (%s).' % e}
+    m = re.search(rb"^VERSION = '([0-9.]+)'", src, re.M)
+    if not m:
+        return {'error': 'The website sent something that is not the program.'}
+    new = m.group(1).decode()
+    if version_key(new) <= version_key(VERSION):
+        return {'newest': True, 'have': VERSION}
+    try:
+        compile(src, 'vex_trainer.py', 'exec')
+    except SyntaxError as e:
+        return {'error': 'The new version did not download whole (%s). Try again.' % e}
+    path = path or os.path.abspath(__file__)
+    tmp = path + '.new'
+    try:
+        with open(tmp, 'wb') as f:
+            f.write(src)
+        os.replace(tmp, path)
+    except OSError as e:
+        return {'error': 'Could not save the new version (%s).' % e}
+    return {'ok': True, 'from': VERSION, 'to': new}
+
 def serve_ui(cfg, port=8765, open_window=True):
     import secrets
-    token = secrets.token_urlsafe(18)
+    # v2.58: after "Update", the new version comes up with the same address
+    # and token, so the open window just reloads.
+    token = os.environ.pop('VT_TOKEN', '') or secrets.token_urlsafe(18)
+    restarted = bool(os.environ.pop('VT_RESTARTED', ''))
+    if os.environ.get('VT_PORT'):
+        port = int(os.environ.pop('VT_PORT'))
     job = Job()
     queue_cache = {'at': 0, 'queue': [], 'done': 0, 'gold': 0}
 
@@ -6204,6 +6253,20 @@ def serve_ui(cfg, port=8765, open_window=True):
                 body = json.loads(self.rfile.read(int(self.headers.get('Content-Length', 0))).decode('utf-8') or '{}')
             except Exception:
                 return self._send(400, {'error': 'bad request'})
+            if u.path == '/api/update':
+                busy = job.task if job.busy() else ''
+                if not open_window:
+                    return self._send(200, {'error': 'Close the app and run VEX_Trainer.bat again to update.'})
+                if busy and busy != 'track':
+                    return self._send(200, {'error': 'It is busy (%s). Update when that is finished.' % busy})
+                got = fetch_update(cfg)
+                if got.get('error') or got.get('newest'):
+                    return self._send(200, got)
+                UPDATE['ready'] = True
+                say('\nUpdating from %s to %s…' % (VERSION, got['to']))
+                self._send(200, got)
+                threading.Thread(target=lambda: (time.sleep(0.5), srv.shutdown()), daemon=True).start()
+                return
             if u.path == '/api/save':
                 name = str(body.get('id', ''))
                 if not re.fullmatch(r'[A-Za-z0-9_-]+', name):
@@ -6326,11 +6389,13 @@ def serve_ui(cfg, port=8765, open_window=True):
             self._send(404, {})
 
     srv = None
-    for p in range(port, port + 10):
+    for p in ([port] * 20 if restarted else []) + list(range(port, port + 10)):
         try:
             srv = ThreadingHTTPServer(('127.0.0.1', p), H)
             break
         except OSError:
+            if restarted:
+                time.sleep(0.25)                         # the old version letting go of it
             continue
     if not srv:
         say('Could not open the window: ports %d-%d on this computer are all in use.' % (port, port + 9))
@@ -6344,9 +6409,12 @@ def serve_ui(cfg, port=8765, open_window=True):
     if cfg.get('key'):
         threading.Thread(target=lambda: (sync_review(cfg, quiet=True), counts(True)), daemon=True).start()
         job.start('track', ['--track'])
-    say('The window is opening. Leave THIS black window open too: closing it stops the program.')
-    opened = False
-    if os.name == 'nt':                                  # its own window, without tabs or an address bar
+    if restarted:
+        say('Updated to %s. The window reloads by itself.' % VERSION)
+    else:
+        say('The window is opening. Leave THIS black window open too: closing it stops the program.')
+    opened = restarted
+    if not opened and os.name == 'nt':                                  # its own window, without tabs or an address bar
         try:
             subprocess.Popen('start "" msedge --app="%s" --window-size=1180,860' % url, shell=True)
             opened = True
@@ -6358,13 +6426,24 @@ def serve_ui(cfg, port=8765, open_window=True):
             webbrowser.open(url)
         except Exception:
             pass
-    say('If no window appeared, open this address in your browser:\n  ' + url)
+    if not restarted:
+        say('If no window appeared, open this address in your browser:\n  ' + url)
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
         job.stop()
+    if UPDATE['ready']:
+        # The new version, in this same black window; this one waits for it.
+        try:
+            srv.server_close()
+        except Exception:
+            pass
+        env = dict(os.environ, VT_TOKEN=token, VT_PORT=str(srv.server_address[1]), VT_RESTARTED='1')
+        say('\nStarting the new version…')
+        code = subprocess.call([sys.executable, os.path.abspath(__file__)], env=env)
+        os._exit(code)
     return None
 
 

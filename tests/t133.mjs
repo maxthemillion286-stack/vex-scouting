@@ -9,6 +9,6 @@ ok('a failing request answers with what went wrong instead of dropping the conne
 ok('the window shows it, with Try again', /function revTrouble\(t\)/.test(app) && /if\(cur\.error\)\{revTrouble\('Could not load a frame: '\+cur\.error\);return\}/.test(app) && /catch\(e\)\{revTrouble\('The app did not answer/.test(app));
 ok('a frame whose picture is missing is set aside and the next one comes', /img\.onerror=\(\)=>\{const id=cur\.id;revTrouble\('The picture for this frame is missing/.test(app) && /setTimeout\(\(\)=>nextFrame\(\),1200\)/.test(app));
 ok('both review jobs load pictures the same way', (app.match(/loadFrame\(\)\}/g) || []).length === 2);
-ok('release is v144 or later', /const APP_BUILD = 'v1(4[4-9]|[5-9]\d)'/.test(src));
+ok('release is v144 or later', /const APP_BUILD = 'v(1(4[4-9]|[5-9]\d)|[2-9]\d\d)'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

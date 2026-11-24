@@ -164,6 +164,6 @@ const long = 'This sentence is the point. ' + 'And this is the further explanati
   ok('Settings offers it in plain words', /Gentle, fine for gaming \(15 MB\/s\)/.test(app) && /if body\.get\('speed'\) in \(0, 5, 15, 40\):/.test(app));
   ok('fewer connections are opened when it is held', /conns = max\(2, min\(conns, int\(max_mbps \/\/ 3\) or 2\)\)/.test(app));
 }
-ok('release is v120 or later', /const APP_BUILD = 'v1[2-9]\d'/.test(idx));
+ok('release is v120 or later', /const APP_BUILD = 'v(1[2-9]\d|[2-9]\d\d)'/.test(idx));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

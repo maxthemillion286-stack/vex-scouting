@@ -38,6 +38,6 @@ ok('the report shows it with what it rests on', /function vtReportFlow\(F\)/.tes
 ok('the server takes it, checked', /'sc'[,\]]/.test(api) && /rec\.sc\.length % 3 === 0/.test(api));
 ok('the app finds the score from the official final, and forgets a place that stops matching', /def score_spots\(seen, rs, bs, end\):/.test(app) && /learn\['score'\] = None/.test(app) && /if rs is None or bs is None or rs == bs:/.test(app));
 ok('every device remakes its matches', /const VT_REMAKE = (15[2-9]|1[6-9]\d);/.test(src));
-ok('release is v152 or later', /const APP_BUILD = 'v1(5[2-9]|[6-9]\d)'/.test(src));
+ok('release is v152 or later', /const APP_BUILD = 'v(1(5[2-9]|[6-9]\d)|[2-9]\d\d)'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

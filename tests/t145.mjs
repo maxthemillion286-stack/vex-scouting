@@ -12,6 +12,6 @@ ok('boxes follow if the saved size was different', /if\(cur\.w&&cur\.w!==W\)\{co
 ok('a loading line, not a black box', (app.match(/\$\('revLeft'\)\.textContent='Loading the next frame…';c\.style\.visibility='hidden';/g) || []).length === 2);
 ok('a garbled picture is not kept, not tracked, and set aside in review', /def looks_broken\(frame\):/.test(app) && /if looks_broken\(frame\):\s+return/.test(app) && /if looks_broken\(frame\):\s+# garbled by the decoder/.test(app) && /lab_write\(name, skip=True, boxes=\[\], broken=True\)/.test(app));
 ok('app 2.33 or later', /VERSION = '2\.(3[3-9]|[4-9]\d)'/.test(app));
-ok('release is v156 or later', /const APP_BUILD = 'v1(5[6-9]|[6-9]\d)'/.test(src));
+ok('release is v156 or later', /const APP_BUILD = 'v(1(5[6-9]|[6-9]\d)|[2-9]\d\d)'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

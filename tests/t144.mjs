@@ -13,6 +13,6 @@ ok('never asked about in review', /if p\.get\('auto'\):\s+# kept only to train o
 ok('not-steady frames are not trained on; steady ones first', /p\.get\('steady', 1\)/.test(app) && /steady ones first/.test(app));
 ok('grading stays on reviewed frames only', /for name, w, h, boxes in gold:\s+part = 'val' if is_val\(name\) else 'train'/.test(app) && /pseudo\[:2 \* max\(1, counts\['train'\]\)\]/.test(app));
 ok('app 2.32 or later', /VERSION = '2\.(3[2-9]|[4-9]\d)'/.test(app));
-ok('release is v155 or later', /const APP_BUILD = 'v1(5[5-9]|[6-9]\d)'/.test(src));
+ok('release is v155 or later', /const APP_BUILD = 'v(1(5[5-9]|[6-9]\d)|[2-9]\d\d)'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

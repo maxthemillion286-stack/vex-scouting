@@ -23,6 +23,6 @@ ok('and made again with the mark', n === 1 && sums.get('900:1').remade === 1 && 
 ok('not again once it has the mark', (await f('vtSumsRefresh')(sums)) === 0);
 ok('the table and report always look for these, not only for older versions', !/host\.dataset\.fresh && \[\.\.\.sums\.values\(\)\]\.some\(vtStale\)/.test(src));
 ok('a mark saved elsewhere (the app) replaces an older one marked here', /the shared mark is the newer one/.test(src));
-ok('release is v174 or later', /const APP_BUILD = 'v1(7[4-9]|[89]\d)'/.test(src));
+ok('release is v174 or later', /const APP_BUILD = 'v(1(7[4-9]|[89]\d)|[2-9]\d\d)'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

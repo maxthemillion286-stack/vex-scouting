@@ -21,6 +21,6 @@ ok('toggles and goal spots are looked for where the camera now puts them', /togg
 ok('a close-up or replay records no robots', /put = \[\] if away else/.test(app) && /if cam\['view'\] and \(cam\['fails'\] >= 3 or by_cut\):/.test(app));
 ok('nothing is dropped until the field has been found once', /cam = \{'H': None, 'Hinv': None, 'at': -1e9, 'fails': 0, 'view': None/.test(app));
 ok('the log says how following went', /def cam_note\(cam\):/.test(app) && /cam = rec\.pop\('_cam', None\)/.test(app));
-ok('release is v149 or later', /const APP_BUILD = 'v1(49|[5-9]\d)'/.test(src));
+ok('release is v149 or later', /const APP_BUILD = 'v(1(49|[5-9]\d)|[2-9]\d\d)'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

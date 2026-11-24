@@ -180,6 +180,6 @@ const mkRec = (extra, robots = 4, n = 300) => {
   ok('each kept match sends what was learned', /await vtLearnSave\(m\.vid\);/.test(idx) && /passcode: pass, learn: \{ vid: String\(vid\)/.test(idx));
 }
 
-ok('release is v107 or later', /const APP_BUILD = 'v1(0[7-9]|[1-9]\d)'/.test(idx));
+ok('release is v107 or later', /const APP_BUILD = 'v(1(0[7-9]|[1-9]\d)|[2-9]\d\d)'/.test(idx));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

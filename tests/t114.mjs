@@ -197,6 +197,6 @@ const f = n => win.eval(n);
   ok('a key already saved still works', /VT_PASS_KEY = 'vex_tracker_pass'/.test(idx));
 }
 
-ok('release is v106 or later', /const APP_BUILD = 'v1(0[6-9]|[1-9]\d)'/.test(idx));
+ok('release is v106 or later', /const APP_BUILD = 'v(1(0[6-9]|[1-9]\d)|[2-9]\d\d)'/.test(idx));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

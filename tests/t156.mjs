@@ -30,6 +30,6 @@ ok('review does not ask about frames the finder was plainly sure of', /_SURE\[0\
 ok('the robot finder trains from 100 reviewed frames', /TRAIN_MIN = 100/.test(app));
 ok('the vision model reviews new frames by itself after tracking, when on', /do_vreview\(cfg, limit=200\)/.test(app));
 ok('app 2.45 or later', /VERSION = '2\.(4[5-9]|[5-9]\d)'/.test(app));
-ok('release is v170 or later', /const APP_BUILD = 'v1([7-9]\d)'/.test(src));
+ok('release is v170 or later', /const APP_BUILD = 'v(1([7-9]\d)|[2-9]\d\d)'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

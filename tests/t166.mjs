@@ -39,6 +39,6 @@ ok('autonomous points are kept apart', got && got[1][0].a === 10 && got[1][1].a 
 ok('summaries are made again for it', /const VT_REMAKE = 1(8\d|9\d)/.test(src));
 ok('autonomous never above its own share of the stream\'s autonomous points', /Number\.isFinite\(r\.spa\) && h > r\.spa \/ VT_PTS_OWN/.test(src));
 ok('the report gives the stream\'s points', /The stream's own score credits it/.test(src));
-ok('release is v180 or later', /const APP_BUILD = 'v1(8\d|9\d)'/.test(src));
+ok('release is v180 or later', /const APP_BUILD = 'v(1(8\d|9\d)|[2-9]\d\d)'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

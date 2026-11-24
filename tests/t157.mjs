@@ -76,6 +76,6 @@ ok('it makes the team\'s two and the event\'s other one', n === 3, String(n));
 ok('the team\'s count goes from 1 to 3', sums.size === 3 && sums.has('55001:5') && sums.has('55001:6') && !sums.has('55001:9'), [...sums.keys()].join());
 ok('and shares all three', win.__posted === 3, String(win.__posted));
 ok('it does not do the same ones twice', (await f('vtTeamCatchUp')('66449A', sums)) === 0);
-ok('release is v171 or later', /const APP_BUILD = 'v1(7[1-9]|[89]\d)'/.test(src));
+ok('release is v171 or later', /const APP_BUILD = 'v(1(7[1-9]|[89]\d)|[2-9]\d\d)'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

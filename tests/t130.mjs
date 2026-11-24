@@ -68,6 +68,6 @@ ok('the same 13 spots, in the same order, on both sides', (() => { const m = [..
 ok('it trains on the spots cut out and enlarged', /cv2\.imwrite\(os\.path\.join\(root, 'images', part, stem \+ '\.jpg'\), frame\[y0:y1, x0:x1\]/.test(app) && /PIECE_SIZE, PIECE_NEED, PIECE_CONF = 320, 60/.test(app));
 ok('it counts every second once in use', /if (\(eyes\.pieces is not None or getattr\(eyes, 'stack', None\) is not None\)|eyes\.pieces is not None) and quad and (not away and )?t >= spot_at \+ 1/.test(app) && /rec\['gs'\] \+= /.test(app));
 ok('review shows the spots and only asks for what is in them', /strokeStyle='#ffd23f';(if\(gm\)\{[^}]*\})?for\(const s of cur\.spots/.test(app) && /pieces_from_colour\(frame, robots, spots\)/.test(app));
-ok('release is v140 or later', /const APP_BUILD = 'v1[4-9]\d'/.test(src));
+ok('release is v140 or later', /const APP_BUILD = 'v(1[4-9]\d|[2-9]\d\d)'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

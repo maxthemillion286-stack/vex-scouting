@@ -10,6 +10,6 @@ ok('the fixes stay hidden until asked for (or the frame needs them)', /<span id=
 ok('one line of help, the rest behind Help', /<details class="phelp"><summary>Help<\/summary>/.test(app));
 ok('the picture is quieter: no robot outlines, faint goal boxes', !/for\(const r of cur\.robots\|\|\[\]\)x\.strokeRect/.test(app) && /x\.globalAlpha=gm\?1:0\.3/.test(app));
 ok('app 2.41 or later', /VERSION = '2\.(4[1-9]|[5-9]\d)'/.test(app));
-ok('release is v165 or later', /const APP_BUILD = 'v1(6[5-9]|[7-9]\d)'/.test(src));
+ok('release is v165 or later', /const APP_BUILD = 'v(1(6[5-9]|[7-9]\d)|[2-9]\d\d)'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

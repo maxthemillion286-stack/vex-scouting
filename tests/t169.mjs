@@ -28,6 +28,6 @@ const rt = AR(rows);
 ok('two routes found, most used first', rt.length === 2 && rt[0].n === 3 && rt[1].n === 2, JSON.stringify(rt.map(r => [r.n, r.of])));
 ok('each with where it starts and its pins', rt[0].pins === 4 && rt[1].pins === 2 && rt[0].start !== undefined, JSON.stringify(rt.map(r => [r.start, r.pins])));
 ok('no route replays (taken out in v196)', !/▶ Play route/.test(src));
-ok('release is v184 or later', /const APP_BUILD = 'v1(8[4-9]|9\d)'/.test(src));
+ok('release is v184 or later', /const APP_BUILD = 'v(1(8[4-9]|9\d)|[2-9]\d\d)'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
