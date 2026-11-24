@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v197**. Everything green: 135 test files.
+Current release: **v198**. Everything green: 136 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,18 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v198 — an event's counts calibrated to the owner's real numbers.**
+Reported: the 66449A table at Excalibur read autonomous 1, 4.8 pins, 5 pins
+in 10 s; real: 4, about 10, about 25 s. On the owner's own table (key saved)
+each event has "Fix with my real numbers": `vtCalibFrom(own rows, truth)` →
+kp (pins ÷ seen (ys+as)/2), ka (auto ÷ seen ya/2), kt (t5 ÷ measured with kp),
+kp/ka 0.2–5, kt 0.1–10; saved with `POST calib {ev, kp, ka, kt, team, truth}`
+(HSET vt:calib), read by `GET ?calib=1` into `vtCalib` (`vtCalibLoad`, in
+vtTeamSums). `vtTeamRows` puts them on every row of that event (`vtCalibOn`),
+so every team there is corrected the same way. `vtFx` takes kp first;
+`vtAutoFacts` uses ka with no stream caps; `vtStackPace`/`vtFastFiveOf`/
+`vtPinLine` take per-row kp and kt. Check: t177.
 
 **v197 (app 2.56) — matches that cannot be tracked stop being retried.**
 Reported: an event sent days ago still not done. A failed match (no video,

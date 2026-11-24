@@ -238,6 +238,15 @@ export default async function handler(req, res) {
         try { field = raw ? JSON.parse(raw) : null; } catch (e) {}
         return res.status(200).json({ db: true, field });
       }
+      if (q.calib !== undefined) {
+        // v198: every event's correction to a team's real numbers.
+        if (!hasDb) return res.status(200).json({ db: false, calib: {} });
+        const [flat] = await redis(E, [['HGETALL', 'vt:calib']]);
+        const calib = {};
+        const list = Array.isArray(flat) ? flat : [];
+        for (let i = 0; i + 1 < list.length; i += 2) { try { calib[String(list[i])] = JSON.parse(list[i + 1]); } catch (e) {} }
+        return res.status(200).json({ db: true, calib });
+      }
       if (q.teams !== undefined) {
         // Several teams' summaries in one go (a briefing asks for a whole event).
         const list = String(q.teams).split(',').map(teamKey).filter(Boolean).slice(0, 12);
@@ -413,6 +422,19 @@ export default async function handler(req, res) {
         if (!ids.length) return res.status(400).json({ error: 'nothing to clear' });
         await redis(E, [['HDEL', 'vt:labels', ...ids]]);
         return res.status(200).json({ ok: true });
+      }
+      if (body.calib !== undefined) {
+        // v198: one event's counts corrected to a team's real numbers.
+        const C = body.calib, cev = C && digits(C.ev);
+        if (!cev) return res.status(400).json({ error: 'bad calib' });
+        if (C.clear) { await redis(E, [['HDEL', 'vt:calib', cev]]); return res.status(200).json({ ok: true }); }
+        const k = v => (typeof v === 'number' && Number.isFinite(v) && v >= 0.2 && v <= 5) ? Math.round(v * 1000) / 1000 : undefined;
+        const n = v => (typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 200) ? v : null;
+        const T = C.truth || {};
+        const out = { kp: k(C.kp), ka: k(C.ka), kt: (typeof C.kt === 'number' && Number.isFinite(C.kt) && C.kt >= 0.1 && C.kt <= 10) ? Math.round(C.kt * 1000) / 1000 : undefined, team: String(C.team || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8), truth: { auto: n(T.auto), pins: n(T.pins), t5: n(T.t5) }, at: Date.now() };
+        if (out.kp === undefined && out.ka === undefined && out.kt === undefined) return res.status(400).json({ error: 'nothing to set' });
+        await redis(E, [['HSET', 'vt:calib', cev, JSON.stringify(out)]]);
+        return res.status(200).json({ ok: true, calib: out });
       }
       if (body.jobs !== undefined) {
         const J = body.jobs, jev = J && digits(J.ev);
