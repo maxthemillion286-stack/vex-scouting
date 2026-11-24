@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v198**. Everything green: 136 test files.
+Current release: **v199**. Everything green: 137 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,11 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v199 (app 2.57) — middle mouse button pans.** In the marking screens the
+middle button drags the zoomed picture (`panStart`, on #cw; the field canvas's
+parent) and never places, removes or draws; other non-left buttons do nothing;
+only a left release finishes a mark. Checks: desktop/dev/pan.js, t178.
 
 **v198 — an event's counts calibrated to the owner's real numbers.**
 Reported: the 66449A table at Excalibur read autonomous 1, 4.8 pins, 5 pins
