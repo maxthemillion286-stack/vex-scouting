@@ -179,6 +179,6 @@ const mkSums = (num, n, field, extra = {}) => { const m = new Map(); for (let i 
   ok('the app sends frames for review and brings corrections back', /def push_review/.test(app) && /def pull_labels/.test(app) && /sync_review\(cfg\)\s+# corrections made on a phone count too/.test(app));
   ok('pictures are shrunk before they are sent', /min\(1\.0, 960 \/ w\)/.test(app) && /IMWRITE_JPEG_QUALITY, 72/.test(app));
 }
-ok('release is v114 or later', /const APP_BUILD = 'v1(1[4-9]|[2-9]\d)'/.test(idx));
+ok('release is v114 or later', /const APP_BUILD = 'v(1(1[4-9]|[2-9]\d)|[2-9]\d\d)'/.test(idx));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

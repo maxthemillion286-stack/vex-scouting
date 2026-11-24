@@ -25,6 +25,6 @@ ok('a stacker and a guard fit; two stackers do not', fit(stacker, guard) > 0.5 &
 ok('too few tracked matches: no role', roleOf([{ ga: 0.5 }]) === null);
 ok('the pick list shows it and breaks near ties with it', /Mostly \$\{esc\(c\.role\.label\)\}/.test(src) && /b\.win \+ T_FIT_PTS \* \(b\.fit \|\| 0\)/.test(src) && /const T_FIT_PTS = 3;/.test(src));
 ok('the note on video says what it now includes', /pins a match, autonomous pins, how fast it stacks/.test(src));
-ok('release is v167 or later', /const APP_BUILD = 'v1(6[7-9]|[7-9]\d)'/.test(src));
+ok('release is v167 or later', /const APP_BUILD = 'v(1(6[7-9]|[7-9]\d)|[2-9]\d\d)'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

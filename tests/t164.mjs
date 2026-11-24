@@ -10,6 +10,6 @@ ok('its marks never grade a finder', /is_val\(m\[0\]\) and pieces_by_person\(m\[
 ok('the window has the button', /start\('vpieces'\)/.test(app));
 ok('its check is there', fs.existsSync('../desktop/dev/vpieces.py'));
 ok('app 2.48 or later', /VERSION = '2\.(4[8-9]|[5-9]\d)'/.test(app));
-ok('release is v178 or later', /const APP_BUILD = 'v1(7[8-9]|[89]\d)'/.test(src));
+ok('release is v178 or later', /const APP_BUILD = 'v(1(7[8-9]|[89]\d)|[2-9]\d\d)'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -12,6 +12,6 @@ ok('"Find it for me" asks it first, the vision model only without it', /t = trai
 ok('it learns again by itself every few streams marked', /job\.start\('field', \['--field-finder', '--auto'\]\)/.test(app));
 ok('its check is there', fs.existsSync('../desktop/dev/fieldfinder.py'));
 ok('app 2.47 or later', /VERSION = '2\.(4[7-9]|[5-9]\d)'/.test(app));
-ok('release is v177 or later', /const APP_BUILD = 'v1(7[7-9]|[89]\d)'/.test(src));
+ok('release is v177 or later', /const APP_BUILD = 'v(1(7[7-9]|[89]\d)|[2-9]\d\d)'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

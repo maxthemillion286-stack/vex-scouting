@@ -44,6 +44,6 @@ const L = f('vtPinLine')([{ ys: 6, vs: 18, vh: 12 }, { ys: 6, vs: 18, vh: 12 }],
 ok('the Scoring line too', /5 pins in 15 s · 3\.0 s a pin/.test(L.short), L.short);
 ok('the gaps between sightings are no longer used for it', !/\`5 pins in about/.test(src) && !/const cys = mine\.map\(r => r\.cy\)/.test(src));
 ok('both pin counts and the trained finder\'s keep the timing; older summaries are made again', /vtVisitAdd\(r, track, at, t, d\)/.test(src) && /vtVisitAdd\(r, track, \[sp\.x, sp\.y\], t, d\)/.test(src) && /vs: 'ovs', vh: 'ovh'/.test(src) && /const VT_REMAKE = (14[5-9]|1[5-9]\d);/.test(src));
-ok('release is v145 or later', /const APP_BUILD = 'v1(4[5-9]|[5-9]\d)'/.test(src));
+ok('release is v145 or later', /const APP_BUILD = 'v(1(4[5-9]|[5-9]\d)|[2-9]\d\d)'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

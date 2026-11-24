@@ -13,6 +13,6 @@ ok('the bar moves between batches, not only when one is in', /fwait\((pending|se
 ok('the window shows the step beside the stage', /P\.stage\+\(P\.sub\?' · '\+P\.sub:''\)/.test(app));
 ok('with nothing to mark pins and cups on, the window says why (no reviewed frames, or which streams need their field marked)', /def pieces_why\(site=None\):/.test(app) && /Pc\.why\.unmarked/.test(app) && /\$\('bPcs'\)\.disabled=Pc\.counted!==false&&!Pc\.left/.test(app));
 ok('app 2.34 or later', /VERSION = '2\.(3[4-9]|[4-9]\d)'/.test(app));
-ok('release is v158 or later', /const APP_BUILD = 'v1(5[8-9]|[6-9]\d)'/.test(src));
+ok('release is v158 or later', /const APP_BUILD = 'v(1(5[8-9]|[6-9]\d)|[2-9]\d\d)'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

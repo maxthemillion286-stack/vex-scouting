@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v199**. Everything green: 137 test files.
+Current release: **v200**. Everything green: 138 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,16 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v200 (app 2.58) — Update button in the app.** Header button → POST
+/api/update → `fetch_update(cfg)` (site/desktop/vex_trainer.py, VERSION must be
+newer by `version_key`, must compile, `os.replace`); refused while a job other
+than tracking runs. `UPDATE['ready']` then `srv.shutdown()`; after
+serve_forever the old process starts the new one with VT_TOKEN/VT_PORT/
+VT_RESTARTED (same address and token, no new window) and waits for it, so
+VEX_Trainer.bat's window stays. The page polls and reloads when /api/state's
+version is the new one. Checks: desktop/dev/update.py (5); the full flow was
+run end to end with Playwright against a local site serving 9.99; t179.
 
 **v199 (app 2.57) — middle mouse button pans.** In the marking screens the
 middle button drags the zoomed picture (`panStart`, on #cw; the field canvas's

@@ -80,6 +80,6 @@ rec.vo = vo;
   ok('tracking goes on without it if it is not there', /Tracking without the vision model this time\./.test(app) && /_THINK\['failed'\] >= 3/.test(app));
   ok('private working values are not written to the settings file', /if not k\.startswith\('_'\)/.test(app));
 }
-ok('release is v133 or later', /const APP_BUILD = 'v1[3-9]\d'/.test(src) && !/const APP_BUILD = 'v13[0-2]'/.test(src));
+ok('release is v133 or later', /const APP_BUILD = 'v(1[3-9]\d|[2-9]\d\d)'/.test(src) && !/const APP_BUILD = 'v13[0-2]'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

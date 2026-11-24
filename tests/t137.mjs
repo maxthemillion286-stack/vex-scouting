@@ -54,6 +54,6 @@ ok('a robot is looked for ahead of where it was, by its speed', (() => { const p
 ok('no further ahead than a second', Math.abs(ahead({ x: 0.5, y: 0.5, t: 0, vx: 0.2, vy: 0 }, 3).x - 0.7) < 1e-9);
 ok('and no faster than a robot drives', /const VT_VMAX = 0\.6;/.test(src) && /if \(sp > VT_VMAX\)/.test(src));
 ok('every device remakes its matches with this', /const VT_REMAKE = (14[8-9]|1[5-9]\d);/.test(src));
-ok('release is v148 or later', /const APP_BUILD = 'v1(4[8-9]|[5-9]\d)'/.test(src));
+ok('release is v148 or later', /const APP_BUILD = 'v(1(4[8-9]|[5-9]\d)|[2-9]\d\d)'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -24,6 +24,6 @@ ok('the website asks once a visit for a lens found after its copy of the mark', 
 ok('the server keeps it, checked', /f\.k >= -0\.5 && f\.k <= 0\.5/.test(api) && /\{ k: f\.k, ka: f\.ka \}/.test(api));
 ok('the app works it out from the marked picture and keeps it with the mark', /def estimate_lens\(frame, q, strict=True\):/.test(app) && /lens_save\(cfg, job\['vid'\], fld, k,/.test(app) && /field\['k'\], field\['ka'\] = round\(k, 4\)/.test(app));
 ok('every device remakes its matches', /const VT_REMAKE = (16[8-9]|1[7-9]\d);/.test(src));
-ok('release is v168 or later', /const APP_BUILD = 'v1(6[8-9]|[7-9]\d)'/.test(src));
+ok('release is v168 or later', /const APP_BUILD = 'v(1(6[8-9]|[7-9]\d)|[2-9]\d\d)'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

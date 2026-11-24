@@ -166,6 +166,6 @@ const f = n => win.eval(n);
   ok('a new finder is published only if it measured better', /if info\['new'\]\[2\] <= info\['old'\]\[2\]:\s+return/.test(app));
   ok('a button can only start one of four known jobs', /return self\._send\(400, \{'error': 'unknown task'\}\)/.test(app));
 }
-ok('release is v109 or later', /const APP_BUILD = 'v1(09|[1-9]\d)'/.test(idx));
+ok('release is v109 or later', /const APP_BUILD = 'v(1(09|[1-9]\d)|[2-9]\d\d)'/.test(idx));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

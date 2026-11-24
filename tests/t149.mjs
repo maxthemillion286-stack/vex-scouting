@@ -18,6 +18,6 @@ ok('the field can be marked again on the frame being marked', /(Boxes off\? )?Ma
 ok('pin and cup boxes are a set size; dragging one moves it, a click removes it', /function sizedBox\(px,py,s\)/.test(app) && /if\(!d\.moved\)\{boxes\.splice\(d\.k,1\)\}/.test(app));
 ok('goals and loaders dragged on a frame, size kept, saved for the stream', /function moveGoals\(\)/.test(app) && /def move_spots\(cfg, body\):/.test(app) && /if u\.path == '\/api\/fmove':/.test(app));
 ok('app 2.37 or later', /VERSION = '2\.(3[7-9]|[4-9]\d)'/.test(app));
-ok('release is v161 or later', /const APP_BUILD = 'v1(6[1-9]|[7-9]\d)'/.test(src));
+ok('release is v161 or later', /const APP_BUILD = 'v(1(6[1-9]|[7-9]\d)|[2-9]\d\d)'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

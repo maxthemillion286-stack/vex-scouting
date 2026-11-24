@@ -15,6 +15,6 @@ ok('where it does not, review opens with its changes and they come first', /boxe
 ok('it finds the field: corners, goals, loaders, for the person to check', /def vlm_find_field\(cfg, name\):/.test(app) && /function findField\(\)/.test(app) && /Find it for me/.test(app));
 ok('buttons in the window', /start\('vreview'\)/.test(app) && /Let the vision model review first/.test(app));
 ok('app 2.40 or later', /VERSION = '2\.(4\d|[5-9]\d)'/.test(app));
-ok('release is v164 or later', /const APP_BUILD = 'v1(6[4-9]|[7-9]\d)'/.test(src));
+ok('release is v164 or later', /const APP_BUILD = 'v(1(6[4-9]|[7-9]\d)|[2-9]\d\d)'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

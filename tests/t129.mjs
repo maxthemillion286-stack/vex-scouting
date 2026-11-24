@@ -18,6 +18,6 @@ ok('the table does the same', /a pin every \$\{P\.perPin\.toFixed\(1\)\} s at th
 const pts = [[0.1, 0.6, 0], [0.2, 0.7, 3], [0.3, 0.8, 6], [0.3, 0.8, 9], [0.3, 0.8, 12], [0.3, 0.8, 15]];
 const html = f('vtReportAuto')({ game: { n: 5, replay: { pts, n: 4, of: 5, still: false } }, autoFacts: null }, { auto: [] });
 ok('the report says the routine in words, with no replay', !/vr-replay|vtReplayPlay|data-pts=/.test(html) && /Runs the same routine in 4 of 5/.test(html));
-ok('release is v139 or later', /const APP_BUILD = 'v1[3-9]\d'/.test(src) && !/const APP_BUILD = 'v13[0-8]'/.test(src));
+ok('release is v139 or later', /const APP_BUILD = 'v(1[3-9]\d|[2-9]\d\d)'/.test(src) && !/const APP_BUILD = 'v13[0-8]'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

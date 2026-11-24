@@ -9,6 +9,6 @@ ok('the vision model only where plates did not settle who is who', /def trim_sho
 ok('where the time went is said at the end', /Where the time went \(all workers together\)/.test(app));
 ok('its check is there', fs.existsSync('../desktop/dev/speed.py'));
 ok('app 2.46 or later', /VERSION = '2\.(4[6-9]|[5-9]\d)'/.test(app));
-ok('release is v176 or later', /const APP_BUILD = 'v1(7[6-9]|[89]\d)'/.test(src));
+ok('release is v176 or later', /const APP_BUILD = 'v(1(7[6-9]|[89]\d)|[2-9]\d\d)'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

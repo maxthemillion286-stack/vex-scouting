@@ -18,6 +18,6 @@ ok('a tie goes to the one nearer the average', /^Usually [45] pins \(4–5\)/.te
 t = T(F(r([4, 5, 3, 6]), 2, null), false);
 ok('both robots together: a whole number, "about"', /^About \d+ pins?/.test(t) && !/\.\d/.test(t), t);
 ok('no decimals on autonomous pins anywhere', !/F\.pins\.toFixed/.test(src) && !/F\.tog\.toFixed/.test(src));
-ok('release is v173 or later', /const APP_BUILD = 'v1(7[3-9]|[89]\d)'/.test(src));
+ok('release is v173 or later', /const APP_BUILD = 'v(1(7[3-9]|[89]\d)|[2-9]\d\d)'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

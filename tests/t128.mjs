@@ -11,6 +11,6 @@ ok('no attribute is a CSS variable', bad.length === 0, bad.slice(0, 5).join(' ')
 ok('nor in the page as served', !/\s(fill|stroke|stop-color|font-family)="var\(/.test(served));
 ok('the heat map colours by style', /style="fill:var\(--vr-heat\)"/.test(src) && /style="stop-color:var\(--vr-heat\)"/.test(src));
 ok('report columns fit a narrow phone', /minmax\(min\(300px, 100%\), 1fr\)/.test(src));
-ok('release is v138 or later', /const APP_BUILD = 'v1[3-9]\d'/.test(src) && !/const APP_BUILD = 'v13[0-7]'/.test(src));
+ok('release is v138 or later', /const APP_BUILD = 'v(1[3-9]\d|[2-9]\d\d)'/.test(src) && !/const APP_BUILD = 'v13[0-7]'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
