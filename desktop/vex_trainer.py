@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.56'
+VERSION = '2.57'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -5645,7 +5645,7 @@ UI_HTML = r"""<!doctype html><html lang="en"><meta charset="utf-8"><meta name="v
   <a href="#" class="fixlink" onclick="event.preventDefault();$('pFix').style.display=$('pFix').style.display==='none'?'':'none'">Boxes in the wrong place?</a>
   <span id="pFix" style="display:none"><button class="ghost" id="pMove" style="display:none" onclick="moveGoals()">Move the goals</button>
   <button class="ghost" id="pRemark" style="display:none" onclick="if(cur&&cur.id)openField(cur.id.replace(/_[^_]*$/,''),cur.id)">Mark the field on this picture</button></span></div>
- <div id="cw" style="overflow:auto;max-height:calc(100vh - 210px)"><canvas id="c"></canvas></div><div class="hint" id="pMsg" style="display:none">Pick a colour, then <b>click each piece stacked on a goal or sitting in a loader</b>. Click a piece again to remove it. Scroll to zoom. <details class="phelp"><summary>Help</summary>A pin is two halves: a red-and-yellow pin is two clicks, one per colour. Click the middle of each half, and the middle of each cup. Mark every one you can see on a goal (however the stack leans) or in a loader, even half hidden; never loose pieces lying on the floor. Boxes already drawn are guesses: click away wrong ones, drag a box to move it. Keys: <kbd>1</kbd>–<kbd>4</kbd> colour, <kbd>Enter</kbd> save, <kbd>Z</kbd> undo, <kbd>B</kbd> back. If the faint goal boxes are not on the goals, use <b>Boxes in the wrong place?</b>: the other frames of the stream then follow the camera from this one.</details></div><div class="hint" id="revMsg">Green boxes are what the finder thinks are robots. Box every robot you can see, even partly hidden ones, and nothing else. <b>Two robots touching get one box each:</b> if one green box covers both, click it away and draw two, split at the gap between their drivebases.</div>
+ <div id="cw" style="overflow:auto;max-height:calc(100vh - 210px)"><canvas id="c"></canvas></div><div class="hint" id="pMsg" style="display:none">Pick a colour, then <b>click each piece stacked on a goal or sitting in a loader</b>. Click a piece again to remove it. Scroll to zoom; hold the middle mouse button and drag to move around. <details class="phelp"><summary>Help</summary>A pin is two halves: a red-and-yellow pin is two clicks, one per colour. Click the middle of each half, and the middle of each cup. Mark every one you can see on a goal (however the stack leans) or in a loader, even half hidden; never loose pieces lying on the floor. Boxes already drawn are guesses: click away wrong ones, drag a box to move it. Keys: <kbd>1</kbd>–<kbd>4</kbd> colour, <kbd>Enter</kbd> save, <kbd>Z</kbd> undo, <kbd>B</kbd> back. If the faint goal boxes are not on the goals, use <b>Boxes in the wrong place?</b>: the other frames of the stream then follow the camera from this one.</details></div><div class="hint" id="revMsg">Green boxes are what the finder thinks are robots. Box every robot you can see, even partly hidden ones, and nothing else. <b>Two robots touching get one box each:</b> if one green box covers both, click it away and draw two, split at the gap between their drivebases.</div>
 </main>
 <main id="fld">
  <div class="top"><button class="ghost" onclick="closeField()">← Back</button><b id="fSay"></b><span class="sp"></span>
@@ -5768,7 +5768,7 @@ function drawField(){if(!F||!F.img.complete)return;fx.drawImage(F.img,0,0);const
  if(F.spots)F.spots.forEach((p,k)=>{fx.strokeStyle=k<9?'#ffe14a':'#ff6bd6';fx.fillStyle='rgba(0,0,0,.35)';fx.beginPath();fx.arc(p[0]*fc.width,p[1]*fc.height,R,0,7);fx.fill();fx.stroke();
   fx.fillStyle='#fff';fx.font='bold '+Math.round(R*1.1)+'px sans-serif';fx.textAlign='center';fx.textBaseline='middle';fx.fillText(k<9?String(k+1):'L',p[0]*fc.width,p[1]*fc.height)})}
 function orderPts(P){const cx=P.reduce((a,p)=>a+p[0],0)/P.length,cy=P.reduce((a,p)=>a+p[1],0)/P.length;return P.slice().sort((a,b)=>Math.atan2(a[1]-cy,a[0]-cx)-Math.atan2(b[1]-cy,b[0]-cx))}
-fc.onmousedown=async e=>{if(!F)return;const[px,py]=fpos(e);
+fc.onmousedown=async e=>{if(e.button===1){const b=fc.parentElement;if(b)panStart(e,b);return}if(!F||e.button!==0)return;const[px,py]=fpos(e);
  if(!F.spots){if(F.pts.length>=4)return;F.pts.push([px,py]);fieldSay();drawField();
   if(F.pts.length===4){const q=F.pts.flatMap(p=>[p[0]/fc.width,p[1]/fc.height]);const r=await api('/api/fspots',{q});if(r.error){$('fSay').textContent=r.error;F.pts=[];drawField();return}F.spots=r.spots;$('fSave').disabled=false;fieldSay();drawField()}return}
  let best=-1,bd=Math.max(14,fc.width/60);F.spots.forEach((p,k)=>{const d=Math.hypot(p[0]*fc.width-px,p[1]*fc.height-py);if(d<bd){bd=d;best=k}});F.drag=best};
@@ -5811,17 +5811,25 @@ async function moveGoals(){if(!cur)return;if(!gm){gm=true;$('pMove').textContent
 function sizedBox(px,py,s){const u=s[4]/3658,w=(pc===3?95:70)*u,h=(pc===3?165:95)*u;return[px-w/2,py-h/2,w,h,pc]}
 function boxAt(px,py){let k=-1,a=1e12;boxes.forEach((b,i)=>{if(px>=b[0]&&px<=b[0]+b[2]&&py>=b[1]&&py<=b[1]+b[3]&&b[2]*b[3]<a){a=b[2]*b[3];k=i}});return k}
 function spotIdx(px,py){return (cur.spots||[]).findIndex(s=>px>=s[0]&&px<=s[2]&&py>=s[1]&&py<=s[3])}
-c.onmousedown=e=>{const[px,py]=pos(e);
+// v2.57: "middle mouse button should pan in the mark cups and pins and stuff
+// and not act as a click". The middle button drags the zoomed picture around;
+// it never places, removes or draws anything. Other buttons than the left do nothing.
+let pan=null;
+function panStart(e,box){e.preventDefault();pan={box,x:e.clientX,y:e.clientY,l:box.scrollLeft,t:box.scrollTop};document.body.style.cursor='grabbing'}
+window.addEventListener('mousemove',e=>{if(!pan)return;e.preventDefault();pan.box.scrollLeft=pan.l-(e.clientX-pan.x);pan.box.scrollTop=pan.t-(e.clientY-pan.y)},true);
+window.addEventListener('mouseup',e=>{if(pan&&e.button===1){pan=null;document.body.style.cursor=''}},true);
+window.addEventListener('auxclick',e=>{if(e.button===1)e.preventDefault()});
+c.onmousedown=e=>{if(e.button===1){panStart(e,$('cw'));return}if(e.button!==0)return;const[px,py]=pos(e);
  if(pm&&gm){const k=spotIdx(px,py);if(k>=0)drag={mode:'goal',k,lx:px,ly:py};return}
  if(pm){const k=boxAt(px,py);hist.push(boxes.map(b=>b.slice()));
   if(k>=0){drag={mode:'box',k,lx:px,ly:py,x0:px,y0:py,moved:false};return}
   const s=spotAt(px,py);if(!s){hist.pop();flash('Only on a goal or loader (inside a dotted box). Loose pieces on the floor are not marked.');return}
   boxes.push(sizedBox(px,py,s));drag={mode:'box',k:boxes.length-1,lx:px,ly:py,x0:px,y0:py,moved:true,fresh:true};draw();return}
  drag={x0:px,y0:py,x:px,y:py,w:0,h:0}};
-c.onmousemove=e=>{if(!drag)return;const[px,py]=pos(e);
+c.onmousemove=e=>{if(!drag||pan)return;const[px,py]=pos(e);
  if(drag.mode==='goal'){const s=cur.spots[drag.k],dx=px-drag.lx,dy=py-drag.ly;for(const i of [0,2,6])if(s[i]!==undefined)s[i]+=dx;for(const i of [1,3,7])if(s[i]!==undefined)s[i]+=dy;drag.lx=px;drag.ly=py;draw();return}
  if(drag.mode==='box'){const b=boxes[drag.k],dx=px-drag.lx,dy=py-drag.ly;b[0]+=dx;b[1]+=dy;drag.lx=px;drag.ly=py;if(Math.hypot(px-drag.x0,py-drag.y0)>3)drag.moved=true;draw();return}drag.x=Math.min(px,drag.x0);drag.y=Math.min(py,drag.y0);drag.w=Math.abs(px-drag.x0);drag.h=Math.abs(py-drag.y0);draw()};
-window.onmouseup=()=>{if(!drag)return;const d=drag;drag=null;
+window.onmouseup=e=>{if(!drag||(e&&e.button!==0))return;const d=drag;drag=null;
  if(d.mode==='goal')return;
  if(d.mode==='box'){const b=boxes[d.k];if(!d.moved){boxes.splice(d.k,1)}else if(b&&!spotAt(b[0]+b[2]/2,b[1]+b[3]/2)){boxes.splice(d.k,1);flash('Only on a goal or loader (inside a dotted box).')}draw();return}
  hist.push(boxes.map(b=>b.slice()));
