@@ -2527,6 +2527,10 @@
   .cmp-num { display: block; line-height: 24px; }
   .cmp-num .mt-team { display: inline; padding: 0; margin: 0; }
   .vt-more { margin-top: 14px; }
+  .vt-calib { margin-top: 6px; font-size: 12px; }
+  .vt-calib > summary { cursor: pointer; color: var(--text-dim); }
+  .vt-calib label { display: block; margin: 4px 0; }
+  .vt-calib input { width: 70px; margin-left: 6px; }
   .vt-more > summary { cursor: pointer; color: var(--text-dim); font-size: 13px; padding: 4px 0; }
   .cmp-pm { color: var(--text-dim); font-size: 0.85em; margin-left: 2px; }
   .md-plan { margin-top: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; line-height: 1.5; }
@@ -3729,7 +3733,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v197';
+const APP_BUILD = 'v198';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -10522,6 +10526,7 @@ function vtSumsShareUp(out, server) {
   }
 }
 async function vtTeamSums(number) {
+  await vtCalibLoad();
   const num = String(number || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   const out = new Map();
   if (!num) return out;
@@ -10668,6 +10673,76 @@ function vtLookPicks(byEvent, picks, L, C, dist, mean, MARGIN) {
 }
 const VT_LOOK_MARGIN = 0.08;
 const VT_PRINT_MARGIN = 0.1;   // fingerprints: the same robot is about 0.03–0.05 apart, different ones 0.3 and more
+// ── Calibrated to the owner's real numbers (v198) ──────────────────────────
+// Reported: "these stats are absurdly wrong" (autonomous "usually 1", 4.8
+// pins, "5 pins in 10 s"), with the real ones: "4 pin autonomous, 5 pins
+// usually takes 25 seconds-ish, scores about 10 pins a match". The video's
+// counts are off by how each stream shows the field (angle, distance,
+// quality), and that is much the same for every robot in it. So the owner
+// gives his own robot's real numbers for an event, the factors that turn the
+// tracker's counts into them are found (pins, autonomous pins, stacking
+// time), and every team's numbers at that event are corrected by them. They
+// are kept on the website (admin key), so everyone sees the corrected ones.
+const vtCalib = new Map();
+let vtCalibAt = 0;
+async function vtCalibLoad(force) {
+  if (!force && Date.now() - vtCalibAt < 300000) return vtCalib;
+  vtCalibAt = Date.now();
+  try {
+    const r = await Promise.race([vtApi('GET', '?calib=1'), new Promise(res => setTimeout(() => res(null), 3000))]);
+    const c = r && r.ok && r.body && r.body.calib;
+    if (c && typeof c === 'object') { vtCalib.clear(); for (const [ev, v] of Object.entries(c)) if (v && typeof v === 'object') vtCalib.set(String(ev), v); }
+  } catch (e) {}
+  return vtCalib;
+}
+function vtCalibOn(row, key) {
+  const c = vtCalib.get(String(key).split(':')[0]);
+  if (!c) return row;
+  const o = { ...row };
+  for (const k of ['kp', 'ka', 'kt']) if (Number.isFinite(c[k])) o[k] = c[k];
+  return o;
+}
+// The factors from one event's own-robot rows and the real numbers.
+function vtCalibFrom(rows, truth) {
+  const raw = rows.map(r => { const o = { ...r }; delete o.kp; delete o.ka; delete o.kt; delete o.xf; return o; });
+  const clamp = v => Math.min(5, Math.max(0.2, v));
+  const out = {};
+  const got = raw.filter(r => Number.isFinite(r.ys) || Number.isFinite(r.as));
+  if (truth.pins > 0 && got.length) {
+    const seen = vtAvg(got.map(r => ((r.ys || 0) + (r.as || 0)) / 2));
+    if (seen > 0) out.kp = clamp(truth.pins / seen);
+  }
+  const au = raw.filter(r => Number.isFinite(r.ya));
+  if (truth.auto > 0 && au.length) {
+    const seen = vtAvg(au.map(r => r.ya / 2));
+    if (seen > 0) out.ka = clamp(truth.auto / seen);
+  }
+  if (truth.t5 > 0) {
+    const withP = raw.map(r => (out.kp ? { ...r, kp: out.kp } : r));
+    const pace = vtStackPace(withP, 1), t5 = pace ? 5 * pace : vtFastFiveOf(withP, 1);
+    if (t5 > 0) out.kt = Math.min(10, Math.max(0.1, truth.t5 / t5));   // time per pin moves with kp too, so it needs more room
+  }
+  return out;
+}
+async function vtCalibSave(ev, num) {
+  const pass = vtPass();
+  const v = id => { const x = parseFloat((document.getElementById(id) || {}).value); return Number.isFinite(x) && x >= 0 ? x : null; };
+  const truth = { auto: v('vtCalA' + ev), pins: v('vtCalP' + ev), t5: v('vtCalT' + ev) };
+  const say = document.getElementById('vtCalSay' + ev);
+  if (!pass) { if (say) say.textContent = 'Needs the admin key saved on this device.'; return; }
+  if (truth.auto === null && truth.pins === null && truth.t5 === null) { if (say) say.textContent = 'Fill in at least one.'; return; }
+  const sums = await vtTeamSums(num);
+  const m = new Map([...sums].filter(([k]) => k.split(':')[0] === String(ev)));
+  const R = vtTeamRows(num, m), rows = R.own.length >= 2 ? R.own : null;
+  if (!rows) { if (say) say.textContent = 'Your robot has to be told apart in at least 2 matches here to set this.'; return; }
+  const k = vtCalibFrom(rows, { auto: truth.auto || 0, pins: truth.pins || 0, t5: truth.t5 || 0 });
+  const r = await vtApi('POST', '', { passcode: pass, calib: { ev: String(ev), team: num, truth, ...k } });
+  if (!r.ok) { if (say) say.textContent = 'Could not save: ' + ((r.body && r.body.error) || 'try again'); return; }
+  vtCalib.set(String(ev), { team: num, truth, ...k });
+  vtManyMemo && vtManyMemo.clear && vtManyMemo.clear();
+  const host = document.getElementById('vtCoach');
+  vtCoachFill(num, host ? 'vtCoach' : undefined);
+}
 function vtTeamRows(number, sums) {
   const num = String(number).toUpperCase(), mine = [], others = [], own = [], ownOthers = [], pair = [], pairOthers = [];
   const picks = vtIdentify(num, sums), how = { plate: 0, look: 0, vision: 0 };
@@ -10678,18 +10753,19 @@ function vtTeamRows(number, sums) {
     if (!a || !b) continue;
     const my = onRed ? s.rs : s.bs, their = onRed ? s.bs : s.rs;
     const res = { won: my > their ? 1 : my < their ? 0 : null, name: s.name, margin: (my || 0) - (their || 0) };
-    mine.push({ ...a, ...res, pts: my });
-    others.push({ ...b, pts: their });
+    const C = r => vtCalibOn(r, key);
+    mine.push(C({ ...a, ...res, pts: my }));
+    others.push(C({ ...b, pts: their }));
     // v179: the alliance's autonomous points as the stream showed them (asa),
     // and the partner's own count (pya), so a robot is never credited with
     // more in autonomous than its alliance scored.
     const side = onRed ? 'R' : 'B', sa = Number.isFinite(a.sa) ? a.sa : null, ya = o => (s[side + o] && Number.isFinite(s[side + o].ya)) ? s[side + o].ya : 0;
     const X = vtExact(s), xf = X ? X[side] : null, xo = X ? X[onRed ? 'B' : 'R'] : null;
-    for (const o of ['a', 'b']) { const r1 = s[side + o], r2 = s[(onRed ? 'B' : 'R') + o]; if (r1) pair.push({ ...r1, ...res, asa: sa, pya: ya(o === 'a' ? 'b' : 'a'), xf }); if (r2) pairOthers.push({ ...r2, xf: xo }); }
+    for (const o of ['a', 'b']) { const r1 = s[side + o], r2 = s[(onRed ? 'B' : 'R') + o]; if (r1) pair.push(C({ ...r1, ...res, asa: sa, pya: ya(o === 'a' ? 'b' : 'a'), xf })); if (r2) pairOthers.push(C({ ...r2, xf: xo })); }
     const p = picks.get(key);
     if (p) {
       const me = s[side + p.slot];
-      if (me) { own.push({ ...me, ...res, asa: sa, pya: ya(p.slot === 'a' ? 'b' : 'a'), xf }); how[p.how]++; for (const o of ['a', 'b']) { const r = s[(onRed ? 'B' : 'R') + o]; if (r) ownOthers.push(r); } }
+      if (me) { own.push(C({ ...me, ...res, asa: sa, pya: ya(p.slot === 'a' ? 'b' : 'a'), xf })); how[p.how]++; for (const o of ['a', 'b']) { const r = s[(onRed ? 'B' : 'R') + o]; if (r) ownOthers.push(C(r)); } }
     }
   }
   return { mine, others, own, ownOthers, pair, pairOthers, how };
@@ -10921,10 +10997,17 @@ async function vtCoachFill(number, hostId) {
     const AF = vtAutoFacts(own ? r.own : r.pair, own ? 1 : 2, chk);
     const auto = vtAutoText(AF, false);
     const none = '<i>not counted yet</i>';
-    return `<tr><td class="vt-coach-ev">${esc(name)}${when ? `<span>${esc(when)}</span>` : ''}</td><td data-label="Matches">${(own ? r.own : r.mine).length}<span>${own ? (r.own.length < r.mine.length ? `its robot told apart in ${r.own.length} of ${r.mine.length} tracked` : 'all tracked, its robot told apart') : `tracked, alliance; its robot told apart in ${r.own.length}`}</span></td>
+    const cal = vtCalib.get(String(ev)), T = (cal && cal.truth) || {};
+    const fixIt = mineTeam && lsGet(VT_PASS_KEY) ? `<details class="vt-calib"><summary>${cal && cal.team === num ? 'Change my real numbers' : 'Fix with my real numbers'}</summary><div>
+      <label>Autonomous pins <input id="vtCalA${esc(ev)}" type="number" min="0" step="1" inputmode="numeric" value="${T.auto ?? ''}"></label>
+      <label>Pins a match <input id="vtCalP${esc(ev)}" type="number" min="0" step="0.5" inputmode="decimal" value="${T.pins ?? ''}"></label>
+      <label>Seconds for 5 pins <input id="vtCalT${esc(ev)}" type="number" min="0" step="1" inputmode="numeric" value="${T.t5 ?? ''}"></label>
+      <button type="button" class="btn btn-primary" data-ev="${esc(ev)}" data-team="${esc(num)}" onclick="vtCalibSave(this.dataset.ev, this.dataset.team)">Save</button>
+      <div class="rw-hint" id="vtCalSay${esc(ev)}">What your robot really does here. Every team's numbers at this event are corrected the same way, since the stream's view is what throws them off.</div></div></details>` : '';
+    return `<tr><td class="vt-coach-ev">${esc(name)}${when ? `<span>${esc(when)}</span>` : ''}${fixIt}</td><td data-label="Matches">${(own ? r.own : r.mine).length}<span>${own ? (r.own.length < r.mine.length ? `its robot told apart in ${r.own.length} of ${r.mine.length} tracked` : 'all tracked, its robot told apart') : `tracked, alliance; its robot told apart in ${r.own.length}`}</span></td>
       <td data-label="Autonomous" class="vt-coach-mid">${auto ? esc(auto) : none}</td>
       <td data-label="Goes for" class="vt-coach-mid">${P ? (P.style ? esc(P.style.text) : 'too few pins to say') : none}</td>
-      <td data-label="Pins a match">${P ? P.pins.toFixed(1) + `<span>${(() => { const rr = own ? r.own : r.pair, n = rr.filter(x => Number.isFinite(x.xf)).length; return n ? `fitted to the official score in ${own ? n : Math.round(n / 2)} of ${own ? rr.length : Math.round(rr.length / 2)}` : chk.ok ? `checked: ±${vtPct(chk.err)}` : 'not checked yet'; })()}</span>` : none}</td><td data-label="Points a match">${(() => { const v = r.mine.map(x => x.pts).filter(x => typeof x === 'number'); return v.length ? Math.round(vtAvg(v)) + `<span>its alliance, official, ${v.length} match${v.length === 1 ? '' : 'es'}</span>` : none; })()}</td>
+      <td data-label="Pins a match">${P ? P.pins.toFixed(1) + `<span>${(() => { const rr = own ? r.own : r.pair, n = rr.filter(x => Number.isFinite(x.xf)).length, cal = vtCalib.get(String(ev)); if (cal && Number.isFinite(cal.kp)) return cal.team === num ? 'set to your real numbers' : `corrected by ${esc(cal.team || 'a team')}'s real numbers here`; return n ? `fitted to the official score in ${own ? n : Math.round(n / 2)} of ${own ? rr.length : Math.round(rr.length / 2)}` : chk.ok ? `checked: ±${vtPct(chk.err)}` : 'not checked yet'; })()}</span>` : none}</td><td data-label="Points a match">${(() => { const v = r.mine.map(x => x.pts).filter(x => typeof x === 'number'); return v.length ? Math.round(vtAvg(v)) + `<span>its alliance, official, ${v.length} match${v.length === 1 ? '' : 'es'}</span>` : none; })()}</td>
       <td data-label="5 pins stacked in">${P ? (P.t5 !== null ? Math.round(P.t5) + ' s' + (P.timed ? `<span>a pin every ${P.perPin.toFixed(1)} s at the goal</span>` : '') : `not timed yet<span>${[...m.values()].some(vtStale) ? 'its matches are being read again' : 'too few pins seen being stacked'}</span>`) : none}</td></tr>`;
   }).join('');
   host.innerHTML = `<div class="detail-block"><div class="detail-block-label">${mineTeam ? 'Your robot' : esc(num)}, as the tracker sees it</div>
@@ -11011,7 +11094,7 @@ function vtExact(s) {
   return s._x;
 }
 // The correction a robot's row takes: its match's exact fit where there is one, else the event's.
-const vtFx = (r, fix) => (r && Number.isFinite(r.xf) ? r.xf : fix);
+const vtFx = (r, fix) => (r && Number.isFinite(r.kp) ? r.kp : r && Number.isFinite(r.xf) ? r.xf : fix);
 function vtPinCheck(sums) {
   const ratios = [];
   for (const s of (sums && sums.values ? sums.values() : sums || [])) {
@@ -11068,7 +11151,7 @@ function vtCoachPins(rows, per, check) {
   // stretch between set-downs. The gaps between set-downs alone are not used:
   // they hold the driving between visits (that read "about 103 s").
   const pace = vtStackPace(got, fix), t5 = pace ? 5 * pace : vtFastFiveOf(got, fix);
-  return { pins, points: (sum('ys') * 10 + sum('as') * 5) / matches, auto: sum('ya') / 2 / matches, style: vtPinStyle(sum('ys'), sum('as')),
+  return { pins, points: (sum('ys') * 10 + sum('as') * 5) / matches, auto: got.reduce((a, r) => a + (Number.isFinite(r.ka) ? r.ka : vtFx(r, fix)) * (r.ya || 0), 0) / 2 / matches, style: vtPinStyle(sum('ys'), sum('as')),
     t5, perPin: pace, timed: !!pace };
 }
 async function vtReportFill(number) {
@@ -11451,6 +11534,8 @@ function vtAutoFacts(rows, per, check) {
   // the least), shared between its two robots by their own counts: a robot
   // is never given more than its alliance could have scored.
   const halves = r => {
+    // v198: calibrated to the owner's real numbers: those stand, no caps.
+    if (Number.isFinite(r.ka)) return r.ka * r.ya;
     let h = vtFx(r, fix) * r.ya;
     if (Number.isFinite(r.spa) && h > r.spa / VT_PTS_OWN + 1e-9) { h = r.spa / VT_PTS_OWN; F.capped++; }     // its own share of the stream's autonomous points
     if (Number.isFinite(r.asa)) {
@@ -12939,9 +13024,10 @@ function vtVisitSum(r) {
 // over their pins (halves / 2), once there are three pins' worth. `fix`
 // corrects counts that the official scores show run high or low.
 function vtStackPace(rows, fix) {
-  let vs = 0, vh = 0;
-  for (const r of rows) if (r.vs > 0 && r.vh > 0) { vs += r.vs; vh += r.vh; }
-  const pins = vh * (fix > 0 ? fix : 1) / 2;
+  let vs = 0, pins = 0;
+  const f0 = fix > 0 ? fix : 1;
+  // v198: a row calibrated to the owner's real numbers brings its own factors.
+  for (const r of rows) if (r.vs > 0 && r.vh > 0) { vs += r.vs * (r.kt > 0 ? r.kt : 1); pins += r.vh * (r.kp > 0 ? r.kp : f0) / 2; }
   return pins >= 3 ? vs / pins : null;
 }
 // How long a pin takes it, timed: from one set-down to the next, for the
@@ -12998,16 +13084,16 @@ function vtFastFive(row, fix) {
 // The usual best: the middle of its matches' fastest five. Matches where it
 // never set five down are left out (that is a pins-a-match matter).
 function vtFastFiveOf(rows, fix) {
-  const v = rows.map(r => vtFastFive(r, fix)).filter(x => x !== null).sort((a, b) => a - b);
+  const v = rows.map(r => { const t = vtFastFive(r, r.kp > 0 ? r.kp : fix); return t === null ? null : t * (r.kt > 0 ? r.kt : 1); }).filter(x => x !== null).sort((a, b) => a - b);
   return v.length >= 2 ? v[Math.floor(v.length / 2)] : null;
 }
 // A team's pins, from its tracked matches: yellow halves set down per match.
 function vtPinLine(mine, others, isOwn, check) {
-  const got = list => list.map(r => r.ys).filter(v => v !== null && v !== undefined);
+  const fix = check && check.ok ? check.k : 1;
+  const got = list => list.filter(r => r.ys !== null && r.ys !== undefined).map(r => r.ys * (r.kp > 0 ? r.kp : fix));
   const a = got(mine), o = got(others || []);
   if (a.length < 2) return null;
-  const fix = check && check.ok ? check.k : 1;
-  const avg = vtAvg(a) * fix, other = o.length >= 2 ? vtAvg(o) * fix : null;
+  const avg = vtAvg(a), other = o.length >= 2 ? vtAvg(o) : null;
   const pace = vtStackPace(mine, fix), t5 = pace ? 5 * pace : vtFastFiveOf(mine, fix);
   // The short form, for the report's top lines. Asked: "way too much info for scoring".
   const cupRows = mine.filter(r => r.cp !== undefined && r.cp !== null), cups = cupRows.length >= 2 ? vtAvg(cupRows.map(r => r.cp)) : null;
