@@ -30,7 +30,7 @@ class FakeVideo:
     def read_at_step(self, step): self.pos += step / self.fps; return self.pos, fr
     def frame_at(self, s_): return fr
 class Pieces:
-    def spot_counts(self, frame, spots):
+    def spot_counts(self, frame, spots, memory=None):
         looks.append(1)
         return [[k % 3, 1, 2, 0] for k in range(len(spots))]
 class FakeEyes:

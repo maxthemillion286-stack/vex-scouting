@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v201**. Everything green: 139 test files.
+Current release: **v202**. Everything green: 140 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,26 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v202 (app 2.60) — accuracy batch 2.**
+- Practice goals (#1): `piece_practice(marked, n)` cuts marked halves/cups
+  and restacks them on empty marked goals with exact YOLO boxes;
+  `stream_damage` (JPEG q25–85, shrink, blur, noise, light) on them and on
+  the stack reader's practice stacks. `build_pieces_dataset(marked, synth)`
+  puts PIECE_SYNTH 2500 (cfg piece_synth) in train only; val stays real.
+- Stack height (#4): `stack_geom(marked)` → half height and step as shares
+  of the goal box (saved models/stack_geom.json at pin training);
+  `by_height` fills a goal's halves up to what its height says (missing
+  ≥2), to the stack's majority colour. Used in `PieceFinder.spot_counts`.
+- Looks laid over each other (#5): `laid_over(mem, k, crop)` keeps 4 looks,
+  drops one far from the rest, per-pixel median; the stack reader and now the
+  pin finder use it in tracking (blocked spots never enter).
+- Carried pins (#7): `PieceFinder.carried` counts halves on each robot every
+  second → `rec.cr` [tenths, box x, box y, halves] (keyed like em). Website:
+  vtFrames → point cr → tracks → `slotted.carried`; `vtSpotCount` with
+  several robots near a goal that went up gives it to the one whose load
+  dropped (`vtCarryDrop`). Server allows cr. VT_REMAKE 202.
+- Checks: desktop/dev/stack.py (now 18), t181.
 
 **v201 (app 2.59) — accuracy batch 1.** From "build 1,2,3,4,5,6,7,8,10,11,12".
 - End-of-match read (#3): app, after the clock reads 0 (no clock: END_GUESS
