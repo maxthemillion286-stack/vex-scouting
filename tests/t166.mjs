@@ -36,7 +36,7 @@ for (let t = 0; t <= 140; t++) track.push({ t, s: { 1: [t >= 14 && t <= 20 ? { x
 const got = J({ sc }, track, ph);
 ok('a score jump goes to the robot at a goal just before it', got && got[1][0].p === 10 && got[1][1].p === 15, JSON.stringify(got && got[1]));
 ok('autonomous points are kept apart', got && got[1][0].a === 10 && got[1][1].a === 0);
-ok('summaries are made again for it', /const VT_REMAKE = 1(8\d|9\d)/.test(src));
+ok('summaries are made again for it', /const VT_REMAKE = (1(8\d|9\d)|2\d\d)/.test(src));
 ok('autonomous never above its own share of the stream\'s autonomous points', /Number\.isFinite\(r\.spa\) && h > r\.spa \/ VT_PTS_OWN/.test(src));
 ok('the report gives the stream\'s points', /The stream's own score credits it/.test(src));
 ok('release is v180 or later', /const APP_BUILD = 'v(1(8\d|9\d)|[2-9]\d\d)'/.test(src));

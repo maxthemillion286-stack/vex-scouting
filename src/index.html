@@ -3733,7 +3733,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v200';
+const APP_BUILD = 'v201';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -10090,38 +10090,64 @@ function vtScoreFlow(rec, ph) {
 // many points. Each rise goes to the alliance's robot that was at a goal in
 // the few seconds before it; with both there or neither, it is shared. A fall
 // (a descore against it) is not taken from anyone. → per robot {p, a} or null.
-function vtScoreJumps(rec, track, ph) {
+// v201: "scores on screen are done by live score keepers and sometimes aren't
+// instant or done at all". So a jump in the stream's score is never taken
+// for the moment of scoring: it is matched to the pins the camera saw go on
+// for that alliance in the 20 seconds before it (and 2 after), and shared
+// among the robots who put them there. Only where the camera saw none does
+// closeness to a goal decide. A display that never moved, or whose last
+// number is far from the official final, is not used at all.
+const VT_SCORE_LAG = 20;
+function vtScoreJumps(rec, track, ph, evs, finals) {
   const a = rec && rec.sc;
   if (!Array.isArray(a) || a.length < 30 || !track || !track.length || !ph) return null;
   const rows = [];
   for (let i = 0; i + 2 < a.length; i += 3) rows.push({ t: a[i] / 10, v: [a[i + 1], a[i + 2]] });
   const out = { 1: [{ p: 0, a: 0 }, { p: 0, a: 0 }], 2: [{ p: 0, a: 0 }, { p: 0, a: 0 }] };
   const near = (p) => p ? Math.min(...VT_GOALS_FIELD.map(g => Math.hypot(p.x - g[0], p.y - g[1]))) : Infinity;
+  let used = 0;
   for (const k of [0, 1]) {
-    const c = k + 1;
+    const c = k + 1, jumps = [];
     let held = null, prev = null;
     for (const r of rows) {
       const v = r.v[k];
       if (!(v >= 0)) { prev = null; continue; }
       if (v === prev && v !== held) {
-        if (held !== null && v > held && r.t >= ph.start - 1 && r.t <= ph.end + 8) {
-          const d = v - held;
-          // Who was at a goal in the six seconds before the score was seen to change (it is read once a second or so, and believed on the second reading).
-          const best = [Infinity, Infinity];
-          for (const b of track) {
-            if (b.t < r.t - 8 || b.t > r.t) continue;
-            for (const i of [0, 1]) best[i] = Math.min(best[i], near(b.s[c][i]));
-          }
-          const at = best.map(x => x < 0.12);
-          const share = at[0] && !at[1] ? [1, 0] : at[1] && !at[0] ? [0, 1] : at[0] && at[1] ? (best[0] <= best[1] ? [0.75, 0.25] : [0.25, 0.75]) : [0.5, 0.5];
-          for (const i of [0, 1]) { out[c][i].p += d * share[i]; if (r.t < ph.driver) out[c][i].a += d * share[i]; }
-        }
+        if (held !== null && v > held && r.t >= ph.start - 1 && r.t <= ph.end + VT_SCORE_LAG) jumps.push({ t: r.t, d: v - held });
         held = v;
       }
       prev = v;
     }
+    const fin = finals && Number.isFinite(finals[k]) ? finals[k] : null;
+    if (!jumps.length) continue;                                     // a display nobody kept
+    if (fin !== null && held !== null && Math.abs(held - fin) > Math.max(6, 0.25 * fin)) continue;   // kept, but wrong
+    used++;
+    for (const j of jumps) {
+      const seen = (evs || []).filter(e => e[1] === c && e[0] >= j.t - VT_SCORE_LAG && e[0] <= j.t + 2);
+      let share = null, auto = j.t < ph.driver;
+      if (seen.length) {
+        const w = [0, 0];
+        for (const e of seen) w[e[2]] += e[3] * Math.exp(-Math.max(0, j.t - e[0]) / 10);
+        const W = w[0] + w[1];
+        if (W > 0) share = [w[0] / W, w[1] / W];
+        // Autonomous if what it matched was set down in autonomous.
+        const at = seen.reduce((m, e) => (Math.abs(e[0] - j.t) < Math.abs(m[0] - j.t) ? e : m), seen[0]);
+        auto = at[0] < ph.driver;
+      }
+      if (!share) {
+        const best = [Infinity, Infinity];
+        for (const b of track) {
+          if (b.t < j.t - 15 || b.t > j.t) continue;
+          for (const i of [0, 1]) best[i] = Math.min(best[i], near(b.s[c][i]));
+        }
+        const at = best.map(x => x < 0.12);
+        share = at[0] && !at[1] ? [1, 0] : at[1] && !at[0] ? [0, 1] : at[0] && at[1] ? (best[0] <= best[1] ? [0.75, 0.25] : [0.25, 0.75]) : [0.5, 0.5];
+        auto = j.t - 5 < ph.driver;
+      }
+      for (const i of [0, 1]) { out[c][i].p += j.d * share[i]; if (auto) out[c][i].a += j.d * share[i]; }
+    }
   }
-  return out;
+  return used ? out : null;
 }
 function vtSummarise(rec, quad, learn) {
   const F = vtFrames(rec, quad, learn);
@@ -10238,14 +10264,6 @@ function vtSummarise(rec, quad, learn) {
   // driver control (net, so a descore counts against).
   const flow = vtScoreFlow(rec, ph);
   if (flow) for (const [o, k] of [[Rall, 0], [Ball, 1]]) { o.sa = flow[k][0]; o.s1 = flow[k][1]; o.s2 = flow[k][2]; o.s3 = flow[k][3]; }
-  // Each jump in the stream's score, credited to a robot (v180): sp points in
-  // the match, spa in autonomous.
-  if (flow && F.field && axis) {
-    try {
-      const J = vtScoreJumps(rec, track, ph);
-      if (J) [[Ra, 1, 0], [Rb, 1, 1], [Ba, 2, 0], [Bb, 2, 1]].forEach(([row, c, i]) => { row.sp = Math.round(J[c][i].p); row.spa = Math.round(J[c][i].a); });
-    } catch (e) {}
-  }
   // The game's own measures, only where the field is known.
   if (F.field && axis) {
     try {
@@ -10255,7 +10273,7 @@ function vtSummarise(rec, quad, learn) {
     } catch (e) {}
   }
   // Pins set down, and who was there when (v115). Needs the field.
-  let pins = {};
+  let pins = {}, pinEvs = null;
   if (F.field && axis && rec.pn && rec.pn.length) {
     try {
       const P = vtPinCount(rec, quad, turnK, track, ph);
@@ -10280,8 +10298,9 @@ function vtSummarise(rec, quad, learn) {
     try {
       const G = vtPinCount(rec, quad, turnK, track, ph, 'goals');
       if (G) {
+        pinEvs = G.evs; if (G.er) pins.ger = 1;
         const r1 = v => Math.round(v * 10) / 10;
-        [[Ra, 1, 0], [Rb, 1, 1], [Ba, 2, 0], [Bb, 2, 1]].forEach(([row, c, i]) => { const q = G.robots[c][i]; row.oy = r1(q.ys); row.oa = r1(q.as); row.oya = r1(q.ya); if (q.cy) row.ocy = q.cy; if (q.t5 !== null) row.ot5 = q.t5; for (const N of VT_FAST_N) if (q['k' + N]) row['n' + N] = q['k' + N]; if (q.vh) { row.ovs = q.vs; row.ovh = q.vh; } });
+        [[Ra, 1, 0], [Rb, 1, 1], [Ba, 2, 0], [Bb, 2, 1]].forEach(([row, c, i]) => { const q = G.robots[c][i]; row.oy = r1(q.ys); row.oa = r1(q.as); row.oya = r1(q.ya); if (q.yac !== null && q.yac !== undefined) row.oyac = q.yac; if (q.cy) row.ocy = q.cy; if (q.t5 !== null) row.ot5 = q.t5; for (const N of VT_FAST_N) if (q['k' + N]) row['n' + N] = q['k' + N]; if (q.vh) { row.ovs = q.vs; row.ovh = q.vh; } });
         Object.assign(pins, { gy: r1(G.py), gr: r1(G.pr), gb: r1(G.pb), gk: G.pk });
         const own = rec.tg && rec.tg.length ? vtToggleRead(rec, turnK, ph) : null;
         if (own) {
@@ -10297,10 +10316,11 @@ function vtSummarise(rec, quad, learn) {
     try {
       const Z = rec.gs && rec.gs.length ? vtSpotCount(rec, turnK, track, ph) : null;
       if (Z) {
+        pinEvs = Z.evs; if (Z.er) pins.ger = 1;
         const r1 = v => Math.round(v * 10) / 10;
         [[Ra, 1, 0], [Rb, 1, 1], [Ba, 2, 0], [Bb, 2, 1]].forEach(([row, c, i]) => {
           const q = Z.robots[c][i];
-          row.oy = r1(q.ys); row.oa = r1(q.as); row.oya = r1(q.ya); delete row.ocy; delete row.ot5;
+          row.oy = r1(q.ys); row.oa = r1(q.as); row.oya = r1(q.ya); delete row.oyac; if (q.yac !== null && q.yac !== undefined) row.oyac = q.yac; delete row.ocy; delete row.ot5;
           if (q.cy) row.ocy = q.cy; if (q.t5 !== null) row.ot5 = q.t5; delete row.ovs; delete row.ovh; if (q.vh) { row.ovs = q.vs; row.ovh = q.vh; }
           for (const N of VT_FAST_N) { delete row['n' + N]; if (q['k' + N]) row['n' + N] = q['k' + N]; }
           row.cp = r1(q.cp); row.kn = r1(q.kn); row.ld = q.ld; if (q.lds !== null) row.lds = q.lds;
@@ -10317,6 +10337,14 @@ function vtSummarise(rec, quad, learn) {
   }
   if (F.field && axis && rec.tg && rec.tg.length) {
     try { const at = vtToggleAuto(rec, ph); if (at) { Ra.tga = Rb.tga = at[1]; Ba.tga = Bb.tga = at[2]; } } catch (e) {}
+  }
+  // Each jump in the stream's score, credited to a robot (v180; v201 matched
+  // to the pins seen going on): sp points in the match, spa in autonomous.
+  if (flow && F.field && axis) {
+    try {
+      const J = vtScoreJumps(rec, track, ph, pinEvs, [rec.rs, rec.bs]);
+      if (J) [[Ra, 1, 0], [Rb, 1, 1], [Ba, 2, 0], [Bb, 2, 1]].forEach(([row, c, i]) => { row.sp = Math.round(J[c][i].p); row.spa = Math.round(J[c][i].a); });
+    } catch (e) {}
   }
   return { ...base, ok: 1, rv: VT_REMAKE, lps: Math.round(lps * 10) / 10, st: ph.start, dr: ph.driver, ck: ph.clock ? 1 : 0, ...(flow ? { sl: 1 } : {}), ...pins, R: Rall, B: Ball, Ra, Rb, Ba, Bb };
 }
@@ -10444,7 +10472,7 @@ function vtReportSeen(S) {
 // the recordings are in the shared store too, so whichever device opens a
 // report fetches the ones it needs, makes the summaries again, keeps them, and
 // (with the admin key) shares them.
-const VT_REMAKE = 181;      // v181: stacks counted by height; v180: the stream's score jumps credited to robots (sp, spa); v169: robots' fingerprints joined; v168: positions through the camera's lens; v164: boxes standing off the field dropped; v154: goal counts by the game's rules; v152: when the points came, from the stream's score; v150: unsure boxes carry on missing robots, whole-match slots, smoothed; v148: robots followed by speed and heading; v145/146: stacking timed at the goal (vs, vh)      // v136: pins counted on the goals as well (oy, oa, …)
+const VT_REMAKE = 201;      // v201: end-of-match read, score jumps matched to pins seen, autonomous clarity (yac); // v181: stacks counted by height; v180: the stream's score jumps credited to robots (sp, spa); v169: robots' fingerprints joined; v168: positions through the camera's lens; v164: boxes standing off the field dropped; v154: goal counts by the game's rules; v152: when the points came, from the stream's score; v150: unsure boxes carry on missing robots, whole-match slots, smoothed; v148: robots followed by speed and heading; v145/146: stacking timed at the goal (vs, vh)      // v136: pins counted on the goals as well (oy, oa, …)
 const vtStale = s => !!(s && s.ok && (s.rv || 0) < VT_REMAKE);
 const vtRefreshTried = new Set();
 // v174: reported "i met all the fixes and it didnt fix": the field was marked
@@ -11533,7 +11561,7 @@ function vtAutoFacts(rows, per, check) {
   // score, the alliance's autonomous points bound its halves (5 a half at
   // the least), shared between its two robots by their own counts: a robot
   // is never given more than its alliance could have scored.
-  const halves = r => {
+  let halves = r => {
     // v198: calibrated to the owner's real numbers: those stand, no caps.
     if (Number.isFinite(r.ka)) return r.ka * r.ya;
     let h = vtFx(r, fix) * r.ya;
@@ -11544,6 +11572,18 @@ function vtAutoFacts(rows, per, check) {
     }
     return h;
   };
+  // v201: teams run the same autonomous almost every match. Where it was
+  // seen clearly (no other robot near the goals it scored on, yac) in two
+  // matches or more, a match where it was not takes the clear ones' usual
+  // count instead of a guessed share.
+  if (per === 1) {
+    const clearH = p.filter(r => Number.isFinite(r.yac) && r.yac >= 0.8 && !Number.isFinite(r.ka)).map(halves);
+    if (clearH.length >= 2) {
+      const usual = vtMedian(clearH), plain = halves;
+      F.pattern = clearH.length;
+      halves = r => (Number.isFinite(r.ka) || (Number.isFinite(r.yac) && r.yac >= 0.8) || !Number.isFinite(r.yac) && !(r.ya > 0) ? plain(r) : usual);
+    }
+  }
   if (p.length >= per) F.pins = p.reduce((a, r) => a + halves(r), 0) / 2 / (p.length / per);
   // v173: "how can autons have .5 pins its always a whole number". Each
   // match's autonomous is a whole number of pins; the average of them is not.
@@ -12559,8 +12599,42 @@ function vtPinLook(slot, video, sx, sy, w, h, boxes) {
   P.tg = slot.quad && slot.quad.q ? vtToggleLook(data, W, H, slot.quad.q) : null;
   return P;
 }
-function vtPinSamples(rec) {
-  const a = rec.pn || [], out = [];
+// ── v201: more sure of who scored, and of what was there at the end ────────
+// A credit is clear when no other robot that could have scored it was nearly
+// as close (in the seconds before it was seen): used for autonomous, where
+// two robots often work the same goals at once.
+function vtClearOf(track, x, y, t, only, c0, i0, back) {
+  let bd = Infinity, sd = Infinity;
+  for (const c of [1, 2]) {
+    if (only && c !== only) continue;
+    for (const i of [0, 1]) {
+      let m = Infinity;
+      for (const b of track) { if (b.t < t - back || b.t > t) continue; const p = b.s[c][i]; if (p) m = Math.min(m, Math.hypot(p.x - x, p.y - y)); }
+      if (c === c0 && i === i0) bd = m; else sd = Math.min(sd, m);
+    }
+  }
+  return sd >= Math.max(0.12, 2 * bd);
+}
+// The app's end-of-match read (app 2.59): for some seconds after the match,
+// with the robots stopped, each goal and loader counted many times over and
+// the middle of those kept. → E[spot][colour] (halves; cups) or null.
+function vtEndRead(rec, S) {
+  const a = rec && rec.ge;
+  if (!Array.isArray(a) || a.length !== 1 + 4 * S) return null;
+  return Array.from({ length: S }, (_, k) => [0, 1, 2, 3].map(c => { const v = a[1 + 4 * k + c]; return Number.isFinite(v) && v >= 0 ? v : null; }));
+}
+// Halves seen going on a goal, made to agree with what was there at the end:
+// the difference is shared among those seen scoring there, in proportion.
+function vtEndShare(mine, delta, key) {
+  if (!mine.length || Math.abs(delta) < 1) return 0;
+  const D = mine.reduce((a, m) => a + m.d, 0);
+  if (!(D > 0)) return 0;
+  const k = Math.max(0, (D + delta) / D);
+  for (const m of mine) m.r[key] = Math.max(0, m.r[key] + m.d * (k - 1));
+  return delta;
+}
+function vtPinSamples(rec, key) {
+  const a = rec[key || 'pn'] || [], out = [];
   for (let i = 0; i + 1 < a.length;) {
     const n = a[i + 1], blobs = [];
     for (let k = 0; k < n && i + 2 + 6 * k + 5 < a.length; k++) { const o = i + 2 + 6 * k; blobs.push({ x: a[o], y: a[o + 1], w: a[o + 2], h: a[o + 3], area: a[o + 4], c: a[o + 5] }); }
@@ -12751,10 +12825,12 @@ function vtSpotCount(rec, turnK, track, ph) {
     }
     return best;
   };
+  const credits = [];
   const t0 = ph.start, t1 = ph.end + 4;
   let endIdx = -1;
   for (let i = 0; i < n; i++) if (looks[i].t <= t1) endIdx = i;
   const end = { 1: 0, 2: 0, 3: 0, cups: 0 }, yq = [0, 0, 0, 0, 0];
+  const E = vtEndRead(rec, S);
   for (let k = 0; k < S; k++) {
     const sp = spots[k];
     if (sp.loader) {
@@ -12770,23 +12846,34 @@ function vtSpotCount(rec, turnK, track, ph) {
     }
     for (let c = 0; c < 4; c++) {
       const ser = sm(k, c);
-      if (endIdx >= 0 && Number.isFinite(ser[endIdx])) { const v = Math.max(0, ser[endIdx]); if (c < 3) { end[c + 1] += v; if (c === 2) yq[sp.quad] += v; } else end.cups += v; }
+      const pathEnd = endIdx >= 0 && Number.isFinite(ser[endIdx]) ? Math.max(0, ser[endIdx]) : null;
+      // v201: the end-of-match read (many looks with the robots stopped)
+      // stands for what is on the goal at the end, where there is one.
+      const fin = E && E[k][c] !== null ? E[k][c] : pathEnd;
+      if (fin !== null) { if (c < 3) { end[c + 1] += fin; if (c === 2) yq[sp.quad] += fin; } else end.cups += fin; }
+      const mine = [];
       for (const [t, d] of steps(ser, t0, t1)) {
         if (d > 0) {
           // Own-colour halves are put there by that alliance; yellow and cups by whoever was closest.
-          const r = near(sp.x, sp.y, t, c === 0 ? 1 : c === 1 ? 2 : 0, 0.22, 8);
+          const only = c === 0 ? 1 : c === 1 ? 2 : 0;
+          const r = near(sp.x, sp.y, t, only, 0.22, 8);
           if (!r) continue;
           if (c === 3) r.cp += d;
-          else { if (c === 2) r.ys += d; else r.as += d; r.ev.push([t, d]); if (t < ph.driver) r.ya += d; vtVisitAdd(r, track, [sp.x, sp.y], t, d); }
+          else { if (c === 2) r.ys += d; else r.as += d; r.ev.push([t, d]); if (t < ph.driver) { r.ya += d; r.yaN = (r.yaN || 0) + d; if (vtClearOf(track, sp.x, sp.y, t, only, r.c, r.i, 8)) r.yaC = (r.yaC || 0) + d; } vtVisitAdd(r, track, [sp.x, sp.y], t, d); mine.push({ r, d, t }); credits.push([t, r.c, r.i, d]); }
         } else {
           const r = near(sp.x, sp.y, t, 0, 0.22, 8);
           if (r && c < 3) r.kn += -d;
         }
       }
+      // v201: the halves seen going on, made to agree with the end-of-match
+      // read: a stack read short while robots stood in front of it is shared
+      // out among those who were seen scoring on it, in proportion.
+      if (c < 3 && E && E[k][c] !== null && pathEnd !== null) vtEndShare(mine, E[k][c] - pathEnd, c === 2 ? 'ys' : 'as');
     }
   }
   for (const c of [1, 2]) for (const r of robots[c]) {
     r.ev.sort((x, y) => x[0] - y[0]);
+    r.yac = r.yaN ? Math.round(100 * (r.yaC || 0) / r.yaN) / 100 : null; delete r.yaN; delete r.yaC;
     let sum = 0; r.t5 = null;
     for (const [t, d] of r.ev) { if (t < ph.driver) continue; sum += d; if (sum >= 10) { r.t5 = Math.max(1, Math.round(t - ph.driver)); break; } }
     r.cy = vtPinCycle(r.ev, ph.driver);
@@ -12798,12 +12885,12 @@ function vtSpotCount(rec, turnK, track, ph) {
     vtVisitSum(r);
     delete r.ev; delete r.lt; delete r.c; delete r.i;
   }
-  return { robots, py: end[3], pr: end[1], pb: end[2], pk: n, yq, cups: end.cups };
+  return { robots, py: end[3], pr: end[1], pb: end[2], pk: n, yq, cups: end.cups, evs: credits, er: E ? 1 : 0 };
 }
 // Which count an event's reports use: the one closer to the official scores,
 // once both can be checked (four matches each). The goal count's fields are
 // copied over the field count's, so everything after reads them unchanged.
-const VT_GOAL_ROW = { ys: 'oy', as: 'oa', ya: 'oya', cy: 'ocy', t5: 'ot5', vs: 'ovs', vh: 'ovh' };
+const VT_GOAL_ROW = { ys: 'oy', as: 'oa', ya: 'oya', yac: 'oyac', cy: 'ocy', t5: 'ot5', vs: 'ovs', vh: 'ovh' };
 function vtPinPick(sums) {
   if (!sums || !sums.size) return sums;
   // Each event on its own: a different hall, camera and stream.
@@ -12919,7 +13006,7 @@ function vtPinCount(rec, quad, turnK, track, ph, mode) {
     }
     return best;
   };
-  const last = { 1: 0, 2: 0, 3: 0 };
+  const last = { 1: 0, 2: 0, 3: 0 }, credits = [], byQ = { 1: [[], [], [], [], []], 2: [[], [], [], [], []], 3: [[], [], [], [], []] };
   for (const c of [1, 2, 3]) {
     const top = new Float32Array(5), from = new Int32Array(5).fill(-1);
     for (let i = 0; i < n; i++) {
@@ -12940,9 +13027,30 @@ function vtPinCount(rec, quad, turnK, track, ph, mode) {
         from[q] = i;
         const at = w > 0 ? [wx / w, wy / w] : VT_QUAD_MID[q];
         const r = whoWas(at, t, c === 3 ? 0 : c);
-        if (r) { if (c === 3) r.ys += d; else r.as += d; r.ev.push([t, d]); vtVisitAdd(r, track, at, t, d); }
+        if (r) {
+          if (c === 3) r.ys += d; else r.as += d; r.ev.push([t, d]); vtVisitAdd(r, track, at, t, d);
+          credits.push([t, r.c, r.i, d]); byQ[c][q].push({ r, d, t });
+          if (t < ph.driver) { r.yaN = (r.yaN || 0) + d; if (vtClearOf(track, at[0], at[1], t, c === 3 ? 0 : c, r.c, r.i, 12)) r.yaC = (r.yaC || 0) + d; }
+        }
       }
       last[c] = gain[c][i].reduce((a, b) => a + b, 0);
+    }
+  }
+  // v201: the end-of-match read (dense looks after the match, robots
+  // stopped): each quadrant's halves made to agree with it.
+  let endIdx0 = -1;
+  for (let i = 0; i < n; i++) if (samples[i].t >= ph.start && samples[i].t <= ph.end + 4) endIdx0 = i;
+  const late = goals && endIdx0 >= 0 ? vtPinSamples(rec, 'pe') : [];
+  if (late.length >= 4) {
+    const looks = late.map(sx => vtGoalLook(sx.blobs, cols, W, H));
+    for (const c of [1, 2, 3]) {
+      const want = new Float32Array(5);
+      for (let k = 0; k < NC; k++) {
+        const base = med(baseIdx.map(i => raw[i][c][k]));
+        want[cellQ[k]] += Math.max(0, med(looks.map(l => l[c][k])) - base);
+      }
+      for (let q = 0; q < 5; q++) vtEndShare(byQ[c][q], want[q] - gain[c][endIdx0][q], c === 3 ? 'ys' : 'as');
+      last[c] = want.reduce((a, b) => a + b, 0);
     }
   }
   // When: what it set down in autonomous (ya), and how long into driver
@@ -12951,6 +13059,7 @@ function vtPinCount(rec, quad, turnK, track, ph, mode) {
   for (const c of [1, 2]) for (const r of robots[c]) {
     r.ev.sort((a, b) => a[0] - b[0]);
     r.ya = r.ev.filter(e => e[0] < ph.driver).reduce((a, e) => a + e[1], 0);
+    r.yac = r.yaN ? Math.round(100 * (r.yaC || 0) / r.yaN) / 100 : null; delete r.yaN; delete r.yaC;
     let sum = 0; r.t5 = null;
     for (const [t, d] of r.ev) { if (t < ph.driver) continue; sum += d; if (sum >= 10) { r.t5 = Math.max(1, Math.round(t - ph.driver)); break; } }
     r.cy = vtPinCycle(r.ev, ph.driver);
@@ -12962,7 +13071,7 @@ function vtPinCount(rec, quad, turnK, track, ph, mode) {
   let endIdx = -1;
   for (let i = 0; i < n; i++) if (samples[i].t >= ph.start && samples[i].t <= ph.end + 4) endIdx = i;
   const yq = endIdx >= 0 ? Array.from(gain[3][endIdx]) : [0, 0, 0, 0, 0];
-  return { robots, py: last[3], pr: last[1], pb: last[2], pk: n, yq };
+  return { robots, py: last[3], pr: last[1], pb: last[2], pk: n, yq, evs: credits, er: late.length >= 4 ? 1 : 0 };
 }
 
 // ── Stacking timed at the goal (v145) ──────────────────────────────────────

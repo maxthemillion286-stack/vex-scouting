@@ -8,7 +8,7 @@ const ok = (name, cond, detail) => { if (cond) { pass++; console.log('  ok   ' +
 const app = fs.readFileSync('../desktop/vex_trainer.py', 'utf8'), src = fs.readFileSync('../src/index.html', 'utf8');
 console.log('t150 — v164');
 ok('tracking drops boxes standing off the marked field', /def on_field\(b, inv, W, H\):/.test(app) && /boxes = \[b for b in boxes if on_field\(b, field_inv\[1\], w, h\)\]/.test(app));
-ok('and so does the website, for matches already tracked', /const M = VT_FIELD_MARGIN, onField = p =>/.test(src) && /f\.pts = f\.pts\.filter\(onField\)/.test(src) && /const VT_REMAKE = (16[4-9]|1[7-9]\d);/.test(src));
+ok('and so does the website, for matches already tracked', /const M = VT_FIELD_MARGIN, onField = p =>/.test(src) && /f\.pts = f\.pts\.filter\(onField\)/.test(src) && /const VT_REMAKE = (16[4-9]|1[7-9]\d|2\d\d);/.test(src));
 ok('the vision model reviews waiting frames: robot or not, and robots missed', /def vlm_review_frame\(cfg, name\):/.test(app) && /def do_vreview\(cfg, limit=400\):/.test(app) && /'missed'/.test(app));
 ok('where it and the finder agree, the frame is labelled, trained on but never graded on', /lab_write\(name, skip=False, boxes=keep, by='vlm'\)/.test(app) && /\(lab\.get\('by'\) == 'vlm'\) != vlm/.test(app) && /reviewed\(vlm=True\)\[:3 \* max\(1, counts\['train'\]\)\]/.test(app));
 ok('where it does not, review opens with its changes and they come first', /boxes, said = \[b\[:4\] \+ \[1\.0\] for b in keep\], \{'removed': gone, 'added': len\(p\['vlm'\]\.get\('missed', \[\]\)\)\}/.test(app) && /\(100 if p\.get\('vlm'\) and not vlm_verdict\(p\['vlm'\]\)\[1\] else 0\)/.test(app));

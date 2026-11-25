@@ -31,7 +31,7 @@ ok('one low look is not a descore', path(blip).every(v => v === 4), path(blip).j
 const fast = [0, 2, 4, 6, 8, 10, 12, 14, 14, 14];
 ok('a fast stacker is followed look by look', path(fast).join(',') === fast.join(','), path(fast).join(','));
 ok('goals use it, loaders keep the median (they empty as they are used)', /if \(k < 9\) \{\s+const ser = looks\.map/.test(src) && /if \(goals\) \{\s+\/\/ a goal: by the game's rules/.test(src));
-ok('every device remakes its matches', /const VT_REMAKE = (15[4-9]|1[6-9]\d);/.test(src));
+ok('every device remakes its matches', /const VT_REMAKE = (15[4-9]|1[6-9]\d|2\d\d);/.test(src));
 ok('release is v154 or later', /const APP_BUILD = 'v(1(5[4-9]|[6-9]\d)|[2-9]\d\d)'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

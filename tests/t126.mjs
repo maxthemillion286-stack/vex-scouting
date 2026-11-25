@@ -71,7 +71,7 @@ const Q = [0.2265625, 0.1111111111111111, 0.7734375, 0.1111111111111111, 0.77343
   const g2 = P(two);
   ok('each event is decided on its own', g2.goalEvents.has('900') && !g2.goalEvents.has('901') && g2.get('901:1').Ra.ys === two.get('901:1').Ra.ys && g2.get('900:1').Ra.ys === two.get('900:1').Ra.oy);
   ok('it is applied where a team\'s matches are fetched', /return vtPinPick\(out\);/.test(src) && /for \(const \[n, m\] of out\) out\.set\(n, vtPinPick\(m\)\);/.test(src));
-  ok('every device remakes older summaries for it', /const VT_REMAKE = 1(3[6-9]|[4-9]\d);/.test(src));
+  ok('every device remakes older summaries for it', /const VT_REMAKE = (1(3[6-9]|[4-9]\d)|2\d\d);/.test(src));
 }
 ok('release is v136 or later', /const APP_BUILD = 'v(1[3-9]\d|[2-9]\d\d)'/.test(src) && !/const APP_BUILD = 'v13[0-5]'/.test(src));
 console.log(`\n${pass} passed, ${fail} failed`);
