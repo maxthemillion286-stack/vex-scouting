@@ -39,7 +39,7 @@ ok('a clear credit: no other robot near', Clear(track, 0.17, 0.66, 10, 1, 1, 0, 
 const F = Facts([{ ya: 8, yac: 1 }, { ya: 8, yac: 0.9 }, { ya: 2, yac: 0.2 }], 1, null);
 ok('a match where autonomous was not seen clearly takes the clear ones\' usual', JSON.stringify(F.each) === '[4,4,4]' && F.pattern === 2, JSON.stringify(F.each));
 ok('with fewer than two clear matches nothing is changed', JSON.stringify(Facts([{ ya: 8, yac: 1 }, { ya: 2, yac: 0.2 }], 1, null).each) === '[4,1]');
-ok('the server keeps the end read', /'ge', 'pe'\]/.test(api) && /rec\.ge\.length === 53/.test(api));
+ok('the server keeps the end read', /'ge', 'pe'[,\]]/.test(api) && /rec\.ge\.length === 53/.test(api));
 ok('the app reads the end of the match', /def end_read_pack\(end_t, looks, S\):/.test(app) && /rec\['ge'\] = end_read_pack/.test(app) && /END_READ_SEC, END_READ_EVERY, END_GUESS = 8, 0\.5, 127/.test(app));
 ok('summaries are made again', /const VT_REMAKE = 2(0[1-9]|[1-9]\d)/.test(src));
 ok('app 2.59 or later', /VERSION = '2\.(59|[6-9]\d)'/.test(app));

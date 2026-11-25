@@ -71,6 +71,27 @@ name0 = marked[0][0]
 seq0 = [s for c, s, n in ex if n == name0]
 want0 = T.spot_counts_of(marked[0][4], marked[0][5])
 check('the sequences hold what was marked', [T.stack_counts_of([v - 1 for v in s]) for s in seq0][:9] == [w for w, sb in zip(want0, marked[0][5]) if sb][:9], str(seq0[:3]))
+
+# ── v2.60: practice goals for the pin finder, stacks counted by height, looks laid over each other
+prac = T.piece_practice(marked, 120)
+check('practice goals are made, with their boxes', len(prac) == 120 and any(len(l) >= 4 for im, l in prac) and all(0 < cx < 1 and 0 < cy < 1 for im, l in prac for k, cx, cy, w, h in l))
+check('they are damaged like a stream (not the clean marks)', all(im.dtype == np.uint8 and im.ndim == 3 for im, l in prac[:10]))
+root, cnt = T.build_pieces_dataset(marked, 50)
+check('they go in the training set only', cnt.get('practice') == 50 and len([n for n in os.listdir(os.path.join(root, 'images', 'val')) if n.startswith('practice')]) == 0 and len([n for n in os.listdir(os.path.join(root, 'images', 'train')) if n.startswith('practice')]) == 50)
+g = T.stack_geom(marked)
+check('a half\'s height and each step up a stack are measured from the marks', g and 0.05 < g['half'] < 0.12 and 0.05 < g['step'] < 0.12, str(g))
+sb = marked[0][5][0]
+ch = sb[3] - sb[1]
+hb = g['half'] * ch
+seen = [[100, sb[3] - hb, 20, hb, 0.9, 0, 0], [100, sb[3] - 6 * g['step'] * ch - hb, 20, hb, 0.9, 1, 0]]
+check('a stack seen at the bottom and top but missing the middle is counted by its height', sum(T.by_height(seen, sb, g)) == 7, str(T.by_height(seen, sb, g)))
+check('one seen whole is left as it is', T.by_height(seen[:1], sb, g) == [1, 0, 0])
+mem = {}
+base = np.full((40, 20, 3), 100, np.uint8)
+robot = base.copy(); robot[:] = 10
+for c in (base, base, robot, base):
+    out = T.laid_over(mem, 0, c.copy())
+check('a look with a robot passing is left out of the looks laid over each other', int(out.mean()) == 100, str(out.mean()))
 fake = T.stack_practice(marked, 200)
 check('practice stacks are made from the marks', len(fake) == 200 and any(len(s) >= 3 for c, s in fake), str([len(s) for c, s in fake[:10]]))
 check('CTC reading: repeats need a gap, nothing is skipped', T.stack_decode(np.array([[0, 5, 0, 0, 0], [0, 5, 0, 0, 0], [9, 0, 0, 0, 0], [0, 5, 0, 0, 0], [0, 0, 0, 7, 0]], float)) == [0, 0, 2])
@@ -113,6 +134,6 @@ if '--train' in sys.argv:
         if gs:
             first = [gs[1 + 4 * k:5 + 4 * k] for k in range(9)]
             check('and they are the stacks drawn (%s)' % first, sum(list(f) == list(w) for f, w in zip(first, want0[:9])) >= 7, str(want0[:9]))
-check('app 2.49 or later', T.VERSION >= '2.49')
+check('app 2.60 or later', T.version_key(T.VERSION) >= (2, 60))
 print('stack checks: %d ok, %d failing' % (ok, fail))
 sys.exit(1 if fail else 0)

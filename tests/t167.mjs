@@ -18,7 +18,7 @@ ok('one half still by its area', Math.abs(one - 1) < 0.05, String(one));
 ok('summaries are made again for it', /const VT_REMAKE = (1(8[1-9]|9\d)|2\d\d)/.test(src));
 ok('the app: a goal behind a robot is not counted that look', /def blocked\(sb, boxes, most=0\.35\)/.test(app));
 ok('the app: sharper downloads when asked', /hp = 1080 if load_config\(\)\.get\('sharp'\) else 720/.test(app));
-ok('the app: the stack reader, practice stacks, looks laid over each other', /class StackReader/.test(app) && /def stack_practice\(marked, n/.test(app) && /np\.median\(np\.stack\(last\), axis=0\)/.test(app));
+ok('the app: the stack reader, practice stacks, looks laid over each other', /class StackReader/.test(app) && /def stack_practice\(marked, n/.test(app) && /(np\.median\(np\.stack\(last\), axis=0\)|def laid_over\(mem, k, crop)/.test(app));
 ok('the app: used only when it wins its test', /use = mine > best_other/.test(app) && /def stack_ready\(\):/.test(app));
 ok('its check is there', fs.existsSync('../desktop/dev/stack.py'));
 ok('app 2.49 or later', /VERSION = '2\.(49|[5-9]\d)'/.test(app));

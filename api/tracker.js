@@ -95,7 +95,9 @@ export function validRec(rec) {
     if (!Array.isArray(fr) || fr.length > 2 + per * 40 || !fr.every(v => Number.isInteger(v) && v > -100000 && v < 100000)) return 'bad frame';
     if (fr.length < 2 || fr.length !== 2 + per * fr[1]) return 'bad frame length';
   }
-  const allowed = ['v', 'name', 'round', 'num', 'red', 'blue', 'rs', 'bs', 'vid', 'off', 'rate', 'w', 'h', 'model', 'at', 'f', 'wide', 'tm', 'pn', 'pw', 'ph', 'tg', 'vo', 'cu', 'pf', 'gs', 'cf', 'sc', 'em', 'ge', 'pe'];
+  const allowed = ['v', 'name', 'round', 'num', 'red', 'blue', 'rs', 'bs', 'vid', 'off', 'rate', 'w', 'h', 'model', 'at', 'f', 'wide', 'tm', 'pn', 'pw', 'ph', 'tg', 'vo', 'cu', 'pf', 'gs', 'cf', 'sc', 'em', 'ge', 'pe', 'cr'];
+  // v202: pin halves on each robot: [tenths, box x, box y, halves] a robot a look.
+  if (rec.cr != null && !(Array.isArray(rec.cr) && rec.cr.length <= 12000 && rec.cr.length % 4 === 0 && rec.cr.every(v => Number.isInteger(v) && v >= -1000 && v < 100000))) return 'bad carried';
   // v201: the end-of-match read: [tenths, then 13 spots × (red, blue, yellow halves, cups) as their middle counts, -1 unknown].
   if (rec.ge != null && !(Array.isArray(rec.ge) && rec.ge.length === 53 && rec.ge.every(v => Number.isInteger(v) && v >= -1 && v < 100000))) return 'bad end read';
   // …and the colours' looks of those seconds, packed as pins are.

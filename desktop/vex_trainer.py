@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.59'
+VERSION = '2.60'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -1442,7 +1442,7 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
     def fresh():
         return {'v': 2, 'name': str(job.get('name', ''))[:60], 'round': job.get('round'), 'num': job.get('num'), 'red': job['red'], 'blue': job['blue'],
                 'rs': job.get('rs'), 'bs': job.get('bs'), 'vid': job['vid'], 'off': int(round(off)), 'rate': 4, 'w': SIZE, 'h': 0,
-                'model': 'det1', 'at': int(time.time() * 1000), 'f': [], 'tm': [], 'pn': [], 'tg': [], 'gs': [], 'sc': [], 'em': []}
+                'model': 'det1', 'at': int(time.time() * 1000), 'f': [], 'tm': [], 'pn': [], 'tg': [], 'gs': [], 'sc': [], 'em': [], 'cr': []}
 
     while True:
         rec = fresh()
@@ -1619,11 +1619,19 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
                 if spots:
                     _t0 = time.perf_counter()
                     # The stack reader where it won its test (v2.49), from the last looks laid over each other; else the pin finder.
+                    unblocked = [None if (sb and blocked(sb, boxes)) else sb for sb in spots]
                     if getattr(eyes, 'stack', None) is not None:
-                        unblocked = [None if (sb and blocked(sb, boxes)) else sb for sb in spots]
                         cnt = eyes.stack.counts(frame, unblocked, stack_mem)
                     else:
-                        cnt = eyes.pieces.spot_counts(frame, spots)
+                        cnt = eyes.pieces.spot_counts(frame, unblocked, stack_mem)
+                    # v2.60: pins on each robot, so the website can tell who carried them to a goal.
+                    if eyes.pieces is not None and boxes and len(rec['cr']) < 4 * 3000:
+                        try:
+                            fr_ = rec['f'][-1]
+                            for i, n_ in enumerate(eyes.pieces.carried(frame, boxes[:fr_[1]])):
+                                rec['cr'] += [fr_[0], fr_[2 + 10 * i], fr_[3 + 10 * i], n_]
+                        except Exception:
+                            pass
                     # v2.49: a goal or loader a robot stands in front of is not
                     # counted this look (-1s): the website keeps its last clear
                     # count instead of a half-hidden stack read short.
@@ -1752,6 +1760,8 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
         rec['ge'] = end_read_pack(end_at - rec['off'], end_looks, len(spots))
     if not rec.get('pe'):
         rec.pop('pe', None)
+    if not rec.get('cr'):
+        rec.pop('cr', None)
     if not rec['sc']:
         del rec['sc']
     if not rec.get('em'):
@@ -4692,9 +4702,86 @@ def score_pieces(find, val):
         res[part] = (pr, rc, (2 * pr * rc / (pr + rc) if pr + rc else 0))
     return res
 
-def build_pieces_dataset(marked):
+# ── Practice goals for the pin finder (v2.60) ──────────────────────────────
+# From "list things that ensure accuracy" (1): thousands of goals the finder
+# learns from that nobody had to mark. Each marked half and cup is cut out of
+# its frame and stacked again, in new orders and heights, on goals marked
+# empty, with its box known exactly; then the picture is damaged the way a
+# stream damages one (blocky compression, shrinking, blur, noise, light).
+# Cut from real frames, so they look like the streams do, which a drawn 3D
+# field would not without the game's real models. Only ever trained on; the
+# test frames stay real, marked ones.
+PIECE_SYNTH = 2500
+
+def stream_damage(img, rng):
+    """A picture as a stream shows it: compressed, sometimes shrunk and
+    blown up again, a little blur, noise and a change of light."""
+    import cv2, numpy as np
+    h, w = img.shape[:2]
+    if rng.random() < 0.5 and min(h, w) > 12:
+        f = 0.45 + 0.45 * rng.random()
+        img = cv2.resize(cv2.resize(img, (max(4, int(w * f)), max(4, int(h * f))), interpolation=cv2.INTER_AREA), (w, h), interpolation=cv2.INTER_LINEAR)
+    if rng.random() < 0.5:
+        img = cv2.GaussianBlur(img, (3, 3), 0.3 + 0.9 * rng.random())
+    img = np.clip(img.astype(np.float32) * (0.75 + 0.5 * rng.random()) + rng.normal(0, 2 + 4 * rng.random(), img.shape), 0, 255).astype(np.uint8)
+    ok_, buf = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, int(25 + 60 * rng.random())])
+    return cv2.imdecode(buf, cv2.IMREAD_COLOR) if ok_ else img
+
+def piece_practice(marked, n, seed=7):
+    """Practice goal pictures: [(picture, [(kind, cx, cy, w, h) as fractions])]."""
+    import cv2, numpy as np
+    rng = np.random.default_rng(seed)
+    patches, empties, feet = {k: [] for k in range(len(PIECE_NAMES))}, [], []
+    for item in marked:
+        name, w, h, robots, pieces, spots = item[:6]
+        frame = cv2.imread(os.path.join(FRAMES, name + '.jpg'))
+        if frame is None:
+            continue
+        for k, sb in enumerate(spots):
+            if not sb or k >= N_GOALS:
+                continue
+            x0, y0, x1, y1 = (int(round(v)) for v in sb)
+            cw, ch = max(1, x1 - x0), max(1, y1 - y0)
+            on = [b for b in pieces if in_spots(b, spots) == k]
+            if not on:
+                c = frame[max(0, y0):y1, max(0, x0):x1]
+                if c.size and c.shape[0] > 8 and c.shape[1] > 8:
+                    empties.append(c.copy())
+                continue
+            feet.append(max((b[1] + b[3] - y0) / ch for b in on))
+            for b in on:
+                x, y, bw, bh = (int(round(v)) for v in b[:4])
+                pc = frame[max(0, y):y + bh, max(0, x):x + bw]
+                if pc.size and bw >= 2 and bh >= 2:
+                    patches[int(b[4])].append((pc.copy(), bw / cw, bh / ch, (x + bw / 2 - x0) / cw))
+    kinds = [k for k in patches if patches[k]]
+    if not kinds or not empties:
+        return []
+    foot = float(np.median(feet)) if feet else 0.9
+    out = []
+    for _ in range(n):
+        bg = empties[int(rng.integers(len(empties)))].copy()
+        H, W = bg.shape[:2]
+        labels, y = [], H * min(0.98, foot + rng.normal(0, 0.03))
+        for _ in range(int(rng.integers(0, 12))):
+            k = kinds[int(rng.integers(len(kinds)))]
+            pc, fw, fh, fx = patches[k][int(rng.integers(len(patches[k])))]
+            pw, ph = max(3, int(round(fw * W * (0.9 + 0.2 * rng.random())))), max(3, int(round(fh * H * (0.9 + 0.2 * rng.random()))))
+            top = int(round(y - ph))
+            if top < 1 or pw >= W:
+                break
+            x0 = int(round(W * (0.5 + 0.6 * (fx - 0.5)) - pw / 2 + rng.normal(0, W * 0.03)))
+            x0 = min(max(0, x0), W - pw)
+            bg[top:top + ph, x0:x0 + pw] = cv2.resize(pc, (pw, ph), interpolation=cv2.INTER_LINEAR)
+            labels.append((k, (x0 + pw / 2) / W, (top + ph / 2) / H, pw / W, ph / H))
+            y = top + ph * (0.12 + 0.12 * rng.random())        # stacked pieces overlap a little
+        out.append((stream_damage(bg, rng), labels))
+    return out
+
+def build_pieces_dataset(marked, synth=0):
     """One picture for each spot of each marked frame: the spot cut out, its
-    pins and cups as labels inside it (empty spots teach "nothing here" too)."""
+    pins and cups as labels inside it (empty spots teach "nothing here" too);
+    and `synth` practice goals (piece_practice), for training only."""
     import cv2
     root = os.path.join(DIRS['build'], 'pieces_dataset')
     shutil.rmtree(root, ignore_errors=True)
@@ -4723,6 +4810,15 @@ def build_pieces_dataset(marked):
                     if bx - ax > 1 and by - ay > 1:
                         f.write('%d %.6f %.6f %.6f %.6f\n' % (c, ((ax + bx) / 2 - x0) / cw, ((ay + by) / 2 - y0) / ch, (bx - ax) / cw, (by - ay) / ch))
             counts[part] += 1
+    counts['practice'] = 0
+    for i, (img, labels) in enumerate(piece_practice(marked, synth) if synth else []):
+        stem = 'practice_%05d' % i
+        cv2.imwrite(os.path.join(root, 'images', 'train', stem + '.jpg'), img, [cv2.IMWRITE_JPEG_QUALITY, 95])
+        with open(os.path.join(root, 'labels', 'train', stem + '.txt'), 'w') as f:
+            for k, cx, cy, bw, bh in labels:
+                f.write('%d %.6f %.6f %.6f %.6f\n' % (k, cx, cy, bw, bh))
+        counts['train'] += 1
+        counts['practice'] += 1
     with open(os.path.join(root, 'data.yaml'), 'w') as f:
         f.write('path: %s\ntrain: images/train\nval: images/val\nnames:\n' % root.replace('\\', '/') + ''.join('  %d: %s\n' % (i, n) for i, n in enumerate(PIECE_NAMES)))
     return root, counts
@@ -4740,7 +4836,16 @@ def do_train_pieces(cfg):
         return None
     import torch
     from ultralytics import YOLO
-    root, counts = build_pieces_dataset(marked)
+    root, counts = build_pieces_dataset(marked, int(cfg.get('piece_synth', PIECE_SYNTH)))
+    if counts.get('practice'):
+        say('  with %d practice goals made from your marks (stacked again in new ways, damaged like a stream).' % counts['practice'])
+    try:
+        g = stack_geom(marked)
+        if g:
+            with open(stack_geom_file(), 'w') as f:
+                json.dump(g, f)
+    except Exception:
+        pass
     device = 0 if torch.cuda.is_available() else 'cpu'
     tag = 'p' + time.strftime('%y%m%d%H%M')
     runs = os.path.join(DIRS['build'], 'runs')
@@ -4806,6 +4911,79 @@ def do_train_pieces(cfg):
     return info
 
 
+# ── A stack's height says how many are in it (v2.60) ──────────────────────
+# From the list (4). A goal's box is worked out from the field's corners, so
+# it is as big in the picture as the goal is at that spot: a half stands a
+# fixed share of it tall. That share, and how far each half up a stack adds,
+# are measured on the stacks you marked (stack_geom). A stack the finder sees
+# the bottom and top of but finds too few halves in between is counted by its
+# height instead; the halves it could not tell the colour of go to the colour
+# most of that stack is.
+def stack_geom_file():
+    return os.path.join(DIRS['models'], 'stack_geom.json')
+
+def stack_geom(marked):
+    """{'half': a half's height / the goal box's, 'step': what each more half adds, 'n'} from marked stacks."""
+    import numpy as np
+    halfs, steps = [], []
+    for item in marked:
+        pieces, spots = item[4], item[5]
+        for k, sb in enumerate(spots):
+            if not sb or k >= N_GOALS:
+                continue
+            ch = max(1.0, sb[3] - sb[1])
+            on = [b for b in pieces if in_spots(b, spots) == k and int(b[4]) < 3]
+            halfs += [b[3] / ch for b in on]
+            if len(on) >= 3:
+                top, bot = min(b[1] for b in on), max(b[1] + b[3] for b in on)
+                steps.append(((bot - top) / ch - np.median([b[3] / ch for b in on])) / (len(on) - 1))
+    if len(halfs) < 10 or len(steps) < 3:
+        return None
+    return {'half': round(float(np.median(halfs)), 4), 'step': round(float(np.median(steps)), 4), 'n': len(steps)}
+
+_GEOM = []
+def geom_now():
+    if not _GEOM:
+        try:
+            with open(stack_geom_file()) as f:
+                _GEOM.append(json.load(f))
+        except Exception:
+            _GEOM.append(None)
+    return _GEOM[0]
+
+def by_height(found, sb, geom):
+    """[red, blue, yellow] halves on one goal, filled up to what its height says."""
+    cnt = [0, 0, 0]
+    halves = [b for b in found if int(b[5]) < 3]
+    for b in halves:
+        cnt[int(b[5])] += 1
+    if not geom or len(halves) < 2 or geom.get('step', 0) <= 0:
+        return cnt
+    ch = max(1.0, sb[3] - sb[1])
+    top, bot = min(b[1] for b in halves), max(b[1] + b[3] for b in halves)
+    est = int(round(1 + ((bot - top) / ch - geom['half']) / geom['step']))
+    est = min(30, est)
+    if est - len(halves) >= 2:                       # whole halves missed between the bottom and top it saw
+        cnt[max(range(3), key=lambda c: cnt[c])] += est - len(halves)
+    return cnt
+
+def laid_over(mem, k, crop, keep=4):
+    """The last looks at one spot laid over each other: the middle of each
+    pixel, after dropping a look far from the rest (a robot passing)."""
+    import numpy as np, cv2
+    last = mem.setdefault(k, [])
+    if last and last[0].shape != crop.shape:
+        crop = cv2.resize(crop, (last[0].shape[1], last[0].shape[0]))
+    last.append(crop)
+    del last[:-keep]
+    if len(last) < 3:
+        return crop
+    st = np.stack(last).astype(np.int16)
+    med = np.median(st, axis=0)
+    d = np.abs(st - med).mean(axis=(1, 2, 3))
+    good = st[d <= 2 * max(1.0, float(np.median(d)))]
+    return np.median(good, axis=0).astype(np.uint8) if len(good) >= 2 else crop
+
 class PieceFinder:
     """The trained pin and cup finder."""
     def __init__(self, path=None, so=None, prov=None):
@@ -4827,23 +5005,48 @@ class PieceFinder:
         out = self.sess.run(None, {self.sess.get_inputs()[0].name: (sq.astype(np.float32) / 255).transpose(2, 0, 1)[None]})[0][0]
         return [b for b in piece_decode(out, lb, w, h, conf) if not on_robot(b, robots)]
 
-    def find_spots(self, frame, spots):
-        """Pins and cups in each spot, in the frame's pixels: [x, y, w, h, score, class, spot]."""
+    def find_spots(self, frame, spots, memory=None):
+        """Pins and cups in each spot, in the frame's pixels: [x, y, w, h, score, class, spot].
+        `memory` (v2.60): a dict kept for a match; each spot is read from its
+        last looks laid over each other (laid_over), which takes out a
+        stream's blur and blocks."""
         out = []
         for k, sb in enumerate(spots or []):
             if not sb:
                 continue
             x0, y0, x1, y1 = sb
-            found = [[b[0] + x0, b[1] + y0, b[2], b[3], b[4], b[5], k] for b in self.find(frame[y0:y1, x0:x1])]
+            crop = frame[y0:y1, x0:x1]
+            if memory is not None and crop.size:
+                crop = laid_over(memory, k, crop)
+            found = [[b[0] + x0, b[1] + y0, b[2], b[3], b[4], b[5], k] for b in self.find(crop)]
             out += stacked(found, k, sb)                 # on the goal, not loose beside it (v2.39)
         return out
 
-    def spot_counts(self, frame, spots):
+    def spot_counts(self, frame, spots, memory=None):
         """→ per spot [red halves, blue halves, yellow halves, cups], -1s where the spot is off the picture."""
         cnt = [[0, 0, 0, 0] if sb else [-1, -1, -1, -1] for sb in (spots or [])]
-        for b in self.find_spots(frame, spots):
+        by = {}
+        for b in self.find_spots(frame, spots, memory):
             cnt[b[6]][b[5]] += 1
+            by.setdefault(b[6], []).append(b)
+        geom = geom_now()
+        if geom:
+            for k, sb in enumerate(spots or []):
+                if sb and k < N_GOALS and k in by:
+                    cnt[k][:3] = by_height(by[k], sb, geom)
         return cnt
+
+    def carried(self, frame, boxes):
+        """Pin halves on each robot (v2.60): [n for each box]."""
+        out = []
+        H, W = frame.shape[:2]
+        for b in boxes:
+            x, y, w, h = b[:4]
+            x0, y0 = max(0, int(x - 0.15 * w)), max(0, int(y - 0.25 * h))
+            x1, y1 = min(W, int(x + 1.15 * w)), min(H, int(y + h))
+            crop = frame[y0:y1, x0:x1]
+            out.append(sum(1 for p in self.find(crop) if int(p[5]) < 3) if crop.size else 0)
+        return out
 
 
 # ── the stack reader (v2.49) ──────────────────────────────────────────────
@@ -4961,11 +5164,8 @@ def stack_practice(marked, n, seed=5):
             bg[top:top + ph, x0:x0 + pw] = cv2.resize(p, (pw, ph), interpolation=cv2.INTER_LINEAR)
             seq.append(k + 1)
             y = top + ph * (0.12 + 0.12 * rng.random())        # stacked pieces overlap a little
-        # As a stream shows it: a little blur, noise and brightness.
-        if rng.random() < 0.6:
-            bg = cv2.GaussianBlur(bg, (3, 3), 0.4 + rng.random())
-        bg = np.clip(bg.astype(np.float32) * (0.8 + 0.4 * rng.random()) + rng.normal(0, 4, bg.shape), 0, 255).astype(np.uint8)
-        out.append((bg[::-1].copy(), seq))
+        # As a stream shows it (v2.60: compressed and shrunk as well).
+        out.append((stream_damage(bg, rng)[::-1].copy(), seq))
     return out
 
 def stack_net():
@@ -5030,11 +5230,7 @@ class StackReader:
                 cnt.append([-1, -1, -1, -1])
                 continue
             if memory is not None:
-                last = memory.setdefault(k, [])
-                last.append(c)
-                del last[:-3]
-                if len(last) >= 2:
-                    c = np.median(np.stack(last), axis=0).astype(np.uint8)
+                c = laid_over(memory, k, c)              # v2.60: four looks, a look far from the rest dropped
             cnt.append(None)
             crops.append(c)
             where.append(k)

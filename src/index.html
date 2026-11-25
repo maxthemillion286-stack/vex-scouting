@@ -3733,7 +3733,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v201';
+const APP_BUILD = 'v202';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -9725,6 +9725,9 @@ function vtFrames(rec, quad, learn) {
   // v169: a robot's fingerprint from the app (an image model's), the same way.
   const print_ = new Map(), fps = [];
   for (let i = 0, a = rec.em || []; i + 26 < a.length; i += 27) print_.set(a[i] + '|' + a[i + 1] + '|' + a[i + 2], a.slice(i + 3, i + 27));
+  // v202: pin halves the app saw on each robot (app 2.60), the same way.
+  const carry_ = new Map();
+  for (let i = 0, a = rec.cr || []; i + 3 < a.length; i += 4) carry_.set(a[i] + '|' + a[i + 1] + '|' + a[i + 2], a[i + 3]);
   // v150: boxes the finder was unsure of (below the recording's threshold
   // `cf`) are kept apart, in `weak`: they never start a track or count for
   // anything themselves, and are only used to carry on a robot that just went
@@ -9743,6 +9746,8 @@ function vtFrames(rec, quad, learn) {
       if (v) acts.push({ t: fr[0] / 10, p: pts[pts.length - 1], act: v[0], who: v[1] });
       const e = print_.size ? print_.get(fr[0] + '|' + fr[o] + '|' + fr[o + 1]) : null;
       if (e) fps.push({ t: fr[0] / 10, p: pts[pts.length - 1], e });
+      const cv = carry_.size ? carry_.get(fr[0] + '|' + fr[o] + '|' + fr[o + 1]) : undefined;
+      if (cv !== undefined) pts[pts.length - 1].cr = cv;
     }
     raw.push(weak.length ? { t: fr[0] / 10, pts, weak } : { t: fr[0] / 10, pts });
   }
@@ -9913,10 +9918,12 @@ function vtSlots(frames) {
   const out = frames.map(f => ({ t: f.t, s: { 1: [null, null], 2: [null, null] } }));
   const at = new Map(frames.map((f, k) => [f.t, k]));
   const look = { 1: [null, null], 2: [null, null] }, votes = { 1: [[0, 0], [0, 0]], 2: [[0, 0], [0, 0]] };
+  const carried = { 1: [[], []], 2: [[], []] };
+  out.carried = carried;
   for (const c of [1, 2]) for (const i of [0, 1]) {
     const gs = new Array(12).fill(0); let gn = 0;
     for (const tr of slotTracks[c][i]) {
-      for (const p of tr.pts) { const k = at.get(p.t); if (k !== undefined) out[k].s[c][i] = { x: p.x, y: p.y, t: p.t, seen: true }; }
+      for (const p of tr.pts) { const k = at.get(p.t); if (k !== undefined) out[k].s[c][i] = { x: p.x, y: p.y, t: p.t, seen: true }; if (p.cr !== undefined) carried[c][i].push([p.t, p.cr]); }
       for (let k = 0; k < 12; k++) gs[k] += tr.gs[k]; gn += tr.gn;
       votes[c][i][0] += tr.pv[c === 1 ? 1 : 3]; votes[c][i][1] += tr.pv[c === 1 ? 2 : 4];
     }
@@ -9990,7 +9997,7 @@ function vtTrackAdd(tr, p, t, merged) {
     tr.vx = vx; tr.vy = vy;
   } else if (dt > 1.5) { tr.vx = 0; tr.vy = 0; }
   tr.x = p.x; tr.y = p.y; tr.t = t;
-  tr.pts.push({ x: p.x, y: p.y, t, c: p.c || 0, who: p.who || 0, g: p.g || null });
+  tr.pts.push({ x: p.x, y: p.y, t, c: p.c || 0, who: p.who || 0, g: p.g || null, ...(p.cr !== undefined ? { cr: p.cr } : {}) });
   tr.cv[p.c || 0]++;
   if (p.who >= 1 && p.who <= 4) tr.pv[p.who]++;
   if (p.g) { for (let k = 0; k < 12; k++) tr.gs[k] += p.g[k]; tr.gn++; }
@@ -10314,7 +10321,7 @@ function vtSummarise(rec, quad, learn) {
     // that takes the place of the colour count on the goals, and brings cups
     // and loads.
     try {
-      const Z = rec.gs && rec.gs.length ? vtSpotCount(rec, turnK, track, ph) : null;
+      const Z = rec.gs && rec.gs.length ? vtSpotCount(rec, turnK, track, ph, rec.cr && rec.cr.length ? slotted.carried : null) : null;
       if (Z) {
         pinEvs = Z.evs; if (Z.er) pins.ger = 1;
         const r1 = v => Math.round(v * 10) / 10;
@@ -10472,7 +10479,7 @@ function vtReportSeen(S) {
 // the recordings are in the shared store too, so whichever device opens a
 // report fetches the ones it needs, makes the summaries again, keeps them, and
 // (with the admin key) shares them.
-const VT_REMAKE = 201;      // v201: end-of-match read, score jumps matched to pins seen, autonomous clarity (yac); // v181: stacks counted by height; v180: the stream's score jumps credited to robots (sp, spa); v169: robots' fingerprints joined; v168: positions through the camera's lens; v164: boxes standing off the field dropped; v154: goal counts by the game's rules; v152: when the points came, from the stream's score; v150: unsure boxes carry on missing robots, whole-match slots, smoothed; v148: robots followed by speed and heading; v145/146: stacking timed at the goal (vs, vh)      // v136: pins counted on the goals as well (oy, oa, …)
+const VT_REMAKE = 202;      // v202: who carried the pins (cr); // v201: end-of-match read, score jumps matched to pins seen, autonomous clarity (yac); // v181: stacks counted by height; v180: the stream's score jumps credited to robots (sp, spa); v169: robots' fingerprints joined; v168: positions through the camera's lens; v164: boxes standing off the field dropped; v154: goal counts by the game's rules; v152: when the points came, from the stream's score; v150: unsure boxes carry on missing robots, whole-match slots, smoothed; v148: robots followed by speed and heading; v145/146: stacking timed at the goal (vs, vh)      // v136: pins counted on the goals as well (oy, oa, …)
 const vtStale = s => !!(s && s.ok && (s.rv || 0) < VT_REMAKE);
 const vtRefreshTried = new Set();
 // v174: reported "i met all the fixes and it didnt fix": the field was marked
@@ -12599,6 +12606,21 @@ function vtPinLook(slot, video, sx, sy, w, h, boxes) {
   P.tg = slot.quad && slot.quad.q ? vtToggleLook(data, W, H, slot.quad.q) : null;
   return P;
 }
+// ── v202: who carried the pins there ──────────────────────────────────────
+// From the list (7): the app counts the pin halves on each robot every
+// second (app 2.60). When a goal's count goes up and more than one robot was
+// near, the one whose load went down just then is the one that put them on.
+// → the robot (from `cands`) whose load dropped by a half or more around t, if only one did.
+function vtCarryDrop(carried, cands, t) {
+  if (!carried || !cands || cands.length < 2) return null;
+  const hit = cands.filter(r => {
+    const a = (carried[r.c] || [])[r.i] || [];
+    let before = -1, after = Infinity;
+    for (const [tt, n] of a) { if (tt >= t - 10 && tt <= t - 1) before = Math.max(before, n); if (tt >= t - 2 && tt <= t + 2) after = Math.min(after, n); }
+    return before >= 1 && after < Infinity && before - after >= 1;
+  });
+  return hit.length === 1 ? hit[0] : null;
+}
 // ── v201: more sure of who scored, and of what was there at the end ────────
 // A credit is clear when no other robot that could have scored it was nearly
 // as close (in the seconds before it was seen): used for autonomous, where
@@ -12757,7 +12779,7 @@ function vtGoalPath(ser) {
   for (let i = n - 2; i >= 0; i--) { st = back[i][st]; out[i] = st; }
   return out;
 }
-function vtSpotCount(rec, turnK, track, ph) {
+function vtSpotCount(rec, turnK, track, ph, carried) {
   const a = rec.gs || [], S = VT_SPOTS_RAW.length, step = 1 + 4 * S;
   if (a.length < step * 8 || a.length % step) return null;
   const turn = (x, y) => { for (let i = 0; i < turnK; i++) [x, y] = [y, 1 - x]; return [x, y]; };
@@ -12856,7 +12878,13 @@ function vtSpotCount(rec, turnK, track, ph) {
         if (d > 0) {
           // Own-colour halves are put there by that alliance; yellow and cups by whoever was closest.
           const only = c === 0 ? 1 : c === 1 ? 2 : 0;
-          const r = near(sp.x, sp.y, t, only, 0.22, 8);
+          let r = near(sp.x, sp.y, t, only, 0.22, 8);
+          if (r && carried) {
+            const cands = [];
+            for (const c2 of [1, 2]) { if (only && c2 !== only) continue; for (const i2 of [0, 1]) if (track.some(b => b.t >= t - 8 && b.t <= t && b.s[c2][i2] && Math.hypot(b.s[c2][i2].x - sp.x, b.s[c2][i2].y - sp.y) < 0.22)) cands.push(robots[c2][i2]); }
+            const by = vtCarryDrop(carried, cands, t);
+            if (by) { r = by; r.byCarry = (r.byCarry || 0) + d; }
+          }
           if (!r) continue;
           if (c === 3) r.cp += d;
           else { if (c === 2) r.ys += d; else r.as += d; r.ev.push([t, d]); if (t < ph.driver) { r.ya += d; r.yaN = (r.yaN || 0) + d; if (vtClearOf(track, sp.x, sp.y, t, only, r.c, r.i, 8)) r.yaC = (r.yaC || 0) + d; } vtVisitAdd(r, track, [sp.x, sp.y], t, d); mine.push({ r, d, t }); credits.push([t, r.c, r.i, d]); }
