@@ -15,7 +15,7 @@ const got = L([{ x: 320, y: 288, w: 4, h: 5 * tall, area: 4 * 5 * tall, c: 3 }],
 ok('a merged stack is counted by its height, not its area', Math.abs(got - 5) < 0.01, String(got));
 const one = L([{ x: 320, y: 288, w: 40 / MM * px, h: tall, area: 0.75 * (40 / MM * px) * tall, c: 3 }], cols, W, H)[3][0];
 ok('one half still by its area', Math.abs(one - 1) < 0.05, String(one));
-ok('summaries are made again for it', /const VT_REMAKE = 1(8[1-9]|9\d)/.test(src));
+ok('summaries are made again for it', /const VT_REMAKE = (1(8[1-9]|9\d)|2\d\d)/.test(src));
 ok('the app: a goal behind a robot is not counted that look', /def blocked\(sb, boxes, most=0\.35\)/.test(app));
 ok('the app: sharper downloads when asked', /hp = 1080 if load_config\(\)\.get\('sharp'\) else 720/.test(app));
 ok('the app: the stack reader, practice stacks, looks laid over each other', /class StackReader/.test(app) && /def stack_practice\(marked, n/.test(app) && /np\.median\(np\.stack\(last\), axis=0\)/.test(app));

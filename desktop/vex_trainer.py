@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.58'
+VERSION = '2.59'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -1408,6 +1408,24 @@ def blocked(sb, boxes, most=0.35):
             return True
     return False
 
+# ── The end-of-match read (v2.59) ──────────────────────────────────────────
+# Asked for (one of "list things that ensure accuracy"): when the match ends
+# the robots stop and the field stands still for some seconds. Each goal and
+# loader is counted then twice a second for END_READ_SEC seconds, skipping
+# any a robot stands in front of, and the middle count of each is kept
+# (rec['ge']); the colours' looks of those seconds go in rec['pe']. The
+# website makes what it saw go on each goal agree with that.
+END_READ_SEC, END_READ_EVERY, END_GUESS = 8, 0.5, 127
+
+def end_read_pack(end_t, looks, S):
+    """[t·10, then for each spot its 4 middle counts (-1: fewer than 3 clear looks)]."""
+    out = [jround(end_t * 10)]
+    for k in range(S):
+        for c in range(4):
+            v = sorted(l[k][c] for l in looks if k < len(l) and l[k][c] >= 0)
+            out.append(v[len(v) // 2] if len(v) >= 3 else -1)
+    return out
+
 def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None, quad=None, think=None, follow=None):
     """Watch one match. → (recording or None, why, shift found)
 
@@ -1439,6 +1457,7 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
         before, auto_kept, next_auto, share_at, emb_at = [], 0, start + LEAD + 5, -1e9, -1e9
         auto_room = [AUTO_MAX - auto_count()] if harvest else [0]
         spot_at, spots, stack_mem = -1e9, None, {}
+        end_at, end_look_at, end_looks = None, -1e9, []
         # The stream's own score (v2.31), a check and never the truth: live
         # scorers make mistakes and some events show none. Read every second
         # once its place is known; until then, every number on screen every
@@ -1639,6 +1658,33 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
                         c = timer_text(hit['text'])
                 if c is not None:
                     rec['tm'] += [jround((t - rec['off']) * 10), c]
+                    if c == 0 and end_at is None and t - rec['off'] > 60:
+                        end_at = t                       # the clock ran out: the match is over
+            if end_at is None and t - rec['off'] >= END_GUESS and not learn.get('clock'):
+                end_at = t                               # no clock to go by: about when a match ends
+            # The end-of-match read: robots stopped, many looks at each goal.
+            if end_at is not None and not away and end_at + 1 <= t <= end_at + 1 + END_READ_SEC and t >= end_look_at + END_READ_EVERY:
+                end_look_at = t
+                if spots is None and cur_quad:
+                    spots = spot_boxes(frame.shape[1], frame.shape[0], cur_quad, cur_placed) or []
+                if spots and (eyes.pieces is not None or getattr(eyes, 'stack', None) is not None):
+                    try:
+                        if getattr(eyes, 'stack', None) is not None:
+                            cnt = eyes.stack.counts(frame, [None if (sb and blocked(sb, boxes)) else sb for sb in spots], {})
+                        else:
+                            cnt = eyes.pieces.spot_counts(frame, spots)
+                        cnt = [[-1, -1, -1, -1] if (sb and blocked(sb, boxes)) or not sb else list(cnt[k]) for k, sb in enumerate(spots)]
+                        end_looks.append(cnt)
+                    except Exception:
+                        pass
+                if len(rec.setdefault('pe', [])) < PIN_MAX_INTS // 4:
+                    try:
+                        pw, ph_, blobs = pin_blobs(frame, boxes)
+                        if cam['Hinv']:
+                            blobs = blobs_to_marked(blobs, cam['Hinv'], pw, ph_)
+                        rec['pe'] += [jround((t - rec['off']) * 10), len(blobs)] + [v for bl in blobs for v in bl]
+                    except Exception:
+                        pass
             # Is this the match it came for? Once, a few seconds in.
             if not checked and not wide and t >= start + 8:
                 checked = True
@@ -1702,6 +1748,10 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
         tail = [(rec['sc'][i + 1], rec['sc'][i + 2]) for i in range(0, len(rec['sc']), 3)][-40:]
         if rs_ is not None and bs_ is not None and (rs_, bs_) not in tail:
             learn['score'] = None
+    if end_looks and spots:
+        rec['ge'] = end_read_pack(end_at - rec['off'], end_looks, len(spots))
+    if not rec.get('pe'):
+        rec.pop('pe', None)
     if not rec['sc']:
         del rec['sc']
     if not rec.get('em'):

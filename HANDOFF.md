@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v200**. Everything green: 138 test files.
+Current release: **v201**. Everything green: 139 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,28 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v201 (app 2.59) — accuracy batch 1.** From "build 1,2,3,4,5,6,7,8,10,11,12".
+- End-of-match read (#3): app, after the clock reads 0 (no clock: END_GUESS
+  127 s), twice a second for END_READ_SEC 8: per-spot counts (finder/stack
+  reader, blocked = -1) → `rec.ge` = `end_read_pack` (middle of ≥3 clear
+  looks); colour blob looks → `rec.pe`. Server allows ge (53 ints) and pe.
+  Website: `vtEndRead`; `vtSpotCount` uses it for end totals and
+  `vtEndShare` scales each goal's credited halves to it; `vtPinCount`
+  (goals mode) does the same per quadrant from pe.
+- Smoothing (#2) already existed (vtGoalPath, both count paths); it is now
+  anchored by the end read above.
+- Score jumps (#6), "live score keepers… sometimes aren't instant or done at
+  all": `vtScoreJumps(rec, track, ph, evs, finals)` runs after pin counting;
+  each jump is matched to pins seen going on for that alliance in the
+  VT_SCORE_LAG 20 s before (+2 after), shared by them; only without any,
+  closeness (15 s). A display that never moved, or whose last number is far
+  from the official final, is skipped (null).
+- Autonomous patterns (#8): credits carry clarity (`vtClearOf`): row yac
+  (goal path oyac) = share of autonomous halves with no other robot near.
+  `vtAutoFacts` (per 1): with ≥2 clear matches (yac ≥ 0.8), unclear ones
+  take the clear median (F.pattern).
+- VT_REMAKE 201. Checks: t180, desktop/dev/endread.py (5).
 
 **v200 (app 2.58) — Update button in the app.** Header button → POST
 /api/update → `fetch_update(cfg)` (site/desktop/vex_trainer.py, VERSION must be

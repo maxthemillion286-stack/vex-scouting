@@ -38,7 +38,7 @@ const f = n => win.eval(n);
   ok('between sizes it is read between them', F5({ k8: 10, k10: 14 }, 10 / 9) === 12);
   ok('not enough set down: nothing', F5({ k4: 3 }, 1) === null);
   ok('the usual one is the middle of the matches', f('vtFastFiveOf')([{ k10: 10 }, { k10: 30 }, { k10: 14 }, {}], 1) === 14 && f('vtFastFiveOf')([{ k10: 10 }], 1) === null);
-  ok('older summaries are made again on any device to get it', /const VT_REMAKE = 1(3[4-9]|[4-9]\d);/.test(src));
+  ok('older summaries are made again on any device to get it', /const VT_REMAKE = (1(3[4-9]|[4-9]\d)|2\d\d);/.test(src));
   ok('the report says it is the fastest five', /its fastest five pins usually take/.test(src) && !/five pins down \$\{Math\.round\(t5\)\} s into driver control/.test(src));
   ok('the server takes the new fields', (async () => true)() && /\^\[a-z\]\[a-z0-9\]\{1,3\}\$/.test(fs.readFileSync('../api/tracker.js', 'utf8')));
 }
