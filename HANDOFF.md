@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v202**. Everything green: 140 test files.
+Current release: **v203**. Everything green: 141 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,28 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v203 (app 2.61) — accuracy batch 3.**
+- "Who scored?" in the app (#12): tracking keeps a ring of small JPEGs
+  (CHECK_W 480, every 0.4 s, CHECK_RING_SEC 5); `want_check` fires when a
+  goal's count went up and stayed (`went_up`, middle of 3 over middle of 3)
+  with ≥2 robots within 2.2 goal widths: clip + robots keyed like em
+  (tenths, box x, y) → rec._checks → `keep_checks` (data/checks/EV_ID_T.json,
+  only once the recording was saved; also data/tracked/ for test matches).
+  Card 4 · Check → `openChecks`: clip loops, numbered robots at the end;
+  `answer_check` posts `{who: {ev, id, t, x, y}}`. Server: kept in the
+  recording as wq/wqt, summaries HDEL'd, vt:redo; GET ?team returns redo.
+  Website drops copies older than the answer (summary carries wqt); points
+  with wq → `slotted.carried.picked`; `vtPickedAt` beats load and nearest in
+  vtSpotCount and vtPinCount (goals). VT_REMAKE 203.
+- Test matches (#10): Card 4 → `openGold`: pick a tracked match, each robot's
+  pins (and autonomous); data/gold.json (20). `gold_gate` (≥3): new pin
+  finder / stack reader and the one in use count the goals at the end of each
+  (stream window downloaded, `gold_end_counts`, median of 16 looks) vs 2 ×
+  pins scored; the new one must be within 0.5 halves of the old's error.
+- Marking queue (#11): `frame_interest` adds 1.5 × stack reader vs finder
+  (or colour) count disagreement and 3 for a vision-model disagreement.
+- Checks: desktop/dev/checks.py (17), t182; UI clicked through in Playwright.
 
 **v202 (app 2.60) — accuracy batch 2.**
 - Practice goals (#1): `piece_practice(marked, n)` cuts marked halves/cups

@@ -95,7 +95,10 @@ export function validRec(rec) {
     if (!Array.isArray(fr) || fr.length > 2 + per * 40 || !fr.every(v => Number.isInteger(v) && v > -100000 && v < 100000)) return 'bad frame';
     if (fr.length < 2 || fr.length !== 2 + per * fr[1]) return 'bad frame length';
   }
-  const allowed = ['v', 'name', 'round', 'num', 'red', 'blue', 'rs', 'bs', 'vid', 'off', 'rate', 'w', 'h', 'model', 'at', 'f', 'wide', 'tm', 'pn', 'pw', 'ph', 'tg', 'vo', 'cu', 'pf', 'gs', 'cf', 'sc', 'em', 'ge', 'pe', 'cr'];
+  const allowed = ['v', 'name', 'round', 'num', 'red', 'blue', 'rs', 'bs', 'vid', 'off', 'rate', 'w', 'h', 'model', 'at', 'f', 'wide', 'tm', 'pn', 'pw', 'ph', 'tg', 'vo', 'cu', 'pf', 'gs', 'cf', 'sc', 'em', 'ge', 'pe', 'cr', 'wq', 'wqt'];
+  // v203: who scored, as a person answered in the app: [tenths, box x, box y] a look.
+  if (rec.wq != null && !(Array.isArray(rec.wq) && rec.wq.length <= 300 && rec.wq.length % 3 === 0 && rec.wq.every(v => Number.isInteger(v) && v > -100000 && v < 100000))) return 'bad answers';
+  if (rec.wqt != null && !(Number.isInteger(rec.wqt) && rec.wqt > 0)) return 'bad answer time';
   // v202: pin halves on each robot: [tenths, box x, box y, halves] a robot a look.
   if (rec.cr != null && !(Array.isArray(rec.cr) && rec.cr.length <= 12000 && rec.cr.length % 4 === 0 && rec.cr.every(v => Number.isInteger(v) && v >= -1000 && v < 100000))) return 'bad carried';
   // v201: the end-of-match read: [tenths, then 13 spots × (red, blue, yellow halves, cups) as their middle counts, -1 unknown].
@@ -353,7 +356,12 @@ export default async function handler(req, res) {
         // team's page now makes it itself, so "watched" counts all of them.
         let recs = [];
         try { const [m] = await redis(E, [['SMEMBERS', `vt:trec:${team}`]]); recs = (m || []).map(String).filter(k => /^\d+:\d+$/.test(k)); } catch (e) {}
-        return res.status(200).json({ db: true, sums, recs });
+        // v203: matches answered in the app since: their summaries are made again.
+        const redo = {};
+        try {
+          if (recs.length) { const [v] = await redis(E, [['HMGET', 'vt:redo', ...recs.slice(0, 2000)]]); (v || []).forEach((x, i) => { if (x) redo[recs[i]] = Number(x); }); }
+        } catch (e) {}
+        return res.status(200).json({ db: true, sums, recs, redo });
       }
       const ev = digits(q.event);
       if (!ev) return res.status(400).json({ error: 'event must be a number' });
@@ -428,6 +436,24 @@ export default async function handler(req, res) {
         if (!ids.length) return res.status(400).json({ error: 'nothing to clear' });
         await redis(E, [['HDEL', 'vt:labels', ...ids]]);
         return res.status(200).json({ ok: true });
+      }
+      if (body.who !== undefined) {
+        // v203: "who scored?" answered in the app: kept in the match's
+        // recording, and its summaries dropped so they are made again with it.
+        const W = body.who, wev = W && digits(W.ev), wid = W && digits(W.id);
+        const ints = ['t', 'x', 'y'].map(k => W && W[k]);
+        if (!wev || !wid || !ints.every(v => Number.isInteger(v) && v > -100000 && v < 100000)) return res.status(400).json({ error: 'bad answer' });
+        const [text] = await redis(E, [['GET', `vt:m:${wev}:${wid}`]]);
+        if (!text) return res.status(404).json({ error: 'no such match' });
+        const rec = JSON.parse(text);
+        const wq = Array.isArray(rec.wq) ? rec.wq : [];
+        for (let i = 0; i + 2 < wq.length; i += 3) if (wq[i] === ints[0]) { wq.splice(i, 3); break; }
+        rec.wq = wq.concat(ints).slice(-300);
+        rec.wqt = Date.now();
+        const key = `${wev}:${wid}`, cmds = [['SET', `vt:m:${wev}:${wid}`, JSON.stringify(rec)], ['HDEL', `vt:s:${wev}`, wid], ['HSET', 'vt:redo', key, String(rec.wqt)]];
+        for (const t of (rec.red || []).concat(rec.blue || [])) if (teamKey(t)) cmds.push(['HDEL', `vt:team:${teamKey(t)}`, key]);
+        await redis(E, cmds);
+        return res.status(200).json({ ok: true, wqt: rec.wqt });
       }
       if (body.calib !== undefined) {
         // v198: one event's counts corrected to a team's real numbers.

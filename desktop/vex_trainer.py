@@ -26,7 +26,7 @@ import urllib.request, urllib.error, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.60'
+VERSION = '2.61'
 INTERACTIVE = True                # False when a button started this, not a person at the console
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIRS = {k: os.path.join(HERE, k) for k in ('models', 'videos', 'data', 'build')}
@@ -1417,6 +1417,147 @@ def blocked(sb, boxes, most=0.35):
 # website makes what it saw go on each goal agree with that.
 END_READ_SEC, END_READ_EVERY, END_GUESS = 8, 0.5, 127
 
+# ── "Who scored?" (v2.61) ───────────────────────────────────────────────────
+# From the list (12), "make 12 in the app": when a goal's count goes up with
+# two or more robots right next to it, the tracker cannot know which one put
+# the pins on. It keeps the last few seconds as a short clip (small pictures,
+# a few a second); you see them in the app's Check card, pick the robot, and
+# the website gives those pins to it. At most CHECKS_PER_MATCH a match.
+CHECKS_PER_MATCH, CHECK_RING_SEC, CHECK_W = 4, 5, 480
+
+def checks_dir():
+    return os.path.join(DIRS['data'], 'checks')
+
+def tracked_dir():
+    return os.path.join(DIRS['data'], 'tracked')
+
+def went_up(hist):
+    """A goal's count went up and stayed: the middle of the last three looks over that of the three before."""
+    if len(hist) < 6:
+        return False
+    a, b = sorted(hist[-3:])[1], sorted(hist[-6:-3])[1]
+    return a >= b + 1
+
+def keep_checks(ev, job, rec, checks):
+    """A tracked match: what it was (for test matches), and its clips (for "who scored?")."""
+    os.makedirs(tracked_dir(), exist_ok=True)
+    stem = '%s_%s' % (ev, job['id'])
+    with open(os.path.join(tracked_dir(), stem + '.json'), 'w') as f:
+        json.dump({'ev': str(ev), 'id': str(job['id']), 'name': str(job.get('name', ''))[:60], 'red': job.get('red', []), 'blue': job.get('blue', []),
+                   'vid': rec.get('vid'), 'off': rec.get('off'), 'end': (rec['ge'][0] / 10) if rec.get('ge') else None, 'at': int(time.time())}, f)
+    if checks:
+        os.makedirs(checks_dir(), exist_ok=True)
+        for c in checks:
+            c.update({'ev': str(ev), 'id': str(job['id']), 'name': str(job.get('name', ''))[:60], 'red': job.get('red', []), 'blue': job.get('blue', [])})
+            with open(os.path.join(checks_dir(), '%s_%d.json' % (stem, int(c['t'] * 10))), 'w') as f:
+                json.dump(c, f)
+
+def checks_waiting():
+    d = checks_dir()
+    return sorted(n[:-5] for n in os.listdir(d) if n.endswith('.json')) if os.path.isdir(d) else []
+
+def answer_check(cfg, name, pick):
+    """pick: the robot's number in the clip (0, 1, …), or -1 for "can't tell" / nobody."""
+    path = os.path.join(checks_dir(), name + '.json')
+    with open(path) as f:
+        c = json.load(f)
+    if pick >= 0:
+        if not cfg.get('key'):
+            return {'error': 'Save the admin key first: the answer goes to your website.'}
+        k = c['robots'][pick]['key']
+        r = Site(cfg).post({'who': {'ev': c['ev'], 'id': c['id'], 't': int(k[0]), 'x': int(k[1]), 'y': int(k[2])}}, tries=2)
+        if not (r and r.get('ok')):
+            return {'error': 'The website did not take it: %s' % ((r or {}).get('error') or 'try again')}
+    os.remove(path)
+    return {'ok': True, 'left': len(checks_waiting())}
+
+# ── Test matches (v2.61) ───────────────────────────────────────────────────
+# From the list (10): matches you scored by hand, every robot's pins. Before a
+# newly trained pin finder or stack reader is used, both it and the one in use
+# count what is on the goals at the end of each of those matches (the stream
+# downloaded around then), and the new one is used only if it is no further
+# from your numbers. (Pins knocked off during a match make the end count a
+# little short of what was scored, the same for both.)
+def gold_file():
+    return os.path.join(DIRS['data'], 'gold.json')
+
+def gold_list():
+    try:
+        with open(gold_file()) as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+def gold_save(items):
+    os.makedirs(DIRS['data'], exist_ok=True)
+    with open(gold_file(), 'w') as f:
+        json.dump(items[-20:], f)
+
+def tracked_list(limit=60):
+    d = tracked_dir()
+    out = []
+    for n in (os.listdir(d) if os.path.isdir(d) else []):
+        try:
+            with open(os.path.join(d, n)) as f:
+                out.append(json.load(f))
+        except Exception:
+            pass
+    return sorted(out, key=lambda m: -m.get('at', 0))[:limit]
+
+def gold_end_counts(counter, m, video):
+    """Halves on the goals at the end of a test match, as `counter(frame, spots)` counts them (middle of the looks)."""
+    q = quad_for(m['vid'])
+    if not q:
+        return None
+    end = float(m['off']) + float(m['end'] if m.get('end') is not None else END_GUESS)
+    tot = []
+    for i in range(int(END_READ_SEC / END_READ_EVERY)):
+        fr = video.frame_at(end + 1 + i * END_READ_EVERY)
+        if fr is None:
+            continue
+        sp = (spot_boxes(fr.shape[1], fr.shape[0], q, placed_for(m['vid'])) or [])[:N_GOALS]
+        cnt = counter(fr, sp)
+        tot.append(sum(c[0] + c[1] + c[2] for c, sb in zip(cnt, sp) if sb and c[0] >= 0))
+    return sorted(tot)[len(tot) // 2] if len(tot) >= 3 else None
+
+def gold_error(counters):
+    """How far each counter is from the test matches: {name: mean |halves on goals − 2 × pins scored|}, and how many matches."""
+    gold = gold_list()
+    errs = {k: [] for k in counters}
+    for m in gold:
+        if not m.get('vid') or m.get('off') is None:
+            continue
+        try:
+            a = float(m['off']) + float(m['end'] if m.get('end') is not None else END_GUESS)
+            path = download(m['vid'], os.path.join(DIRS['videos'], 'gold_%s_%s' % (m['ev'], m['id'])), windows=[(max(0, a - 5), a + 15)])
+            if not path:
+                continue
+            video = Video(path, hw=False)
+        except Exception:
+            continue
+        try:
+            truth = 2 * sum(float(r.get('pins') or 0) for r in m.get('robots', []))
+            for k, fn in counters.items():
+                v = gold_end_counts(fn, m, video)
+                if v is not None:
+                    errs[k].append(abs(v - truth))
+        finally:
+            video.close()
+    n = min((len(v) for v in errs.values()), default=0)
+    return {k: (sum(v) / len(v) if v else None) for k, v in errs.items()}, n
+
+def gold_gate(name, new_fn, old_fn):
+    """→ True if the new counter may be used (no test matches, or no further from them than the old)."""
+    if len(gold_list()) < 3:
+        return True
+    say('\nChecking it against your %d test matches (counting what is on the goals at the end)…' % len(gold_list()))
+    e, n = gold_error({'new': new_fn, 'old': old_fn})
+    if n < 3 or e['new'] is None or e['old'] is None:
+        say('  could not count enough of them (%d); not used to decide.' % n)
+        return True
+    say('  %s: off by %.1f halves a match; what is used now: %.1f (%d matches)' % (name, e['new'], e['old'], n))
+    return e['new'] <= e['old'] + 0.5
+
 def end_read_pack(end_t, looks, S):
     """[t·10, then for each spot its 4 middle counts (-1: fewer than 3 clear looks)]."""
     out = [jround(end_t * 10)]
@@ -1458,6 +1599,24 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
         auto_room = [AUTO_MAX - auto_count()] if harvest else [0]
         spot_at, spots, stack_mem = -1e9, None, {}
         end_at, end_look_at, end_looks = None, -1e9, []
+        ring, ring_at, goal_hist, checks, check_at = [], -1e9, {}, [], {}
+
+        def want_check(t, k, total, sb):
+            h_ = goal_hist.setdefault(k, [])
+            h_.append(total)
+            del h_[:-8]
+            rel = t - rec['off']
+            if not went_up(h_) or len(checks) >= CHECKS_PER_MATCH or t < check_at.get(k, -1e9) + 8 or not (0 <= rel <= 125) or not ring:
+                return
+            cx, cy, reach = (sb[0] + sb[2]) / 2, sb[3], 2.2 * (sb[2] - sb[0])
+            near_ = [i for i, b in enumerate(boxes) if math.hypot(b[0] + b[2] / 2 - cx, b[1] + b[3] - cy) < reach]
+            fr_ = rec['f'][-1] if rec['f'] else None
+            if len(near_) < 2 or not fr_ or fr_[1] < len(boxes):
+                return
+            check_at[k] = t
+            sc_ = CHECK_W / w
+            checks.append({'t': round(rel, 1), 'goal': [round(v * sc_, 1) for v in sb], 'frames': [base64.b64encode(j).decode('ascii') for tt, j in ring if tt >= t - 6],
+                           'robots': [{'box': [round(v * sc_, 1) for v in boxes[i][:4]], 'colour': int(boxes[i][5] or 0), 'key': [fr_[0], fr_[2 + 10 * i], fr_[3 + 10 * i]]} for i in near_]})
         # The stream's own score (v2.31), a check and never the truth: live
         # scorers make mistakes and some events show none. Read every second
         # once its place is known; until then, every number on screen every
@@ -1581,6 +1740,18 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
                         rec['em'] += [fr_[0], fr_[2 + 10 * i], fr_[3 + 10 * i]] + e_
                 except Exception:
                     pass
+            if not away and t >= ring_at + 0.4:
+                ring_at = t
+                try:
+                    import cv2
+                    small = cv2.resize(frame, (CHECK_W, max(2, int(round(h * CHECK_W / w)))), interpolation=cv2.INTER_AREA)
+                    ok_, buf = cv2.imencode('.jpg', small, [cv2.IMWRITE_JPEG_QUALITY, 60])
+                    if ok_:
+                        ring.append((t, buf.tobytes()))
+                        while ring and ring[0][0] < t - CHECK_RING_SEC:
+                            ring.pop(0)
+                except Exception:
+                    pass
             if goal_boxes is None:
                 goal_boxes = (spot_boxes(w, h, cur_quad, cur_placed) or [])[:9] if cur_quad else []
             if not away and key_moment(boxes, goal_boxes):
@@ -1600,6 +1771,11 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
                 pw, ph_, blobs = pin_blobs(frame, boxes)
                 _tick('pins', _t0)
                 rec['pw'], rec['ph'] = pw, ph_
+                if not away and goal_boxes and eyes.pieces is None and getattr(eyes, 'stack', None) is None:
+                    sx_ = w / max(1, pw)
+                    for k, sb in enumerate(goal_boxes):
+                        if sb and not blocked(sb, boxes):
+                            want_check(t, k, sum(1 for bl in blobs if 1 <= bl[5] <= 3 and sb[0] <= (bl[0] + bl[2] / 2) * sx_ <= sb[2] and sb[1] <= (bl[1] + bl[3] / 2) * sx_ <= sb[3]), sb)
                 if away:
                     blobs = []
                 elif cam['Hinv']:
@@ -1639,6 +1815,9 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
                         if sb and blocked(sb, boxes):
                             cnt[k] = [-1, -1, -1, -1]
                     rec['gs'] += [jround((t - rec['off']) * 10)] + [v for c in cnt for v in c]
+                    for k, sb in enumerate(spots[:N_GOALS]):
+                        if sb and cnt[k][0] >= 0:
+                            want_check(t, k, cnt[k][0] + cnt[k][1] + cnt[k][2], sb)
                     _tick('pins', _t0)
             if (learn.get('score') or (rs_ is not None and bs_ is not None)) and not away and t >= score_at + (1 if learn.get('score') else 3) and len(rec['sc']) < 1200:
                 score_at = t
@@ -1767,6 +1946,7 @@ def track_match(video, eyes, job, shift=0, spacing=300, harvest=True, learn=None
     if not rec.get('em'):
         rec.pop('em', None)
     rec['_shots'] = shots if think else []
+    rec['_checks'] = checks
     rec['_cam'] = {k: cam[k] for k in ('checks', 'found', 'moves')}
     rec['_cam']['away'] = round(cam['away'])
     return rec, 'ok', (rec['off'] - off0) if wide else shift
@@ -2917,6 +3097,7 @@ def work_chunk(args):
             if rec is not None:
                 shots = trim_shots(rec, rec.pop('_shots', []))
                 cam = rec.pop('_cam', None)
+                checks = rec.pop('_checks', [])
                 if shots:
                     t0 = time.perf_counter()
                     try:
@@ -2926,6 +3107,11 @@ def work_chunk(args):
                     spent['vision model'] = time.perf_counter() - t0
                 r = site.post({'ev': str(ev), 'id': str(job['id']), 'rec': rec})
                 saved = bool(r and r.get('ok'))
+                if saved:
+                    try:
+                        keep_checks(ev, job, rec, checks)
+                    except Exception:
+                        pass
                 if not saved:
                     why = 'the website refused it: ' + str((r or {}).get('error'))
             plates = sum(1 for fr in (rec['f'] if rec else []) for i in range(fr[1]) if fr[2 + 10 * i + 9])
@@ -4422,6 +4608,7 @@ def guess_source():
         return 'trained', pieces_file()
     return 'colour', None
 
+_READER = []
 def frame_interest(name, finder, robots):
     """How much marking this frame would teach (v2.42): the guesses' doubts
     (pieces found only half sure) and how far the finder and the colours
@@ -4433,7 +4620,7 @@ def frame_interest(name, finder, robots):
             p = json.load(f)
     except Exception:
         return 0.0
-    tag = finder[0] if finder else 'colour'
+    tag = (finder[0] if finder else 'colour') + (':s%d' % int(os.path.getmtime(stack_file())) if stack_ready() else '') + ':i2'
     if isinstance(p.get('pint'), list) and p['pint'][0] == tag:
         return p['pint'][1]
     frame = cv2.imread(os.path.join(FRAMES, name + '.jpg'))
@@ -4448,6 +4635,20 @@ def frame_interest(name, finder, robots):
         v = 2.0 * unsure + abs(sure - len(colour)) + 0.1 * len(found)
     else:
         v = float(len(colour))
+    # v2.61 (list item 11, sharper): goals where the counters disagree on how
+    # many there are teach the most; so do frames the vision model counted
+    # differently from the guesses.
+    try:
+        if stack_ready():
+            if not _READER:
+                _READER.append(StackReader(prov=['CPUExecutionProvider']))
+            a = _READER[0].counts(frame, spots)
+            b = finder[1].spot_counts(frame, spots) if finder else spot_counts_of(colour, spots)
+            v += 1.5 * sum(abs(sum(x[:3]) - sum(y[:3])) + abs(x[3] - y[3]) for x, y, sb in zip(a, b, spots) if sb and x[0] >= 0 and y[0] >= 0)
+    except Exception:
+        pass
+    if isinstance(p.get('pvlm'), dict) and not p['pvlm'].get('agree'):
+        v += 3.0
     p['pint'] = [tag, round(v, 2)]
     with open(os.path.join(PROPS, name + '.json'), 'w') as f:
         json.dump(p, f)
@@ -4884,6 +5085,11 @@ def do_train_pieces(cfg):
         cur = score_pieces(lambda fr, rb, sp: [b[:4] + [b[5]] for b in curf.find_spots(fr, sp)], val)
     bar = max(colour['halves'][2], cur['halves'][2] if cur else 0)
     use = new['halves'][2] > bar
+    if use:
+        old_fn = (lambda fr, sp, _f=PieceFinder(pieces_file()): _f.spot_counts(fr, sp)) if pieces_ready() else (lambda fr, sp: spot_counts_of(pieces_from_colour(fr, [], sp), sp))
+        if not gold_gate('the new pin finder', lambda fr, sp: newf.spot_counts(fr, sp), old_fn):
+            use = False
+            say('  It did better on the marked frames but worse on your test matches, so it is not used.')
     say('                     pin halves: right when it says one / found / overall      cups: found / overall')
     say('  colour finder            %5.1f%% / %5.1f%% / %5.1f                        —' % (colour['halves'][0] * 100, colour['halves'][1] * 100, colour['halves'][2] * 100))
     if cur:
@@ -5318,6 +5524,10 @@ def do_stack_reader(cfg):
             finder = None
     best_other = max(colour, finder or 0)
     use = mine > best_other
+    if use:
+        old_fn = (lambda fr, sp, _f=PieceFinder(pieces_file(), prov=['CPUExecutionProvider']): _f.spot_counts(fr, sp)) if pieces_ready() else (lambda fr, sp: spot_counts_of(pieces_from_colour(fr, [], sp), sp))
+        if not gold_gate('the stack reader', lambda fr, sp: rd.counts(fr, sp), old_fn):
+            use = False
     shutil.copyfile(tmp, stack_file())
     info = {'use': use, 'exact': round(mine, 3), 'colour': round(colour, 3), 'finder': None if finder is None else round(finder, 3),
             'frames': len(train), 'test': len(val), 'practice': len(fake), 'when': time.strftime('%b %d, %H:%M')}
@@ -5877,11 +6087,29 @@ UI_HTML = r"""<!doctype html><html lang="en"><meta charset="utf-8"><meta name="v
   <div class="card"><h2>3 · Train</h2><p>Makes a better robot finder and publishes it only if it wins.</p>
    <div class="n" id="trainN">&nbsp;</div><button id="bTrain" onclick="start('train')">Train</button>
    <div class="n" id="fieldN" style="margin-top:10px">&nbsp;</div><button class="ghost" id="bField" onclick="start('field')">Train the field finder</button></div>
+  <div class="card"><h2>4 · Check</h2><p>Moments the tracker could not settle, and matches you scored by hand.</p>
+   <div class="n" id="chkN">&nbsp;</div><button class="ghost" id="bChk" onclick="openChecks()">Who scored?</button>
+   <div class="n" id="goldN" style="margin-top:10px">&nbsp;</div><button class="ghost" id="bGold" onclick="openGold()">Test matches</button></div>
  </div>
  <details class="more"><summary>More: learn from another video</summary><div class="add"><input id="src" placeholder="Optional: paste a stream link (recorded or live) or a video file's path to learn from it" autocomplete="off" onkeydown="if(event.key==='Enter'&&!$('bAdd').disabled)start('add')"><button class="ghost" id="bAdd" onclick="start('add')">Learn from this</button></div></details>
  <div class="panel"><div class="now"><b id="now">Ready.</b><button class="stop" id="bStop" style="display:none" onclick="stopJob()">Stop</button></div>
   <div class="bar idle" id="barBox"><i id="bar"></i></div><div id="eta"></div><details class="more"><summary>Details</summary><pre id="log"></pre></details></div>
  <div class="hint">To give it work: on the website, Jumper → open an event → <b>Send this event to the app</b>.</div>
+</main>
+<main id="chk" style="display:none">
+ <div class="top"><button class="ghost" onclick="closeChecks()">← Back</button><b id="chkLeft"></b><span class="sp"></span></div>
+ <div class="hint" id="chkQ"></div>
+ <canvas id="chkC" style="width:min(100%,900px);border-radius:8px;background:#000"></canvas>
+ <div class="row" id="chkB" style="margin-top:10px;flex-wrap:wrap;gap:8px"></div>
+ <div class="hint" id="chkMsg"></div>
+</main>
+<main id="gold" style="display:none">
+ <div class="top"><button class="ghost" onclick="closeGold()">← Back</button><b>Test matches</b><span class="sp"></span></div>
+ <div class="hint">Matches you scored by hand: each robot's pins, and its autonomous pins if you know them. Before a newly trained pin finder or stack reader is used, it has to count the end of these matches at least as close to your numbers as the one in use. Three or more make it count.</div>
+ <div class="row" style="margin-top:10px"><select id="gMatch" onchange="goldForm()"></select></div>
+ <div id="gForm" style="margin-top:8px"></div>
+ <div class="hint" id="gMsg"></div>
+ <h3 style="margin-top:16px">Saved</h3><div id="gList"></div>
 </main>
 <main id="rev">
  <div class="top"><button class="ghost" onclick="closeReview()">← Back</button><b id="revLeft"></b><span class="sp"></span>
@@ -5926,6 +6154,31 @@ function loadFrame(){const want=cur.id;img=new Image();c.style.visibility='hidde
  img.onerror=()=>{const id=cur.id;revTrouble('The picture for this frame is missing on this computer; it is set aside.');api(pm?'/api/psave':'/api/save',pm?{id,skip:true,pieces:[]}:{id,skip:true,boxes:[]}).then(()=>setTimeout(()=>nextFrame(),1200))};
  img.src='/img/'+cur.id+'.jpg?t='+T}
 let st=null,inReview=false;
+// v2.61: "who scored?" clips and test matches.
+let chk=null,chkTimer=null,chkI=0,chkImgs=[];
+async function openChecks(){$('home').style.display='none';$('chk').style.display='block';nextCheck()}
+function closeChecks(){clearInterval(chkTimer);$('chk').style.display='none';$('home').style.display='block';poll()}
+async function nextCheck(){clearInterval(chkTimer);const L=await api('/api/checks');$('chkLeft').textContent=L.names.length?L.names.length+' to check':'';
+ if(!L.names.length){$('chkQ').textContent='Nothing to check. Clips come in as matches are tracked.';$('chkB').innerHTML='';const c=$('chkC');c.width=1;c.height=1;return}
+ chk=await api('/api/check?name='+encodeURIComponent(L.names[0]));chk.file=L.names[0];
+ $('chkQ').innerHTML='<b>'+(chk.red||[]).join(' ')+' vs '+(chk.blue||[]).join(' ')+'</b> · '+(chk['name']||'')+' — pins went onto the goal <b style="color:#ffd54a">outlined in yellow</b>. Which numbered robot put them there? (The numbers show at the end of the clip.)';
+ chkImgs=await Promise.all(chk.frames.map(b=>new Promise(r=>{const i=new Image();i.onload=()=>r(i);i.onerror=()=>r(null);i.src='data:image/jpeg;base64,'+b})));chkImgs=chkImgs.filter(Boolean);
+ const c=$('chkC');if(chkImgs.length){c.width=chkImgs[0].width;c.height=chkImgs[0].height}chkI=0;drawCheck();chkTimer=setInterval(drawCheck,350);
+ $('chkB').innerHTML=chk.robots.map((r,i)=>'<button onclick="pickCheck('+i+')">'+(i+1)+' · '+(r.colour===1?'red':r.colour===2?'blue':'robot')+'</button>').join('')+'<button class="ghost" onclick="pickCheck(-1)">Can\'t tell / nobody</button>';$('chkMsg').textContent=''}
+function drawCheck(){const c=$('chkC'),x=c.getContext('2d');if(!chkImgs.length)return;const last=chkI%(chkImgs.length+3)>=chkImgs.length-1;const im=chkImgs[Math.min(chkImgs.length-1,chkI%(chkImgs.length+3))];chkI++;x.drawImage(im,0,0);
+ const g=chk.goal;x.lineWidth=3;x.strokeStyle='#ffd54a';x.strokeRect(g[0],g[1],g[2]-g[0],g[3]-g[1]);
+ if(last)chk.robots.forEach((r,i)=>{const b=r.box;x.strokeStyle=r.colour===1?'#ff5a5a':r.colour===2?'#5aa0ff':'#fff';x.strokeRect(b[0],b[1],b[2],b[3]);x.fillStyle='#000';x.fillRect(b[0],b[1]-22,22,22);x.fillStyle='#fff';x.font='bold 16px sans-serif';x.fillText(String(i+1),b[0]+6,b[1]-5)})}
+async function pickCheck(i){const r=await api('/api/check',{name:chk.file,pick:i});if(r.error){$('chkMsg').textContent=r.error;return}nextCheck()}
+let goldData=null;
+async function openGold(){$('home').style.display='none';$('gold').style.display='block';goldData=await api('/api/gold');
+ $('gMatch').innerHTML='<option value="">Pick a match this app tracked…</option>'+goldData.tracked.map((m,i)=>'<option value="'+i+'">'+(m.name||m.id)+' · '+(m.red||[]).join(' ')+' vs '+(m.blue||[]).join(' ')+'</option>').join('');goldForm();goldShow()}
+function closeGold(){$('gold').style.display='none';$('home').style.display='block';poll()}
+function goldForm(){const i=$('gMatch').value;if(i===''){$('gForm').innerHTML='';return}const m=goldData.tracked[+i];const teams=(m.red||[]).concat(m.blue||[]);
+ $('gForm').innerHTML=teams.map((t,k)=>'<div class="row" style="gap:8px;margin:4px 0"><b style="width:90px;color:'+(k<2?'#ff8a8a':'#8ab8ff')+'">'+t+'</b><label>pins <input id="gP'+k+'" type="number" min="0" step="1" style="width:70px"></label><label>autonomous pins <input id="gA'+k+'" type="number" min="0" step="1" style="width:70px"></label></div>').join('')+'<button onclick="goldAdd()">Save this match</button>'}
+async function goldAdd(){const m=goldData.tracked[+$('gMatch').value];const teams=(m.red||[]).concat(m.blue||[]);const num=id=>{const v=parseFloat($(id).value);return Number.isFinite(v)?v:null};
+ const r=await api('/api/gold',{add:{ev:m.ev,id:m.id,robots:teams.map((t,k)=>({team:t,pins:num('gP'+k),auto:num('gA'+k)}))}});if(r.error){$('gMsg').textContent=r.error;return}goldData.gold=r.gold;$('gMsg').textContent='Saved.';goldShow()}
+async function goldDel(i){const r=await api('/api/gold',{remove:i});goldData.gold=r.gold;goldShow()}
+function goldShow(){$('gList').innerHTML=goldData.gold.length?goldData.gold.map((g,i)=>'<div class="row" style="gap:8px"><span>'+(g.name||g.id)+': '+g.robots.map(r=>r.team+' '+r.pins+(r.auto!=null?' ('+r.auto+' auto)':'')).join(', ')+'</span><button class="ghost" onclick="goldDel('+i+')">Remove</button></div>').join(''):'<div class="hint">None yet.</div>'}
 let updating=null;
 async function poll(){try{st=await api('/api/state');if(updating&&st.version===updating){location.reload();return}paint()}catch(e){$('now').textContent=updating?'Updating to '+updating+'… this window reloads by itself.':'The program behind this window has stopped. Close this and run VEX_Trainer.bat again.'}}
 // v2.58: update without closing the app.
@@ -5941,6 +6194,7 @@ function paint(){
  $('site').textContent=st.site.replace(/^https?:\/\//,'');
  $('keyPill').textContent=st.key?'Admin key saved':'No admin key';$('keyPill').className='pill '+(st.key?'ok':'bad');
  $('key').style.display=st.key?'none':'block';
+ $('chkN').textContent=st.checks?st.checks+' moment'+(st.checks===1?'':'s')+' to check':'Nothing to check';$('goldN').textContent=st.goldN?st.goldN+' test match'+(st.goldN===1?'':'es')+(st.goldN<3?' · '+(3-st.goldN)+' more and they count':''):'No test matches yet';
  const goal=st.gold<100?100:st.gold<300?300:Math.ceil((st.gold+1)/150)*150;
  $('revN').textContent=st.gold+' of '+goal+' done'+(st.gold<100?' · '+(100-st.gold)+' more and it can train':st.gold<300?' · it can train now; 300 is better':' · plenty; more still helps')+(st.sure?' · '+st.sure+' it was sure about are not asked':'');
  $('bRev').disabled=!st.waiting;
@@ -6390,11 +6644,24 @@ def serve_ui(cfg, port=8765, open_window=True):
                         return self._send(200, f.read(), 'image/jpeg')
                 except OSError:
                     return self._send(404, {})
+            if u.path == '/api/checks':
+                return self._send(200, {'names': checks_waiting()})
+            if u.path == '/api/check':
+                name = urllib.parse.parse_qs(u.query).get('name', [''])[0]
+                if not re.fullmatch(r'[0-9]+_[0-9]+_[0-9]+', name):
+                    return self._send(400, {'error': 'bad name'})
+                try:
+                    with open(os.path.join(checks_dir(), name + '.json')) as f:
+                        return self._send(200, json.load(f))
+                except OSError:
+                    return self._send(404, {'error': 'gone'})
+            if u.path == '/api/gold':
+                return self._send(200, {'gold': gold_list(), 'tracked': tracked_list()})
             if u.path == '/api/state':
                 c, P = counts(), pcounts()
                 return self._send(200, {'version': VERSION, 'site': cfg['site'], 'key': bool(cfg.get('key')), 'busy': job.busy(), 'task': job.task if job.busy() else '',
                                         'log': job.lines(), 'progress': job.progress(), 'waiting': len(c['queue']), 'sure': _SURE[0], 'done': c['done'], 'gold': c['gold'], 'workers': cfg.get('workers', 4),
-                                        'keep': bool(cfg.get('keep_videos')), 'sharp': bool(cfg.get('sharp')), 'think': bool(cfg.get('think')), 'pieces': {'marked': P['marked'], 'left': len(P['queue']), 'counted': bool(P['at']), 'why': P.get('why'), 'guess': guess_source()[0], 'helper': helper_info().get('marks', 0), 'need': PIECE_NEED, 'last': last_pieces()}, 'speed': cfg.get('max_mbps', 0), 'last': last_train(), 'field': field_status()})
+                                        'keep': bool(cfg.get('keep_videos')), 'sharp': bool(cfg.get('sharp')), 'think': bool(cfg.get('think')), 'pieces': {'marked': P['marked'], 'left': len(P['queue']), 'counted': bool(P['at']), 'why': P.get('why'), 'guess': guess_source()[0], 'helper': helper_info().get('marks', 0), 'need': PIECE_NEED, 'last': last_pieces()}, 'speed': cfg.get('max_mbps', 0), 'last': last_train(), 'field': field_status(), 'checks': len(checks_waiting()), 'goldN': len(gold_list())})
             if u.path == '/api/fframe':
                 qs_ = urllib.parse.parse_qs(u.query)
                 vid, want = qs_.get('vid', [''])[0], qs_.get('id', [''])[0]
@@ -6499,6 +6766,36 @@ def serve_ui(cfg, port=8765, open_window=True):
                 body = json.loads(self.rfile.read(int(self.headers.get('Content-Length', 0))).decode('utf-8') or '{}')
             except Exception:
                 return self._send(400, {'error': 'bad request'})
+            if u.path == '/api/check':
+                name = str(body.get('name', ''))
+                if not re.fullmatch(r'[0-9]+_[0-9]+_[0-9]+', name):
+                    return self._send(400, {'error': 'bad name'})
+                try:
+                    return self._send(200, answer_check(cfg, name, int(body.get('pick', -1))))
+                except (OSError, IndexError, ValueError) as e:
+                    return self._send(200, {'error': str(e)})
+            if u.path == '/api/gold':
+                items = gold_list()
+                if body.get('remove') is not None:
+                    i = int(body['remove'])
+                    if 0 <= i < len(items):
+                        items.pop(i)
+                elif isinstance(body.get('add'), dict):
+                    a = body['add']
+                    m = next((t for t in tracked_list(500) if t.get('ev') == str(a.get('ev')) and t.get('id') == str(a.get('id'))), None)
+                    if not m:
+                        return self._send(200, {'error': 'That match is not one this app tracked.'})
+                    robots = []
+                    for r in (a.get('robots') or [])[:4]:
+                        team = re.sub(r'[^A-Z0-9]', '', str(r.get('team', '')).upper())[:10]
+                        pins, auto = r.get('pins'), r.get('auto')
+                        if team and isinstance(pins, (int, float)) and 0 <= pins <= 100:
+                            robots.append({'team': team, 'pins': pins, 'auto': auto if isinstance(auto, (int, float)) and 0 <= auto <= 30 else None})
+                    if len(robots) < 4:
+                        return self._send(200, {'error': 'Fill in the pins for all four robots.'})
+                    items = [g for g in items if not (g['ev'] == m['ev'] and g['id'] == m['id'])] + [dict(m, robots=robots)]
+                gold_save(items)
+                return self._send(200, {'ok': True, 'gold': gold_list()})
             if u.path == '/api/update':
                 busy = job.task if job.busy() else ''
                 if not open_window:
