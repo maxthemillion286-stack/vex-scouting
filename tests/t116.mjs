@@ -158,7 +158,7 @@ const f = n => win.eval(n);
   ok('workers share the processor instead of fighting over it', /threads=max\(1, \(os\.cpu_count\(\) or 8\) \/\/ max\(1, int\(cfg\.get\('workers', 4\)\)\)\)/.test(app));
   // v111: the window
   ok('the app opens a window, not a menu', /def serve_ui\(/.test(app) && /if not args:[\s\S]{0,400}return serve_ui\(cfg\)/.test(app));
-  ok('three main buttons: Track, Review, Train', (app.match(/<div class="card"><h2>/g) || []).length === 3);
+  ok('main buttons: Track, Review, Train (and Check, v203)', [3, 4].includes((app.match(/<div class="card"><h2>/g) || []).length));
   ok('the window is served to this computer only', /ThreadingHTTPServer\(\('127\.0\.0\.1', p\), H\)/.test(app));
   ok('every request needs the window\'s own token', /secrets\.compare_digest\(given, token\)/.test(app) && /if not self\._allowed\(u\):\s+return self\._send\(403/.test(app));
   ok('a request under another host name is refused', /if host not in \('127\.0\.0\.1', 'localhost'\):\s+return False/.test(app));

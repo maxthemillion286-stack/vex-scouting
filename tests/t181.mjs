@@ -16,8 +16,8 @@ ok('the other way round too', Drop({ 1: [carried[1][1], carried[1][0]], 2: [[], 
 ok('nobody\'s load went down: no say', Drop({ 1: [[[40, 0], [46, 0]], [[40, 0], [46, 0]]], 2: [[], []] }, [A, B], 46) === null);
 ok('both went down: no say', Drop({ 1: [carried[1][0], carried[1][0]], 2: [[], []] }, [A, B], 46) === null);
 ok('one robot near: nothing to decide', Drop(carried, [A], 46) === null);
-ok('the recordings keep each robot\'s load and the tracks carry it', /carry_\.set\(a\[i\] \+ '\|' \+ a\[i \+ 1\] \+ '\|' \+ a\[i \+ 2\], a\[i \+ 3\]\)/.test(src) && /carried\[c\]\[i\]\.push\(\[p\.t, p\.cr\]\)/.test(src) && /vtSpotCount\(rec, turnK, track, ph, rec\.cr && rec\.cr\.length \? slotted\.carried : null\)/.test(src));
-ok('the server keeps it', /'ge', 'pe', 'cr'\]/.test(api) && /rec\.cr\.length % 4 === 0/.test(api));
+ok('the recordings keep each robot\'s load and the tracks carry it', /carry_\.set\(a\[i\] \+ '\|' \+ a\[i \+ 1\] \+ '\|' \+ a\[i \+ 2\], a\[i \+ 3\]\)/.test(src) && /carried\[c\]\[i\]\.push\(\[p\.t, p\.cr\]\)/.test(src) && /vtSpotCount\(rec, turnK, track, ph, \(?rec\.cr && rec\.cr\.length\)?.*slotted\.carried : null\)/.test(src));
+ok('the server keeps it', /'ge', 'pe', 'cr'[,\]]/.test(api) && /rec\.cr\.length % 4 === 0/.test(api));
 ok('the app: practice goals for the pin finder, damaged like a stream', /def piece_practice\(marked, n, seed=7\):/.test(app) && /def stream_damage\(img, rng\):/.test(app) && /build_pieces_dataset\(marked, int\(cfg\.get\('piece_synth', PIECE_SYNTH\)\)\)/.test(app));
 ok('the app: stacks counted by height, looks laid over each other, loads on robots', /def by_height\(found, sb, geom\):/.test(app) && /def laid_over\(mem, k, crop, keep=4\):/.test(app) && /def carried\(self, frame, boxes\):/.test(app) && /rec\['cr'\] \+= \[fr_\[0\], fr_\[2 \+ 10 \* i\], fr_\[3 \+ 10 \* i\], n_\]/.test(app));
 ok('summaries are made again', /const VT_REMAKE = 2(0[2-9]|[1-9]\d)/.test(src));

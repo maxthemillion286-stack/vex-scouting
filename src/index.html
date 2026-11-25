@@ -3733,7 +3733,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v202';
+const APP_BUILD = 'v203';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -9728,6 +9728,9 @@ function vtFrames(rec, quad, learn) {
   // v202: pin halves the app saw on each robot (app 2.60), the same way.
   const carry_ = new Map();
   for (let i = 0, a = rec.cr || []; i + 3 < a.length; i += 4) carry_.set(a[i] + '|' + a[i + 1] + '|' + a[i + 2], a[i + 3]);
+  // v203: the robot a person picked in the app's "who scored?", the same way.
+  const picked_ = new Set();
+  for (let i = 0, a = rec.wq || []; i + 2 < a.length; i += 3) picked_.add(a[i] + '|' + a[i + 1] + '|' + a[i + 2]);
   // v150: boxes the finder was unsure of (below the recording's threshold
   // `cf`) are kept apart, in `weak`: they never start a track or count for
   // anything themselves, and are only used to carry on a robot that just went
@@ -9748,6 +9751,7 @@ function vtFrames(rec, quad, learn) {
       if (e) fps.push({ t: fr[0] / 10, p: pts[pts.length - 1], e });
       const cv = carry_.size ? carry_.get(fr[0] + '|' + fr[o] + '|' + fr[o + 1]) : undefined;
       if (cv !== undefined) pts[pts.length - 1].cr = cv;
+      if (picked_.size && picked_.has(fr[0] + '|' + fr[o] + '|' + fr[o + 1])) pts[pts.length - 1].wq = 1;
     }
     raw.push(weak.length ? { t: fr[0] / 10, pts, weak } : { t: fr[0] / 10, pts });
   }
@@ -9918,12 +9922,12 @@ function vtSlots(frames) {
   const out = frames.map(f => ({ t: f.t, s: { 1: [null, null], 2: [null, null] } }));
   const at = new Map(frames.map((f, k) => [f.t, k]));
   const look = { 1: [null, null], 2: [null, null] }, votes = { 1: [[0, 0], [0, 0]], 2: [[0, 0], [0, 0]] };
-  const carried = { 1: [[], []], 2: [[], []] };
+  const carried = { 1: [[], []], 2: [[], []], picked: [] };
   out.carried = carried;
   for (const c of [1, 2]) for (const i of [0, 1]) {
     const gs = new Array(12).fill(0); let gn = 0;
     for (const tr of slotTracks[c][i]) {
-      for (const p of tr.pts) { const k = at.get(p.t); if (k !== undefined) out[k].s[c][i] = { x: p.x, y: p.y, t: p.t, seen: true }; if (p.cr !== undefined) carried[c][i].push([p.t, p.cr]); }
+      for (const p of tr.pts) { const k = at.get(p.t); if (k !== undefined) out[k].s[c][i] = { x: p.x, y: p.y, t: p.t, seen: true }; if (p.cr !== undefined) carried[c][i].push([p.t, p.cr]); if (p.wq) carried.picked.push([p.t, c, i]); }
       for (let k = 0; k < 12; k++) gs[k] += tr.gs[k]; gn += tr.gn;
       votes[c][i][0] += tr.pv[c === 1 ? 1 : 3]; votes[c][i][1] += tr.pv[c === 1 ? 2 : 4];
     }
@@ -9997,7 +10001,7 @@ function vtTrackAdd(tr, p, t, merged) {
     tr.vx = vx; tr.vy = vy;
   } else if (dt > 1.5) { tr.vx = 0; tr.vy = 0; }
   tr.x = p.x; tr.y = p.y; tr.t = t;
-  tr.pts.push({ x: p.x, y: p.y, t, c: p.c || 0, who: p.who || 0, g: p.g || null, ...(p.cr !== undefined ? { cr: p.cr } : {}) });
+  tr.pts.push({ x: p.x, y: p.y, t, c: p.c || 0, who: p.who || 0, g: p.g || null, ...(p.cr !== undefined ? { cr: p.cr } : {}), ...(p.wq ? { wq: 1 } : {}) });
   tr.cv[p.c || 0]++;
   if (p.who >= 1 && p.who <= 4) tr.pv[p.who]++;
   if (p.g) { for (let k = 0; k < 12; k++) tr.gs[k] += p.g[k]; tr.gn++; }
@@ -10303,7 +10307,7 @@ function vtSummarise(rec, quad, learn) {
       }
     } catch (e) {}
     try {
-      const G = vtPinCount(rec, quad, turnK, track, ph, 'goals');
+      const G = vtPinCount(rec, quad, turnK, track, ph, 'goals', rec.wq && rec.wq.length ? slotted.carried : null);
       if (G) {
         pinEvs = G.evs; if (G.er) pins.ger = 1;
         const r1 = v => Math.round(v * 10) / 10;
@@ -10321,7 +10325,7 @@ function vtSummarise(rec, quad, learn) {
     // that takes the place of the colour count on the goals, and brings cups
     // and loads.
     try {
-      const Z = rec.gs && rec.gs.length ? vtSpotCount(rec, turnK, track, ph, rec.cr && rec.cr.length ? slotted.carried : null) : null;
+      const Z = rec.gs && rec.gs.length ? vtSpotCount(rec, turnK, track, ph, (rec.cr && rec.cr.length) || (rec.wq && rec.wq.length) ? slotted.carried : null) : null;
       if (Z) {
         pinEvs = Z.evs; if (Z.er) pins.ger = 1;
         const r1 = v => Math.round(v * 10) / 10;
@@ -10353,7 +10357,7 @@ function vtSummarise(rec, quad, learn) {
       if (J) [[Ra, 1, 0], [Rb, 1, 1], [Ba, 2, 0], [Bb, 2, 1]].forEach(([row, c, i]) => { row.sp = Math.round(J[c][i].p); row.spa = Math.round(J[c][i].a); });
     } catch (e) {}
   }
-  return { ...base, ok: 1, rv: VT_REMAKE, lps: Math.round(lps * 10) / 10, st: ph.start, dr: ph.driver, ck: ph.clock ? 1 : 0, ...(flow ? { sl: 1 } : {}), ...pins, R: Rall, B: Ball, Ra, Rb, Ba, Bb };
+  return { ...base, ...(rec.wqt ? { wqt: rec.wqt } : {}), ok: 1, rv: VT_REMAKE, lps: Math.round(lps * 10) / 10, st: ph.start, dr: ph.driver, ck: ph.clock ? 1 : 0, ...(flow ? { sl: 1 } : {}), ...pins, R: Rall, B: Ball, Ra, Rb, Ba, Bb };
 }
 
 // ── Keeping summaries: on the device, and shared ───────────────────────────
@@ -10479,7 +10483,7 @@ function vtReportSeen(S) {
 // the recordings are in the shared store too, so whichever device opens a
 // report fetches the ones it needs, makes the summaries again, keeps them, and
 // (with the admin key) shares them.
-const VT_REMAKE = 202;      // v202: who carried the pins (cr); // v201: end-of-match read, score jumps matched to pins seen, autonomous clarity (yac); // v181: stacks counted by height; v180: the stream's score jumps credited to robots (sp, spa); v169: robots' fingerprints joined; v168: positions through the camera's lens; v164: boxes standing off the field dropped; v154: goal counts by the game's rules; v152: when the points came, from the stream's score; v150: unsure boxes carry on missing robots, whole-match slots, smoothed; v148: robots followed by speed and heading; v145/146: stacking timed at the goal (vs, vh)      // v136: pins counted on the goals as well (oy, oa, …)
+const VT_REMAKE = 203;      // v203: who scored, answered in the app (wq); // v202: who carried the pins (cr); // v201: end-of-match read, score jumps matched to pins seen, autonomous clarity (yac); // v181: stacks counted by height; v180: the stream's score jumps credited to robots (sp, spa); v169: robots' fingerprints joined; v168: positions through the camera's lens; v164: boxes standing off the field dropped; v154: goal counts by the game's rules; v152: when the points came, from the stream's score; v150: unsure boxes carry on missing robots, whole-match slots, smoothed; v148: robots followed by speed and heading; v145/146: stacking timed at the goal (vs, vh)      // v136: pins counted on the goals as well (oy, oa, …)
 const vtStale = s => !!(s && s.ok && (s.rv || 0) < VT_REMAKE);
 const vtRefreshTried = new Set();
 // v174: reported "i met all the fixes and it didnt fix": the field was marked
@@ -10571,6 +10575,15 @@ async function vtTeamSums(number) {
     const r = await vtApi('GET', '?team=' + encodeURIComponent(num));
     if (r.ok && r.body.sums) for (const k of Object.keys(r.body.sums)) { const s = r.body.sums[k]; if (s && s.sv === VT_SUM_V && s.ok && vtTakeServer(s, out.get(k))) out.set(k, s); }
     if (r.ok && Array.isArray(r.body.recs)) vtTeamRecs.set(num, r.body.recs.map(String));
+    // v203: a match answered in the app since its summary was made: made again.
+    if (r.ok && r.body.redo && typeof r.body.redo === 'object') {
+      let dropped = false;
+      for (const [k, at] of Object.entries(r.body.redo)) {
+        const had = out.get(k);
+        if (had && !((had.wqt || 0) >= at)) { out.delete(k); if (local[k]) { delete local[k]; dropped = true; } vtCatchTried.delete(k); try { const cut = k.indexOf(':'); await idbSet(`vt:m:${k.slice(0, cut)}:${k.slice(cut + 1)}`, null); } catch (e) {} }
+      }
+      if (dropped) await idbSet(VT_SUMS_KEY, local);
+    }
     if (r.ok) vtSumsShareUp(out, r.body.sums || {});
   } catch (e) {}
   return vtPinPick(out);
@@ -12621,6 +12634,16 @@ function vtCarryDrop(carried, cands, t) {
   });
   return hit.length === 1 ? hit[0] : null;
 }
+// v203: a person's answer beats everything: the robot picked in the app's
+// "who scored?" for a goal going up at about this time (the clip ends when
+// the app saw it go up; the website sees it a few seconds either side).
+function vtPickedAt(carried, t, only) {
+  const p = carried && carried.picked;
+  if (!p || !p.length) return null;
+  let best = null;
+  for (const [tt, c, i] of p) if ((!only || c === only) && tt >= t - 10 && tt <= t + 4 && (!best || Math.abs(tt - t) < Math.abs(best[0] - t))) best = [tt, c, i];
+  return best;
+}
 // ── v201: more sure of who scored, and of what was there at the end ────────
 // A credit is clear when no other robot that could have scored it was nearly
 // as close (in the seconds before it was seen): used for autonomous, where
@@ -12885,6 +12908,8 @@ function vtSpotCount(rec, turnK, track, ph, carried) {
             const by = vtCarryDrop(carried, cands, t);
             if (by) { r = by; r.byCarry = (r.byCarry || 0) + d; }
           }
+          const pk = vtPickedAt(carried, t, only);
+          if (pk) r = robots[pk[1]][pk[2]];
           if (!r) continue;
           if (c === 3) r.cp += d;
           else { if (c === 2) r.ys += d; else r.as += d; r.ev.push([t, d]); if (t < ph.driver) { r.ya += d; r.yaN = (r.yaN || 0) + d; if (vtClearOf(track, sp.x, sp.y, t, only, r.c, r.i, 8)) r.yaC = (r.yaC || 0) + d; } vtVisitAdd(r, track, [sp.x, sp.y], t, d); mine.push({ r, d, t }); credits.push([t, r.c, r.i, d]); }
@@ -12958,7 +12983,7 @@ function vtPinPick(sums) {
 // ys: yellow halves set down while this robot was the one working there;
 // as: halves of its own alliance's colour, likewise. py/pr/pb: what had been
 // set down by the end, per colour. pk: how many looks it rests on.
-function vtPinCount(rec, quad, turnK, track, ph, mode) {
+function vtPinCount(rec, quad, turnK, track, ph, mode, carried) {
   const toField = quad && quad.q ? vtFieldMap(quad) : null, W = rec.pw || VT_PIN_W, H = rec.ph || Math.round(W * 9 / 16);
   const samples = vtPinSamples(rec);
   if (!toField || samples.length < 8) return null;
@@ -13054,7 +13079,8 @@ function vtPinCount(rec, quad, turnK, track, ph, mode) {
         }
         from[q] = i;
         const at = w > 0 ? [wx / w, wy / w] : VT_QUAD_MID[q];
-        const r = whoWas(at, t, c === 3 ? 0 : c);
+        const pk = vtPickedAt(carried, t, c === 3 ? 0 : c);
+        const r = pk ? robots[pk[1]][pk[2]] : whoWas(at, t, c === 3 ? 0 : c);
         if (r) {
           if (c === 3) r.ys += d; else r.as += d; r.ev.push([t, d]); vtVisitAdd(r, track, at, t, d);
           credits.push([t, r.c, r.i, d]); byQ[c][q].push({ r, d, t });

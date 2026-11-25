@@ -57,7 +57,7 @@ const blip = { gs: build(t => { const c = empty(); if (t === 70) c[4][2] = 3; re
 ok('a single odd look is not a pin', f('vtSpotCount')(blip, 0, track, ph).robots[1].every(r => r.ys === 0));
 ok('too few looks: nothing', f('vtSpotCount')({ gs: rec.gs.slice(0, 53 * 5) }, 0, track, ph) === null);
 // ── into the summary and the report ──
-ok('the summary takes it in place of the colour count on the goals, with cups and loads', /const Z = rec\.gs && rec\.gs\.length \? vtSpotCount\(rec, turnK, track, ph(, [^)]*\))?\)? : null;/.test(src) && /row\.cp = r1\(q\.cp\); row\.kn = r1\(q\.kn\); row\.ld = q\.ld;/.test(src));
+ok('the summary takes it in place of the colour count on the goals, with cups and loads', /const Z = rec\.gs && rec\.gs\.length \? vtSpotCount\(rec, turnK, track, ph[,)]/.test(src) && /row\.cp = r1\(q\.cp\); row\.kn = r1\(q\.kn\); row\.ld = q\.ld;/.test(src));
 const L = f('vtPinLine')([{ ys: 4, cy: 9, k10: 30, cp: 2 }, { ys: 4, cy: 9, k10: 34, cp: 1 }], null, true, null);
 ok('the Scoring line gains cups', /· 1\.5 cups ·/.test(L.short), L.short);
 ok('a Match loads line', /\['Match loads', b\.load\]/.test(src) && /a match\$\{gaps\.length \? ` · one every/.test(src));
