@@ -8,6 +8,7 @@ const src = fs.readFileSync('../src/index.html', 'utf8');
 console.log('t161 — v175');
 const { win } = await boot();
 await settle(win);
+win.eval('VT_HPP = 2');   // v204: these numbers were written with a pin as two halves
 const P = win.eval('vtPinLine');
 const row = (ys, as, vs, vh) => ({ ys, as, vs, vh });
 const mine = [row(6, 2, 30, 6), row(8, 0, 30, 5), row(7, 1, 30, 5)], others = [row(2, 1), row(3, 0), row(2, 2)];

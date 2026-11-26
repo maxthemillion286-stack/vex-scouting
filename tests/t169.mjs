@@ -8,6 +8,7 @@ const src = fs.readFileSync('../src/index.html', 'utf8');
 console.log('t169 — v184');
 const { win } = await boot();
 await settle(win);
+win.eval('VT_HPP = 2');   // v204: these numbers were written with a pin as two halves
 const P = win.eval('mdPlanPick');
 const role = v => ({ v });
 let p = P([role([0.7, 0.1, 0.1, 0.1]), role([0.6, 0.3, 0.05, 0.05])], [role([0.1, 0.1, 0.7, 0.1]), null]);

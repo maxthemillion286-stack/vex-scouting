@@ -17,6 +17,7 @@ const idx = fs.readFileSync('../src/index.html', 'utf8'), app = fs.readFileSync(
 console.log('t121 — v131');
 const { win } = await boot();
 await settle(win);
+win.eval('VT_HPP = 2');   // v204: these numbers were written with a pin as two halves
 const f = n => win.eval(n);
 
 // One robot's second-by-second positions through a match, red, own wall left.

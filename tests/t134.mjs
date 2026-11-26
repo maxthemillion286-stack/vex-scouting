@@ -12,6 +12,7 @@ const src = fs.readFileSync('../src/index.html', 'utf8');
 console.log('t134 — v145');
 const { win } = await boot();
 await settle(win);
+win.eval('VT_HPP = 2');   // v204: these numbers were written with a pin as two halves
 const f = n => win.eval(n);
 const G = [0.17, 0.66], away = { x: 0.6, y: 0.3 }, at = { x: 0.18, y: 0.67 };
 // Red robot 0: three visits to the goal, 6 s each (30–36, 60–66, 90–96), driving 24 s between;

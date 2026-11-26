@@ -7,6 +7,7 @@ const src = fs.readFileSync('../src/index.html', 'utf8');
 console.log('t159 — v173');
 const { win } = await boot();
 await settle(win);
+win.eval('VT_HPP = 2');   // v204: these numbers were written with a pin as two halves
 const F = win.eval('vtAutoFacts'), T = win.eval('vtAutoText');
 const r = ys => ys.map(y => ({ ya: y * 2, tga: 1 }));
 let t = T(F(r([4, 5, 5, 4, 5]), 1, null), false);

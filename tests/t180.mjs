@@ -8,6 +8,7 @@ const src = fs.readFileSync('../src/index.html', 'utf8'), api = fs.readFileSync(
 console.log('t180 — v201');
 const { win } = await boot();
 await settle(win);
+win.eval('VT_HPP = 2');   // v204: these numbers were written with a pin as two halves
 const J = win.eval('vtScoreJumps'), Share = win.eval('vtEndShare'), Read = win.eval('vtEndRead'), Facts = win.eval('vtAutoFacts'), Clear = win.eval('vtClearOf');
 const ph = { start: 0, driver: 15, end: 120 };
 // Robot red 0 stands at a goal (0.17, 0.66) the whole match; red 1 elsewhere.

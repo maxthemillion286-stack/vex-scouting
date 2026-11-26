@@ -8,6 +8,7 @@ const src = fs.readFileSync('../src/index.html', 'utf8');
 console.log('t165 — v179');
 const { win } = await boot();
 await settle(win);
+win.eval('VT_HPP = 2');   // v204: these numbers were written with a pin as two halves
 const F = win.eval('vtAutoFacts'), T = win.eval('vtAutoText');
 // Four matches; the video counted 12, 8, 12, 4 halves (6, 4, 6, 2 pins).
 const raw = [12, 8, 12, 4].map(ya => ({ ya, pya: 0 }));
