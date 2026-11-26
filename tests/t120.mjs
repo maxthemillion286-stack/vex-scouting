@@ -12,6 +12,7 @@ const idx = fs.readFileSync('../src/index.html', 'utf8'), app = fs.readFileSync(
 console.log('t120 — v120');
 const { win } = await boot();
 await settle(win);
+win.eval('VT_HPP = 2');   // v204: these numbers were written with a pin as two halves
 const doc = win.document, f = n => win.eval(n);
 const long = 'This sentence is the point. ' + 'And this is the further explanation that goes on for a good while. '.repeat(4);
 

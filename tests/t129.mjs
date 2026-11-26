@@ -7,6 +7,7 @@ const src = fs.readFileSync('../src/index.html', 'utf8');
 console.log('t129 — v139');
 const { win } = await boot();
 await settle(win);
+win.eval('VT_HPP = 2');   // v204: these numbers were written with a pin as two halves
 const f = n => win.eval(n);
 // "the scoring doesnt show how much anymore for 5 pins"
 const rows = [{ ys: 3, cy: 9, vs: 15, vh: 4 }, { ys: 3, cy: 11, vs: 13, vh: 4 }, { ys: 3, cy: 10, vs: 17, vh: 4 }];

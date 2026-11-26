@@ -9,6 +9,7 @@ const src = fs.readFileSync('../src/index.html', 'utf8'), api = fs.readFileSync(
 console.log('t177 — v198');
 const { win } = await boot();
 await settle(win);
+win.eval('VT_HPP = 2');   // v204: these numbers were written with a pin as two halves
 const From = win.eval('vtCalibFrom'), On = win.eval('vtCalibOn'), Pins = win.eval('vtCoachPins'), Facts = win.eval('vtAutoFacts'), Usual = win.eval('vtUsual'), Cal = win.eval('vtCalib');
 // What the tracker saw (the table read 4.8 pins, autonomous 1, 5 pins in 10 s).
 const raw = [

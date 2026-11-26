@@ -3733,7 +3733,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v203';
+const APP_BUILD = 'v204';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -10757,17 +10757,17 @@ function vtCalibFrom(rows, truth) {
   const out = {};
   const got = raw.filter(r => Number.isFinite(r.ys) || Number.isFinite(r.as));
   if (truth.pins > 0 && got.length) {
-    const seen = vtAvg(got.map(r => ((r.ys || 0) + (r.as || 0)) / 2));
+    const seen = vtAvg(got.map(r => ((r.ys || 0) + (r.as || 0)) / VT_HPP));
     if (seen > 0) out.kp = clamp(truth.pins / seen);
   }
   const au = raw.filter(r => Number.isFinite(r.ya));
   if (truth.auto > 0 && au.length) {
-    const seen = vtAvg(au.map(r => r.ya / 2));
+    const seen = vtAvg(au.map(r => r.ya / VT_HPP));
     if (seen > 0) out.ka = clamp(truth.auto / seen);
   }
   if (truth.t5 > 0) {
     const withP = raw.map(r => (out.kp ? { ...r, kp: out.kp } : r));
-    const pace = vtStackPace(withP, 1), t5 = pace ? 5 * pace : vtFastFiveOf(withP, 1);
+    const pace = vtStackPace(withP, 1), t5 = vtFastFiveOf(withP, 1) || (pace ? 5 * pace : null);
     if (t5 > 0) out.kt = Math.min(10, Math.max(0.1, truth.t5 / t5));   // time per pin moves with kp too, so it needs more room
   }
   return out;
@@ -11091,6 +11091,16 @@ async function vtCoachFill(number, hostId) {
 // toggle is not known. Yellow nobody owned makes the counts look high, which
 // the correction then absorbs. Four matches are needed before any of it is used.
 const VT_PTS_YELLOW = 10, VT_PTS_OWN = 5, VT_PTS_AUTO = 12, VT_PTS_MID = 8;
+// ── Halves are not half a pin (v204) ───────────────────────────────────────
+// Reported: "4.8 pins a match is absurdly low, this team scores around 6-10".
+// Pins were halves ÷ 2, as if every pin showed both halves. The manual (<SC3>)
+// scores only halves that stay visible and are not nested in a Cup's opaque
+// half; a stack goes pin, cup, pin, cup, so each pin above the first has its
+// lower half inside the cup below. The first pin on a goal shows two halves,
+// each one after it one: a stack of n pins is n + 1 halves, about 1.2 a pin
+// for the usual 4–7. The camera sees the same visible halves the scorer
+// counts, so a robot's pins are its halves ÷ VT_HPP.
+let VT_HPP = 1.2;   // let: older tests set 2 to keep their numbers
 // ── The end of a match, made to add up (v180) ──────────────────────────────
 // Asked to count pins exactly. The official final score is known and is made
 // of fixed values: 5 an own-colour half, 10 a yellow half (where the alliance
@@ -11194,12 +11204,13 @@ function vtCoachPins(rows, per, check) {
   if (got.length < per) return null;
   const fix = check && check.ok ? check.k : 1;           // corrected by the official scores, where they could be checked
   const matches = got.length / per, sum = k => got.reduce((a, r) => a + vtFx(r, fix) * (r[k] || 0), 0);
-  const halves = (sum('ys') + sum('as')) / matches, pins = halves / 2;
-  // Five pins: timed at the goal where it could be (v145), else its fastest
-  // stretch between set-downs. The gaps between set-downs alone are not used:
-  // they hold the driving between visits (that read "about 103 s").
-  const pace = vtStackPace(got, fix), t5 = pace ? 5 * pace : vtFastFiveOf(got, fix);
-  return { pins, points: (sum('ys') * 10 + sum('as') * 5) / matches, auto: got.reduce((a, r) => a + (Number.isFinite(r.ka) ? r.ka : vtFx(r, fix)) * (r.ya || 0), 0) / 2 / matches, style: vtPinStyle(sum('ys'), sum('as')),
+  const halves = (sum('ys') + sum('as')) / matches, pins = halves / VT_HPP;
+  // Five pins (v204): its fastest stretch of five pins in a match, getting
+  // them included (reported: "5 pins usually takes 25 seconds-ish"; the time
+  // at the goal alone read 10 s). Timed at the goal only where that is all
+  // there is.
+  const pace = vtStackPace(got, fix), t5 = vtFastFiveOf(got, fix) || (pace ? 5 * pace : null);
+  return { pins, points: (sum('ys') * 10 + sum('as') * 5) / matches, auto: got.reduce((a, r) => a + (Number.isFinite(r.ka) ? r.ka : vtFx(r, fix)) * (r.ya || 0), 0) / VT_HPP / matches, style: vtPinStyle(sum('ys'), sum('as')),
     t5, perPin: pace, timed: !!pace };
 }
 async function vtReportFill(number) {
@@ -11604,12 +11615,12 @@ function vtAutoFacts(rows, per, check) {
       halves = r => (Number.isFinite(r.ka) || (Number.isFinite(r.yac) && r.yac >= 0.8) || !Number.isFinite(r.yac) && !(r.ya > 0) ? plain(r) : usual);
     }
   }
-  if (p.length >= per) F.pins = p.reduce((a, r) => a + halves(r), 0) / 2 / (p.length / per);
+  if (p.length >= per) F.pins = p.reduce((a, r) => a + halves(r), 0) / VT_HPP / (p.length / per);
   // v173: "how can autons have .5 pins its always a whole number". Each
   // match's autonomous is a whole number of pins; the average of them is not.
   // So it is shown as what the robot usually scores, and the range.
   F.capped = 0;
-  if (per === 1 && p.length) F.each = p.map(r => Math.max(0, Math.round(halves(r) / 2)));
+  if (per === 1 && p.length) F.each = p.map(r => Math.max(0, Math.round(halves(r) / VT_HPP)));
   F.scored = p.filter(r => Number.isFinite(r.asa)).length;
   const t = rows.filter(r => r.tga !== undefined && r.tga !== null);
   if (t.length) F.tog = vtAvg(t.map(r => r.tga));
@@ -11677,7 +11688,7 @@ function vtAutoRoutes(rows) {
     let len = 0; for (let k = 1; k < pts.length; k++) len += Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1]);
     const codes = new Map(); for (const x of best) { const c = String(x.r.art || '')[0]; if (c) codes.set(c, (codes.get(c) || 0) + 1); }
     const c0 = [...codes.entries()].sort((a, b) => b[1] - a[1])[0];
-    const pins = best.filter(x => Number.isFinite(x.r.ya)).map(x => Math.round(vtFx(x.r, 1) * x.r.ya / 2));
+    const pins = best.filter(x => Number.isFinite(x.r.ya)).map(x => Math.round(vtFx(x.r, 1) * x.r.ya / VT_HPP));
     const o = pins.slice().sort((a, b) => a - b);
     out.push({ pts, n: best.length, of: P.length, still: len < 0.08, start: c0 ? VT_ZONE_WORDS[c0[0]] || null : null, pins: o.length ? o[Math.floor((o.length - 1) / 2)] : null });
   }
@@ -12356,8 +12367,8 @@ function sim_trackScore(rowsByNum) {
     if (rows.length < 3) continue;
     const a = k => vtAvg(rows.map(r => r[k]).filter(v => v !== null && v !== undefined));
     const withPins = rows.filter(r => r.ys !== undefined && r.ys !== null);
-    const pins = withPins.length >= 3 ? vtAvg(withPins.map(r => ((r.ys || 0) + (r.as || 0)) / 2)) : null;
-    const auto = withPins.length >= 3 ? vtAvg(withPins.map(r => (r.ya || 0) / 2)) : null;
+    const pins = withPins.length >= 3 ? vtAvg(withPins.map(r => ((r.ys || 0) + (r.as || 0)) / VT_HPP)) : null;
+    const auto = withPins.length >= 3 ? vtAvg(withPins.map(r => (r.ya || 0) / VT_HPP)) : null;
     const pace = typeof vtStackPace === 'function' ? vtStackPace(rows, 1) : null;
     const stp = a('stp');
     raw.set(num, [a('act'), a('ap'), stp === null ? null : -stp, pins, auto, pace ? -pace : null]);
@@ -13184,13 +13195,13 @@ function vtVisitSum(r) {
   delete r.vis;
 }
 // Seconds a pin while stacking, over a set of rows: their time at the goal
-// over their pins (halves / 2), once there are three pins' worth. `fix`
+// over their pins (halves / VT_HPP, v204), once there are three pins' worth. `fix`
 // corrects counts that the official scores show run high or low.
 function vtStackPace(rows, fix) {
   let vs = 0, pins = 0;
   const f0 = fix > 0 ? fix : 1;
   // v198: a row calibrated to the owner's real numbers brings its own factors.
-  for (const r of rows) if (r.vs > 0 && r.vh > 0) { vs += r.vs * (r.kt > 0 ? r.kt : 1); pins += r.vh * (r.kp > 0 ? r.kp : f0) / 2; }
+  for (const r of rows) if (r.vs > 0 && r.vh > 0) { vs += r.vs * (r.kt > 0 ? r.kt : 1); pins += r.vh * (r.kp > 0 ? r.kp : f0) / VT_HPP; }
   return pins >= 3 ? vs / pins : null;
 }
 // How long a pin takes it, timed: from one set-down to the next, for the
@@ -13237,7 +13248,7 @@ function vtFastWindows(ev, driver) {
 // Five real pins, from one match's windows: the counted halves that make ten
 // real ones, read between the two nearest window sizes. → seconds or null.
 function vtFastFive(row, fix) {
-  const need = 10 / (fix > 0 ? fix : 1);
+  const need = 5 * VT_HPP / (fix > 0 ? fix : 1);
   let lo = null, hi = null;
   for (const N of VT_FAST_N) { const v = row['k' + N]; if (!v) continue; if (N <= need) lo = [N, v]; if (N >= need && !hi) hi = [N, v]; }
   if (!hi) return null;
@@ -13257,7 +13268,7 @@ function vtPinLine(mine, others, isOwn, check) {
   const a = got(mine), o = got(others || []);
   if (a.length < 2) return null;
   const avg = vtAvg(a), other = o.length >= 2 ? vtAvg(o) : null;
-  const pace = vtStackPace(mine, fix), t5 = pace ? 5 * pace : vtFastFiveOf(mine, fix);
+  const pace = vtStackPace(mine, fix), t5 = vtFastFiveOf(mine, fix) || (pace ? 5 * pace : null);
   // The short form, for the report's top lines. Asked: "way too much info for scoring".
   const cupRows = mine.filter(r => r.cp !== undefined && r.cp !== null), cups = cupRows.length >= 2 ? vtAvg(cupRows.map(r => r.cp)) : null;
   const short = [`${avg.toFixed(1)} yellow halves a match${check && check.ok ? ` (±${vtPct(check.err)})` : ''}`, cups !== null ? `${cups.toFixed(1)} cups` : '', t5 !== null ? `5 pins in ${Math.round(t5)} s` : '', pace ? `${pace.toFixed(1)} s a pin` : ''].filter(Boolean).join(' · ');
@@ -13266,7 +13277,7 @@ function vtPinLine(mine, others, isOwn, check) {
   // and clear info that directly relates to their scoring strategy". Pins,
   // not halves; what it goes for; how fast; against the robots it faced; and
   // how sure the count is, in one line.
-  const both = list => list.filter(r => r.ys !== undefined && r.ys !== null).map(r => vtFx(r, fix) * ((r.ys || 0) + (r.as || 0)) / 2);
+  const both = list => list.filter(r => r.ys !== undefined && r.ys !== null).map(r => vtFx(r, fix) * ((r.ys || 0) + (r.as || 0)) / VT_HPP);
   const mp = both(mine), op = both(others || []);
   const per = mp.length ? vtAvg(mp) : null, operPin = op.length >= 2 ? vtAvg(op) : null;
   const who = isOwn ? '' : ' (a robot on its alliance, on average)';

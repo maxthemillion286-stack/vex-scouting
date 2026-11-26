@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v203**. Everything green: 141 test files.
+Current release: **v204**. Everything green: 142 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,15 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v204 — pins are halves ÷ 1.2, not ÷ 2.** Reported "4.8 pins a match is
+absurdly low… 6-10". <SC3>: only visible halves not nested in a Cup's opaque
+half score; stacks go pin, cup, pin…, so a stack of n pins shows n + 1
+halves. `VT_HPP` 1.2 (a `let`: older tests set 2 to keep their numbers)
+replaces every halves ÷ 2 for pins (coach pins, autonomous facts, routes,
+compare, stack pace, fastest five's window, calibration, report bullets).
+"5 pins stacked in" now prefers the fastest stretch of five (travel
+included; "usually takes 25 seconds-ish") over time at the goal. Check: t183.
 
 **v203 (app 2.61) — accuracy batch 3.**
 - "Who scored?" in the app (#12): tracking keeps a ring of small JPEGs

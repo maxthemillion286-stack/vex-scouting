@@ -15,6 +15,7 @@ const src = fs.readFileSync('../src/index.html', 'utf8'), app = fs.readFileSync(
 console.log('t124 — v134');
 const { win } = await boot();
 await settle(win);
+win.eval('VT_HPP = 2');   // v204: these numbers were written with a pin as two halves
 const f = n => win.eval(n);
 {
   const W = f('vtFastWindows');
