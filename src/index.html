@@ -3733,7 +3733,7 @@ function rwMergePublished(eid, local) {
 // One release number across index.html, proxy.js and sw.js, so the debug page
 // can prove all three are the versions you just deployed. Bump all three
 // together; a mismatch means one of the files didn't land.
-const APP_BUILD = 'v204';
+const APP_BUILD = 'v205';
 
 const vsDebug = {
   errors: [],        // last few failed API calls
@@ -7447,7 +7447,20 @@ function settingsInit() {
 // else changed" — and the sentence says exactly that. It leaves out the
 // Autonomous Win Point, which a match can add and nobody can count on.
 const T_WIN_WP = 2;
-function tRankKey(r) { return [Number(r.wp) || 0, Number(r.ap) || 0, Number(r.sp) || 0]; }
+// v205: Override ranks on AVERAGE Win, Autonomous and Strength of Schedule
+// Points per match played (<T13>), not totals: a team that has played fewer
+// matches is not behind for it. RobotEvents may give totals or averages; a
+// total is known by being at least 2 a win, or a whole number over 3.
+function tRankTotals(r) {
+  const n = (Number(r.wins) || 0) + (Number(r.losses) || 0) + (Number(r.ties) || 0);
+  const wp = Number(r.wp) || 0, ap = Number(r.ap) || 0, sp = Number(r.sp) || 0;
+  const avg = n > 1 && ((Number(r.wins) > 0 && wp < 2 * Number(r.wins)) || (wp > 0 && wp % 1 !== 0) || (ap > 0 && ap % 1 !== 0 && ap <= 10));
+  return avg ? { n, wp: wp * n, ap: ap * n, sp: sp * n } : { n, wp, ap, sp };
+}
+function tRankKey(r) { const t = tRankTotals(r), n = Math.max(1, t.n); return [t.wp / n, t.ap / n, t.sp / n]; }
+// After one more win: two more Win Points over one more match; its autonomous
+// and schedule points kept at their averages (nobody knows them yet).
+function tWithWin(r) { const t = tRankTotals(r), n = Math.max(1, t.n); return { ...r, wins: (Number(r.wins) || 0) + 1, wp: t.wp + T_WIN_WP, ap: t.ap + t.ap / n, sp: t.sp + t.sp / n, losses: Number(r.losses) || 0, ties: Number(r.ties) || 0 }; }
 function tRankAhead(a, b) {   // is a ranked above b?
   const x = tRankKey(a), y = tRankKey(b);
   for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] > y[i];
@@ -7460,11 +7473,11 @@ function tClimb(rows, teamId) {
   const others = list.filter(r => r !== me);
   const placeOf = row => 1 + others.filter(o => tRankAhead(o, row)).length;
   const now = placeOf(me);
-  const after = placeOf({ ...me, wp: me.wp + T_WIN_WP });
-  const passed = others.filter(o => tRankAhead(o, me) && !tRankAhead(o, { ...me, wp: me.wp + T_WIN_WP }))
+  const after = placeOf(tWithWin(me));
+  const passed = others.filter(o => tRankAhead(o, me) && !tRankAhead(o, tWithWin(me)))
     .sort((a, b) => (a.rank || 0) - (b.rank || 0));
   // Who is close enough behind to pass you with one win of their own.
-  const chasing = others.filter(o => !tRankAhead(o, me) && tRankAhead({ ...o, wp: (Number(o.wp) || 0) + T_WIN_WP }, me))
+  const chasing = others.filter(o => !tRankAhead(o, me) && tRankAhead(tWithWin(o), me))
     .sort((a, b) => (a.rank || 0) - (b.rank || 0));
   return { now, after, passed, chasing, total: list.length };
 }
@@ -11131,7 +11144,11 @@ function vtExact(s) {
       const rest = all % VT_PTS_OWN, left = all - rest;
       for (let y = 0; y * VT_PTS_YELLOW <= left; y++) {
         const own = (left - y * VT_PTS_YELLOW) / VT_PTS_OWN;
-        const cost = (own - O[c].own) ** 2 + 0.5 * (y - O[c].y) ** 2 + (mid !== O[c].mid ? 4 : 0) + (rest ? 2 : 0);
+        // v205: yellow halves score only where the alliance owns them (<SC5>):
+        // seen but not in the score is likely unowned, not miscounted, so it
+        // costs less than yellow the score needs and the video missed.
+        const dy = y - O[c].y;
+        const cost = (own - O[c].own) ** 2 + (dy < 0 ? 0.15 : 0.5) * dy ** 2 + (mid !== O[c].mid ? 4 : 0) + (rest ? 2 : 0);
         if (!best || cost < best.cost) best = { own, y, mid, bonus, rest, cost };
       }
     }
@@ -11147,7 +11164,8 @@ function vtExact(s) {
     if (a && b && (!pick || a.cost + b.cost < pick.cost)) pick = { cost: a.cost + b.cost, 1: a, 2: b };
   }
   if (!pick) return null;
-  const xf = c => { const seen = O[c].own + O[c].y, got = pick[c].own + pick[c].y; return seen >= 1 ? got / seen : null; };
+  // Unowned yellow the robots did set down still counts as their pins.
+  const xf = c => { const seen = O[c].own + O[c].y, got = pick[c].own + Math.max(pick[c].y, O[c].y); return seen >= 1 ? got / seen : null; };
   s._x = { R: xf(1), B: xf(2), r: pick[1], b: pick[2] };
   return s._x;
 }
@@ -12911,7 +12929,9 @@ function vtSpotCount(rec, turnK, track, ph, carried) {
       for (const [t, d] of steps(ser, t0, t1)) {
         if (d > 0) {
           // Own-colour halves are put there by that alliance; yellow and cups by whoever was closest.
-          const only = c === 0 ? 1 : c === 1 ? 2 : 0;
+          // v205: on an alliance's own goal, only that alliance's robots (<SG9>: the
+          // other alliance may not touch it), whatever the colour of the half.
+          const only = sp.g === 0 || sp.g === 1 ? 1 : sp.g === 2 || sp.g === 3 ? 2 : c === 0 ? 1 : c === 1 ? 2 : 0;
           let r = near(sp.x, sp.y, t, only, 0.22, 8);
           if (r && carried) {
             const cands = [];
@@ -13285,7 +13305,7 @@ function vtPinLine(mine, others, isOwn, check) {
   const pinsWord = v => { const n = Math.round(v); return `${n} pin${n === 1 ? '' : 's'}`; };
   const bullets = [];
   if (per !== null) bullets.push(`Scores about ${pinsWord(per)} a match${who}.`);
-  if (style) bullets.push(style.kind === 'yellow' ? `Goes for yellow pins (${vtPct(style.share)} of its pins).` : style.kind === 'own' ? `Goes for its own colour's pins (${vtPct(style.share)} of its pins).` : `Scores both: ${vtPct(style.share)} yellow, the rest its own colour.`);
+  if (style) bullets.push(style.kind === 'yellow' ? `Goes for yellow pins (${vtPct(style.share)} of what it scores).` : style.kind === 'own' ? `Goes for its own colour's pins (${vtPct(style.share)} of what it scores).` : `Scores both: ${vtPct(style.share)} yellow, the rest its own colour.`);
   if (pace) bullets.push(`Stacks a pin about every ${Math.round(pace)} s at a goal${t5 !== null ? ` (5 pins in about ${Math.round(t5)} s)` : ''}.`);
   else if (t5 !== null) bullets.push(`Its quickest 5 pins take about ${Math.round(t5)} s.`);
   if (per !== null && operPin !== null) {
@@ -18032,7 +18052,7 @@ async function gatherTeamData(teamNumber, seasonId, gradeLevel = 'High School') 
 
   // Get high score and stats from rankings (the rankings endpoint is the source of truth)
   let rankingHighScore = 0;
-  let rankingAwpCount = 0;       // explicit AWP count from rankings.ap if available
+  let rankingApTotal = 0;        // v205: Autonomous Points (10 an autonomous bonus won, 5 a tie), NOT a count of AWPs
   let rankingTotalWp = 0;        // total win points across all events
   let rankingTotalSp = 0;        // total strength points (SP)
   let rankingWins = 0;
@@ -18040,9 +18060,10 @@ async function gatherTeamData(teamNumber, seasonId, gradeLevel = 'High School') 
   let rankingTies = 0;
   for (const r of rankings) {
     if (typeof r.high_score === 'number') rankingHighScore = Math.max(rankingHighScore, r.high_score);
-    if (typeof r.ap === 'number') rankingAwpCount += r.ap;
-    if (typeof r.wp === 'number') rankingTotalWp += r.wp;
-    if (typeof r.sp === 'number') rankingTotalSp += r.sp;
+    const tt = tRankTotals(r);                         // v205: totals even where averages were given
+    if (typeof r.ap === 'number') rankingApTotal += tt.ap;
+    if (typeof r.wp === 'number') rankingTotalWp += tt.wp;
+    if (typeof r.sp === 'number') rankingTotalSp += tt.sp;
     if (typeof r.wins === 'number') rankingWins += r.wins;
     if (typeof r.losses === 'number') rankingLosses += r.losses;
     if (typeof r.ties === 'number') rankingTies += r.ties;
@@ -18062,8 +18083,6 @@ async function gatherTeamData(teamNumber, seasonId, gradeLevel = 'High School') 
   if (rankingTotalWp > 0 && (rankingWins + rankingLosses + rankingTies) > 0) {
     const calculatedAwp = rankingTotalWp - (rankingWins * 2) - rankingTies;
     finalAwpCount = Math.max(0, Math.min(calculatedAwp, rankingWins + rankingLosses + rankingTies));
-  } else if (rankingAwpCount > 0) {
-    finalAwpCount = rankingAwpCount;
   }
 
   const awpRate = totalRankedMatches > 0 ? Math.min(100, finalAwpCount / totalRankedMatches * 100) : null;
@@ -18071,9 +18090,10 @@ async function gatherTeamData(teamNumber, seasonId, gradeLevel = 'High School') 
   // Auton Win % — fall back to AWP count as a minimum estimate
   // (You can't earn an AWP without winning auton, so AWPs ≥ auton wins minimum)
   let autonRate = autonPlayed > 0 ? autonWins / autonPlayed * 100 : null;
-  if (autonRate === null && total > 0 && finalAwpCount > 0) {
-    // Estimate: at minimum the team won auton in every match they earned AWP
-    autonRate = Math.min(100, finalAwpCount / total * 100);
+  // v205: an AWP does not need the autonomous bonus (<SC8>), so it says
+  // nothing about autonomous wins. Autonomous Points do: 10 a bonus won, 5 a tie.
+  if (autonRate === null && totalRankedMatches > 0 && rankingApTotal > 0) {
+    autonRate = Math.min(100, rankingApTotal / 10 / totalRankedMatches * 100);
   }
   const avgScore  = scores.length > 0 ? scores.reduce((a,b)=>a+b,0)/scores.length : null;
   const highScore = scores.length > 0 ? Math.max(...scores) : (rankingHighScore || null);

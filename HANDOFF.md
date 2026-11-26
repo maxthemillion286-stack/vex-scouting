@@ -5,7 +5,7 @@ with no memory of the sessions that produced it. Read this before changing
 anything in the Jumper or `api/proxy.js`; several of the bugs below were fixed,
 regressed, and fixed again because the reasoning wasn't written down.
 
-Current release: **v204**. Everything green: 142 test files.
+Current release: **v205**. Everything green: 143 test files.
 
 **Since v132 the page is edited in `src/index.html` and `index.html` is BUILT** (`node tools/build.mjs`, needs `npm install`). Never edit `index.html` by hand; t122 fails if it is not exactly what the source builds. `APP_BUILD` lives in `src/index.html`. (The `v19` in §8's
 example output is an example; the number in the three files is what counts.)
@@ -2972,6 +2972,22 @@ on 2026-11-16 mentioned a 10-point autonomous bonus for qualification matches,
 so `VT_PTS_AUTO` may be 2 high — negligible against match totals, but check.
 Matches tracked before v115 have no pins and cannot be checked without being
 tracked again.
+
+**v205 — the code's game assumptions checked against the Override manual.**
+Asked to find "things like these" after v204. Fixed:
+- Rankings are on AVERAGE WP/AP/SP per match played (<T13>): `tRankTotals`
+  (reads totals or averages), `tRankKey` averages, `tWithWin` for the climb.
+- `r.ap` is Autonomous Points (10 a bonus won, 5 a tie), was summed as an AWP
+  count (`rankingApTotal` now); the autonomous win rate came from AWPs on the
+  belief an AWP needs the bonus (it does not, <SC8>); now from AP ÷ 10.
+- <SG9>: only an alliance's robots are credited on its own goals (g 0,1 red;
+  2,3 blue) in `vtSpotCount`.
+- <SC5>: yellow scores only where owned; `vtExact` costs yellow the score
+  does not need at 0.15 (vs 0.5) and never cuts seen yellow from xf.
+Checked and right: 15 s + 1:45, 5/10/12/8 points, tie bonus 6 each, 9 goals
+(2 red, 2 blue, 5 neutral), 4 loaders, match loads driver only, WP 2/1/0 +1.
+Not checkable here: the midfield's shape (VT_MID_R), VEX U timing (30/90),
+cups set clear side up (a pin in a clear half scores both halves). Check: t184.
 
 **v204 — pins are halves ÷ 1.2, not ÷ 2.** Reported "4.8 pins a match is
 absurdly low… 6-10". <SC3>: only visible halves not nested in a Cup's opaque

@@ -50,8 +50,9 @@ ok('what is on the goals at the end: 8 yellow halves, 1 cup', Z.py === 8 && Z.pr
 ok('yellow by quadrant for the toggles to share out', Z.yq.reduce((a, b) => a + b, 0) === 8);
 // The same match seen with the field turned round: spot 0 is then blue's corner of the picture; positions follow.
 const T2 = track.map(b => ({ t: b.t, s: b.s }));
-const Z2 = f('vtSpotCount')(rec, 2, T2.map(b => ({ t: b.t, s: { 1: b.s[1].map(p => p && { ...p, x: 1 - p.x, y: 1 - p.y }), 2: b.s[2] } })), ph);
-ok('turned round, the same goal is found again', Z2.robots[1][0].ys === 8, JSON.stringify(Z2.robots[1][0]));
+// (v205: spot 0 is then one of blue's own goals, which only blue may touch (<SG9>), so the robot there is blue.)
+const Z2 = f('vtSpotCount')(rec, 2, T2.map(b => ({ t: b.t, s: { 1: [null, null], 2: b.s[1].map(p => p && { ...p, x: 1 - p.x, y: 1 - p.y }) } })), ph);
+ok('turned round, the same goal is found again', Z2.robots[2][0].ys === 8, JSON.stringify(Z2.robots[2][0]));
 // A blip: one look of 3 extra halves, then back.
 const blip = { gs: build(t => { const c = empty(); if (t === 70) c[4][2] = 3; return c; }) };
 ok('a single odd look is not a pin', f('vtSpotCount')(blip, 0, track, ph).robots[1].every(r => r.ys === 0));
